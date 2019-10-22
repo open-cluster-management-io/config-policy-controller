@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multicloud-operators-policy-controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      name: multicloud-operators-policy-controller
+  template:
+    metadata:
+      labels:
+        name: multicloud-operators-policy-controller
+    spec:
+      serviceAccountName: multicloud-operators-policy-controller
+      containers:
+        - name: multicloud-operators-policy-controller
+          # Replace this with the built image name
+          image: github.ibm.com/ibmprivatecloud/multicloud-operators-policy-controller
+          command:
+          - multicloud-operators-policy-controller
+          imagePullPolicy: Always
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: OPERATOR_NAME
+              value: "multicloud-operators-policy-controller"

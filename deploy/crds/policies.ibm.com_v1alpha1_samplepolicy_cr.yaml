@@ -1,0 +1,7 @@
+apiVersion: policies.ibm.com/v1alpha1
+kind: SamplePolicy
+metadata:
+  name: example-samplepolicy
+spec:
+  # Add fields here
+  size: 3
