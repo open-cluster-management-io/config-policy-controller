@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/golang/glog"
 	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
@@ -195,14 +196,14 @@ func (r *ReconcileSamplePolicy) Reconcile(request reconcile.Request) (reconcile.
 	return reconcile.Result{}, nil
 }
 
-// PeriodicallyExecGRCPolicies always check status
-func PeriodicallyExecGRCPolicies(freq uint) {
+// PeriodicallyExecSamplePolicies always check status
+func PeriodicallyExecSamplePolicies(freq uint) {
 	//TODO this is the main custom logic where we do the enforcement and status change
 	// sub processing time from sleep:
 
 	var plcToUpdateMap map[string]*policiesv1alpha1.SamplePolicy
 	for {
-		// start := time.Now()
+		start := time.Now()
 		printMap(availablePolicies.PolicyMap)
 
 		plcToUpdateMap = make(map[string]*policiesv1alpha1.SamplePolicy)
@@ -236,18 +237,18 @@ func PeriodicallyExecGRCPolicies(freq uint) {
 			glog.Errorf("reason: policy update error, subject: policy/%v, namespace: %v, according to policy: %v, additional-info: %v\n", faultyPlc.Name, faultyPlc.Namespace, faultyPlc.Name, err)
 		}
 
-		//prometheus quantiles for processing delay in each cycle
-		// elapsed := time.Since(start)
+		// prometheus quantiles for processing delay in each cycle
+		elapsed := time.Since(start)
 		// millis := elapsed / 1000000
 		// rpcDurations.WithLabelValues("controller").Observe(common.ToFixed(float64(millis), 2))
 
-		//making sure that if processing is > freq we don't sleep
-		//if freq > processing we sleep for the remaining duration
-		// elapsed = time.Since(start) / 1000000000 // convert to seconds
-		// if float64(freq) > float64(elapsed) {
-		// 	remainingSleep := float64(freq) - float64(elapsed)
-		// 	time.Sleep(time.Duration(remainingSleep) * time.Second)
-		// }
+		// making sure that if processing is > freq we don't sleep
+		// if freq > processing we sleep for the remaining duration
+		elapsed = time.Since(start) / 1000000000 // convert to seconds
+		if float64(freq) > float64(elapsed) {
+			remainingSleep := float64(freq) - float64(elapsed)
+			time.Sleep(time.Duration(remainingSleep) * time.Second)
+		}
 	}
 }
 

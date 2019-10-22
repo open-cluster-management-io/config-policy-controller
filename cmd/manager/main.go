@@ -155,8 +155,8 @@ func main() {
 	generatedClient := kubernetes.NewForConfigOrDie(mgr.GetConfig())
 	common.Initialize(generatedClient, cfg)
 	policyStatusHandler.Initialize(generatedClient, mgr, clusterName, namespace, eventOnParent)
-	// PeriodicallyExecGRCPolicies is the go-routine that periodically checks the policies and does the needed work to make sure the desired state is achieved
-	// go policyStatusHandler.PeriodicallyExecGRCPolicies(frequency)
+	// PeriodicallyExecSamplePolicies is the go-routine that periodically checks the policies and does the needed work to make sure the desired state is achieved
+	go policyStatusHandler.PeriodicallyExecSamplePolicies(frequency)
 
 	log.Info("Starting the Cmd.")
 
