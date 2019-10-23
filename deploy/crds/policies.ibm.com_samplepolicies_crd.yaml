@@ -58,6 +58,9 @@ spec:
             remediationAction:
               description: 'RemediationAction : enforce or inform'
               type: string
+            severity:
+              description: 'Severity : low, medium or high'
+              type: string
           type: object
         status:
           description: SamplePolicyStatus defines the observed state of SamplePolicy

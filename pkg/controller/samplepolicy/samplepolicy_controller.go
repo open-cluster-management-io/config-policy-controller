@@ -445,7 +445,7 @@ func checkComplianceChangeBasedOnDetails(plc *policiesv1alpha1.SamplePolicy) (co
 
 func updatePolicyStatus(policies map[string]*policiesv1alpha1.SamplePolicy) (*policiesv1alpha1.SamplePolicy, error) {
 	for _, instance := range policies { // policies is a map where: key = plc.Name, value = pointer to plc
-		err := reconcilingAgent.client.Update(context.TODO(), instance)
+		err := reconcilingAgent.client.Status().Update(context.TODO(), instance)
 		if err != nil {
 			return instance, err
 		}

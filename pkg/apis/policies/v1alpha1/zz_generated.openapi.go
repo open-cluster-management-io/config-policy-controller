@@ -68,10 +68,17 @@ func schema_pkg_apis_policies_v1alpha1_SamplePolicySpec(ref common.ReferenceCall
 				Description: "SamplePolicySpec defines the desired state of SamplePolicy",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
-					"remediationAction": {
+					"severity": {
 						SchemaProps: spec.SchemaProps{
 							Type:   []string{"string"},
 							Format: "",
+						},
+					},
+					"remediationAction": {
+						SchemaProps: spec.SchemaProps{
+							Description: "low, medium, high",
+							Type:        []string{"string"},
+							Format:      "",
 						},
 					},
 					"namespaceSelector": {
