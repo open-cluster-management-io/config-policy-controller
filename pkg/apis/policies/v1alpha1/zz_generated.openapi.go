@@ -67,8 +67,63 @@ func schema_pkg_apis_policies_v1alpha1_SamplePolicySpec(ref common.ReferenceCall
 			SchemaProps: spec.SchemaProps{
 				Description: "SamplePolicySpec defines the desired state of SamplePolicy",
 				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"remediationAction": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
+					"namespaceSelector": {
+						SchemaProps: spec.SchemaProps{
+							Description: "enforce, inform",
+							Ref:         ref("github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.Target"),
+						},
+					},
+					"labelSelector": {
+						SchemaProps: spec.SchemaProps{
+							Description: "selecting a list of namespaces where the policy applies",
+							Type:        []string{"object"},
+							AdditionalProperties: &spec.SchemaOrBool{
+								Allows: true,
+								Schema: &spec.Schema{
+									SchemaProps: spec.SchemaProps{
+										Type:   []string{"string"},
+										Format: "",
+									},
+								},
+							},
+						},
+					},
+					"maxRoleBindingUsersPerNamespace": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int32",
+						},
+					},
+					"maxRoleBindingGroupsPerNamespace": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int32",
+						},
+					},
+					"maxClusterRoleBindingUsers": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int32",
+						},
+					},
+					"maxClusterRoleBindingGroups": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"integer"},
+							Format: "int32",
+						},
+					},
+				},
 			},
 		},
+		Dependencies: []string{
+			"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.Target"},
 	}
 }
 
@@ -78,6 +133,14 @@ func schema_pkg_apis_policies_v1alpha1_SamplePolicyStatus(ref common.ReferenceCa
 			SchemaProps: spec.SchemaProps{
 				Description: "SamplePolicyStatus defines the observed state of SamplePolicy",
 				Type:        []string{"object"},
+				Properties: map[string]spec.Schema{
+					"compliant": {
+						SchemaProps: spec.SchemaProps{
+							Type:   []string{"string"},
+							Format: "",
+						},
+					},
+				},
 			},
 		},
 	}

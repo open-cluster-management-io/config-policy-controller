@@ -3,5 +3,13 @@ kind: SamplePolicy
 metadata:
   name: example-samplepolicy
 spec:
-  # Add fields here
-  size: 3
+  severity: low
+  namespaceSelector:
+    include: ["default","kube-*"]
+    exclude: ["kube-system"]
+  remediationAction: inform
+  maxClusterRoleBindingGroups: 10
+  maxClusterRoleBindingUsers: 10
+  maxRoleBindingGroupsPerNamespace: 2
+  maxRoleBindingUsersPerNamespace: 2
+

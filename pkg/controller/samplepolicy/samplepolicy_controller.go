@@ -66,7 +66,7 @@ func Add(mgr manager.Manager) error {
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	return &ReconcileSamplePolicy{client: mgr.GetClient(), scheme: mgr.GetScheme()}
+	return &ReconcileSamplePolicy{client: mgr.GetClient(), scheme: mgr.GetScheme(), recorder: mgr.GetEventRecorderFor("samplepolicy-controller")}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
@@ -136,6 +136,9 @@ func (r *ReconcileSamplePolicy) Reconcile(request reconcile.Request) (reconcile.
 
 	// Fetch the SamplePolicy instance
 	instance := &policiesv1alpha1.SamplePolicy{}
+	if reconcilingAgent == nil {
+		reconcilingAgent = r
+	}
 	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {

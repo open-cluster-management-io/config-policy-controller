@@ -30,9 +30,41 @@ spec:
           type: object
         spec:
           description: SamplePolicySpec defines the desired state of SamplePolicy
+          properties:
+            labelSelector:
+              additionalProperties:
+                type: string
+              type: object
+            maxClusterRoleBindingGroups:
+              type: integer
+            maxClusterRoleBindingUsers:
+              type: integer
+            maxRoleBindingGroupsPerNamespace:
+              type: integer
+            maxRoleBindingUsersPerNamespace:
+              type: integer
+            namespaceSelector:
+              description: Target defines the list of namespaces to include/exclude
+              properties:
+                exclude:
+                  items:
+                    type: string
+                  type: array
+                include:
+                  items:
+                    type: string
+                  type: array
+              type: object
+            remediationAction:
+              description: 'RemediationAction : enforce or inform'
+              type: string
           type: object
         status:
           description: SamplePolicyStatus defines the observed state of SamplePolicy
+          properties:
+            compliant:
+              description: ComplianceState shows the state of enforcement
+              type: string
           type: object
       type: object
   version: v1alpha1
