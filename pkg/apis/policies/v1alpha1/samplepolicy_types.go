@@ -7,6 +7,9 @@ import (
 // RemediationAction : enforce or inform
 type RemediationAction string
 
+// Severity : low, medium or high
+type Severity string
+
 const (
 	// Enforce is an remediationAction to make changes
 	Enforce RemediationAction = "Enforce"
@@ -38,6 +41,7 @@ type Target struct {
 // SamplePolicySpec defines the desired state of SamplePolicy
 // +k8s:openapi-gen=true
 type SamplePolicySpec struct {
+	Severity                         Severity          `json:"severity,omitempty"`          //low, medium, high
 	RemediationAction                RemediationAction `json:"remediationAction,omitempty"` //enforce, inform
 	NamespaceSelector                Target            `json:"namespaceSelector,omitempty"` // selecting a list of namespaces where the policy applies
 	LabelSelector                    map[string]string `json:"labelSelector,omitempty"`
