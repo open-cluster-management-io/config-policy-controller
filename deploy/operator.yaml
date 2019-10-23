@@ -16,7 +16,7 @@ spec:
       containers:
         - name: multicloud-operators-policy-controller
           # Replace this with the built image name
-          image: github.ibm.com/ibmprivatecloud/multicloud-operators-policy-controller
+          image: ibm/multicloud-operators-policy-controller
           command:
           - multicloud-operators-policy-controller
           imagePullPolicy: Always
@@ -25,9 +25,5 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
             - name: OPERATOR_NAME
               value: "multicloud-operators-policy-controller"
