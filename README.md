@@ -25,7 +25,7 @@ Available policies in namespaces:
 namespace = kube-public; policy = example-samplepolicy 
 namespace = default; policy = example-samplepolicy 
 ```
-Check the sample policy resource using `kubectl describe SamplePolicy example-samplepolicy -n default`. Its status indicates the compliant status, for example-
+Check the sample policy resource using `kubectl describe SamplePolicy example-samplepolicy -n default`. The policy controller checks the cluster and reports the compliancy status in the policy.  The status field in the policy is updated with  the compliant status, for example-
 ```
 Status:
   Compliancy Details:
