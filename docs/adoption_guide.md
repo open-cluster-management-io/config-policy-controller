@@ -85,11 +85,6 @@ make sure you don't leave traces of the old `type`
 
 ### Generate the code based on your changes
 
-```
-make install
-
-make run
-```
 
 ### Change the logic of the execution
 
@@ -103,6 +98,5 @@ create different objects based on your new CRD in the test files
 ### Do integration testing
 Do integration testing to make sure everything is running
 
-`make run`
+[Run sample policy controller locally](#run-sample-policy-controller-locally)
 
-Use the files in the `config/samples` to test the controller behavior with respect to the CR (Custom Resource) instance creation
