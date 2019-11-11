@@ -1,47 +1,53 @@
-# multicloud-operators-policy-controller
-An operator based policy framework sample controller. 
+<!-- <p align="center"><a href="http://35.227.205.240/?job=build_go-repo-template_postsubmit">
+ prow build badge, godoc, and go report card
+<img alt="Build Status" src="http://35.227.205.240/badge.svg?jobs=build_go-repo-template_postsubmit">
+</a> <a href="https://godoc.org/github.com/IBM/go-repo-template"><img src="https://godoc.org/github.com/IBM/go-repo-template?status.svg"></a> <a href="https://goreportcard.com/report/github.com/IBM/go-repo-template"><img alt="Go Report Card" src="https://goreportcard.com/badge/github.com/IBM/go-repo-template" /></a> <a href="https://codecov.io/github/IBM/go-repo-template?branch=master"><img alt="Code Coverage" src="https://codecov.io/gh/IBM/go-repo-template/branch/master/graphs/badge.svg?branch=master" /></a></p> -->
 
-## Launch Dev mode
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
+<!-- **Table of Contents**  *generated with [DocToc](https://github.com/thlorenz/doctoc)* -->
+**Table of Contents** 
+- [Policy Controller](#policy-controller)
+    - [What is the Policy Controller](#what-is-the-policy-controller)
+    - [Community, discussion, contribution, and support](#community-discussion-contribution-and-support)
+    - [Getting Started](#getting-started)
+        - [Prerequisites](#prerequisites)
+        - [Trouble shooting](#trouble-shooting)
+    - [Developing your policy controller](#developing-your-policy-controller)    
+    - [References](#references)
 
-To build and run it locally, install operator SDK CLI from https://github.com/operator-framework/operator-sdk/blob/master/doc/user/install-operator-sdk.md. 
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
-Make sure to export GO111MODULE=on as it uses go mod as dependency manager.
+# Policy Controller
 
-```bash
-GO111MODULE=on
-kubectl apply -f deploy/crds/policies.ibm.com_samplepolicies_crd.yaml
-operator-sdk up local --verbose
-```
-It takes seconds for the sample policy controller to fully start. You will get the message `Waiting for policies to be available for processing...` once it's fully started and watching for policies.
+## What is Policy Controller
 
-To test a sample policy, open another command prompt to deploy the sample policy file
-```
-kubectl apply -f deploy/crds/policies.ibm.com_v1alpha1_samplepolicy_cr.yaml -n default
-```
-The local process outputs the following messages
-```
-{"level":"info","ts":1572447165.453119,"logger":"controller_samplepolicy","msg":"Reconciling SamplePolicy","Request.Namespace":"default","Request.Name":"example-samplepolicy"}
-Available policies in namespaces: 
-namespace = kube-public; policy = example-samplepolicy 
-namespace = default; policy = example-samplepolicy 
-```
-Check the sample policy resource using `kubectl describe SamplePolicy example-samplepolicy -n default`. The policy controller checks the cluster and reports the compliancy status in the policy.  The status field in the policy is updated with  the compliant status, for example-
-```
-Status:
-  Compliancy Details:
-    Example - Samplepolicy:
-      Cluster - Wide:
-        3 violations detected in namespace `cluster-wide`, there are 0 users violations and 3 groups violations
-      Default:
-        2 violations detected in namespace `default`, there are 0 users violations and 2 groups violations
-      Kube - Public:
-        0 violations detected in namespace `kube-public`, there are 0 users violations and 0 groups violations
-  Compliant:  NonCompliant
-```
+The policy controllers are Kubernetes CustomResourceDefinition (CRD) instance that can integrate with Governance Risk and Compliance (GRC) framework on IBM Multicloud management. Policy controller can monitor and report whether the Kubernetes cluster is compliant with the policy. It can also enforce the policy to bring the cluster state to compliance. This repo includes the policy controller framework with a sample policy controller. 
 
+## Community, discussion, contribution, and support
 
-## Build a local container image
-```bash
-operator-sdk build ibm/multicloud-operators-policy-controller:latest
-```
+Check the [CONTRIBUTING Doc](CONTRIBUTING.md) for how to contribute to the repo.
 
+You can reach the maintainers of this project at:
+
+- [#xxx on Slack](https://slack.com/signin?redir=%2Fmessages%2Fxxx)
+
+------
+
+## Getting Started
+
+### Prerequisites
+
+Check the [Development doc](docs/development.md) for how to contribute to the repo.
+
+### Trouble shooting
+
+Please refer to [Trouble shooting documentation](docs/trouble_shooting.md) for further information.
+
+## Developing your policy controller
+Please refer to [Adoption guide](docs/adoption_guide.md) for further information.
+
+## References
+
+If you have any further question about the policy controller, please refer to
+[help documentation](docs/help.md) for further information.
