@@ -18,7 +18,7 @@ BUILD_LOCALLY ?= 1
 
 # Image URL to use all building/pushing image targets;
 # Use your own docker registry and image name for dev/test by overridding the IMG and REGISTRY environment variable.
-IMG ?= go-repo-template
+IMG ?= multicloud-operators-policy-controller
 REGISTRY ?= quay.io/multicloudlab
 
 # Github host to use for checking the source tree;
@@ -38,7 +38,6 @@ export TESTARGS ?= $(TESTARGS_DEFAULT)
 DEST := $(GOPATH)/src/$(GIT_HOST)/$(BASE_DIR)
 VERSION ?= $(shell git describe --exact-match 2> /dev/null || \
                  git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
-
 LOCAL_OS := $(shell uname)
 ifeq ($(LOCAL_OS),Linux)
     TARGET_OS ?= linux
@@ -91,7 +90,7 @@ check: lint
 # Default value will run all linters, override these make target with your requirements:
 #    eg: lint: lint-go lint-yaml
 # The MARKDOWN_LINT_WHITELIST variable can be set with comma separated urls you want to whitelist
-lint: lint-all
+lint: lint-go
 
 ############################################################
 # test section
@@ -113,7 +112,8 @@ coverage:
 ############################################################
 
 build:
-	@common/scripts/gobuild.sh multicloud-operators-policy-controller ./cmd
+	@common/scripts/gobuild.sh build/_output/bin/multicloud-operators-policy-controller ./cmd/manager
+
 
 ############################################################
 # images section
@@ -126,7 +126,7 @@ ifeq ($(BUILD_LOCALLY),0)
 endif
 
 build-push-images: $(CONFIG_DOCKER_TARGET)
-	@docker build . -f Dockerfile -t $(REGISTRY)/$(IMG):$(VERSION)
+	@docker build . -f build/Dockerfile -t $(REGISTRY)/$(IMG):$(VERSION)
 	@docker tag $(REGISTRY)/$(IMG):$(VERSION) $(REGISTRY)/$(IMG):latest
 	@docker push $(REGISTRY)/$(IMG):$(VERSION)
 	@docker push $(REGISTRY)/$(IMG):latest
