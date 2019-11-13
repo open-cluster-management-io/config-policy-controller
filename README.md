@@ -22,7 +22,17 @@
 
 ## What is Policy Controller
 
-The policy controllers are Kubernetes CustomResourceDefinition (CRD) instance that can integrate with Governance Risk and Compliance (GRC) framework on IBM Multicloud management. Policy controller can monitor and report whether the Kubernetes cluster is compliant with the policy. It can also enforce the policy to bring the cluster state to compliance. This repo includes the policy controller framework with a sample policy controller. 
+The policy controllers are Kubernetes CustomResourceDefinition (CRD) instance that can integrate with Governance Risk and Compliance (GRC) framework on IBM Multicloud management. Policy controller can monitor and report whether the Kubernetes cluster is compliant with the policy. It can also enforce the policy to bring the cluster state to compliance. This repo includes the policy controller framework with a sample policy controller.
+
+## Securing the Policy Controller
+
+The policy controller needs to interact with the Kubernetes API server to (1) get updates on the policy CR creation/deletion/update and (2) analyze the existing Kubernetes cluster config (in this sample controller we analyze RBAC role/clusterrole bindings).
+
+The policy controller is authenticated/authorized by the Kubernetes API based on the information defined in the service-account it uses. The `default` service account in the namespace is used by the controller when it is deployed as a pod (unless the `spec.serviceAccountName` specifies otherwise). For finer-grain control, we create a dedicated [service-account](./deploy/service_account.yaml) for the controller and start the pod with the dedicated service-account.
+
+It is important the limit the privileges on the controller using the principle of least privilege, in this context it means to limit (1) the access of the controller to only the resources (e.g. its CR instances) it needs to know about and (2)limit the actions to only the ones needed by the controller (e.g. read-only for certain resources).
+
+The controller priveledges are bounded using (1) an [RBAC role](./deploy/role.yaml) that only grants the service account of the controller the minimum needed permissions to perform its functionality, and (2) an [RBAC rolebinding](deploy/role_binding.yaml) that binds the RBAC role to the controller's service account.
 
 ## Community, discussion, contribution, and support
 
