@@ -50,6 +50,7 @@ Status:
 
 
 ## Build a local container image
+### Using operator-sdk command
 ```bash
 operator-sdk build ibm/multicloud-operators-policy-controller:latest
 ```
@@ -68,13 +69,13 @@ your CRD definition is located in:
 config/crds/
 
 you can change the `Kind`.
-Note if you wish to change the API goup `mcm.ibm.com` you would also need to change it in: `pkg/apis/mcm/v1alpha1/register.go`
+Note if you wish to change the API goup `policies.ibm.com` you would also need to change it in: `pkg/apis/mcm/v1alpha1/register.go`
 
 
 you can double check where you need to make changes by searching for the old `Kind`
 
 ```
-find . -type f -exec grep -H 'grcpolicy' {} \;
+find . -type f -exec grep -H 'samplepolicy' {} \;
 ```
 
 ### Change your type
