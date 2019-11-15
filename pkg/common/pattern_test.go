@@ -20,7 +20,6 @@ import (
 )
 
 func TestIfMatch(t *testing.T) {
-
 	tt := []struct {
 		name    string
 		include []string
@@ -103,7 +102,6 @@ func TestFindPattern(t *testing.T) {
 }
 
 func TestDeduplicateItems(t *testing.T) {
-
 	included := []string{"Hello-World", "World-Hello", "Hello-World-Hello", "nothing", "exact"}
 	excluded := []string{"Hello-World", "Hello-World-Hello", "exact"}
 

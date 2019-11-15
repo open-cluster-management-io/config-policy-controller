@@ -45,7 +45,7 @@ import (
 var log = logf.Log.WithName("controller_samplepolicy")
 
 // Finalizer used to ensure consistency when deleting a CRD
-const Finalizer = "finalizer.mcm.ibm.com"
+const Finalizer = "finalizer.policies.ibm.com"
 
 const grcCategory = "system-and-information-integrity"
 
@@ -95,8 +95,6 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	if err != nil {
 		return err
 	}
-
-	// TODO(user): Modify this to be the types you create that are owned by the primary resource
 	// Watch for changes to secondary resource Pods and requeue the owner SamplePolicy
 	err = c.Watch(&source.Kind{Type: &corev1.Pod{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
@@ -138,8 +136,6 @@ type ReconcileSamplePolicy struct {
 
 // Reconcile reads that state of the cluster for a SamplePolicy object and makes changes based on the state read
 // and what is in the SamplePolicy.Spec
-// TODO(user): Modify this Reconcile function to implement your Controller logic.  This example creates
-// a Pod as an example
 // Note:
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
@@ -214,32 +210,28 @@ func (r *ReconcileSamplePolicy) Reconcile(request reconcile.Request) (reconcile.
 
 // PeriodicallyExecSamplePolicies always check status
 func PeriodicallyExecSamplePolicies(freq uint) {
-	//TODO this is the main custom logic where we do the enforcement and status change
-	// sub processing time from sleep:
-
 	var plcToUpdateMap map[string]*policiesv1alpha1.SamplePolicy
 	for {
 		start := time.Now()
 		printMap(availablePolicies.PolicyMap)
-
 		plcToUpdateMap = make(map[string]*policiesv1alpha1.SamplePolicy)
 		for namespace, policy := range availablePolicies.PolicyMap {
 			//For each namespace, fetch all the RoleBindings in that NS according to the policy selector
 			//For each RoleBindings get the number of users
 			//update the status internal map
 			//no difference between enforce and inform here
-
-			roleBindingList, err := common.KubeClient.RbacV1().RoleBindings(namespace).List(metav1.ListOptions{LabelSelector: labels.Set(policy.Spec.LabelSelector).String()})
+			roleBindingList, err := common.KubeClient.RbacV1().RoleBindings(namespace).
+				List(metav1.ListOptions{LabelSelector: labels.Set(policy.Spec.LabelSelector).String()})
 			if err != nil {
-				glog.Errorf("reason: communication error, subject: k8s API server, namespace: %v, according to policy: %v, additional-info: %v\n", namespace, policy.Name, err)
+				glog.Errorf("reason: communication error, subject: k8s API server, namespace: %v, according to policy: %v, additional-info: %v\n",
+					namespace, policy.Name, err)
 				continue
 			}
 			userViolationCount, GroupViolationCount := checkViolationsPerNamespace(roleBindingList, policy, namespace)
 			if strings.ToLower(string(policy.Spec.RemediationAction)) == strings.ToLower(string(policiesv1alpha1.Enforce)) {
-				//TODO This is where we would change the flow of execution here and do an action, such as delete the rolebinding to reduce users
+
 				glog.V(5).Infof("Enforce is set, but ignored :-)")
 			}
-
 			if addViolationCount(policy, userViolationCount, GroupViolationCount, namespace) {
 				plcToUpdateMap[policy.Name] = policy
 			}
@@ -250,13 +242,12 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 		//update status of all policies that changed:
 		faultyPlc, err := updatePolicyStatus(plcToUpdateMap)
 		if err != nil {
-			glog.Errorf("reason: policy update error, subject: policy/%v, namespace: %v, according to policy: %v, additional-info: %v\n", faultyPlc.Name, faultyPlc.Namespace, faultyPlc.Name, err)
+			glog.Errorf("reason: policy update error, subject: policy/%v, namespace: %v, according to policy: %v, additional-info: %v\n",
+				faultyPlc.Name, faultyPlc.Namespace, faultyPlc.Name, err)
 		}
 
 		// prometheus quantiles for processing delay in each cycle
 		elapsed := time.Since(start)
-		// millis := elapsed / 1000000
-		// rpcDurations.WithLabelValues("controller").Observe(common.ToFixed(float64(millis), 2))
 
 		// making sure that if processing is > freq we don't sleep
 		// if freq > processing we sleep for the remaining duration
@@ -289,10 +280,8 @@ func ensureDefaultLabel(instance *policiesv1alpha1.SamplePolicy) (updateNeeded b
 
 func checkUnNamespacedPolicies(plcToUpdateMap map[string]*policiesv1alpha1.SamplePolicy) error {
 	plcMap := convertMaptoPolicyNameKey()
-
 	// group the policies with cluster users and the ones with groups
 	// take the plc with min users and groups and make it your baseline
-
 	ClusteRoleBindingList, err := common.KubeClient.RbacV1().ClusterRoleBindings().List(metav1.ListOptions{})
 	if err != nil {
 		glog.Errorf("reason: communication error, subject: k8s API server, namespace: all, according to policy: none, additional-info: %v\n", err)
@@ -319,7 +308,6 @@ func checkUnNamespacedPolicies(plcToUpdateMap map[string]*policiesv1alpha1.Sampl
 }
 
 func checkAllClusterLevel(clusterRoleBindingList *v1.ClusterRoleBindingList) (userV, groupV int) {
-
 	usersMap := make(map[string]bool)
 	groupsMap := make(map[string]bool)
 	for _, clusterRoleBinding := range clusterRoleBindingList.Items {
@@ -344,7 +332,6 @@ func convertMaptoPolicyNameKey() map[string]*policiesv1alpha1.SamplePolicy {
 }
 
 func checkViolationsPerNamespace(roleBindingList *v1.RoleBindingList, plc *policiesv1alpha1.SamplePolicy, namespace string) (userV, groupV int) {
-
 	usersMap := make(map[string]bool)
 	groupsMap := make(map[string]bool)
 	for _, roleBinding := range roleBindingList.Items {
@@ -369,13 +356,16 @@ func checkViolationsPerNamespace(roleBindingList *v1.RoleBindingList, plc *polic
 
 func addViolationCount(plc *policiesv1alpha1.SamplePolicy, userCount int, groupCount int, namespace string) bool {
 	changed := false
-	msg := fmt.Sprintf("%s violations detected in namespace `%s`, there are %v users violations and %v groups violations", fmt.Sprint(userCount+groupCount), namespace, userCount, groupCount)
+	msg := fmt.Sprintf("%s violations detected in namespace `%s`, there are %v users violations and %v groups violations",
+		fmt.Sprint(userCount+groupCount),
+		namespace,
+		userCount,
+		groupCount)
 	if plc.Status.CompliancyDetails == nil {
 		plc.Status.CompliancyDetails = make(map[string]map[string][]string)
 	}
 	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
 		plc.Status.CompliancyDetails[plc.Name] = make(map[string][]string)
-
 	}
 	if plc.Status.CompliancyDetails[plc.Name][namespace] == nil {
 		plc.Status.CompliancyDetails[plc.Name][namespace] = []string{}
@@ -447,7 +437,6 @@ func checkComplianceChangeBasedOnDetails(plc *policiesv1alpha1.SamplePolicy) (co
 			}
 		} else {
 			return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-
 		}
 	}
 	if plc.Status.ComplianceState != policiesv1alpha1.NonCompliant {
@@ -465,7 +454,7 @@ func updatePolicyStatus(policies map[string]*policiesv1alpha1.SamplePolicy) (*po
 		if EventOnParent != "no" {
 			createParentPolicyEvent(instance)
 		}
-		{ //TODO we can make this eventing enabled by a flag
+		{
 			reconcilingAgent.recorder.Event(instance, "Normal", "Policy updated", fmt.Sprintf("Policy status is: %v", instance.Status.ComplianceState))
 		}
 	}
@@ -490,12 +479,9 @@ func handleRemovingPolicy(plc *policiesv1alpha1.SamplePolicy) {
 }
 
 func handleAddingPolicy(plc *policiesv1alpha1.SamplePolicy) error {
-
 	allNamespaces, err := common.GetAllNamespaces()
 	if err != nil {
-
 		glog.Errorf("reason: error fetching the list of available namespaces, subject: K8s API server, namespace: all, according to policy: %v, additional-info: %v\n", plc.Name, err)
-
 		return err
 	}
 	//clean up that policy from the existing namepsaces, in case the modification is in the namespace selector
@@ -516,7 +502,9 @@ func handleAddingPolicy(plc *policiesv1alpha1.SamplePolicy) error {
 //=================================================================
 //deleteExternalDependency in case the CRD was related to non-k8s resource
 func (r *ReconcileSamplePolicy) deleteExternalDependency(instance *policiesv1alpha1.SamplePolicy) error {
-	glog.V(0).Infof("reason: CRD deletion, subject: policy/%v, namespace: %v, according to policy: none, additional-info: none\n", instance.Name, instance.Namespace)
+	glog.V(0).Infof("reason: CRD deletion, subject: policy/%v, namespace: %v, according to policy: none, additional-info: none\n",
+		instance.Name,
+		instance.Namespace)
 	// Ensure that delete implementation is idempotent and safe to invoke
 	// multiple types for same object.
 	return nil
@@ -570,7 +558,10 @@ func createParentPolicyEvent(instance *policiesv1alpha1.SamplePolicy) {
 
 	parentPlc := createParentPolicy(instance)
 
-	reconcilingAgent.recorder.Event(&parentPlc, corev1.EventTypeNormal, fmt.Sprintf("policy: %s/%s", instance.Namespace, instance.Name), convertPolicyStatusToString(instance))
+	reconcilingAgent.recorder.Event(&parentPlc,
+		corev1.EventTypeNormal,
+		fmt.Sprintf("policy: %s/%s", instance.Namespace, instance.Name),
+		convertPolicyStatusToString(instance))
 }
 
 func createParentPolicy(instance *policiesv1alpha1.SamplePolicy) policiesv1alpha1.Policy {
@@ -586,7 +577,7 @@ func createParentPolicy(instance *policiesv1alpha1.SamplePolicy) policiesv1alpha
 		},
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Policy",
-			APIVersion: " policy.mcm.ibm.com/v1alpha1",
+			APIVersion: " policies.ibm.com/v1alpha1",
 		},
 	}
 	return plc
@@ -606,7 +597,6 @@ func convertPolicyStatusToString(plc *policiesv1alpha1.SamplePolicy) (results st
 	}
 	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
 		return result
-
 	}
 	for _, v := range plc.Status.CompliancyDetails[plc.Name] {
 		result += fmt.Sprintf("; %s", strings.Join(v, ", "))
@@ -615,7 +605,6 @@ func convertPolicyStatusToString(plc *policiesv1alpha1.SamplePolicy) (results st
 }
 
 func createGenericObjectEvent(name, namespace string) {
-
 	plc := &policiesv1alpha1.Policy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
@@ -623,7 +612,7 @@ func createGenericObjectEvent(name, namespace string) {
 		},
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Policy",
-			APIVersion: "policy.mcm.ibm.com/v1alpha1",
+			APIVersion: "policies.ibm.com/v1alpha1",
 		},
 	}
 	data, err := json.Marshal(plc)
@@ -644,13 +633,4 @@ func createGenericObjectEvent(name, namespace string) {
 			return
 		}
 	}
-
-	/*
-		//in case we want to use a generic recorder:
-		eventBroadcaster := record.NewBroadcaster()
-		eventBroadcaster.StartLogging(klog.Infof)
-		eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: KubeClient.CoreV1().Events("")})
-		recorder := eventBroadcaster.NewRecorder(scheme.Scheme, corev1.EventSource{Component: "controllerAgentName"})
-		recorder.Event(plc, corev1.EventTypeWarning, "some reason", fmt.Sprintf("eventing on policy %s/%s", plc.Namespace, plc.Name))
-	*/
 }

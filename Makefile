@@ -126,7 +126,7 @@ ifeq ($(BUILD_LOCALLY),0)
 endif
 
 build-push-images: $(CONFIG_DOCKER_TARGET)
-	@docker build . -f Dockerfile -t $(REGISTRY)/$(IMG):$(VERSION)
+	@docker build . -f build/Dockerfile -t $(REGISTRY)/$(IMG):$(VERSION)
 	@docker tag $(REGISTRY)/$(IMG):$(VERSION) $(REGISTRY)/$(IMG):latest
 	@docker push $(REGISTRY)/$(IMG):$(VERSION)
 	@docker push $(REGISTRY)/$(IMG):latest
@@ -135,4 +135,4 @@ build-push-images: $(CONFIG_DOCKER_TARGET)
 # clean section
 ############################################################
 clean:
-	rm -f multicloud-operators-policy-controller
+	rm -f build/_output/bin/*

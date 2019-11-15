@@ -28,7 +28,6 @@ type SyncedPolicyMap struct {
 
 //GetObject used for fetching objects from the synced map
 func (spm *SyncedPolicyMap) GetObject(key string) (value *policiesv1alpha1.SamplePolicy, found bool) {
-
 	spm.Mx.Lock()
 	defer spm.Mx.Unlock()
 	//check if the map is initialized, if not initilize it
@@ -43,7 +42,6 @@ func (spm *SyncedPolicyMap) GetObject(key string) (value *policiesv1alpha1.Sampl
 
 // AddObject safely add to map
 func (spm *SyncedPolicyMap) AddObject(key string, plc *policiesv1alpha1.SamplePolicy) {
-
 	spm.Mx.Lock()
 	defer spm.Mx.Unlock()
 	//check if the map is initialized, if not initilize it
@@ -55,7 +53,6 @@ func (spm *SyncedPolicyMap) AddObject(key string, plc *policiesv1alpha1.SamplePo
 
 // RemoveObject safely remove from map
 func (spm *SyncedPolicyMap) RemoveObject(key string) {
-
 	spm.Mx.Lock()
 	defer spm.Mx.Unlock()
 	//check if the map is initialized, if not return

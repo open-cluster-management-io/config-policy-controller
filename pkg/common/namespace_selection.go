@@ -29,7 +29,6 @@ func GetSelectedNamespaces(included, excluded, allNamespaces []string) []string 
 		if found != nil {
 			includedNamespaces = append(includedNamespaces, found...)
 		}
-
 	}
 	//then get the list of excluded
 	excludedNamespaces := []string{}
@@ -38,9 +37,7 @@ func GetSelectedNamespaces(included, excluded, allNamespaces []string) []string 
 		if found != nil {
 			excludedNamespaces = append(excludedNamespaces, found...)
 		}
-
 	}
-
 	//then get the list of deduplicated
 	finalList := DeduplicateItems(includedNamespaces, excludedNamespaces)
 	return finalList
@@ -49,7 +46,6 @@ func GetSelectedNamespaces(included, excluded, allNamespaces []string) []string 
 //=================================================================
 //GetAllNamespaces gets the list of all namespaces from k8s
 func GetAllNamespaces() (list []string, err error) {
-	//listOpt := &client.ListOptions{}
 	namespaces := KubeClient.CoreV1().Namespaces()
 	namespaceList, err := namespaces.List(metav1.ListOptions{})
 

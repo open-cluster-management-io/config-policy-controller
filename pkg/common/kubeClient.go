@@ -24,9 +24,8 @@ var KubeClient *kubernetes.Clientset
 // KubeConfig is the given kubeconfig at startup
 var KubeConfig *rest.Config
 
-// Initialize to initialize some controller varaibles
+// Initialize to initialize some controller variables
 func Initialize(kClient *kubernetes.Clientset, cfg *rest.Config) {
-
 	KubeClient = kClient
 	KubeConfig = cfg
 }

@@ -74,7 +74,6 @@ func getObject() {
 }
 
 func objectList(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, dclient dynamic.Interface) (result bool) {
-	//List(opts metav1.ListOptions) (*unstructured.UnstructuredList, error) metav1.ListOptions{}
 	exists := false
 	if !namespaced {
 		res := dclient.Resource(rsrc)
@@ -86,7 +85,6 @@ func objectList(namespaced bool, namespace string, name string, rsrc schema.Grou
 				return exists
 			}
 			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
-
 		} else {
 			exists = true
 			glog.V(6).Infof("object `%v` retrieved from the api server\n", name)
@@ -124,12 +122,14 @@ func GetGenericObject(data []byte, namespace string) (unstructured.Unstructured,
 	glog.V(9).Infof("reading raw object: %v", string(data))
 	versions := &runtime.VersionedObjects{}
 	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(data, nil, versions)
+
 	if err != nil {
 		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! error = `%v`", err)
 		glog.Errorf(decodeErr)
 		return unstruct, err
 	}
 	mapping, err := restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+
 	if err != nil {
 		glog.Errorf("mapping error from raw object: `%v`", err)
 		return unstruct, err
@@ -171,7 +171,6 @@ func GetGenericObject(data []byte, namespace string) (unstructured.Unstructured,
 	}
 	unstruct.Object = blob.(map[string]interface{}) //set object to the content of the blob after Unmarshalling
 
-	//namespace := "default"
 	name := ""
 	if md, ok := unstruct.Object["metadata"]; ok {
 		metadata := md.(map[string]interface{})
@@ -185,7 +184,6 @@ func GetGenericObject(data []byte, namespace string) (unstructured.Unstructured,
 		fmt.Println(err)
 	}
 	return *instance, err
-
 }
 
 func getTheObject(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface) (*unstructured.Unstructured, error) {
@@ -198,9 +196,7 @@ func getTheObject(namespaced bool, namespace string, name string, rsrc schema.Gr
 				return nil, nil
 			}
 			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
-
 		} else {
-
 			glog.V(6).Infof("object `%v` retrieved from the api server\n", name)
 			return instance, err
 		}
@@ -209,13 +205,11 @@ func getTheObject(namespaced bool, namespace string, name string, rsrc schema.Gr
 		instance, err := res.Get(name, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
-
 				glog.V(6).Infof("response to retrieve a namespaced object `%v` from the api-server: %v", name, err)
 				return instance, err
 			}
 			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
 		} else {
-
 			glog.V(3).Infof("object `%v` retrieved from the api server\n", name)
 			return instance, err
 		}

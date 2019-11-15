@@ -82,7 +82,6 @@ func TestAddObject(t *testing.T) {
 	if !reflect.DeepEqual(plc.Name, "testPolicy") {
 		t.Fatalf("expecting plcName = testPolicy, however plcName = %v", plcName)
 	}
-
 }
 
 func TestRemoveDataObject(t *testing.T) {
