@@ -1,14 +1,14 @@
 **Table of Contents**
 - [Run sample policy controller locally](#run-sample-policy-controller-locally)
 - [Build a local container image](#build-a-local-container)
-- [Develop new policy controller](#develop-new-policy-controller)
-    - [Make sure your file names are correct](#make-sure-your-file-names-are-correct)
-    - [Change your CRD](#change-your-crd)
-    - [Change your type](#change-your-type)
-    - [Generate the code based on your changes](#generate-the-code-based-on-your-changes)
-    - [Change the logic of the execution](#change-the-logic-of-the-execution)
-    - [Change the test files](#change-the-test-files)
-    - [Do integration testing](#do-integration-testing)
+- [Make your own policy controller](#make-your-own-policy-controller)
+  - [Change kind](#change-kind)
+  - [Change CRD](#change-crd)
+  - [Change CR](#change-cr)
+  - [Test new CRD and CR](#test-new-crd-and-cr)
+  - [Change the logic of the execution](#change-the-logic-of-the-execution)
+  - [Change the test files](#change-the-test-files)
+  - [Do integration testing](#do-integration-testing)
 
 ## Run sample policy controller locally
 
@@ -55,49 +55,51 @@ Status:
 operator-sdk build ibm/multicloud-operators-policy-controller:latest
 ```
 
-## Develop new policy controller
+## Make your own policy controller
 
-### Make sure your file names are correct
+### Change kind
 
+```bash
+# replace `TestPolicy` with the name you want
+for file in $(find . -name "*.go" -type f); do  sed -i "" "s/SamplePolicy/TestPolicy/g" $file; done
 ```
-for file in $(find . -name "*.go" -type f); do  sed -i "" "s/multicloud-operators-policy-controller/<your-git-repo-name>/g" $file; done
-```
-### Change your CRD
+### Change CRD
 
-your CRD definition is located in:
+CRD definition file is located at: [deploy/crds/policies.ibm.com_samplepolicies_crd.yaml](../deploy/crds/policies.ibm.com_samplepolicies_crd.yaml)
 
-config/crds/
+Change below section to match the kind you specified in previous step.
 
-you can change the `Kind`.
-Note if you wish to change the API goup `policies.ibm.com` you would also need to change it in: `pkg/apis/mcm/v1alpha1/register.go`
-
-
-you can double check where you need to make changes by searching for the old `Kind`
-
-```
-find . -type f -exec grep -H 'samplepolicy' {} \;
+```yaml
+names:
+  kind: SamplePolicy
+  listKind: SamplePolicyList
+  plural: samplepolicies
+  singular: samplepolicy
 ```
 
-### Change your type
+### Change CR
 
-You may change your type `Specs` and `Status` if needed here: `pkg/apis/policies/v1alpha1/samplepolicy_types.go`
+A sample CR is located at: [deploy/crds/policies.ibm.com_v1alpha1_samplepolicy_cr.yaml](../deploy/crds/policies.ibm.com_v1alpha1_samplepolicy_cr.yaml)
 
-make sure you don't leave traces of the old `type`
+Change below section to match the kind you specified in previous step.
 
-### Generate the code based on your changes
+```yaml
+kind: SamplePolicy
+```
 
+### Test new CRD and CR
+
+Now you have created a new CRD and CR, you can repeat the step [Run sample policy controller locally](#run-sample-policy-controller-locally) to see if the controller is now working with the CRD you have defined.
 
 ### Change the logic of the execution
 
+in [samplepolicy_controller.go](../pkg/controller/samplepolicy/samplepolicy_controller.go) you need to change the logic in the function `PeriodicallyExecSamplePolicies`
 
-in `pkg/controller/samplepolicy/samplepolicy_controller.go` you need to change the logic in the function `PeriodicallyExecSamplePolicies`
+### Update the test files
 
-### Change the test files
+Update the test files to test against on your new CRD
 
-create different objects based on your new CRD in the test files
+### Test again
 
-### Do integration testing
-Do integration testing to make sure everything is running
-
-[Run sample policy controller locally](#run-sample-policy-controller-locally)
+Now you should have a custom policy controller which checks policy compliancy using desired logic. You can follow the step [Run sample policy controller locally](#run-sample-policy-controller-locally) again to make sure if works.
 
