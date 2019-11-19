@@ -30,7 +30,7 @@ import (
 
 func getObject() {
 	var namespaced bool
-	dd := KubeClient.Discovery()
+	dd := (*KubeClient).Discovery()
 	apigroups, err := restmapper.GetAPIGroupResources(dd)
 	if err != nil {
 		glog.Fatal(err)
@@ -111,7 +111,7 @@ func objectList(namespaced bool, namespace string, name string, rsrc schema.Grou
 func GetGenericObject(data []byte, namespace string) (unstructured.Unstructured, error) {
 	var unstruct unstructured.Unstructured
 	namespaced := true
-	dd := KubeClient.Discovery()
+	dd := (*KubeClient).Discovery()
 	apigroups, err := restmapper.GetAPIGroupResources(dd)
 	if err != nil {
 		glog.Fatal(err)

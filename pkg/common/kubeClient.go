@@ -19,13 +19,13 @@ import (
 )
 
 // KubeClient a k8s client used for k8s native resources
-var KubeClient *kubernetes.Clientset
+var KubeClient *kubernetes.Interface
 
 // KubeConfig is the given kubeconfig at startup
 var KubeConfig *rest.Config
 
 // Initialize to initialize some controller variables
-func Initialize(kClient *kubernetes.Clientset, cfg *rest.Config) {
+func Initialize(kClient *kubernetes.Interface, cfg *rest.Config) {
 	KubeClient = kClient
 	KubeConfig = cfg
 }

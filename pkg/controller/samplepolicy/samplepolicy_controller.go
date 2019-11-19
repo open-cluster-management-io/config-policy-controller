@@ -58,7 +58,7 @@ var availablePolicies common.SyncedPolicyMap
 var PlcChan chan *policiesv1alpha1.SamplePolicy
 
 // KubeClient a k8s client used for k8s native resources
-var KubeClient *kubernetes.Clientset
+var KubeClient *kubernetes.Interface
 
 var reconcilingAgent *ReconcileSamplePolicy
 
@@ -108,7 +108,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 }
 
 // Initialize to initialize some controller varaibles
-func Initialize(kClient *kubernetes.Clientset, mgr manager.Manager, clsName, namespace, eventParent string) (err error) {
+func Initialize(kClient *kubernetes.Interface, mgr manager.Manager, clsName, namespace, eventParent string) (err error) {
 	KubeClient = kClient
 	PlcChan = make(chan *policiesv1alpha1.SamplePolicy, 100) //buffering up to 100 policies for update
 
@@ -220,7 +220,7 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 			//For each RoleBindings get the number of users
 			//update the status internal map
 			//no difference between enforce and inform here
-			roleBindingList, err := common.KubeClient.RbacV1().RoleBindings(namespace).
+			roleBindingList, err := (*common.KubeClient).RbacV1().RoleBindings(namespace).
 				List(metav1.ListOptions{LabelSelector: labels.Set(policy.Spec.LabelSelector).String()})
 			if err != nil {
 				glog.Errorf("reason: communication error, subject: k8s API server, namespace: %v, according to policy: %v, additional-info: %v\n",
@@ -282,7 +282,7 @@ func checkUnNamespacedPolicies(plcToUpdateMap map[string]*policiesv1alpha1.Sampl
 	plcMap := convertMaptoPolicyNameKey()
 	// group the policies with cluster users and the ones with groups
 	// take the plc with min users and groups and make it your baseline
-	ClusteRoleBindingList, err := common.KubeClient.RbacV1().ClusterRoleBindings().List(metav1.ListOptions{})
+	ClusteRoleBindingList, err := (*common.KubeClient).RbacV1().ClusterRoleBindings().List(metav1.ListOptions{})
 	if err != nil {
 		glog.Errorf("reason: communication error, subject: k8s API server, namespace: all, according to policy: none, additional-info: %v\n", err)
 		return err
