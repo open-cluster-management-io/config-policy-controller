@@ -28,85 +28,6 @@ import (
 	"k8s.io/client-go/restmapper"
 )
 
-func getObject() {
-	var namespaced bool
-	dd := (*KubeClient).Discovery()
-	apigroups, err := restmapper.GetAPIGroupResources(dd)
-	if err != nil {
-		glog.Fatal(err)
-	}
-	gvk := &schema.GroupVersionKind{}
-	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
-	mapping, err := restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
-		glog.Errorf("mapping error from raw object: `%v`", err)
-		return
-	}
-	glog.V(9).Infof("mapping found from raw object: %v", mapping)
-
-	restconfig := KubeConfig
-	restconfig.GroupVersion = &schema.GroupVersion{
-		Group:   mapping.GroupVersionKind.Group,
-		Version: mapping.GroupVersionKind.Version,
-	}
-	dclient, err := dynamic.NewForConfig(restconfig)
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	apiresourcelist, err := dd.ServerResources()
-	if err != nil {
-		glog.Fatal(err)
-	}
-	rsrc := mapping.Resource
-	for _, apiresourcegroup := range apiresourcelist {
-		if apiresourcegroup.GroupVersion == joinStr(mapping.GroupVersionKind.Group, "/", mapping.GroupVersionKind.Version) {
-			for _, apiresource := range apiresourcegroup.APIResources {
-				if apiresource.Name == mapping.Resource.Resource && apiresource.Kind == mapping.GroupVersionKind.Kind {
-					rsrc = mapping.Resource
-					namespaced = apiresource.Namespaced
-					glog.V(7).Infof("is raw object namespaced? %v", namespaced)
-				}
-			}
-		}
-	}
-	objectList(namespaced, "namespace", "name", rsrc, dclient)
-}
-
-func objectList(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, dclient dynamic.Interface) (result bool) {
-	exists := false
-	if !namespaced {
-		res := dclient.Resource(rsrc)
-		_, err := res.List(metav1.ListOptions{})
-		if err != nil {
-			if errors.IsNotFound(err) {
-				glog.V(6).Infof("response to retrieve a non namespaced object `%v` from the api-server: %v", name, err)
-				exists = false
-				return exists
-			}
-			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
-		} else {
-			exists = true
-			glog.V(6).Infof("object `%v` retrieved from the api server\n", name)
-		}
-	} else {
-		res := dclient.Resource(rsrc).Namespace(namespace)
-		_, err := res.Get(name, metav1.GetOptions{})
-		if err != nil {
-			if errors.IsNotFound(err) {
-				exists = false
-				glog.V(6).Infof("response to retrieve a namespaced object `%v` from the api-server: %v", name, err)
-				return exists
-			}
-			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
-		} else {
-			exists = true
-			glog.V(6).Infof("object `%v` retrieved from the api server\n", name)
-		}
-	}
-	return exists
-}
-
 // GetGenericObject returns a generic object information from the k8s API server
 func GetGenericObject(data []byte, namespace string) (unstructured.Unstructured, error) {
 	var unstruct unstructured.Unstructured
@@ -146,7 +67,7 @@ func GetGenericObject(data []byte, namespace string) (unstructured.Unstructured,
 		glog.Fatal(err)
 	}
 
-	apiresourcelist, err := dd.ServerResources()
+	_, apiresourcelist, err := dd.ServerGroupsAndResources()
 	if err != nil {
 		glog.Fatal(err)
 	}
@@ -179,14 +100,15 @@ func GetGenericObject(data []byte, namespace string) (unstructured.Unstructured,
 		}
 	}
 
-	instance, err := getTheObject(namespaced, namespace, name, rsrc, unstruct, dclient)
+	instance, err := getTheObject(namespaced, namespace, name, rsrc, dclient)
 	if err != nil {
 		fmt.Println(err)
 	}
 	return *instance, err
 }
 
-func getTheObject(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface) (*unstructured.Unstructured, error) {
+func getTheObject(namespaced bool, namespace string, name string,
+	rsrc schema.GroupVersionResource, dclient dynamic.Interface) (*unstructured.Unstructured, error) {
 	if !namespaced {
 		res := dclient.Resource(rsrc)
 		instance, err := res.Get(name, metav1.GetOptions{})

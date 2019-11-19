@@ -1,14 +1,14 @@
 package apis
 
 import (
+	"testing"
+
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/runtime"
-	"testing"
 )
 
-func TestAddToScheme(t *testing.T)  {
+func TestAddToScheme(t *testing.T) {
 	scheme := runtime.NewScheme()
 	err := AddToScheme(scheme)
 	assert.Nil(t, err)
 }
-

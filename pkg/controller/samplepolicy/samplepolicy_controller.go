@@ -15,7 +15,6 @@ package samplepolicy
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -30,7 +29,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -48,8 +46,6 @@ var log = logf.Log.WithName("controller_samplepolicy")
 const Finalizer = "finalizer.policies.ibm.com"
 
 const grcCategory = "system-and-information-integrity"
-
-var clusterName = "managedCluster"
 
 // availablePolicies is a cach all all available polices
 var availablePolicies common.SyncedPolicyMap
@@ -107,19 +103,14 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	return nil
 }
 
-// Initialize to initialize some controller varaibles
-func Initialize(kClient *kubernetes.Interface, mgr manager.Manager, clsName, namespace, eventParent string) (err error) {
+// Initialize to initialize some controller variables
+func Initialize(kClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string) {
 	KubeClient = kClient
 	PlcChan = make(chan *policiesv1alpha1.SamplePolicy, 100) //buffering up to 100 policies for update
 
-	if clsName != "" {
-		clusterName = clsName
-	}
 	NamespaceWatched = namespace
 
 	EventOnParent = strings.ToLower(eventParent)
-
-	return nil
 }
 
 // blank assignment to verify that ReconcileSamplePolicy implements reconcile.Reconciler
@@ -180,7 +171,10 @@ func (r *ReconcileSamplePolicy) Reconcile(request reconcile.Request) (reconcile.
 			}
 		}
 		instance.Status.CompliancyDetails = nil //reset CompliancyDetails
-		handleAddingPolicy(instance)
+		err := handleAddingPolicy(instance)
+		if err != nil {
+			glog.V(3).Infof("Failed to handleAddingPolicy")
+		}
 	} else {
 		handleRemovingPolicy(instance)
 		// The object is being deleted
@@ -201,7 +195,8 @@ func (r *ReconcileSamplePolicy) Reconcile(request reconcile.Request) (reconcile.
 		// Our finalizer has finished, so the reconciler can do nothing.
 		return reconcile.Result{}, nil
 	}
-	glog.V(3).Infof("reason: successful processing, subject: policy/%v, namespace: %v, according to policy: %v, additional-info: none\n", instance.Name, instance.Namespace, instance.Name)
+	glog.V(3).Infof("reason: successful processing, subject: policy/%v, namespace: %v, according to policy: %v, additional-info: none",
+		instance.Name, instance.Namespace, instance.Name)
 
 	// Pod already exists - don't requeue
 	// reqLogger.Info("Skip reconcile: Pod already exists", "Pod.Namespace", found.Namespace, "Pod.Name", found.Name)
@@ -227,9 +222,8 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 					namespace, policy.Name, err)
 				continue
 			}
-			userViolationCount, GroupViolationCount := checkViolationsPerNamespace(roleBindingList, policy, namespace)
-			if strings.ToLower(string(policy.Spec.RemediationAction)) == strings.ToLower(string(policiesv1alpha1.Enforce)) {
-
+			userViolationCount, GroupViolationCount := checkViolationsPerNamespace(roleBindingList, policy)
+			if strings.EqualFold(string(policy.Spec.RemediationAction), string(policiesv1alpha1.Enforce)) {
 				glog.V(5).Infof("Enforce is set, but ignored :-)")
 			}
 			if addViolationCount(policy, userViolationCount, GroupViolationCount, namespace) {
@@ -237,7 +231,10 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 			}
 			checkComplianceBasedOnDetails(policy)
 		}
-		checkUnNamespacedPolicies(plcToUpdateMap)
+		err := checkUnNamespacedPolicies(plcToUpdateMap)
+		if err != nil {
+			glog.V(3).Infof("Failed to checkUnNamespacedPolicies")
+		}
 
 		//update status of all policies that changed:
 		faultyPlc, err := updatePolicyStatus(plcToUpdateMap)
@@ -246,12 +243,9 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 				faultyPlc.Name, faultyPlc.Namespace, faultyPlc.Name, err)
 		}
 
-		// prometheus quantiles for processing delay in each cycle
-		elapsed := time.Since(start)
-
 		// making sure that if processing is > freq we don't sleep
 		// if freq > processing we sleep for the remaining duration
-		elapsed = time.Since(start) / 1000000000 // convert to seconds
+		elapsed := time.Since(start) / 1000000000 // convert to seconds
 		if float64(freq) > float64(elapsed) {
 			remainingSleep := float64(freq) - float64(elapsed)
 			time.Sleep(time.Duration(remainingSleep) * time.Second)
@@ -331,7 +325,7 @@ func convertMaptoPolicyNameKey() map[string]*policiesv1alpha1.SamplePolicy {
 	return plcMap
 }
 
-func checkViolationsPerNamespace(roleBindingList *v1.RoleBindingList, plc *policiesv1alpha1.SamplePolicy, namespace string) (userV, groupV int) {
+func checkViolationsPerNamespace(roleBindingList *v1.RoleBindingList, plc *policiesv1alpha1.SamplePolicy) (userV, groupV int) {
 	usersMap := make(map[string]bool)
 	groupsMap := make(map[string]bool)
 	for _, roleBinding := range roleBindingList.Items {
@@ -454,9 +448,7 @@ func updatePolicyStatus(policies map[string]*policiesv1alpha1.SamplePolicy) (*po
 		if EventOnParent != "no" {
 			createParentPolicyEvent(instance)
 		}
-		{
-			reconcilingAgent.recorder.Event(instance, "Normal", "Policy updated", fmt.Sprintf("Policy status is: %v", instance.Status.ComplianceState))
-		}
+		reconcilingAgent.recorder.Event(instance, "Normal", "Policy updated", fmt.Sprintf("Policy status is: %v", instance.Status.ComplianceState))
 	}
 	return nil, nil
 }
@@ -481,7 +473,8 @@ func handleRemovingPolicy(plc *policiesv1alpha1.SamplePolicy) {
 func handleAddingPolicy(plc *policiesv1alpha1.SamplePolicy) error {
 	allNamespaces, err := common.GetAllNamespaces()
 	if err != nil {
-		glog.Errorf("reason: error fetching the list of available namespaces, subject: K8s API server, namespace: all, according to policy: %v, additional-info: %v\n", plc.Name, err)
+		glog.Errorf("reason: error fetching the list of available namespaces, subject: K8s API server, namespace: all, according to policy: %v, additional-info: %v",
+			plc.Name, err)
 		return err
 	}
 	//clean up that policy from the existing namepsaces, in case the modification is in the namespace selector
@@ -501,6 +494,7 @@ func handleAddingPolicy(plc *policiesv1alpha1.SamplePolicy) error {
 
 //=================================================================
 //deleteExternalDependency in case the CRD was related to non-k8s resource
+//nolint
 func (r *ReconcileSamplePolicy) deleteExternalDependency(instance *policiesv1alpha1.SamplePolicy) error {
 	glog.V(0).Infof("reason: CRD deletion, subject: policy/%v, namespace: %v, according to policy: none, additional-info: none\n",
 		instance.Name,
@@ -602,35 +596,4 @@ func convertPolicyStatusToString(plc *policiesv1alpha1.SamplePolicy) (results st
 		result += fmt.Sprintf("; %s", strings.Join(v, ", "))
 	}
 	return result
-}
-
-func createGenericObjectEvent(name, namespace string) {
-	plc := &policiesv1alpha1.Policy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      name,
-			Namespace: namespace,
-		},
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Policy",
-			APIVersion: "policies.ibm.com/v1alpha1",
-		},
-	}
-	data, err := json.Marshal(plc)
-	if err != nil {
-		glog.Fatal(err)
-	}
-	found, err := common.GetGenericObject(data, namespace)
-	if err != nil {
-		glog.Fatal(err)
-	}
-	if md, ok := found.Object["metadata"]; ok {
-		metadata := md.(map[string]interface{})
-		if objectUID, ok := metadata["uid"]; ok {
-			plc.ObjectMeta.UID = types.UID(objectUID.(string))
-			reconcilingAgent.recorder.Event(plc, corev1.EventTypeWarning, "reporting --> forward", fmt.Sprintf("eventing on policy %s/%s", plc.Namespace, plc.Name))
-		} else {
-			glog.Errorf("the objectUID is missing from policy %s/%s", plc.Namespace, plc.Name)
-			return
-		}
-	}
 }

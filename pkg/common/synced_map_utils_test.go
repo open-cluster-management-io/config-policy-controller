@@ -74,10 +74,13 @@ func TestGetObject(t *testing.T) {
 
 func TestAddObject(t *testing.T) {
 	sm.AddObject("default", plc)
-	plcName, found := sm.GetObject("ServiceInstance")
-	_, found = sm.GetObject("void")
-	if found {
-		t.Fatalf("expecting found = false, however found = %v", found)
+	plcName, found1 := sm.GetObject("ServiceInstance")
+	if found1 {
+		t.Fatalf("expecting found = false, however found = %v", found1)
+	}
+	_, found2 := sm.GetObject("void")
+	if found1 {
+		t.Fatalf("expecting found = false, however found = %v", found2)
 	}
 	if !reflect.DeepEqual(plc.Name, "testPolicy") {
 		t.Fatalf("expecting plcName = testPolicy, however plcName = %v", plcName)

@@ -14,10 +14,11 @@
 package v1alpha1
 
 import (
-	"github.com/stretchr/testify/assert"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"reflect"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 var samplePolicy = SamplePolicy{
@@ -26,20 +27,20 @@ var samplePolicy = SamplePolicy{
 		Namespace: "default",
 	}}
 
-var samplePolicySpec = SamplePolicySpec {
-	Severity: "high",
-	RemediationAction: "enforce",
+var samplePolicySpec = SamplePolicySpec{
+	Severity:                        "high",
+	RemediationAction:               "enforce",
 	MaxRoleBindingUsersPerNamespace: 1,
-	MaxClusterRoleBindingGroups: 1,
+	MaxClusterRoleBindingGroups:     1,
 }
 
-var typeMeta = metav1.TypeMeta {
-	Kind: "Policy",
+var typeMeta = metav1.TypeMeta{
+	Kind:       "Policy",
 	APIVersion: "v1alpha1",
 }
 
-var objectMeta = metav1.ObjectMeta {
-	Name: "foo",
+var objectMeta = metav1.ObjectMeta{
+	Name:      "foo",
 	Namespace: "default",
 }
 
@@ -49,31 +50,30 @@ var listMeta = metav1.ListMeta{
 
 var items = []SamplePolicy{}
 
-
 func TestPolicyDeepCopyInto(t *testing.T) {
-	policy := Policy {
+	policy := Policy{
 		ObjectMeta: objectMeta,
-		TypeMeta: typeMeta,
+		TypeMeta:   typeMeta,
 	}
-	policy2 := Policy {}
+	policy2 := Policy{}
 	policy.DeepCopyInto(&policy2)
 	assert.True(t, reflect.DeepEqual(policy, policy2))
 }
 
 func TestPolicyDeepCopy(t *testing.T) {
-	typeMeta := metav1.TypeMeta {
-		Kind: "Policy",
+	typeMeta := metav1.TypeMeta{
+		Kind:       "Policy",
 		APIVersion: "v1alpha1",
 	}
 
-	objectMeta := metav1.ObjectMeta {
-		Name: "foo",
+	objectMeta := metav1.ObjectMeta{
+		Name:      "foo",
 		Namespace: "default",
 	}
 
-	policy := Policy {
+	policy := Policy{
 		ObjectMeta: objectMeta,
-		TypeMeta: typeMeta,
+		TypeMeta:   typeMeta,
 	}
 	policy2 := policy.DeepCopy()
 	assert.True(t, reflect.DeepEqual(policy, *policy2))
@@ -111,7 +111,7 @@ func TestSamplePolicyListDeepCopy(t *testing.T) {
 	samplePolicyList := SamplePolicyList{
 		TypeMeta: typeMeta,
 		ListMeta: listMeta,
-		Items: items,
+		Items:    items,
 	}
 	samplePolicyList2 := samplePolicyList.DeepCopy()
 	assert.True(t, reflect.DeepEqual(samplePolicyList, *samplePolicyList2))
@@ -122,7 +122,7 @@ func TestSamplePolicyListDeepCopyInto(t *testing.T) {
 	samplePolicyList := SamplePolicyList{
 		TypeMeta: typeMeta,
 		ListMeta: listMeta,
-		Items: items,
+		Items:    items,
 	}
 	samplePolicyList2 := SamplePolicyList{}
 	samplePolicyList.DeepCopyInto(&samplePolicyList2)
@@ -134,15 +134,14 @@ func TestSamplePolicyStatusDeepCopy(t *testing.T) {
 	var compliantDetails = map[string]map[string][]string{}
 	details := []string{}
 
-	details = append(details, "detail1")
-	details = append(details, "detail2")
+	details = append(details, "detail1", "detail2")
 
 	compliantDetail["w"] = details
 	compliantDetails["a"] = compliantDetail
 	compliantDetails["b"] = compliantDetail
 	compliantDetails["c"] = compliantDetail
-	samplePolicyStatus := SamplePolicyStatus {
-		ComplianceState: "Compliant",
+	samplePolicyStatus := SamplePolicyStatus{
+		ComplianceState:   "Compliant",
 		CompliancyDetails: compliantDetails,
 	}
 	samplePolicyStatus2 := samplePolicyStatus.DeepCopy()
@@ -154,20 +153,17 @@ func TestSamplePolicyStatusDeepCopyInto(t *testing.T) {
 	var compliantDetails = map[string]map[string][]string{}
 	details := []string{}
 
-	details = append(details, "detail1")
-	details = append(details, "detail2")
+	details = append(details, "detail1", "detail2")
 
 	compliantDetail["w"] = details
 	compliantDetails["a"] = compliantDetail
 	compliantDetails["b"] = compliantDetail
 	compliantDetails["c"] = compliantDetail
-	samplePolicyStatus := SamplePolicyStatus {
-		ComplianceState: "Compliant",
+	samplePolicyStatus := SamplePolicyStatus{
+		ComplianceState:   "Compliant",
 		CompliancyDetails: compliantDetails,
 	}
 	var samplePolicyStatus2 SamplePolicyStatus
 	samplePolicyStatus.DeepCopyInto(&samplePolicyStatus2)
 	assert.True(t, reflect.DeepEqual(samplePolicyStatus, samplePolicyStatus2))
 }
-
-

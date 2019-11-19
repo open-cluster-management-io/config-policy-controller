@@ -112,7 +112,7 @@ func DeduplicateItems(included []string, excluded []string) (res []string) {
 		encountered[inc] = true
 	}
 	for _, excl := range excluded {
-		if encountered[excl] == true {
+		if encountered[excl] {
 			delete(encountered, excl)
 		}
 	}

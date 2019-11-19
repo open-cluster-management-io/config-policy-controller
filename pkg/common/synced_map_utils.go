@@ -16,6 +16,7 @@ package common
 
 import (
 	"sync"
+
 	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
 )
 
@@ -59,7 +60,5 @@ func (spm *SyncedPolicyMap) RemoveObject(key string) {
 	if spm.PolicyMap == nil {
 		return
 	}
-	if _, ok := spm.PolicyMap[key]; ok {
-		delete(spm.PolicyMap, key)
-	}
+	delete(spm.PolicyMap, key)
 }

@@ -61,7 +61,7 @@ func printVersion() {
 }
 
 func main() {
-	var clusterName, namespace, eventOnParent string
+	var namespace, eventOnParent string
 	var frequency uint
 	// Add the zap logger flag set to the CLI. The flag set must
 	// be added before calling pflag.Parse().
@@ -71,7 +71,6 @@ func main() {
 	// controller-runtime)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
-	pflag.StringVar(&clusterName, "cluster-name", "mcm-managed-cluster", "Name of the cluster")
 	pflag.StringVar(&namespace, "watch-ns", "default", "Watched Kubernetes namespace")
 	pflag.UintVar(&frequency, "update-frequency", 10, "The status update frequency (in seconds) of a mutation policy")
 	pflag.StringVar(&eventOnParent, "parent-event", "ifpresent", "to also send status events on parent policy. options are: yes/no/ifpresent")
@@ -89,12 +88,6 @@ func main() {
 	logf.SetLogger(zap.Logger())
 
 	printVersion()
-
-	// namespace, err := k8sutil.GetWatchNamespace()
-	// if err != nil {
-	// 	log.Error(err, "Failed to get watch namespace")
-	// 	os.Exit(1)
-	// }
 
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
@@ -142,8 +135,10 @@ func main() {
 
 	// Add to the below struct any other metrics ports you want to expose.
 	servicePorts := []v1.ServicePort{
-		{Port: metricsPort, Name: metrics.OperatorPortName, Protocol: v1.ProtocolTCP, TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: metricsPort}},
-		{Port: operatorMetricsPort, Name: metrics.CRPortName, Protocol: v1.ProtocolTCP, TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: operatorMetricsPort}},
+		{Port: metricsPort, Name: metrics.OperatorPortName, Protocol: v1.ProtocolTCP,
+			TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: metricsPort}},
+		{Port: operatorMetricsPort, Name: metrics.CRPortName, Protocol: v1.ProtocolTCP,
+			TargetPort: intstr.IntOrString{Type: intstr.Int, IntVal: operatorMetricsPort}},
 	}
 	// Create Service object to expose the metrics port(s).
 	service, err := metrics.CreateMetricsService(ctx, cfg, servicePorts)
@@ -165,10 +160,9 @@ func main() {
 	}
 
 	// Initialize some variables
-	var generatedClient kubernetes.Interface
-	generatedClient = kubernetes.NewForConfigOrDie(mgr.GetConfig())
+	var generatedClient kubernetes.Interface = kubernetes.NewForConfigOrDie(mgr.GetConfig())
 	common.Initialize(&generatedClient, cfg)
-	policyStatusHandler.Initialize(&generatedClient, mgr, clusterName, namespace, eventOnParent)
+	policyStatusHandler.Initialize(&generatedClient, mgr, namespace, eventOnParent)
 	// PeriodicallyExecSamplePolicies is the go-routine that periodically checks the policies and does the needed work to make sure the desired state is achieved
 	go policyStatusHandler.PeriodicallyExecSamplePolicies(frequency)
 

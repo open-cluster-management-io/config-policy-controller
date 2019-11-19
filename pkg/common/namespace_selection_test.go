@@ -41,7 +41,7 @@ func TestCreateNamespace(t *testing.T) {
 
 	// Setup the Manager and Controller.  Wrap the Controller Reconcile function so it writes each request to a
 	// channel when it is finished.
-	mgr, err := manager.New(cfg, manager.Options{})
+	mgr, _ := manager.New(cfg, manager.Options{})
 	c = mgr.GetClient()
 
 	stopMgr, mgrStopped := StartTestManager(mgr, g)
@@ -55,7 +55,7 @@ func TestCreateNamespace(t *testing.T) {
 	name := "my-name"
 	instance := createNamespace(name)
 	depKey = types.NamespacedName{Name: name}
-	err = c.Create(context.TODO(), instance)
+	err := c.Create(context.TODO(), instance)
 	if apierrors.IsInvalid(err) {
 		t.Logf("failed to create object, got an invalid object error: %v", err)
 		return
@@ -64,7 +64,6 @@ func TestCreateNamespace(t *testing.T) {
 		Should(gomega.Succeed())
 }
 func TestGetSelectedNamespaces(t *testing.T) {
-
 	// testing the actual logic
 	allNamespaces := []string{"default", "dev-accounting", "dev-HR", "dev-research", "kube-public", "kube-sys"}
 	included := []string{"dev-*", "kube-*", "default"}

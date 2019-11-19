@@ -1,4 +1,3 @@
-
 // Copyright 2019 The Kubernetes Authors.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,6 +15,7 @@ package v1alpha1
 
 import (
 	"testing"
+
 	"github.com/onsi/gomega"
 	"golang.org/x/net/context"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

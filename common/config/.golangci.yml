@@ -37,6 +37,7 @@ linters:
     - scopelint
     - funlen
     - bodyclose
+    - wsl
   fast: false
 
 linters-settings:

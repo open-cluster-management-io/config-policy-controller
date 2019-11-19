@@ -14,6 +14,9 @@
 package samplepolicy
 
 import (
+	"testing"
+	"time"
+
 	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
 	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
@@ -28,16 +31,12 @@ import (
 	testclient "k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"testing"
-	"time"
 )
 
 var c client.Client
 var mgr manager.Manager
 var err error
 
-var expectedRequest = reconcile.Request{NamespacedName: types.NamespacedName{Name: "foo", Namespace: "default"}}
 var depKey = types.NamespacedName{Name: "foo", Namespace: "default"}
 
 const timeout = time.Second * 5
@@ -74,10 +73,8 @@ func TestReconcile(t *testing.T) {
 		Should(gomega.Succeed())
 }
 
-
 func TestCheckUnNamespacedPolicies(t *testing.T) {
-	var simpleClient kubernetes.Interface
-	simpleClient = testclient.NewSimpleClientset()
+	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 	common.Initialize(&simpleClient, nil)
 	var samplePolicy = policiesv1alpha1.SamplePolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -116,10 +113,10 @@ func TestEnsureDefaultLabel(t *testing.T) {
 }
 
 func TestCheckAllClusterLevel(t *testing.T) {
-	var subject =  sub.Subject {
-		APIGroup: "",
-		Kind: "User",
-		Name: "user1",
+	var subject = sub.Subject{
+		APIGroup:  "",
+		Kind:      "User",
+		Name:      "user1",
 		Namespace: "default",
 	}
 	var subjects = []sub.Subject{}
@@ -138,10 +135,10 @@ func TestCheckAllClusterLevel(t *testing.T) {
 }
 
 func TestCheckViolationsPerNamespace(t *testing.T) {
-	var subject =  sub.Subject {
-		APIGroup: "",
-		Kind: "User",
-		Name: "user1",
+	var subject = sub.Subject{
+		APIGroup:  "",
+		Kind:      "User",
+		Name:      "user1",
 		Namespace: "default",
 	}
 	var subjects = []sub.Subject{}
@@ -161,7 +158,7 @@ func TestCheckViolationsPerNamespace(t *testing.T) {
 		MaxClusterRoleBindingGroups:      1,
 	}
 	samplePolicy.Spec = samplePolicySpec
-	checkViolationsPerNamespace(&roleBindingList, &samplePolicy, "default")
+	checkViolationsPerNamespace(&roleBindingList, &samplePolicy)
 }
 
 func TestCreateParentPolicy(t *testing.T) {
@@ -182,15 +179,14 @@ func TestConvertPolicyStatusToString(t *testing.T) {
 	var compliantDetails = map[string]map[string][]string{}
 	details := []string{}
 
-	details = append(details, "detail1")
-	details = append(details, "detail2")
+	details = append(details, "detail1", "detail2")
 
 	compliantDetail["w"] = details
 	compliantDetails["a"] = compliantDetail
 	compliantDetails["b"] = compliantDetail
 	compliantDetails["c"] = compliantDetail
-	samplePolicyStatus := policiesv1alpha1.SamplePolicyStatus {
-		ComplianceState: "Compliant",
+	samplePolicyStatus := policiesv1alpha1.SamplePolicyStatus{
+		ComplianceState:   "Compliant",
 		CompliancyDetails: compliantDetails,
 	}
 	samplePolicy.Status = samplePolicyStatus
@@ -208,8 +204,7 @@ func TestDeleteExternalDependency(t *testing.T) {
 }
 
 func TestHandleAddingPolicy(t *testing.T) {
-	var simpleClient kubernetes.Interface
-	simpleClient = testclient.NewSimpleClientset()
+	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 	common.Initialize(&simpleClient, nil)
 	err := handleAddingPolicy(&samplePolicy)
 	assert.Nil(t, err)
@@ -224,7 +219,7 @@ func TestGetContainerID(t *testing.T) {
 		Waiting: &containerStateWaiting,
 	}
 	var containerStatus = coretypes.ContainerStatus{
-		State: containerState,
+		State:       containerState,
 		ContainerID: "id",
 	}
 	var containerStatuses []coretypes.ContainerStatus
@@ -237,6 +232,3 @@ func TestGetContainerID(t *testing.T) {
 	}
 	getContainerID(pod, "foo")
 }
-
-
-

@@ -14,36 +14,36 @@
 package samplepolicy
 
 import (
+	stdlog "log"
+	"os"
+	"path/filepath"
+	"sync"
+	"testing"
+
 	"github.com/onsi/gomega"
 	"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis"
 	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	stdlog "log"
-	"os"
-	"path/filepath"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sync"
-	"testing"
 )
 
 var cfg *rest.Config
 
-var samplePolicySpec = policiesv1alpha1.SamplePolicySpec {
-	Severity: "high",
-	RemediationAction: "enforce",
-	MaxRoleBindingUsersPerNamespace: 1,
-	MaxClusterRoleBindingGroups: 1,
-}
-var samplePolicy = policiesv1alpha1.SamplePolicy {
-			ObjectMeta: metav1.ObjectMeta{
-			Name:      "foo",
-			Namespace: "default",
-			}}
-
+// var samplePolicySpec = policiesv1alpha1.SamplePolicySpec{
+// 	Severity:                        "high",
+// 	RemediationAction:               "enforce",
+// 	MaxRoleBindingUsersPerNamespace: 1,
+// 	MaxClusterRoleBindingGroups:     1,
+// }
+var samplePolicy = policiesv1alpha1.SamplePolicy{
+	ObjectMeta: metav1.ObjectMeta{
+		Name:      "foo",
+		Namespace: "default",
+	}}
 
 func TestMain(m *testing.M) {
 	t := &envtest.Environment{
@@ -59,7 +59,6 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	t.Stop()
 	os.Exit(code)
-
 }
 
 // SetupTestReconcile returns a reconcile.Reconcile implementation that delegates to inner and
