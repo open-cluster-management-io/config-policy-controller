@@ -15,62 +15,126 @@ package samplepolicy
 
 import (
 	"testing"
-	"time"
 
-	"github.com/onsi/gomega"
 	"github.com/stretchr/testify/assert"
 	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
 	"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/common"
-	"golang.org/x/net/context"
 	coretypes "k8s.io/api/core/v1"
 	sub "k8s.io/api/rbac/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	testclient "k8s.io/client-go/kubernetes/fake"
-	"sigs.k8s.io/controller-runtime/pkg/client"
+	"k8s.io/client-go/kubernetes/scheme"
+	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 )
 
-var c client.Client
 var mgr manager.Manager
 var err error
 
-var depKey = types.NamespacedName{Name: "foo", Namespace: "default"}
-
-const timeout = time.Second * 5
-
 func TestReconcile(t *testing.T) {
-	g := gomega.NewGomegaWithT(t)
-	instance := &policiesv1alpha1.SamplePolicy{ObjectMeta: metav1.ObjectMeta{Name: "foo", Namespace: "default"}}
-
-	// Setup the Manager and Controller.  Wrap the Controller Reconcile function so it writes each request to a
-	// channel when it is finished.
-	mgr, err = manager.New(cfg, manager.Options{})
-	g.Expect(err).NotTo(gomega.HaveOccurred())
-	c = mgr.GetClient()
-	recFn, requests := SetupTestReconcile(newReconciler(mgr))
-	t.Logf("requests %v", requests)
-	g.Expect(add(mgr, recFn)).NotTo(gomega.HaveOccurred())
-	stopMgr, mgrStopped := StartTestManager(mgr, g)
-	defer func() {
-		close(stopMgr)
-		mgrStopped.Wait()
-	}()
-
-	// Create the object and expect the Reconcile and Deployment to be created
-	err = c.Create(context.TODO(), instance)
-	// The instance object may not be a valid object because it might be missing some required fields.
-	// Please modify the instance object by adding required fields and then remove the following if statement.
-	if apierrors.IsInvalid(err) {
-		t.Logf("failed to create object, got an invalid object error: %v", err)
-		return
+	var (
+		name      = "foo"
+		namespace = "default"
+	)
+	instance := &policiesv1alpha1.SamplePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "default",
+		},
+		Spec: policiesv1alpha1.SamplePolicySpec{
+			MaxRoleBindingUsersPerNamespace: 1,
+		},
 	}
-	g.Expect(err).NotTo(gomega.HaveOccurred())
 
-	g.Eventually(func() error { return c.Get(context.TODO(), depKey, instance) }, timeout).
-		Should(gomega.Succeed())
+	// Objects to track in the fake client.
+	objs := []runtime.Object{instance}
+	// Register operator types with the runtime scheme.
+	s := scheme.Scheme
+	s.AddKnownTypes(policiesv1alpha1.SchemeGroupVersion, instance)
+
+	// Create a fake client to mock API calls.
+	cl := fake.NewFakeClient(objs...)
+
+	// Create a ReconcileMemcached object with the scheme and fake client.
+	r := &ReconcileSamplePolicy{client: cl, scheme: s, recorder: nil}
+
+	// Mock request to simulate Reconcile() being called on an event for a
+	// watched resource .
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
+	common.Initialize(&simpleClient, nil)
+	res, err := r.Reconcile(req)
+	if err != nil {
+		t.Fatalf("reconcile: (%v)", err)
+	}
+	t.Log(res)
+}
+
+func TestPeriodicallyExecSamplePolicies(t *testing.T) {
+	var (
+		name      = "foo"
+		namespace = "default"
+	)
+	var typeMeta = metav1.TypeMeta{
+		Kind: "namespace",
+	}
+	var objMeta = metav1.ObjectMeta{
+		Name: "default",
+	}
+	var ns = coretypes.Namespace{
+		TypeMeta:   typeMeta,
+		ObjectMeta: objMeta,
+	}
+	// Mock request to simulate Reconcile() being called on an event for a
+	// watched resource .
+	req := reconcile.Request{
+		NamespacedName: types.NamespacedName{
+			Name:      name,
+			Namespace: namespace,
+		},
+	}
+	instance := &policiesv1alpha1.SamplePolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "default",
+		},
+		Spec: policiesv1alpha1.SamplePolicySpec{
+			MaxRoleBindingUsersPerNamespace: 1,
+		},
+	}
+
+	// Objects to track in the fake client.
+	objs := []runtime.Object{instance}
+	// Register operator types with the runtime scheme.
+	s := scheme.Scheme
+	s.AddKnownTypes(policiesv1alpha1.SchemeGroupVersion, instance)
+
+	// Create a fake client to mock API calls.
+	cl := fake.NewFakeClient(objs...)
+	// Create a ReconcileMemcached object with the scheme and fake client.
+	r := &ReconcileSamplePolicy{client: cl, scheme: s, recorder: nil}
+	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
+	simpleClient.CoreV1().Namespaces().Create(&ns)
+	common.Initialize(&simpleClient, nil)
+	res, err := r.Reconcile(req)
+	if err != nil {
+		t.Fatalf("reconcile: (%v)", err)
+	}
+	t.Log(res)
+	var target = []string{"default"}
+	samplePolicy.Spec.NamespaceSelector.Include = target
+	err = handleAddingPolicy(&samplePolicy)
+	assert.Nil(t, err)
+	PeriodicallyExecSamplePolicies(1)
 }
 
 func TestCheckUnNamespacedPolicies(t *testing.T) {
@@ -205,6 +269,17 @@ func TestDeleteExternalDependency(t *testing.T) {
 
 func TestHandleAddingPolicy(t *testing.T) {
 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
+	var typeMeta = metav1.TypeMeta{
+		Kind: "namespace",
+	}
+	var objMeta = metav1.ObjectMeta{
+		Name: "default",
+	}
+	var ns = coretypes.Namespace{
+		TypeMeta:   typeMeta,
+		ObjectMeta: objMeta,
+	}
+	simpleClient.CoreV1().Namespaces().Create(&ns)
 	common.Initialize(&simpleClient, nil)
 	err := handleAddingPolicy(&samplePolicy)
 	assert.Nil(t, err)

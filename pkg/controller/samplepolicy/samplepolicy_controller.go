@@ -38,6 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+	//testclient "k8s.io/client-go/kubernetes/fake"
 )
 
 var log = logf.Log.WithName("controller_samplepolicy")
@@ -250,6 +251,9 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 			remainingSleep := float64(freq) - float64(elapsed)
 			time.Sleep(time.Duration(remainingSleep) * time.Second)
 		}
+		if KubeClient == nil {
+			return
+		}
 	}
 }
 
@@ -448,7 +452,9 @@ func updatePolicyStatus(policies map[string]*policiesv1alpha1.SamplePolicy) (*po
 		if EventOnParent != "no" {
 			createParentPolicyEvent(instance)
 		}
-		reconcilingAgent.recorder.Event(instance, "Normal", "Policy updated", fmt.Sprintf("Policy status is: %v", instance.Status.ComplianceState))
+		if reconcilingAgent.recorder != nil {
+			reconcilingAgent.recorder.Event(instance, "Normal", "Policy updated", fmt.Sprintf("Policy status is: %v", instance.Status.ComplianceState))
+		}
 	}
 	return nil, nil
 }
