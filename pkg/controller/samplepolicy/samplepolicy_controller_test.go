@@ -58,8 +58,7 @@ func TestReconcile(t *testing.T) {
 
 	// Create a fake client to mock API calls.
 	cl := fake.NewFakeClient(objs...)
-
-	// Create a ReconcileMemcached object with the scheme and fake client.
+	// Create a ReconcileSamplePolicy object with the scheme and fake client
 	r := &ReconcileSamplePolicy{client: cl, scheme: s, recorder: nil}
 
 	// Mock request to simulate Reconcile() being called on an event for a
@@ -120,7 +119,8 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 
 	// Create a fake client to mock API calls.
 	cl := fake.NewFakeClient(objs...)
-	// Create a ReconcileMemcached object with the scheme and fake client.
+
+	// Create a ReconcileSamplePolicy object with the scheme and fake client.
 	r := &ReconcileSamplePolicy{client: cl, scheme: s, recorder: nil}
 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 	simpleClient.CoreV1().Namespaces().Create(&ns)
