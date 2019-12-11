@@ -11,7 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-package samplepolicy
+package configurationpolicy
 
 import (
 	"context"
@@ -41,7 +41,7 @@ import (
 	//testclient "k8s.io/client-go/kubernetes/fake"
 )
 
-var log = logf.Log.WithName("controller_samplepolicy")
+var log = logf.Log.WithName("controller_configurationpolicy")
 
 // Finalizer used to ensure consistency when deleting a CRD
 const Finalizer = "finalizer.policies.ibm.com"
@@ -76,13 +76,13 @@ func Add(mgr manager.Manager) error {
 
 // newReconciler returns a new reconcile.Reconciler
 func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	return &ReconcileConfigurationPolicy{client: mgr.GetClient(), scheme: mgr.GetScheme(), recorder: mgr.GetEventRecorderFor("samplepolicy-controller")}
+	return &ReconcileConfigurationPolicy{client: mgr.GetClient(), scheme: mgr.GetScheme(), recorder: mgr.GetEventRecorderFor("configurationpolicy-controller")}
 }
 
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Create a new controller
-	c, err := controller.New("samplepolicy-controller", mgr, controller.Options{Reconciler: r})
+	c, err := controller.New("configurationpolicy-controller", mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
 	}

@@ -37,7 +37,7 @@ import (
 	sdkVersion "github.com/operator-framework/operator-sdk/version"
 	"github.com/spf13/pflag"
 	common "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/common"
-	policyStatusHandler "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/controller/samplepolicy"
+	policyStatusHandler "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/controller/configurationpolicy"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"

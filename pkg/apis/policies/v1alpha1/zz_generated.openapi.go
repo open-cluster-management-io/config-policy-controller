@@ -34,7 +34,7 @@ func schema_pkg_apis_policies_v1alpha1_ConfigurationPolicy(ref common.ReferenceC
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "ConfigurationPolicy is the Schema for the samplepolicies API",
+				Description: "ConfigurationPolicy is the Schema for the configurationpolicies API",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {

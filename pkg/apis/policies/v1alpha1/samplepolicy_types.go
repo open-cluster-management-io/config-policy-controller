@@ -74,10 +74,10 @@ type ConfigurationPolicyStatus struct {
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// ConfigurationPolicy is the Schema for the samplepolicies API
+// ConfigurationPolicy is the Schema for the configurationpolicies API
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:path=samplepolicies,scope=Namespaced
+// +kubebuilder:resource:path=configurationpolicies,scope=Namespaced
 type ConfigurationPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`

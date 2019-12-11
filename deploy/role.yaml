@@ -7,7 +7,7 @@ rules:
 - apiGroups:
   - policies.ibm.com
   resources:
-  - samplepolicies
+  - configurationpolicies
   verbs:
   - create
   - delete
