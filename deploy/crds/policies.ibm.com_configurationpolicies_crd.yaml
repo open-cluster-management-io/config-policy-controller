@@ -1,20 +1,20 @@
 apiVersion: apiextensions.k8s.io/v1beta1
 kind: CustomResourceDefinition
 metadata:
-  name: samplepolicies.policies.ibm.com
+  name: configurationpolicies.policies.ibm.com
 spec:
   group: policies.ibm.com
   names:
-    kind: SamplePolicy
-    listKind: SamplePolicyList
-    plural: samplepolicies
-    singular: samplepolicy
+    kind: ConfigurationPolicy
+    listKind: ConfigurationPolicyList
+    plural: configurationpolicies
+    singular: configurationpolicy
   scope: Namespaced
   subresources:
     status: {}
   validation:
     openAPIV3Schema:
-      description: SamplePolicy is the Schema for the samplepolicies API
+      description: ConfigurationPolicy is the Schema for the configurationpolicies API
       properties:
         apiVersion:
           description: 'APIVersion defines the versioned schema of this representation
@@ -29,7 +29,7 @@ spec:
         metadata:
           type: object
         spec:
-          description: SamplePolicySpec defines the desired state of SamplePolicy
+          description: ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
           properties:
             labelSelector:
               additionalProperties:
@@ -63,7 +63,7 @@ spec:
               type: string
           type: object
         status:
-          description: SamplePolicyStatus defines the observed state of SamplePolicy
+          description: ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
           properties:
             compliant:
               description: ComplianceState shows the state of enforcement

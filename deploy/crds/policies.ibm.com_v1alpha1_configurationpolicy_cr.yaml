@@ -1,7 +1,7 @@
 apiVersion: policies.ibm.com/v1alpha1
-kind: SamplePolicy
+kind: ConfigurationPolicy
 metadata:
-  name: example-samplepolicy
+  name: example-configurationpolicy
 spec:
   severity: low
   namespaceSelector:
@@ -12,4 +12,3 @@ spec:
   maxClusterRoleBindingUsers: 10
   maxRoleBindingGroupsPerNamespace: 2
   maxRoleBindingUsersPerNamespace: 2
-
