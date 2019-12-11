@@ -40,12 +40,12 @@ func TestReconcile(t *testing.T) {
 		name      = "foo"
 		namespace = "default"
 	)
-	instance := &policiesv1alpha1.SamplePolicy{
+	instance := &policiesv1alpha1.ConfigurationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: "default",
 		},
-		Spec: policiesv1alpha1.SamplePolicySpec{
+		Spec: policiesv1alpha1.ConfigurationPolicySpec{
 			MaxRoleBindingUsersPerNamespace: 1,
 		},
 	}
@@ -58,8 +58,8 @@ func TestReconcile(t *testing.T) {
 
 	// Create a fake client to mock API calls.
 	cl := fake.NewFakeClient(objs...)
-	// Create a ReconcileSamplePolicy object with the scheme and fake client
-	r := &ReconcileSamplePolicy{client: cl, scheme: s, recorder: nil}
+	// Create a ReconcileConfigurationPolicy object with the scheme and fake client
+	r := &ReconcileConfigurationPolicy{client: cl, scheme: s, recorder: nil}
 
 	// Mock request to simulate Reconcile() being called on an event for a
 	// watched resource .
@@ -101,12 +101,12 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 			Namespace: namespace,
 		},
 	}
-	instance := &policiesv1alpha1.SamplePolicy{
+	instance := &policiesv1alpha1.ConfigurationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: "default",
 		},
-		Spec: policiesv1alpha1.SamplePolicySpec{
+		Spec: policiesv1alpha1.ConfigurationPolicySpec{
 			MaxRoleBindingUsersPerNamespace: 1,
 		},
 	}
@@ -120,8 +120,8 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 	// Create a fake client to mock API calls.
 	cl := fake.NewFakeClient(objs...)
 
-	// Create a ReconcileSamplePolicy object with the scheme and fake client.
-	r := &ReconcileSamplePolicy{client: cl, scheme: s, recorder: nil}
+	// Create a ReconcileConfigurationPolicy object with the scheme and fake client.
+	r := &ReconcileConfigurationPolicy{client: cl, scheme: s, recorder: nil}
 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 	simpleClient.CoreV1().Namespaces().Create(&ns)
 	common.Initialize(&simpleClient, nil)
@@ -140,13 +140,13 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 func TestCheckUnNamespacedPolicies(t *testing.T) {
 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 	common.Initialize(&simpleClient, nil)
-	var samplePolicy = policiesv1alpha1.SamplePolicy{
+	var samplePolicy = policiesv1alpha1.ConfigurationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: "default",
 		}}
 
-	var policies = map[string]*policiesv1alpha1.SamplePolicy{}
+	var policies = map[string]*policiesv1alpha1.ConfigurationPolicy{}
 	policies["policy1"] = &samplePolicy
 
 	err := checkUnNamespacedPolicies(policies)
@@ -215,7 +215,7 @@ func TestCheckViolationsPerNamespace(t *testing.T) {
 	var roleBindingList = sub.RoleBindingList{
 		Items: items,
 	}
-	var samplePolicySpec = policiesv1alpha1.SamplePolicySpec{
+	var samplePolicySpec = policiesv1alpha1.ConfigurationPolicySpec{
 		MaxRoleBindingUsersPerNamespace:  1,
 		MaxRoleBindingGroupsPerNamespace: 1,
 		MaxClusterRoleBindingUsers:       1,
@@ -249,7 +249,7 @@ func TestConvertPolicyStatusToString(t *testing.T) {
 	compliantDetails["a"] = compliantDetail
 	compliantDetails["b"] = compliantDetail
 	compliantDetails["c"] = compliantDetail
-	samplePolicyStatus := policiesv1alpha1.SamplePolicyStatus{
+	samplePolicyStatus := policiesv1alpha1.ConfigurationPolicyStatus{
 		ComplianceState:   "Compliant",
 		CompliancyDetails: compliantDetails,
 	}
@@ -263,8 +263,8 @@ func TestConvertPolicyStatusToString(t *testing.T) {
 
 func TestDeleteExternalDependency(t *testing.T) {
 	mgr, err = manager.New(cfg, manager.Options{})
-	reconcileSamplePolicy := ReconcileSamplePolicy{client: mgr.GetClient(), scheme: mgr.GetScheme(), recorder: mgr.GetEventRecorderFor("samplepolicy-controller")}
-	reconcileSamplePolicy.deleteExternalDependency(&samplePolicy)
+	reconcileConfigurationPolicy := ReconcileConfigurationPolicy{client: mgr.GetClient(), scheme: mgr.GetScheme(), recorder: mgr.GetEventRecorderFor("samplepolicy-controller")}
+	reconcileConfigurationPolicy.deleteExternalDependency(&samplePolicy)
 }
 
 func TestHandleAddingPolicy(t *testing.T) {

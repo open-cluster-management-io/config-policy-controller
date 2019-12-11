@@ -24,17 +24,17 @@ import (
 
 func GetOpenAPIDefinitions(ref common.ReferenceCallback) map[string]common.OpenAPIDefinition {
 	return map[string]common.OpenAPIDefinition{
-		"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.SamplePolicy":       schema_pkg_apis_policies_v1alpha1_SamplePolicy(ref),
-		"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.SamplePolicySpec":   schema_pkg_apis_policies_v1alpha1_SamplePolicySpec(ref),
-		"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.SamplePolicyStatus": schema_pkg_apis_policies_v1alpha1_SamplePolicyStatus(ref),
+		"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.ConfigurationPolicy":       schema_pkg_apis_policies_v1alpha1_ConfigurationPolicy(ref),
+		"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.ConfigurationPolicySpec":   schema_pkg_apis_policies_v1alpha1_ConfigurationPolicySpec(ref),
+		"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.ConfigurationPolicyStatus": schema_pkg_apis_policies_v1alpha1_ConfigurationPolicyStatus(ref),
 	}
 }
 
-func schema_pkg_apis_policies_v1alpha1_SamplePolicy(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_policies_v1alpha1_ConfigurationPolicy(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "SamplePolicy is the Schema for the samplepolicies API",
+				Description: "ConfigurationPolicy is the Schema for the samplepolicies API",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"kind": {
@@ -58,27 +58,27 @@ func schema_pkg_apis_policies_v1alpha1_SamplePolicy(ref common.ReferenceCallback
 					},
 					"spec": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.SamplePolicySpec"),
+							Ref: ref("github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.ConfigurationPolicySpec"),
 						},
 					},
 					"status": {
 						SchemaProps: spec.SchemaProps{
-							Ref: ref("github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.SamplePolicyStatus"),
+							Ref: ref("github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.ConfigurationPolicyStatus"),
 						},
 					},
 				},
 			},
 		},
 		Dependencies: []string{
-			"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.SamplePolicySpec", "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.SamplePolicyStatus", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
+			"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.ConfigurationPolicySpec", "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1.ConfigurationPolicyStatus", "k8s.io/apimachinery/pkg/apis/meta/v1.ObjectMeta"},
 	}
 }
 
-func schema_pkg_apis_policies_v1alpha1_SamplePolicySpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_policies_v1alpha1_ConfigurationPolicySpec(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "SamplePolicySpec defines the desired state of SamplePolicy",
+				Description: "ConfigurationPolicySpec defines the desired state of ConfigurationPolicy",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"severity": {
@@ -147,11 +147,11 @@ func schema_pkg_apis_policies_v1alpha1_SamplePolicySpec(ref common.ReferenceCall
 	}
 }
 
-func schema_pkg_apis_policies_v1alpha1_SamplePolicyStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
+func schema_pkg_apis_policies_v1alpha1_ConfigurationPolicyStatus(ref common.ReferenceCallback) common.OpenAPIDefinition {
 	return common.OpenAPIDefinition{
 		Schema: spec.Schema{
 			SchemaProps: spec.SchemaProps{
-				Description: "SamplePolicyStatus defines the observed state of SamplePolicy",
+				Description: "ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy",
 				Type:        []string{"object"},
 				Properties: map[string]spec.Schema{
 					"compliant": {

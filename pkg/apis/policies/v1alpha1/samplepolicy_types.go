@@ -52,9 +52,9 @@ type Target struct {
 	Exclude []string `json:"exclude,omitempty"`
 }
 
-// SamplePolicySpec defines the desired state of SamplePolicy
+// ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
 // +k8s:openapi-gen=true
-type SamplePolicySpec struct {
+type ConfigurationPolicySpec struct {
 	Severity                         Severity          `json:"severity,omitempty"`          //low, medium, high
 	RemediationAction                RemediationAction `json:"remediationAction,omitempty"` //enforce, inform
 	NamespaceSelector                Target            `json:"namespaceSelector,omitempty"` // selecting a list of namespaces where the policy applies
@@ -65,34 +65,34 @@ type SamplePolicySpec struct {
 	MaxClusterRoleBindingGroups      int               `json:"maxClusterRoleBindingGroups,omitempty"`
 }
 
-// SamplePolicyStatus defines the observed state of SamplePolicy
+// ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
 // +k8s:openapi-gen=true
-type SamplePolicyStatus struct {
+type ConfigurationPolicyStatus struct {
 	ComplianceState   ComplianceState                `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnkownCompliancy
 	CompliancyDetails map[string]map[string][]string `json:"compliancyDetails,omitempty"` // reason for non-compliancy
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// SamplePolicy is the Schema for the samplepolicies API
+// ConfigurationPolicy is the Schema for the samplepolicies API
 // +k8s:openapi-gen=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:path=samplepolicies,scope=Namespaced
-type SamplePolicy struct {
+type ConfigurationPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   SamplePolicySpec   `json:"spec,omitempty"`
-	Status SamplePolicyStatus `json:"status,omitempty"`
+	Spec   ConfigurationPolicySpec   `json:"spec,omitempty"`
+	Status ConfigurationPolicyStatus `json:"status,omitempty"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
-// SamplePolicyList contains a list of SamplePolicy
-type SamplePolicyList struct {
+// ConfigurationPolicyList contains a list of ConfigurationPolicy
+type ConfigurationPolicyList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []SamplePolicy `json:"items"`
+	Items           []ConfigurationPolicy `json:"items"`
 }
 
 // Policy is a specification for a Policy resource
@@ -114,5 +114,5 @@ type PolicyList struct {
 }
 
 func init() {
-	SchemeBuilder.Register(&SamplePolicy{}, &SamplePolicyList{})
+	SchemeBuilder.Register(&ConfigurationPolicy{}, &ConfigurationPolicyList{})
 }
