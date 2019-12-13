@@ -38,7 +38,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
+
 	//testclient "k8s.io/client-go/kubernetes/fake"
+
+	"k8s.io/client-go/restmapper"
 )
 
 var log = logf.Log.WithName("controller_configurationpolicy")
@@ -230,6 +233,7 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 			if addViolationCount(policy, userViolationCount, GroupViolationCount, namespace) {
 				plcToUpdateMap[policy.Name] = policy
 			}
+			handlePolicyTemplates(policy)
 			checkComplianceBasedOnDetails(policy)
 		}
 		err := checkUnNamespacedPolicies(plcToUpdateMap)
@@ -255,6 +259,34 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 			return
 		}
 	}
+}
+
+func handlePolicyTemplates(plc *policiesv1alpha1.ConfigurationPolicy) {
+	if reflect.DeepEqual(plc.Labels["ignore"], "true") {
+		plc.Status = policiesv1alpha1.PolicyStatus{
+			ComplianceState: policyv1alpha1.UnknownCompliancy,
+			Valid:           true,
+			Message:         "policy is part of a compliance that is being ignored now",
+			Reason:          "ignored",
+			State:           "Unknown",
+		}
+		return
+	}
+	namespace := plc.Namespace
+	// relevantNamespaces := getPolicyNamespaces(ctx, plc)
+	for indx, policyT := range plc.Spec.PolicyTemplates {
+		glog.V(5).Infof("Handling Policy template [%v] from Policy `%v` in namespace `%v`", indx, plc.Name, namespace)
+		handlePolicyObjects(policy, namespace, KubeClient)
+	}
+}
+
+func handlePolicyObjects(policy *policiesv1alpha1.ConfigurationPolicy, ns string, kclient *kubernetes.Interface) {
+	dd := (*kclient).Discovery()
+	apigroups, err := restmapper.GetAPIGroupResources(dd)
+	if err != nil {
+		glog.Fatal(err)
+	}
+	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
 }
 
 func ensureDefaultLabel(instance *policiesv1alpha1.ConfigurationPolicy) (updateNeeded bool) {

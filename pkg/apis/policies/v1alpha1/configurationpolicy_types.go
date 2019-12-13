@@ -15,7 +15,9 @@
 package v1alpha1
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
 // RemediationAction : enforce or inform
@@ -45,6 +47,23 @@ const (
 	// UnknownCompliancy is an ComplianceState
 	UnknownCompliancy ComplianceState = "UnknownCompliancy"
 )
+
+// Condition is the base struct for representing resource conditions
+type Condition struct {
+	// Type of condition, e.g Complete or Failed.
+	Type string `json:"type"`
+	// Status of the condition, one of True, False, Unknown.
+	Status corev1.ConditionStatus `json:"status,omitempty" protobuf:"bytes,12,rep,name=status"`
+	// The last time the condition transitioned from one status to another.
+	// +optional
+	LastTransitionTime metav1.Time `json:"lastTransitionTime,omitempty" protobuf:"bytes,3,opt,name=lastTransitionTime"`
+	// The reason for the condition's last transition.
+	// +optional
+	Reason string `json:"reason,omitempty" protobuf:"bytes,4,opt,name=reason"`
+	// A human readable message indicating details about the transition.
+	// +optional
+	Message string `json:"message,omitempty" protobuf:"bytes,5,opt,name=message"`
+}
 
 // Target defines the list of namespaces to include/exclude
 type Target struct {
@@ -111,6 +130,30 @@ type PolicyList struct {
 	metav1.ListMeta `json:"metadata"`
 
 	Items []Policy `json:"items"`
+}
+
+//PolicyTemplate template for custom security policy
+type PolicyTemplate struct {
+	ObjectDefinition runtime.RawExtension `json:"objectDefinition,omitempty"`
+	//Status shows the individual status of each template within a policy
+	Status TemplateStatus `json:"status,omitempty" protobuf:"bytes,12,rep,name=status"`
+}
+
+//TemplateStatus hold the status result
+type TemplateStatus struct {
+	ComplianceState ComplianceState `json:"Compliant,omitempty"` // Compliant, NonCompliant, UnkownCompliancy
+	// +optional
+	// +patchMergeKey=type
+	// +patchStrategy=merge
+	Conditions []Condition `json:"conditions,omitempty"`
+
+	Validity Validity `json:"Validity,omitempty"` // a template can be invalid if it has conflicting roles
+}
+
+//Validity describes if it is valid or not
+type Validity struct {
+	Valid  *bool  `json:"valid,omitempty"`
+	Reason string `json:"reason,omitempty"`
 }
 
 func init() {
