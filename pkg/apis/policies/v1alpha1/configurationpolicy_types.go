@@ -82,14 +82,41 @@ type ConfigurationPolicySpec struct {
 	MaxRoleBindingGroupsPerNamespace int               `json:"maxRoleBindingGroupsPerNamespace,omitempty"`
 	MaxClusterRoleBindingUsers       int               `json:"maxClusterRoleBindingUsers,omitempty"`
 	MaxClusterRoleBindingGroups      int               `json:"maxClusterRoleBindingGroups,omitempty"`
+	PolicyTemplates                  []*PolicyTemplate `json:"policy-templates,omitempty"`
 }
 
-// ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
-// +k8s:openapi-gen=true
+// ConfigurationPolicyStatus is the status for a Policy resource
 type ConfigurationPolicyStatus struct {
-	ComplianceState   ComplianceState                `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnkownCompliancy
-	CompliancyDetails map[string]map[string][]string `json:"compliancyDetails,omitempty"` // reason for non-compliancy
+	ComplianceState ComplianceState `json:"compliant,omitempty"` // Compliant, NonCompliant, UnkownCompliancy
+
+	Valid bool `json:"valid,omitempty"` // a policy can be invalid if it has conflicting roles
+
+	// A human readable message indicating details about why the policy is in this state.
+	// +optional
+	Message string `json:"message,omitempty"`
+	// A brief CamelCase message indicating details about why the policy is in this state. e.g. 'enforced'
+	// +optional
+	Reason string `json:"reason,omitempty"`
+
+	State ResourceState `json:"state,omitempty"`
+
+	Status            ComplianceMap `json:"status,omitempty"`
+	PlacementPolicies []string      `json:"placementPolicies,omitempty"`
+	PlacementBindings []string      `json:"placementBindings,omitempty"`
 }
+
+//CompliancePerClusterStatus contains aggregate status of other policies in cluster
+type CompliancePerClusterStatus struct {
+	AggregatePolicyStatus map[string]*ConfigurationPolicyStatus `json:"aggregatePoliciesStatus,omitempty"`
+	ComplianceState       ComplianceState                       `json:"compliant,omitempty"`
+	ClusterName           string                                `json:"clustername,omitempty"`
+}
+
+//ComplianceMap map to hold CompliancePerClusterStatus objects
+type ComplianceMap map[string]*CompliancePerClusterStatus
+
+//ResourceState genric description of a state
+type ResourceState string
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 
