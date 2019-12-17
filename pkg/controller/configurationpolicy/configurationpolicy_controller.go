@@ -288,11 +288,11 @@ func handlePolicyTemplates(plc *policyv1alpha1.ConfigurationPolicy) {
 	// relevantNamespaces := getPolicyNamespaces(ctx, plc)
 	for indx, policyT := range plc.Spec.PolicyTemplates {
 		glog.V(5).Infof("Handling Policy template [%v] from Policy `%v` in namespace `%v`", indx, plc.Name, namespace)
-		handlePolicyObjects(policyT, plc, namespace, KubeClient)
+		handlePolicyObjects(policyT, plc, namespace, KubeClient, indx)
 	}
 }
 
-func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv1alpha1.ConfigurationPolicy, ns string, kclient *kubernetes.Interface) {
+func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv1alpha1.ConfigurationPolicy, ns string, kclient *kubernetes.Interface, index int) {
 	namespaced := true
 	updateNeeded := false
 
@@ -313,6 +313,11 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 		Group:   mapping.GroupVersionKind.Group,
 		Version: mapping.GroupVersionKind.Version,
 	}
+	gvr := schema.GroupVersionResource{
+		Group:    mapping.GroupVersionKind.Group,
+		Version:  mapping.GroupVersionKind.Version,
+		Resource: mapping.GroupVersionKind.Kind,
+	}
 	dclient, err := dynamic.NewForConfig(restconfig)
 	if err != nil {
 		glog.Fatal(err)
@@ -321,7 +326,7 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
 		glog.Errorf(decodeErr)
 		policy.Status.Message = decodeErr
-		updatePolicy(policy, 0, &dclient, &mapping)
+		updatePolicy(policy, 0, &dclient, &gvr)
 		return
 	}
 
@@ -351,7 +356,7 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 		policyT.Status.Conditions = AppendCondition(policyT.Status.Conditions, cond, gvk.GroupKind().Kind, false)
 		if updateNeeded {
 			recorder.Event(policy, "Warning", cond.Reason, cond.Message)
-			addForUpdate(policy)
+			addForUpdate(policy, 0, &dclient, &gvr)
 		}
 		return
 	}
@@ -382,22 +387,13 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 	}
 	unstruct.Object = blob.(map[string]interface{}) //set object to the content of the blob after Unmarshalling
 
-	//namespace := "default"
 	name := ""
 	if md, ok := unstruct.Object["metadata"]; ok {
 
 		metadata := md.(map[string]interface{})
 		if objectName, ok := metadata["name"]; ok {
-			//glog.V(9).Infof("metadata[namespace] exists")
 			name = objectName.(string)
 		}
-		/*
-			if objectns, ok := metadata["namespace"]; ok {
-				//glog.V(9).Infof("metadata[namespace] exists")
-				namespace = objectns.(string)
-			}
-		*/
-
 	}
 
 	exists := objectExists(namespaced, namespace, name, rsrc, unstruct, dclient)
@@ -458,19 +454,15 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 	}
 }
 
-func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *kubernetes.Interface) error {
+func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *dynamic.Interface, gvr *schema.GroupVersionResource) error {
 	setStatus(plc)
 	copy := plc.DeepCopy()
 
 	var tmp policyv1alpha1.ConfigurationPolicy
 	tmp = *plc
 
-	crdClient := dclient.Resource(schema.GroupVersionResource{
-		Group:    gv.Group,
-		Version:  gv.Version,
-		Resource: "oof",
-	})
-	err := ResClient.Get(&tmp)
+	crdClient := dclient.Resource(*gvr)
+	err := crdClient.Get(&tmp)
 	if err != nil {
 		glog.Errorf("Error fetching policy %v, from the K8s API server the error is: %v", plc.Name, err)
 	}
@@ -482,7 +474,7 @@ func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *k
 		copy.ResourceVersion = tmp.ResourceVersion
 	}
 
-	err = ResClient.Update(copy) //changed from copy
+	err = crdClient.Update(copy) //changed from copy
 	if err != nil {
 		glog.Errorf("Error update policy %v, the error is: %v", plc.Name, err)
 	}
@@ -524,6 +516,25 @@ func AppendCondition(conditions []policyv1alpha1.Condition, newCond *policyv1alp
 	}
 	conditions[lastIndex-1] = *newCond
 	return conditions
+}
+
+func addForUpdate(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *dynamic.Interface, gvr *schema.GroupVersionResource) {
+	compliant := true
+	for _, policyT := range policy.Spec.PolicyTemplates {
+		if policyT.Status.ComplianceState == policyv1alpha1.NonCompliant {
+			compliant = false
+		}
+	}
+	if compliant {
+		policy.Status.ComplianceState = policyv1alpha1.Compliant
+	} else {
+		policy.Status.ComplianceState = policyv1alpha1.NonCompliant
+	}
+
+	err := updatePolicy(policy, retry, dclient, gvr)
+	if err != nil {
+		time.Sleep(100) //giving enough time to sync
+	}
 }
 
 func ensureDefaultLabel(instance *policyv1alpha1.ConfigurationPolicy) (updateNeeded bool) {
@@ -777,6 +788,19 @@ func (r *ReconcileConfigurationPolicy) deleteExternalDependency(instance *policy
 	// Ensure that delete implementation is idempotent and safe to invoke
 	// multiple types for same object.
 	return nil
+}
+
+//=================================================================
+// Helper function to join strings
+func join(strs ...string) string {
+	var result string
+	if strs[0] == "" {
+		return strs[len(strs)-1]
+	}
+	for _, str := range strs {
+		result += str
+	}
+	return result
 }
 
 //=================================================================
