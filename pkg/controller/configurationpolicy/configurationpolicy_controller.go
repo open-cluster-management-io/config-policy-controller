@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang/glog"
@@ -64,7 +65,11 @@ var recorder record.EventRecorder
 
 var config *rest.Config
 
-var ResClient *resourceClient.ResourceClient
+var syncAlertTargets bool
+
+var CemWebhookURL string
+
+var clusterName string
 
 // KubeClient a k8s client used for k8s native resources
 var KubeClient *kubernetes.Interface
@@ -117,7 +122,8 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 }
 
 // Initialize to initialize some controller variables
-func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string) {
+func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string,
+	syncAlert bool, cemurl string, clustName string) {
 	KubeClient = kClient
 	PlcChan = make(chan *policyv1alpha1.ConfigurationPolicy, 100) //buffering up to 100 policies for update
 
@@ -127,6 +133,14 @@ func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr mana
 
 	recorder, _ = common.CreateRecorder(*KubeClient, "policy-controller")
 	config = kubeconfig
+	syncAlertTargets = syncAlert
+	CemWebhookURL = cemurl
+
+	if clustName == "" {
+		clusterName = "mcm-managed-cluster"
+	} else {
+		clusterName = clustName
+	}
 }
 
 // blank assignment to verify that ReconcileConfigurationPolicy implements reconcile.Reconciler
@@ -396,11 +410,11 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 		}
 	}
 
-	exists := objectExists(namespaced, namespace, name, rsrc, unstruct, dclient)
+	exists := objectExists(namespaced, ns, name, rsrc, unstruct, dclient)
 
 	if !exists {
 		// policy object doesn't exist let's create it
-		created, err := createObject(namespaced, namespace, name, rsrc, unstruct, dclient, policy)
+		created, err := createObject(namespaced, ns, name, rsrc, unstruct, dclient, policy)
 		if !created {
 			message := fmt.Sprintf("%v `%v` is missing, and cannot be created, reason: `%v`", rsrc.Resource, name, err)
 			cond := &policyv1alpha1.Condition{
@@ -420,7 +434,7 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 				updateNeeded = true
 			}
 			if updateNeeded {
-				addForUpdate(policy)
+				addForUpdate(policy, 0, &dclient, &gvr)
 			}
 		}
 		if err != nil {
@@ -428,7 +442,7 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 
 		}
 	} else {
-		updated, msg := updateTemplate(namespaced, namespace, name, rsrc, unstruct, dclient, unstruct.Object["kind"].(string), policy)
+		updated, msg := updateTemplate(namespaced, ns, name, rsrc, unstruct, dclient, unstruct.Object["kind"].(string), policy)
 		if !updated && msg != "" {
 			cond := &policyv1alpha1.Condition{
 				Type:               "violation",
@@ -447,11 +461,191 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 				updateNeeded = true
 			}
 			if updateNeeded {
-				addForUpdate(policy)
+				addForUpdate(policy, 0, &dclient, &gvr)
 			}
 			glog.Errorf(msg)
 		}
 	}
+}
+
+func checkPolicyMessageSimilarity(policyT *policyv1alpha1.PolicyTemplate, cond *policyv1alpha1.Condition) bool {
+	same := true
+	lastIndex := len(policyT.Status.Conditions)
+	if lastIndex > 0 {
+		oldCond := policyT.Status.Conditions[lastIndex-1]
+		if !IsSimilarToLastCondition(oldCond, *cond) {
+			// policyT.Status.Conditions = AppendCondition(policyT.Status.Conditions, cond, "policy", false)
+			same = false
+		}
+	} else {
+		// policyT.Status.Conditions = AppendCondition(policyT.Status.Conditions, cond, "policy", false)
+		same = false
+	}
+	return same
+}
+
+func objectExists(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface) (result bool) {
+	exists := false
+	if !namespaced {
+		res := dclient.Resource(rsrc)
+		_, err := res.Get(name, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				glog.V(6).Infof("response to retrieve a non namespaced object `%v` from the api-server: %v", name, err)
+				exists = false
+				return exists
+			}
+			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
+
+		} else {
+			exists = true
+			glog.V(6).Infof("object `%v` retrieved from the api server\n", name)
+		}
+	} else {
+		res := dclient.Resource(rsrc).Namespace(namespace)
+		_, err := res.Get(name, metav1.GetOptions{})
+		if err != nil {
+			if errors.IsNotFound(err) {
+				exists = false
+				glog.V(6).Infof("response to retrieve a namespaced object `%v` from the api-server: %v", name, err)
+				return exists
+			}
+			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
+		} else {
+			exists = true
+			glog.V(6).Infof("object `%v` retrieved from the api server\n", name)
+		}
+	}
+	return exists
+}
+
+func createObject(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface, parent *policyv1alpha1.ConfigurationPolicy) (result bool, erro error) {
+	var err error
+	created := false
+	// set ownerReference for mutaionPolicy and override remediationAction
+	if parent != nil {
+		plcOwnerReferences := *metav1.NewControllerRef(parent, schema.GroupVersionKind{
+			Group:   policyv1alpha1.SchemeGroupVersion.Group,
+			Version: policyv1alpha1.SchemeGroupVersion.Version,
+			Kind:    "Policy",
+		})
+		labels := unstruct.GetLabels()
+		if labels == nil {
+			labels = map[string]string{"cluster-namespace": namespace}
+		} else {
+			labels["cluster-namespace"] = namespace
+		}
+		unstruct.SetLabels(labels)
+		unstruct.SetOwnerReferences([]metav1.OwnerReference{plcOwnerReferences})
+		if spec, ok := unstruct.Object["spec"]; ok {
+			specObject := spec.(map[string]interface{})
+			if _, ok := specObject["remediationAction"]; ok {
+				specObject["remediationAction"] = parent.Spec.RemediationAction
+			}
+		}
+	}
+
+	glog.V(6).Infof("createObject:  `%s`", unstruct)
+
+	if !namespaced {
+		res := dclient.Resource(rsrc)
+
+		_, err = res.Create(&unstruct, metav1.CreateOptions{})
+		if err != nil {
+			if errors.IsAlreadyExists(err) {
+				created = true
+				glog.V(9).Infof("%v\n", err.Error())
+			} else {
+				glog.Errorf("Error creating the object `%v`, the error is `%v`", name, errors.ReasonForError(err))
+			}
+		} else {
+			created = true
+			glog.V(4).Infof("Resource `%v` created\n", name)
+		}
+	} else {
+		res := dclient.Resource(rsrc).Namespace(namespace)
+		_, err = res.Create(&unstruct, metav1.CreateOptions{})
+		if err != nil {
+			if errors.IsAlreadyExists(err) {
+				created = true
+				glog.V(9).Infof("%v\n", err.Error())
+			} else {
+				glog.Errorf("Error creating the object `%v`, the error is `%v`", name, errors.ReasonForError(err))
+			}
+		} else {
+			created = true
+			glog.V(4).Infof("Resource `%v` created\n", name)
+
+		}
+	}
+	return created, err
+}
+
+func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface, typeStr string, parent *policyv1alpha1.ConfigurationPolicy) (success bool, message string) {
+	if namespaced {
+		res := dclient.Resource(rsrc).Namespace(namespace)
+		existingObj, err := res.Get(name, metav1.GetOptions{})
+		if err != nil {
+			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
+		} else {
+			newObj := unstruct.Object["spec"]
+			oldObj := existingObj.UnstructuredContent()["spec"]
+			if parent != nil {
+				// overwrite remediation from parent
+				newObj.(map[string]interface{})["remediationAction"] = parent.Spec.RemediationAction
+			}
+			updateNeeded := !(reflect.DeepEqual(newObj, oldObj))
+			mapMtx := sync.RWMutex{}
+			mapMtx.Lock()
+			existingObj.UnstructuredContent()["spec"] = newObj
+			mapMtx.Unlock()
+			if updateNeeded {
+				glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
+				_, err = res.Update(existingObj, metav1.UpdateOptions{})
+				if errors.IsNotFound(err) {
+					message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
+					return false, message
+				}
+				if err != nil {
+					message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
+					return false, message
+				}
+				glog.V(4).Infof("Resource `%v` updated\n", name)
+				return true, ""
+			}
+		}
+	} else {
+		res := dclient.Resource(rsrc)
+		existingObj, err := res.Get(name, metav1.GetOptions{})
+		if err != nil {
+			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
+		} else {
+			newObj := unstruct.Object["spec"]
+			oldObj := existingObj.UnstructuredContent()["spec"]
+			updateNeeded := !(reflect.DeepEqual(newObj, oldObj))
+			oldMap := existingObj.UnstructuredContent()["metadata"].(map[string]interface{})
+			resVer := oldMap["resourceVersion"]
+			mapMtx := sync.RWMutex{}
+			mapMtx.Lock()
+			unstruct.Object["metadata"].(map[string]interface{})["resourceVersion"] = resVer
+			mapMtx.Unlock()
+			if updateNeeded {
+				glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
+				_, err = res.Update(&unstruct, metav1.UpdateOptions{})
+				if errors.IsNotFound(err) {
+					message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
+					return false, message
+				}
+				if err != nil {
+					message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
+					return false, message
+				}
+				glog.V(4).Infof("Resource `%v` updated\n", name)
+				return true, ""
+			}
+		}
+	}
+	return false, ""
 }
 
 func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *dynamic.Interface, gvr *schema.GroupVersionResource) error {
@@ -461,20 +655,17 @@ func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *d
 	var tmp policyv1alpha1.ConfigurationPolicy
 	tmp = *plc
 
-	crdClient := dclient.Resource(*gvr)
-	err := crdClient.Get(&tmp)
+	crdClient := (*dclient).Resource(*gvr)
+	_, err := crdClient.Namespace(tmp.Namespace).Get(tmp.Name, metav1.GetOptions{})
 	if err != nil {
 		glog.Errorf("Error fetching policy %v, from the K8s API server the error is: %v", plc.Name, err)
 	}
 
-	if !hasValidRules(*copy) {
-		return fmt.Errorf("invalid number of verbs in the rules of policy: `%v`", copy.Name)
-	}
 	if copy.ResourceVersion != tmp.ResourceVersion {
 		copy.ResourceVersion = tmp.ResourceVersion
 	}
 
-	err = crdClient.Update(copy) //changed from copy
+	_, err = crdClient.Namespace(tmp.Namespace).Update(newConfigurationPolicy(*copy), metav1.UpdateOptions{})
 	if err != nil {
 		glog.Errorf("Error update policy %v, the error is: %v", plc.Name, err)
 	}
@@ -518,7 +709,71 @@ func AppendCondition(conditions []policyv1alpha1.Condition, newCond *policyv1alp
 	return conditions
 }
 
-func addForUpdate(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *dynamic.Interface, gvr *schema.GroupVersionResource) {
+//IsSimilarToLastCondition checks the diff, so that we don't keep updating with the same info
+func IsSimilarToLastCondition(oldCond policyv1alpha1.Condition, newCond policyv1alpha1.Condition) bool {
+	if reflect.DeepEqual(oldCond.Status, newCond.Status) &&
+		reflect.DeepEqual(oldCond.Reason, newCond.Reason) &&
+		reflect.DeepEqual(oldCond.Message, newCond.Message) &&
+		reflect.DeepEqual(oldCond.Type, newCond.Type) {
+		return true
+	}
+	return false
+}
+
+func triggerEvent(cond policyv1alpha1.Condition, resourceType string, resolved []bool) (res string, err error) {
+
+	resolutionResult := false
+	eventType := "notification"
+	eventSeverity := "Normal"
+	if len(resolved) > 0 {
+		resolutionResult = resolved[0]
+	}
+	if !resolutionResult {
+		eventSeverity = "Critical"
+		eventType = "violation"
+	}
+	WebHookURL, err := GetCEMWebhookURL()
+	if err != nil {
+		return "", err
+	}
+	event := common.CEMEvent{
+		Resource: common.Resource{
+			Name:    "compliance-issue",
+			Cluster: clusterName,
+			Type:    resourceType,
+		},
+		Summary:    cond.Message,
+		Severity:   eventSeverity,
+		Timestamp:  cond.LastTransitionTime.String(),
+		Resolution: resolutionResult,
+		Sender: common.Sender{
+			Name:    "MCM Policy Controller",
+			Cluster: clusterName,
+			Type:    "K8s controller",
+		},
+		Type: common.Type{
+			StatusOrThreshold: cond.Reason,
+			EventType:         eventType,
+		},
+	}
+	payload, err := json.Marshal(event)
+	if err != nil {
+		return "", err
+	}
+	result, err := common.PostEvent(WebHookURL, payload)
+	return result, err
+}
+
+// GetCEMWebhookURL populate the webhook value from a CRD
+func GetCEMWebhookURL() (url string, err error) {
+
+	if CemWebhookURL == "" {
+		return "", fmt.Errorf("undefined CEM webhook: %s", CemWebhookURL)
+	}
+	return CemWebhookURL, nil
+}
+
+func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy, retry int, dclient *dynamic.Interface, gvr *schema.GroupVersionResource) {
 	compliant := true
 	for _, policyT := range policy.Spec.PolicyTemplates {
 		if policyT.Status.ComplianceState == policyv1alpha1.NonCompliant {
@@ -739,6 +994,21 @@ func updatePolicyStatus(policies map[string]*policyv1alpha1.ConfigurationPolicy)
 	return nil, nil
 }
 
+func setStatus(policy *policyv1alpha1.ConfigurationPolicy) {
+	compliant := true
+	for _, policyT := range policy.Spec.PolicyTemplates {
+
+		if policyT.Status.ComplianceState == policyv1alpha1.NonCompliant {
+			compliant = false
+		}
+	}
+	if compliant {
+		policy.Status.ComplianceState = policyv1alpha1.Compliant
+	} else {
+		policy.Status.ComplianceState = policyv1alpha1.NonCompliant
+	}
+}
+
 func getContainerID(pod corev1.Pod, containerName string) string {
 	for _, containerStatus := range pod.Status.ContainerStatuses {
 		if containerStatus.Name == containerName {
@@ -776,6 +1046,17 @@ func handleAddingPolicy(plc *policyv1alpha1.ConfigurationPolicy) error {
 		availablePolicies.AddObject(ns, plc)
 	}
 	return err
+}
+
+func newConfigurationPolicy(plc *policyv1alpha1.ConfigurationPolicy) *unstructured.Unstructured {
+	return *unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"kind":       plc.Kind,
+			"apiVersion": plc.APIVersion,
+			"metadata":   plc.GetObjectMeta(),
+			"spec":       plc.Spec,
+		},
+	}
 }
 
 //=================================================================
@@ -862,14 +1143,14 @@ func createParentPolicy(instance *policyv1alpha1.ConfigurationPolicy) policyv1al
 	if ns == "" {
 		ns = NamespaceWatched
 	}
-	plc := policyv1alpha1.Policy{
+	plc := policyv1alpha1.ConfigurationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      instance.OwnerReferences[0].Name,
 			Namespace: ns, // we are making an assumption here that the parent policy is in the watched-namespace passed as flag
 			UID:       instance.OwnerReferences[0].UID,
 		},
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "Policy",
+			Kind:       "ConfigurationPolicy",
 			APIVersion: " policies.ibm.com/v1alpha1",
 		},
 	}
@@ -895,4 +1176,10 @@ func convertPolicyStatusToString(plc *policyv1alpha1.ConfigurationPolicy) (resul
 		result += fmt.Sprintf("; %s", strings.Join(v, ", "))
 	}
 	return result
+}
+
+func recoverFlow() {
+	if r := recover(); r != nil {
+		fmt.Println("ALERT!!!! -> recovered from ", r)
+	}
 }
