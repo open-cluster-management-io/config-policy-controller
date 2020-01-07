@@ -25,9 +25,11 @@ import (
 	"github.com/golang/glog"
 	policyv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
 	common "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/common"
+	alerttargetcontroller "github.ibm.com/OMaaS/alerttargetcontroller/pkg/apis/alerttargetcontroller/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
@@ -123,7 +125,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 
 // Initialize to initialize some controller variables
 func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string,
-	syncAlert bool, cemurl string, clustName string) {
+	syncAlert bool, clustName string) {
 	KubeClient = kClient
 	PlcChan = make(chan *policyv1alpha1.ConfigurationPolicy, 100) //buffering up to 100 policies for update
 
@@ -134,7 +136,6 @@ func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr mana
 	recorder, _ = common.CreateRecorder(*KubeClient, "policy-controller")
 	config = kubeconfig
 	syncAlertTargets = syncAlert
-	CemWebhookURL = cemurl
 
 	if clustName == "" {
 		clusterName = "mcm-managed-cluster"
@@ -200,7 +201,7 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 				return reconcile.Result{Requeue: true}, nil
 			}
 		}
-		//instance.Status.CompliancyDetails = nil //reset CompliancyDetails
+		instance.Status.CompliancyDetails = nil //reset CompliancyDetails
 		err := handleAddingPolicy(instance)
 		if err != nil {
 			glog.V(3).Infof("Failed to handleAddingPolicy")
@@ -290,11 +291,8 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 func handlePolicyTemplates(plc *policyv1alpha1.ConfigurationPolicy) {
 	if reflect.DeepEqual(plc.Labels["ignore"], "true") {
 		plc.Status = policyv1alpha1.ConfigurationPolicyStatus{
-			ComplianceState: policyv1alpha1.UnknownCompliancy,
-			Valid:           true,
-			Message:         "policy is part of a compliance that is being ignored now",
-			Reason:          "ignored",
-			State:           "Unknown",
+			ComplianceState:   policyv1alpha1.UnknownCompliancy,
+			CompliancyDetails: map[string]map[string][]string{},
 		}
 		return
 	}
@@ -339,7 +337,7 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 	if dErr != nil {
 		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
 		glog.Errorf(decodeErr)
-		policy.Status.Message = decodeErr
+		//policy.Status.Message = decodeErr
 		updatePolicy(policy, 0, &dclient, &gvr)
 		return
 	}
@@ -665,7 +663,7 @@ func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *d
 		copy.ResourceVersion = tmp.ResourceVersion
 	}
 
-	_, err = crdClient.Namespace(tmp.Namespace).Update(newConfigurationPolicy(*copy), metav1.UpdateOptions{})
+	_, err = crdClient.Namespace(tmp.Namespace).Update(newConfigurationPolicy(copy), metav1.UpdateOptions{})
 	if err != nil {
 		glog.Errorf("Error update policy %v, the error is: %v", plc.Name, err)
 	}
@@ -732,10 +730,7 @@ func triggerEvent(cond policyv1alpha1.Condition, resourceType string, resolved [
 		eventSeverity = "Critical"
 		eventType = "violation"
 	}
-	WebHookURL, err := GetCEMWebhookURL()
-	if err != nil {
-		return "", err
-	}
+	WebHookURL := GetCEMWebhookURL(NamespaceWatched, clusterName, config)
 	event := common.CEMEvent{
 		Resource: common.Resource{
 			Name:    "compliance-issue",
@@ -765,12 +760,55 @@ func triggerEvent(cond policyv1alpha1.Condition, resourceType string, resolved [
 }
 
 // GetCEMWebhookURL populate the webhook value from a CRD
-func GetCEMWebhookURL() (url string, err error) {
+func GetCEMWebhookURL(namespace, clusterName string, config *rest.Config) (url string) {
 
-	if CemWebhookURL == "" {
-		return "", fmt.Errorf("undefined CEM webhook: %s", CemWebhookURL)
+	alertClient, err := rest.UnversionedRESTClientFor(config)
+	if err != nil {
+		return ""
 	}
-	return CemWebhookURL, nil
+	at := createAlertTargetInstance(namespace, clusterName)
+	atmeta, err := meta.Accessor(at)
+	if err != nil {
+		return ""
+	}
+	err = alertClient.Get().
+		Name(atmeta.GetName()).
+		Namespace(atmeta.GetNamespace()).
+		Resource("alerttargets").
+		Body(at).
+		Do().
+		Into(&at)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			glog.Errorf("The CRD instance `%v` of the alertTarget is not found, therefore no events will be triggered", fmt.Sprintf("%s-%s", namespace, clusterName))
+		} else {
+			glog.Errorf("The CRD instance `%v` of the alertTarget is not accessible, therefore no events will be triggered", fmt.Sprintf("%s-%s", namespace, clusterName))
+		}
+		return ""
+	}
+
+	url = extractURL(at)
+
+	return url
+}
+
+func extractURL(instance alerttargetcontroller.AlertTarget) string {
+	return instance.Spec.ComplianceWebhook
+}
+
+func createAlertTargetInstance(namespace, clusterName string) (instance alerttargetcontroller.AlertTarget) {
+	atName := fmt.Sprintf("%s-%s", namespace, clusterName)
+	at := alerttargetcontroller.AlertTarget{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "AlertTarget",
+			APIVersion: "v1alpha1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      atName,
+			Namespace: namespace,
+		},
+	}
+	return at
 }
 
 func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy, retry int, dclient *dynamic.Interface, gvr *schema.GroupVersionResource) {
@@ -1049,7 +1087,7 @@ func handleAddingPolicy(plc *policyv1alpha1.ConfigurationPolicy) error {
 }
 
 func newConfigurationPolicy(plc *policyv1alpha1.ConfigurationPolicy) *unstructured.Unstructured {
-	return *unstructured.Unstructured{
+	return &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"kind":       plc.Kind,
 			"apiVersion": plc.APIVersion,
@@ -1138,7 +1176,7 @@ func createParentPolicyEvent(instance *policyv1alpha1.ConfigurationPolicy) {
 		convertPolicyStatusToString(instance))
 }
 
-func createParentPolicy(instance *policyv1alpha1.ConfigurationPolicy) policyv1alpha1.Policy {
+func createParentPolicy(instance *policyv1alpha1.ConfigurationPolicy) policyv1alpha1.ConfigurationPolicy {
 	ns := common.ExtractNamespaceLabel(instance)
 	if ns == "" {
 		ns = NamespaceWatched

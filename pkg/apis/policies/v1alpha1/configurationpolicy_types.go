@@ -87,22 +87,8 @@ type ConfigurationPolicySpec struct {
 
 // ConfigurationPolicyStatus is the status for a Policy resource
 type ConfigurationPolicyStatus struct {
-	ComplianceState ComplianceState `json:"compliant,omitempty"` // Compliant, NonCompliant, UnkownCompliancy
-
-	Valid bool `json:"valid,omitempty"` // a policy can be invalid if it has conflicting roles
-
-	// A human readable message indicating details about why the policy is in this state.
-	// +optional
-	Message string `json:"message,omitempty"`
-	// A brief CamelCase message indicating details about why the policy is in this state. e.g. 'enforced'
-	// +optional
-	Reason string `json:"reason,omitempty"`
-
-	State ResourceState `json:"state,omitempty"`
-
-	Status            ComplianceMap `json:"status,omitempty"`
-	PlacementPolicies []string      `json:"placementPolicies,omitempty"`
-	PlacementBindings []string      `json:"placementBindings,omitempty"`
+	ComplianceState   ComplianceState                `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnkownCompliancy
+	CompliancyDetails map[string]map[string][]string `json:"compliancyDetails,omitempty"` // reason for non-compliancy
 }
 
 //CompliancePerClusterStatus contains aggregate status of other policies in cluster
