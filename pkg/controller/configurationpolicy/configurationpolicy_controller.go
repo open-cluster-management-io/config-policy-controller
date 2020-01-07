@@ -789,6 +789,7 @@ func GetCEMWebhookURL(namespace, clusterName string, config *rest.Config) (url s
 
 	url = extractURL(at)
 
+	glog.Infof("CEM Webhook URL found: %s", url)
 	return url
 }
 

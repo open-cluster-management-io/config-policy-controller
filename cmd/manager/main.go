@@ -63,6 +63,7 @@ func printVersion() {
 func main() {
 	var namespace, eventOnParent, clustername string
 	var frequency uint
+	var alertTarget bool
 	// Add the zap logger flag set to the CLI. The flag set must
 	// be added before calling pflag.Parse().
 	pflag.CommandLine.AddFlagSet(zap.FlagSet())
@@ -75,6 +76,7 @@ func main() {
 	pflag.UintVar(&frequency, "update-frequency", 10, "The status update frequency (in seconds) of a mutation policy")
 	pflag.StringVar(&eventOnParent, "parent-event", "ifpresent", "to also send status events on parent policy. options are: yes/no/ifpresent")
 	pflag.StringVar(&clustername, "cluster-name", "mcm-managed-cluster", "Name of the cluster")
+	pflag.BoolVar(&alertTarget, "alert-target", false, "synchronize AlertTarget instance")
 
 	pflag.Parse()
 
@@ -163,7 +165,7 @@ func main() {
 	// Initialize some variables
 	var generatedClient kubernetes.Interface = kubernetes.NewForConfigOrDie(mgr.GetConfig())
 	common.Initialize(&generatedClient, cfg)
-	policyStatusHandler.Initialize(cfg, &generatedClient, mgr, namespace, eventOnParent, false, clustername)
+	policyStatusHandler.Initialize(cfg, &generatedClient, mgr, namespace, eventOnParent, alertTarget, clustername)
 	// PeriodicallyExecSamplePolicies is the go-routine that periodically checks the policies and does the needed work to make sure the desired state is achieved
 	go policyStatusHandler.PeriodicallyExecSamplePolicies(frequency)
 
