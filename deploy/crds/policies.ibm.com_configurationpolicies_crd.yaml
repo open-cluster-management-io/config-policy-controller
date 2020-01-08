@@ -31,6 +31,8 @@ spec:
         spec:
           description: ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
           properties:
+            policy-templates:
+              type: array
             labelSelector:
               additionalProperties:
                 type: string

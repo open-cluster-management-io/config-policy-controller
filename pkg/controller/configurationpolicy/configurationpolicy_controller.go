@@ -320,6 +320,9 @@ func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv
 	versions := &runtime.VersionedObjects{}
 	_, gvk, dErr := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, versions)
 	mapping, err := restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		glog.Fatalf("REST mapping error: %s", err)
+	}
 	restconfig := config
 	restconfig.GroupVersion = &schema.GroupVersion{
 		Group:   mapping.GroupVersionKind.Group,
