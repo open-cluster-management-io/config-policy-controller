@@ -410,6 +410,83 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 	}
 }
 
+func handleMustNotHaveRole(rtValue roleOrigin) {
+	updateNeeded := false
+	//Get the list of roles that satisfy the label:
+	opt := &metav1.ListOptions{}
+	if rtValue.roleTemplate.Selector != nil {
+		if rtValue.roleTemplate.Selector.MatchLabels != nil {
+			lbl := createKeyValuePairs(rtValue.roleTemplate.Selector.MatchLabels)
+			if lbl == "" {
+				opt = &metav1.ListOptions{LabelSelector: lbl}
+			}
+		}
+	}
+	roleList, err := (*KubeClient).RbacV1().Roles(rtValue.namespace).List(*opt) //namespace scoped list
+	if err != nil {
+		rtValue.roleTemplate.Status.ComplianceState = policyv1alpha1.UnknownCompliancy
+		rtValue.roleTemplate.Status.Conditions = createRoleTemplateCondition("accessError", rtValue, err, rtValue.roleTemplate.Status.Conditions, "")
+		err = updatePolicy(rtValue.policy, 0)
+		if err != nil {
+			glog.Errorf("Error update policy %v, the error is: %v", rtValue.policy.Name, err)
+		}
+		glog.Errorf("Error fetching the list Rbac roles from K8s Api-server, the error is: %v", err)
+		return
+	}
+
+	//I have the list of filtered roles by label, now I need to filter by name pattern
+	roleNames := getRoleNames(roleList.Items)
+	foundRoles := common.FindPattern(rtValue.roleTemplate.Name, roleNames)
+
+	if len(foundRoles) > 0 { //I need to do delete those roles
+		for _, fRole := range foundRoles {
+			opt := &metav1.DeleteOptions{}
+			if (strings.ToLower(string(rtValue.policy.Spec.RemediationAction)) == strings.ToLower(string(policyv1alpha1.Enforce))) &&
+				(strings.ToLower(string(rtValue.roleTemplate.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustNotHave))) {
+				err = (*KubeClient).RbacV1().Roles(rtValue.namespace).Delete(fRole, opt)
+				if err != nil {
+					glog.Errorf("Error deleting role `%v` in namespace `%v` according to policy `%v`, the error is: %v", fRole, rtValue.namespace, rtValue.policy.Name, err)
+					rtValue.roleTemplate.Status.Conditions = createRoleTemplateCondition("failedDeletingExtraRole", rtValue, err, rtValue.roleTemplate.Status.Conditions, fRole)
+					updateNeeded = true
+				} else {
+					glog.V(2).Infof("Deleted role `%v` in namespace `%v` according to policy `%v`", fRole, rtValue.namespace, rtValue.policy.Name)
+					rtValue.roleTemplate.Status.Conditions = createRoleTemplateCondition("deletedExtraRole", rtValue, err, rtValue.roleTemplate.Status.Conditions, fRole)
+					rtValue.roleTemplate.Status.ComplianceState = policyv1alpha1.Compliant
+					updateNeeded = true
+				}
+			} else if strings.ToLower(string(rtValue.roleTemplate.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustNotHave)) { //inform only
+				if rtValue.roleTemplate.Status.ComplianceState != policyv1alpha1.NonCompliant {
+					rtValue.roleTemplate.Status.ComplianceState = policyv1alpha1.NonCompliant
+					updateNeeded = true
+				}
+				rtValue.roleTemplate.Status.Conditions = createRoleTemplateCondition("ExtraRole", rtValue, err, rtValue.roleTemplate.Status.Conditions, fRole)
+			}
+		}
+	} else { // role doesn't exists
+		if rtValue.roleTemplate.Status.ComplianceState != policyv1alpha1.Compliant {
+			rtValue.roleTemplate.Status.ComplianceState = policyv1alpha1.Compliant
+			rtValue.roleTemplate.Status.Conditions = createRoleTemplateCondition("notExists", rtValue, err, rtValue.roleTemplate.Status.Conditions, "")
+			updateNeeded = true
+		}
+	}
+
+	if updateNeeded {
+		if rtValue.roleTemplate.Status.ComplianceState == policyv1alpha1.NonCompliant {
+			recorder.Event(rtValue.policy, "Warning", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+		} else {
+			recorder.Event(rtValue.policy, "Normal", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+		}
+
+		err = updatePolicy(rtValue.policy, 0)
+		if err != nil {
+			glog.Errorf("Error update policy %v, the error is: %v", rtValue.policy.Name, err)
+		} else {
+			glog.V(6).Infof("Updated the status in policy %v", rtValue.policy.Name)
+		}
+	}
+
+}
+
 func handleMustHaveRole(rtValue roleOrigin) {
 	var lbl string
 	updateNeeded := false
