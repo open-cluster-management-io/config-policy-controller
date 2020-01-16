@@ -1,7 +1,7 @@
 apiVersion: policies.ibm.com/v1alpha1
 kind: ConfigurationPolicy
 metadata:
-  name: example-configurationpolicy
+  name: example-configurationpolicy-3
 spec:
   severity: low
   namespaceSelector:

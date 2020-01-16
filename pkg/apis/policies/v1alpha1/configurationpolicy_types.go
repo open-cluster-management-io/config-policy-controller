@@ -16,6 +16,7 @@ package v1alpha1
 
 import (
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
@@ -82,7 +83,38 @@ type ConfigurationPolicySpec struct {
 	MaxRoleBindingGroupsPerNamespace int               `json:"maxRoleBindingGroupsPerNamespace,omitempty"`
 	MaxClusterRoleBindingUsers       int               `json:"maxClusterRoleBindingUsers,omitempty"`
 	MaxClusterRoleBindingGroups      int               `json:"maxClusterRoleBindingGroups,omitempty"`
-	PolicyTemplates                  []*PolicyTemplate `json:"policy-templates,omitempty"`
+	RoleTemplates                    []*RoleTemplate   `json:"role-templates,omitempty"`
+	ObjectTemplates                  []*ObjectTemplate `json:"object-templates,omitempty"`
+}
+
+//ObjectTemplate describes how an object should look
+type ObjectTemplate struct {
+	// ComplianceType specifies wether it is a : //musthave, mustnothave, mustonlyhave
+	ComplianceType ComplianceType `json:"complianceType"`
+
+	//Selector *metav1.LabelSelector `json:"selector,omitempty" protobuf:"bytes,2,opt,name=selector"`
+
+	// RoleBinding
+	ObjectDefinition runtime.RawExtension `json:"objectDefinition,omitempty"`
+	//Status shows the individual status of each template within a policy
+	Status TemplateStatus `json:"status,omitempty" protobuf:"bytes,12,rep,name=status"`
+}
+
+//RoleTemplate describes how a role should look
+type RoleTemplate struct {
+	metav1.TypeMeta `json:",inline"`
+	// Standard object's metadata.
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
+
+	ComplianceType ComplianceType `json:"complianceType,omitempty"`
+
+	Selector *metav1.LabelSelector `json:"selector,omitempty" protobuf:"bytes,2,opt,name=selector"`
+
+	// Rules holds all the PolicyRules for this Role
+	Rules []PolicyRuleTemplate `json:"rules,omitempty" protobuf:"bytes,2,rep,name=rules"`
+
+	Status TemplateStatus `json:"status,omitempty" protobuf:"bytes,12,rep,name=status"`
 }
 
 // ConfigurationPolicyStatus is the status for a Policy resource
@@ -167,6 +199,29 @@ type TemplateStatus struct {
 type Validity struct {
 	Valid  *bool  `json:"valid,omitempty"`
 	Reason string `json:"reason,omitempty"`
+}
+
+//ComplianceType describe whether we must or must not have a given resource
+type ComplianceType string
+
+const (
+	// MustNotHave is an enforcement state to exclude a resource
+	MustNotHave ComplianceType = "Mustnothave"
+
+	// MustHave is an enforcement state to include a resource
+	MustHave ComplianceType = "Musthave"
+
+	// MustOnlyHave is an enforcement state to exclusively include a resource
+	MustOnlyHave ComplianceType = "Mustonlyhave"
+)
+
+// PolicyRuleTemplate holds information that describes a policy rule, but does not contain information
+// about who the rule applies to or which namespace the rule applies to. We added the compliance type to it for HCM
+type PolicyRuleTemplate struct {
+	// ComplianceType specifies wether it is a : //musthave, mustnothave, mustonlyhave
+	ComplianceType ComplianceType `json:"complianceType"`
+	// PolicyRule
+	PolicyRule rbacv1.PolicyRule `json:"policyRule"`
 }
 
 func init() {

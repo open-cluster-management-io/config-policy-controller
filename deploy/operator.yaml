@@ -12,7 +12,6 @@ spec:
       labels:
         name: multicloud-operators-policy-controller
     spec:
-      serviceAccountName: multicloud-operators-policy-controller
       containers:
         - name: multicloud-operators-policy-controller
           # Replace this with the built image name
