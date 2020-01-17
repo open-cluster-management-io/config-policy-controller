@@ -37,8 +37,10 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -74,6 +76,8 @@ var PlcChan chan *policyv1alpha1.ConfigurationPolicy
 var recorder record.EventRecorder
 
 var config *rest.Config
+
+var restClient *rest.RESTClient
 
 var syncAlertTargets bool
 
@@ -115,6 +119,11 @@ type roleCompareResult struct {
 
 	AdditionalKeys map[string]map[string]bool
 	AddtionalVerbs map[string]map[string]bool
+}
+
+// PassthruCodecFactory provides methods for retrieving "DirectCodec"s, which do not do conversion.
+type PassthruCodecFactory struct {
+	serializer.CodecFactory
 }
 
 // Add creates a new ConfigurationPolicy Controller and adds it to the Manager. The Manager will set fields on the Controller
@@ -165,6 +174,14 @@ func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr mana
 
 	recorder, _ = common.CreateRecorder(*KubeClient, "policy-controller")
 	config = kubeconfig
+	config.GroupVersion = &schema.GroupVersion{Group: "policies.ibm.com", Version: "v1alpha1"}
+	config.NegotiatedSerializer = PassthruCodecFactory{CodecFactory: serializer.NewCodecFactory(scheme.Scheme)}
+	client, err := rest.RESTClientFor(config)
+	if err != nil {
+		glog.Fatalf("error creating REST client: %s", err)
+	}
+	restClient = client
+
 	syncAlertTargets = syncAlert
 
 	if clustName == "" {
@@ -666,7 +683,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
 		glog.Errorf(decodeErr)
 		//policy.Status.Message = decodeErr
-		//updatePolicy(policy, 0)
+		updatePolicy(policy, 0)
 		return
 	}
 	mapping, err := restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
@@ -1372,171 +1389,6 @@ func checkMessageSimilarity(objectT *policyv1alpha1.ObjectTemplate, cond *policy
 	return same
 }
 
-func handlePolicyObjects(policyT *policyv1alpha1.PolicyTemplate, policy *policyv1alpha1.ConfigurationPolicy, ns string, kclient *kubernetes.Interface, index int) {
-	namespaced := true
-	updateNeeded := false
-
-	dd := (*kclient).Discovery()
-	apigroups, err := restmapper.GetAPIGroupResources(dd)
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
-	ext := policyT.ObjectDefinition
-	glog.V(9).Infof("reading raw object: %v", string(ext.Raw))
-	versions := &runtime.VersionedObjects{}
-	_, gvk, dErr := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, versions)
-	mapping, err := restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
-		glog.Fatalf("REST mapping error: %s", err)
-	}
-	restconfig := config
-	restconfig.GroupVersion = &schema.GroupVersion{
-		Group:   mapping.GroupVersionKind.Group,
-		Version: mapping.GroupVersionKind.Version,
-	}
-	gvr := schema.GroupVersionResource{
-		Group:    mapping.GroupVersionKind.Group,
-		Version:  mapping.GroupVersionKind.Version,
-		Resource: mapping.GroupVersionKind.Kind,
-	}
-	dclient, err := dynamic.NewForConfig(restconfig)
-	if err != nil {
-		glog.Fatal(err)
-	}
-	if dErr != nil {
-		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
-		glog.Errorf(decodeErr)
-		//policy.Status.Message = decodeErr
-		updatePolicy(policy, 0, &dclient, &gvr)
-		return
-	}
-
-	if err != nil {
-		message := fmt.Sprintf("mapping error from raw object: `%v`", err)
-		prefix := "no matches for kind \""
-		startIdx := strings.Index(err.Error(), prefix)
-		if startIdx == -1 {
-			glog.Errorf(message, err)
-		} else {
-			afterPrefix := err.Error()[(startIdx + len(prefix)):len(err.Error())]
-			kind := afterPrefix[0:(strings.Index(afterPrefix, "\" "))]
-			message = "couldn't find mapping resource with kind " + kind + ", please check if you have corresponding policy controller deployed"
-			glog.Errorf(message)
-		}
-		cond := &policyv1alpha1.Condition{
-			Type:               "violation",
-			Status:             corev1.ConditionFalse,
-			LastTransitionTime: metav1.Now(),
-			Reason:             "K8s creation error",
-			Message:            message,
-		}
-		if policyT.Status.ComplianceState != policyv1alpha1.NonCompliant {
-			updateNeeded = true
-		}
-		policyT.Status.ComplianceState = policyv1alpha1.NonCompliant
-		policyT.Status.Conditions = AppendCondition(policyT.Status.Conditions, cond, gvk.GroupKind().Kind, false)
-		if updateNeeded {
-			recorder.Event(policy, "Warning", cond.Reason, cond.Message)
-			addForUpdate(policy, 0, &dclient, &gvr)
-		}
-		return
-	}
-	glog.V(9).Infof("mapping found from raw object: %v", mapping)
-
-	apiresourcelist, err := dd.ServerResources()
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	rsrc := mapping.Resource
-	for _, apiresourcegroup := range apiresourcelist {
-		if apiresourcegroup.GroupVersion == join(mapping.GroupVersionKind.Group, "/", mapping.GroupVersionKind.Version) {
-			for _, apiresource := range apiresourcegroup.APIResources {
-				if apiresource.Name == mapping.Resource.Resource && apiresource.Kind == mapping.GroupVersionKind.Kind {
-					rsrc = mapping.Resource
-					namespaced = apiresource.Namespaced
-					glog.V(7).Infof("is raw object namespaced? %v", namespaced)
-				}
-			}
-		}
-	}
-	var unstruct unstructured.Unstructured
-	unstruct.Object = make(map[string]interface{})
-	var blob interface{}
-	if err = json.Unmarshal(ext.Raw, &blob); err != nil {
-		glog.Fatal(err)
-	}
-	unstruct.Object = blob.(map[string]interface{}) //set object to the content of the blob after Unmarshalling
-
-	name := ""
-	if md, ok := unstruct.Object["metadata"]; ok {
-
-		metadata := md.(map[string]interface{})
-		if objectName, ok := metadata["name"]; ok {
-			name = objectName.(string)
-		}
-	}
-
-	exists := objectExists(namespaced, ns, name, rsrc, unstruct, dclient)
-
-	if !exists {
-		// policy object doesn't exist let's create it
-		created, err := createObject(namespaced, ns, name, rsrc, unstruct, dclient, policy)
-		if !created {
-			message := fmt.Sprintf("%v `%v` is missing, and cannot be created, reason: `%v`", rsrc.Resource, name, err)
-			cond := &policyv1alpha1.Condition{
-				Type:               "violation",
-				Status:             corev1.ConditionFalse,
-				LastTransitionTime: metav1.Now(),
-				Reason:             "K8s creation error",
-				Message:            message,
-			}
-			if policyT.Status.ComplianceState != policyv1alpha1.NonCompliant {
-				updateNeeded = true
-				policyT.Status.ComplianceState = policyv1alpha1.NonCompliant
-			}
-
-			if !checkPolicyMessageSimilarity(policyT, cond) {
-				policyT.Status.Conditions = AppendCondition(policyT.Status.Conditions, cond, rsrc.Resource, false)
-				updateNeeded = true
-			}
-			if updateNeeded {
-				addForUpdate(policy, 0, &dclient, &gvr)
-			}
-		}
-		if err != nil {
-			glog.Errorf("error creating policy object `%v` from policy `%v`", name, policy.Name)
-
-		}
-	} else {
-		updated, msg := updateTemplate(namespaced, ns, name, rsrc, unstruct, dclient, unstruct.Object["kind"].(string), policy)
-		if !updated && msg != "" {
-			cond := &policyv1alpha1.Condition{
-				Type:               "violation",
-				Status:             corev1.ConditionFalse,
-				LastTransitionTime: metav1.Now(),
-				Reason:             "K8s update template error",
-				Message:            msg,
-			}
-			if policyT.Status.ComplianceState != policyv1alpha1.NonCompliant {
-				updateNeeded = true
-				policyT.Status.ComplianceState = policyv1alpha1.NonCompliant
-			}
-
-			if !checkPolicyMessageSimilarity(policyT, cond) {
-				policyT.Status.Conditions = AppendCondition(policyT.Status.Conditions, cond, rsrc.Resource, false)
-				updateNeeded = true
-			}
-			if updateNeeded {
-				addForUpdate(policy, 0, &dclient, &gvr)
-			}
-			glog.Errorf(msg)
-		}
-	}
-}
-
 func checkPolicyMessageSimilarity(policyT *policyv1alpha1.PolicyTemplate, cond *policyv1alpha1.Condition) bool {
 	same := true
 	lastIndex := len(policyT.Status.Conditions)
@@ -1752,15 +1604,19 @@ func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.
 	return false, ""
 }
 
-func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *dynamic.Interface, gvr *schema.GroupVersionResource) error {
+func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int) error {
 	setStatus(plc)
 	copy := plc.DeepCopy()
 
 	var tmp policyv1alpha1.ConfigurationPolicy
 	tmp = *plc
 
-	crdClient := (*dclient).Resource(*gvr)
-	_, err := crdClient.Namespace(tmp.Namespace).Get(tmp.Name, metav1.GetOptions{})
+	err := restClient.Get().
+		Name(tmp.Name).
+		Namespace(tmp.Namespace).
+		Resource("configurationpolicies").
+		Do().
+		Into(&tmp)
 	if err != nil {
 		glog.Errorf("Error fetching policy %v, from the K8s API server the error is: %v", plc.Name, err)
 	}
@@ -1769,7 +1625,13 @@ func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int, dclient *d
 		copy.ResourceVersion = tmp.ResourceVersion
 	}
 
-	_, err = crdClient.Namespace(tmp.Namespace).Update(newConfigurationPolicy(copy), metav1.UpdateOptions{})
+	err = restClient.Put().
+		Name(tmp.Name).
+		Namespace(tmp.Namespace).
+		Resource("configurationpolicies").
+		Body(copy).
+		Do().
+		Into(copy)
 	if err != nil {
 		glog.Errorf("Error update policy %v, the error is: %v", plc.Name, err)
 	}
@@ -2153,7 +2015,7 @@ func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy, retry int, dclient
 		policy.Status.ComplianceState = policyv1alpha1.NonCompliant
 	}
 
-	err := updatePolicy(policy, retry, dclient, gvr)
+	err := updatePolicy(policy, retry)
 	if err != nil {
 		time.Sleep(100) //giving enough time to sync
 	}
