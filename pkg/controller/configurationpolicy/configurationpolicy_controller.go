@@ -54,11 +54,12 @@ import (
 	"k8s.io/client-go/restmapper"
 )
 
-var mustNotHaveRole map[string]roleOrigin
-var mustHaveRole map[string]roleOrigin
-var mustOnlyHaveRole map[string]roleOrigin
+var mustNotHaveRole = make(map[string]roleOrigin)
+var mustHaveRole = make(map[string]roleOrigin)
+var mustOnlyHaveRole = make(map[string]roleOrigin)
 
-var UpdatePolicyMap map[string]*policyv1alpha1.ConfigurationPolicy
+//UpdatePolicyMap used to keep track of policies to be updated
+var UpdatePolicyMap = make(map[string]*policyv1alpha1.ConfigurationPolicy)
 
 var log = logf.Log.WithName("controller_configurationpolicy")
 
@@ -175,6 +176,8 @@ func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr mana
 	recorder, _ = common.CreateRecorder(*KubeClient, "policy-controller")
 	config = kubeconfig
 	config.GroupVersion = &schema.GroupVersion{Group: "policies.ibm.com", Version: "v1alpha1"}
+	config.APIPath = "/apis"
+	config.ContentType = runtime.ContentTypeJSON
 	config.NegotiatedSerializer = PassthruCodecFactory{CodecFactory: serializer.NewCodecFactory(scheme.Scheme)}
 	client, err := rest.RESTClientFor(config)
 	if err != nil {
@@ -301,7 +304,7 @@ func handlePolicyPerNamespace(namespace string, plc *policyv1alpha1.Configuratio
 
 		switch strings.ToLower(string(roleT.ComplianceType)) {
 		case "musthave":
-
+			glog.V(2).Infof("musthaverole: %v", mustHaveRole)
 			if added {
 				//add the role
 				Mx.Lock()
@@ -319,6 +322,7 @@ func handlePolicyPerNamespace(namespace string, plc *policyv1alpha1.Configuratio
 			}
 
 		case "mustnothave":
+			glog.V(2).Infof("mustnothaverole: %v", mustNotHaveRole)
 			if added {
 				//add the role
 				Mx.Lock()
@@ -385,14 +389,11 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 
 			Mx.Lock()
 			for _, rtValue := range mustHaveRole {
-
 				handleMustHaveRole(rtValue)
-
 			}
 			Mx.Unlock() //giving the other GO-routine a chance to advance, and modify the map if needed
 			Mx.Lock()
 			for _, rtValue := range mustNotHaveRole {
-
 				handleMustNotHaveRole(rtValue)
 			}
 			Mx.Unlock()
@@ -809,7 +810,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 	}
 
 	if exists {
-		updated, msg := updateTemplate(namespaced, namespace, name, rsrc, unstruct, dclient, unstruct.Object["kind"].(string), nil)
+		updated, msg := updateTemplate(namespaced, namespace, name, rsrc, unstruct, dclient, unstruct.Object["kind"].(string))
 		if !updated && msg != "" {
 			cond := &policyv1alpha1.Condition{
 				Type:               "violation",
@@ -1537,7 +1538,86 @@ func deleteObject(namespaced bool, namespace string, name string, rsrc schema.Gr
 	return deleted, err
 }
 
-func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface, typeStr string, parent *policyv1alpha1.ConfigurationPolicy) (success bool, message string) {
+// merge merges the two JSON-marshalable values x1 and x2,
+// preferring x1 over x2 except where x1 and x2 are
+// JSON objects, in which case the keys from both objects
+// are included and their values merged recursively.
+//
+// It returns an error if x1 or x2 cannot be JSON-marshaled.
+func merge(x1, x2 interface{}) (interface{}, error) {
+	data1, err := json.Marshal(x1)
+	if err != nil {
+		return nil, err
+	}
+	data2, err := json.Marshal(x2)
+	if err != nil {
+		return nil, err
+	}
+	var j1 interface{}
+	err = json.Unmarshal(data1, &j1)
+	if err != nil {
+		return nil, err
+	}
+	var j2 interface{}
+	err = json.Unmarshal(data2, &j2)
+	if err != nil {
+		return nil, err
+	}
+	return merge1(j1, j2), nil
+}
+
+func merge1(x1, x2 interface{}) interface{} {
+	switch x1 := x1.(type) {
+	case map[string]interface{}:
+		x2, ok := x2.(map[string]interface{})
+		if !ok {
+			return x1
+		}
+		for k, v2 := range x2 {
+			if v1, ok := x1[k]; ok {
+				x1[k] = merge1(v1, v2)
+			} else {
+				x1[k] = v2
+			}
+		}
+	case []interface{}:
+		x2, ok := x2.([]interface{})
+		if !ok {
+			return x1
+		}
+		if len(x2) > 0 {
+			_, ok := x2[0].(map[string]interface{})
+			if ok {
+				for idx, v2 := range x2 {
+					v1 := x1[idx]
+					x1[idx] = merge1(v1, v2)
+				}
+			} else {
+				return x1
+			}
+		} else {
+			return x1
+		}
+	case nil:
+		// merge(nil, map[string]interface{...}) -> map[string]interface{...}
+		x2, ok := x2.(map[string]interface{})
+		if ok {
+			return x2
+		}
+	}
+	return x1
+}
+
+func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}) (updatedSpec map[string]interface{}, err error) {
+	merged, err := merge(newSpec, oldSpec)
+	if err != nil {
+		return merged.(map[string]interface{}), err
+	}
+	return merged.(map[string]interface{}), nil
+}
+
+func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface, typeStr string) (success bool, message string) {
+	updateNeeded := false
 	if namespaced {
 		res := dclient.Resource(rsrc).Namespace(namespace)
 		existingObj, err := res.Get(name, metav1.GetOptions{})
@@ -1546,11 +1626,26 @@ func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.
 		} else {
 			newObj := unstruct.Object["spec"]
 			oldObj := existingObj.UnstructuredContent()["spec"]
-			if parent != nil {
-				// overwrite remediation from parent
-				newObj.(map[string]interface{})["remediationAction"] = parent.Spec.RemediationAction
+			//merge changes into new spec
+			newObj, err = compareSpecs(newObj.(map[string]interface{}), oldObj.(map[string]interface{}))
+			if err != nil {
+				message := fmt.Sprintf("Error merging changes into spec: %s", err)
+				return false, message
 			}
-			updateNeeded := !(reflect.DeepEqual(newObj, oldObj))
+			//check if merged spec has changed
+			nJSON, err := json.Marshal(newObj)
+			if err != nil {
+				message := fmt.Sprintf("Error converting updated spec to JSON: %s", err)
+				return false, message
+			}
+			oJSON, err := json.Marshal(oldObj)
+			if err != nil {
+				message := fmt.Sprintf("Error converting updated spec to JSON: %s", err)
+				return false, message
+			}
+			if !reflect.DeepEqual(nJSON, oJSON) {
+				updateNeeded = true
+			}
 			mapMtx := sync.RWMutex{}
 			mapMtx.Lock()
 			existingObj.UnstructuredContent()["spec"] = newObj
