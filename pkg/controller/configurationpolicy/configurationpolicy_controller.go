@@ -304,7 +304,6 @@ func handlePolicyPerNamespace(namespace string, plc *policyv1alpha1.Configuratio
 
 		switch strings.ToLower(string(roleT.ComplianceType)) {
 		case "musthave":
-			glog.V(2).Infof("musthaverole: %v", mustHaveRole)
 			if added {
 				//add the role
 				Mx.Lock()
@@ -322,7 +321,6 @@ func handlePolicyPerNamespace(namespace string, plc *policyv1alpha1.Configuratio
 			}
 
 		case "mustnothave":
-			glog.V(2).Infof("mustnothaverole: %v", mustNotHaveRole)
 			if added {
 				//add the role
 				Mx.Lock()
@@ -1538,13 +1536,7 @@ func deleteObject(namespaced bool, namespace string, name string, rsrc schema.Gr
 	return deleted, err
 }
 
-// merge merges the two JSON-marshalable values x1 and x2,
-// preferring x1 over x2 except where x1 and x2 are
-// JSON objects, in which case the keys from both objects
-// are included and their values merged recursively.
-//
-// It returns an error if x1 or x2 cannot be JSON-marshaled.
-func merge(x1, x2 interface{}) (interface{}, error) {
+func mergeSpecs(x1, x2 interface{}) (interface{}, error) {
 	data1, err := json.Marshal(x1)
 	if err != nil {
 		return nil, err
@@ -1563,10 +1555,10 @@ func merge(x1, x2 interface{}) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return merge1(j1, j2), nil
+	return mergeSpecsHelper(j1, j2), nil
 }
 
-func merge1(x1, x2 interface{}) interface{} {
+func mergeSpecsHelper(x1, x2 interface{}) interface{} {
 	switch x1 := x1.(type) {
 	case map[string]interface{}:
 		x2, ok := x2.(map[string]interface{})
@@ -1575,7 +1567,7 @@ func merge1(x1, x2 interface{}) interface{} {
 		}
 		for k, v2 := range x2 {
 			if v1, ok := x1[k]; ok {
-				x1[k] = merge1(v1, v2)
+				x1[k] = mergeSpecsHelper(v1, v2)
 			} else {
 				x1[k] = v2
 			}
@@ -1590,7 +1582,7 @@ func merge1(x1, x2 interface{}) interface{} {
 			if ok {
 				for idx, v2 := range x2 {
 					v1 := x1[idx]
-					x1[idx] = merge1(v1, v2)
+					x1[idx] = mergeSpecsHelper(v1, v2)
 				}
 			} else {
 				return x1
@@ -1599,7 +1591,6 @@ func merge1(x1, x2 interface{}) interface{} {
 			return x1
 		}
 	case nil:
-		// merge(nil, map[string]interface{...}) -> map[string]interface{...}
 		x2, ok := x2.(map[string]interface{})
 		if ok {
 			return x2
@@ -1609,7 +1600,7 @@ func merge1(x1, x2 interface{}) interface{} {
 }
 
 func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}) (updatedSpec map[string]interface{}, err error) {
-	merged, err := merge(newSpec, oldSpec)
+	merged, err := mergeSpecs(newSpec, oldSpec)
 	if err != nil {
 		return merged.(map[string]interface{}), err
 	}
@@ -2015,7 +2006,11 @@ func triggerEvent(cond policyv1alpha1.Condition, resourceType string, resolved [
 		eventSeverity = "Critical"
 		eventType = "violation"
 	}
-	WebHookURL := GetCEMWebhookURL(NamespaceWatched, clusterName, config)
+	WebHookURL, err := GetCEMWebhookURL(NamespaceWatched, clusterName, config)
+	if err != nil {
+		return "", err
+	}
+	glog.Errorf("webhook url: %s", WebHookURL)
 	event := common.CEMEvent{
 		Resource: common.Resource{
 			Name:    "compliance-issue",
@@ -2045,22 +2040,24 @@ func triggerEvent(cond policyv1alpha1.Condition, resourceType string, resolved [
 }
 
 // GetCEMWebhookURL populate the webhook value from a CRD
-func GetCEMWebhookURL(namespace, clusterName string, config *rest.Config) (url string) {
+func GetCEMWebhookURL(namespace, clusterName string, config *rest.Config) (url string, err error) {
 
 	alertClient, err := rest.UnversionedRESTClientFor(config)
 	if err != nil {
-		return ""
+		glog.Error("Error generating AlertClient")
+		return "", err
 	}
 	at := createAlertTargetInstance(namespace, clusterName)
-	atmeta, err := meta.Accessor(at)
+	atmeta, err := meta.Accessor(&at)
 	if err != nil {
-		return ""
+		glog.Error("Error generating AlertTargetInstance")
+		return "", err
 	}
 	err = alertClient.Get().
 		Name(atmeta.GetName()).
 		Namespace(atmeta.GetNamespace()).
 		Resource("alerttargets").
-		Body(at).
+		Body(&at).
 		Do().
 		Into(&at)
 	if err != nil {
@@ -2069,13 +2066,13 @@ func GetCEMWebhookURL(namespace, clusterName string, config *rest.Config) (url s
 		} else {
 			glog.Errorf("The CRD instance `%v` of the alertTarget is not accessible, therefore no events will be triggered", fmt.Sprintf("%s-%s", namespace, clusterName))
 		}
-		return ""
+		return "", err
 	}
 
 	url = extractURL(at)
 
 	glog.Infof("CEM Webhook URL found: %s", url)
-	return url
+	return url, nil
 }
 
 func extractURL(instance alerttargetcontroller.AlertTarget) string {
