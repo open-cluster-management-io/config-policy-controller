@@ -127,6 +127,14 @@ type PassthruCodecFactory struct {
 	serializer.CodecFactory
 }
 
+// PluralScheme extends scheme with plurals
+type PluralScheme struct {
+	Scheme *runtime.Scheme
+
+	// plurals for group, version and kinds
+	plurals map[schema.GroupVersionKind]string
+}
+
 // Add creates a new ConfigurationPolicy Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager) error {
@@ -2039,10 +2047,28 @@ func triggerEvent(cond policyv1alpha1.Condition, resourceType string, resolved [
 	return result, err
 }
 
+// NewScheme creates an object for given group/version/kind and set ObjectKind
+func NewScheme() *PluralScheme {
+	return &PluralScheme{Scheme: runtime.NewScheme(), plurals: make(map[schema.GroupVersionKind]string)}
+}
+
+// SetPlural sets the plural for corresponding  group/version/kind
+func (p *PluralScheme) SetPlural(gvk schema.GroupVersionKind, plural string) {
+	p.plurals[gvk] = plural
+}
+
 // GetCEMWebhookURL populate the webhook value from a CRD
 func GetCEMWebhookURL(namespace, clusterName string, config *rest.Config) (url string, err error) {
+	alertScheme := NewScheme()
+	alerttargetcontroller.AddToScheme(alertScheme.Scheme)
+	alertScheme.SetPlural(alerttargetcontroller.SchemeGroupVersion.WithKind("AlertTarget"), "alerttargets")
 
-	alertClient, err := rest.UnversionedRESTClientFor(config)
+	cfg := *config
+	cfg.GroupVersion = &alerttargetcontroller.SchemeGroupVersion
+	cfg.APIPath = "/apis"
+	cfg.ContentType = runtime.ContentTypeJSON
+	cfg.NegotiatedSerializer = PassthruCodecFactory{CodecFactory: serializer.NewCodecFactory(alertScheme.Scheme)}
+	alertClient, err := rest.RESTClientFor(&cfg)
 	if err != nil {
 		glog.Error("Error generating AlertClient")
 		return "", err
@@ -2057,7 +2083,6 @@ func GetCEMWebhookURL(namespace, clusterName string, config *rest.Config) (url s
 		Name(atmeta.GetName()).
 		Namespace(atmeta.GetNamespace()).
 		Resource("alerttargets").
-		Body(&at).
 		Do().
 		Into(&at)
 	if err != nil {
