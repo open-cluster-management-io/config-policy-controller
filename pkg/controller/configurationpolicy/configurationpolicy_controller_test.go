@@ -14,12 +14,14 @@
 package configurationpolicy
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
 	"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/common"
 	coretypes "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	sub "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -344,4 +346,179 @@ func TestGetContainerID(t *testing.T) {
 		Status: podStatus,
 	}
 	getContainerID(pod, "foo")
+}
+
+func TestFlattenRole(t *testing.T) {
+	rule := newRule("get,watch,list", "apps", "deployments", "")
+	rule2 := newRule("get,watch,list,create,delete,update,patch", "extensions", "deployments", "") //Note: no space between verbs
+	role := newRole("dev", "default", rule, rule2)
+	actualResult := flattenRole(*role)
+
+	expectedResult := map[string]map[string]bool{
+		"deployments.apps": map[string]bool{"get": true, "watch": true, "list": true},
+		"deployments.extensions": map[string]bool{"get": true, "watch": true, "list": true,
+			"create": true, "delete": true, "update": true, "patch": true},
+	}
+
+	match := true
+	if len(expectedResult) != len(actualResult) {
+		match = false
+		t.Fatalf("the expected results and the actual results have different length")
+	}
+	if !match {
+		return
+	}
+
+	for key, resG := range expectedResult {
+		if _, ok := actualResult[key]; ok {
+			// check the lenght of the maps
+			if len(actualResult[key]) > len(resG) {
+				t.Fatalf("The verbs %v in actual results, are MORE than the ones %v in expectedResult ", actualResult[key], resG)
+			} else if len(actualResult[key]) < len(resG) {
+				t.Fatalf("The verbs %v in actual results, are LESS than the ones %v in expectedResult ", actualResult[key], resG)
+			}
+			for keyVerb := range resG {
+				if _, ok := actualResult[key][keyVerb]; ok {
+					// the verb in resG exists in actualresults
+				} else {
+					t.Fatalf("The verb %s is not found in actual results, when looking into key %s", keyVerb, key)
+				}
+			}
+		} else {
+			// the key is not there, we have no match
+			t.Fatalf("The Key %s is not found in actual results", key)
+		}
+	}
+}
+
+func TestDeepCompareRoleTtoRole(t *testing.T) {
+	flatRole := map[string]map[string]bool{
+		"deployments.apps":       map[string]bool{"get": true, "watch": true, "list": true, "patch": true},
+		"deployments.extensions": map[string]bool{"get": true},
+		"secrets.":               map[string]bool{"get": true},
+	}
+
+	flatRoleT := map[string]map[string]map[string]bool{
+		"musthave": map[string]map[string]bool{
+			"deployments.apps":       map[string]bool{"get": true, "patch": true},
+			"deployments.extensions": map[string]bool{"get": true},
+		},
+		"mustnothave": map[string]map[string]bool{
+			"deployments.apps": map[string]bool{"apply": true},
+		},
+		"mustonlyhave": map[string]map[string]bool{
+			"secrets.": map[string]bool{"get": true},
+		},
+	}
+
+	match, res := deepCompareRoleTtoRole(flatRoleT, flatRole)
+	if !match {
+		t.Errorf("no match! \nmissing keys: %v \nmissing verbs: %v \nadditional keys: %v \nadditional verbs: %v\n", res.missingKeys, res.missingVerbs, res.AdditionalKeys, res.AddtionalVerbs)
+	}
+}
+
+func TestValidateRoleTemplate(t *testing.T) {
+	valideResult := map[string]map[string]map[string]bool{
+		"musthave":     map[string]map[string]bool{"deployments.extensions": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
+		"mustnothave":  map[string]map[string]bool{"deployments.apps": map[string]bool{"apply": true}},
+		"mustonlyhave": map[string]map[string]bool{"deployments.apps": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
+	}
+	invalideResult := map[string]map[string]map[string]bool{
+		"musthave":     map[string]map[string]bool{"deployments.apps": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
+		"mustnothave":  map[string]map[string]bool{"deployments.apps": map[string]bool{"get": true, "patch": true}},
+		"mustonlyhave": map[string]map[string]bool{"deployments.apps": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
+	}
+
+	res, isValid := validateRoleTemplate(invalideResult)
+	if isValid {
+		t.Fatalf("\n validation failed because: %v", res)
+	}
+	res, isValid = validateRoleTemplate(valideResult)
+	if !isValid {
+		t.Fatalf("\n validation failed because: %v ", res)
+	}
+
+}
+
+func TestFlattenRoleTemplate(t *testing.T) {
+	ruleT := newRuleTemplate("get,watch,list,patch", "apps", "deployments", "", policyv1alpha1.MustHave)
+	ruleT2 := newRuleTemplate("get,watch,list,patch", "extensions", "deployments", "", policyv1alpha1.MustNotHave)
+	ruleT3 := newRuleTemplate("get,watch,list,patch", "", "secrets", "", policyv1alpha1.MustOnlyHave)
+	roleT := newRoleTemplate("dev", "default", policyv1alpha1.MustHave, ruleT, ruleT2, ruleT3)
+	actualResult := flattenRoleTemplate(*roleT)
+
+	expectedResult := map[string]map[string]map[string]bool{
+		"musthave":     map[string]map[string]bool{"deployments.apps": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
+		"mustnothave":  map[string]map[string]bool{"deployments.extensions": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
+		"mustonlyhave": map[string]map[string]bool{"secrets.": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
+	}
+
+	if len(expectedResult) != len(actualResult) {
+		t.Fatalf("\n actual:   %v \n expected: %v ", actualResult, expectedResult)
+		return
+	}
+
+	for key, resG := range expectedResult {
+		if _, ok := actualResult[key]; ok {
+			// check the lenght of the maps
+			if len(actualResult[key]) > len(resG) {
+				t.Fatalf("The verbs %v in actual results, are MORE than the ones %v in expectedResult ", actualResult[key], resG)
+			} else if len(actualResult[key]) < len(resG) {
+				t.Fatalf("The verbs %v in actual results, are LESS than the ones %v in expectedResult ", actualResult[key], resG)
+			}
+			for keyRes, val := range resG {
+				if len(actualResult[key][keyRes]) != len(val) {
+					t.Fatalf("The keys %v in actual results, are not equal to the ones %v in expectedResult ", actualResult[key], resG)
+				}
+				if _, ok := actualResult[key][keyRes]; ok {
+					// the res.api in resG exists in actualresults
+					for keyVerb := range val {
+						if _, ok := actualResult[key][keyRes][keyVerb]; ok {
+							// the verb in resG exists in actualresults
+						} else {
+							t.Fatalf("The verb %s is not found in actual results, when looking into key %s", keyVerb, key)
+						}
+					}
+				} else {
+					t.Fatalf("The resource %s is not found in actual results, when looking into key %s", keyRes, key)
+				}
+			}
+
+		} else {
+			// the key is not there, we have no match
+			t.Fatalf("The Key %s is not found in actual results", key)
+		}
+	}
+	return
+}
+
+func newRule(verbs, apiGroups, resources, nonResourceURLs string) rbacv1.PolicyRule {
+	return rbacv1.PolicyRule{
+		Verbs:           strings.Split(verbs, ","),
+		APIGroups:       strings.Split(apiGroups, ","),
+		Resources:       strings.Split(resources, ","),
+		NonResourceURLs: strings.Split(nonResourceURLs, ","),
+	}
+}
+
+func newRole(name, namespace string, rules ...rbacv1.PolicyRule) *rbacv1.Role {
+	return &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}, Rules: rules}
+}
+
+func newRuleTemplate(verbs, apiGroups, resources, nonResourceURLs string, complianceT policyv1alpha1.ComplianceType) policyv1alpha1.PolicyRuleTemplate {
+	return policyv1alpha1.PolicyRuleTemplate{
+		ComplianceType: complianceT,
+		PolicyRule: rbacv1.PolicyRule{
+			Verbs:           strings.Split(verbs, ","),
+			APIGroups:       strings.Split(apiGroups, ","),
+			Resources:       strings.Split(resources, ","),
+			NonResourceURLs: strings.Split(nonResourceURLs, ","),
+		},
+	}
+}
+
+func newRoleTemplate(name, namespace string, rolecompT policyv1alpha1.ComplianceType, rulesT ...policyv1alpha1.PolicyRuleTemplate) *policyv1alpha1.RoleTemplate {
+	return &policyv1alpha1.RoleTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+		ComplianceType: rolecompT,
+		Rules:          rulesT}
 }
