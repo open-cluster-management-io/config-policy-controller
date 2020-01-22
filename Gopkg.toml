@@ -1,0 +1,39 @@
+ required = [  
+  "k8s.io/code-generator/cmd/deepcopy-gen"]
+
+[[constraint]]
+  name = "github.ibm.com/IBMPrivateCloud/hcm-api"
+  source =  "git@github.ibm.com:IBMPrivateCloud/hcm-api.git"
+  branch = "master"
+
+[[constraint]]
+  name = "k8s.io/code-generator"
+  version = "kubernetes-1.13.1"
+
+
+[[override]]
+  name = "k8s.io/api"
+  version = "kubernetes-1.13.1"
+
+[[override]]
+  name = "k8s.io/apiextensions-apiserver"
+  version = "kubernetes-1.13.1"  
+
+[[override]]
+  name = "k8s.io/apimachinery"
+  version = "kubernetes-1.13.1"
+
+[[override]]
+  name = "k8s.io/cluster-registry"
+  version = "0.0.6"
+
+[[override]]
+  name = "github.com/stretchr/testify" 
+
+[[constraint]]
+  name = "github.ibm.com/OMaaS/alerttargetcontroller"
+  source =  "git@github.ibm.com:OMaaS/alerttargetcontroller.git"
+  branch = "master"  
+
+[prune]
+  go-tests = true
