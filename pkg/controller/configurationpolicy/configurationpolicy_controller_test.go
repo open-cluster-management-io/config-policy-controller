@@ -107,7 +107,45 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 			Namespace: "default",
 		},
 		Spec: policiesv1alpha1.ConfigurationPolicySpec{
-			MaxRoleBindingUsersPerNamespace: 1,
+			Severity: "low",
+			NamespaceSelector: policiesv1alpha1.Target{
+				Include: []string{"default", "kube-*"},
+				Exclude: []string{"kube-system"},
+			},
+			RemediationAction: "inform",
+			RoleTemplates: []*policiesv1alpha1.RoleTemplate{
+				&policiesv1alpha1.RoleTemplate{
+					TypeMeta: metav1.TypeMeta{
+						Kind: "roletemplate",
+					},
+					ObjectMeta: metav1.ObjectMeta{
+						Namespace: "",
+						Name:      "operator-role-policy",
+					},
+					Selector: &metav1.LabelSelector{
+						MatchLabels: map[string]string{
+							"dev": "true",
+						},
+					},
+					ComplianceType: "musthave",
+					Rules: []policiesv1alpha1.PolicyRuleTemplate{
+						policiesv1alpha1.PolicyRuleTemplate{
+							ComplianceType: "musthave",
+							PolicyRule: sub.PolicyRule{
+								APIGroups: []string{"extensions", "apps"},
+								Resources: []string{"deployments"},
+								Verbs:     []string{"get", "list", "watch", "create", "delete", "patch"},
+							},
+						},
+					},
+				},
+			},
+			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
+				&policiesv1alpha1.ObjectTemplate{
+					ComplianceType:   "musthave",
+					ObjectDefinition: runtime.RawExtension{},
+				},
+			},
 		},
 	}
 

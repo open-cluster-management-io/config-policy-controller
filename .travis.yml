@@ -1,45 +1,71 @@
 language: go
-dist: xenial
+go:
+  - "1.12.9"
+
+matrix:
+  fast_finish: true
+  include:
+    - os: linux-s390
+      env: OSARCH=linux-s390
+      dist: trusty
+    - os: linux-ppc64le
+      env: OSARCH=linux-ppc64le
+      dist: trusty
+    - os: linux
+      env: OSARCH=linux-amd64
+      dist: trusty
+
 cache:
   - apt: true
-
-go:
-  - "1.13.x"
+  - bundler: true
 
 services:
   - docker
 
+before_install:
+  - make copyright-check
+  - make init
+
+before_script:
+  - make deps
+  - dep ensure
+  - make lintall
+  - make test
+  - make image
+
+script:
+  - make run
+
+after_success:
+  - test "$TRAVIS_EVENT_TYPE" = "pull_request" && make push || echo "pushing to scratch"
+  - test "$TRAVIS_EVENT_TYPE" != "pull_request" && make release || echo "success"
+  - |
+      if [[ "$TRAVIS_EVENT_TYPE" != "pull_request" ]]; then
+        curl -Lo travis_after_all.py https://raw.github.com/dmakhno/travis_after_all/master/travis_after_all.py
+        python travis_after_all.py https://travis.ibm.com/api
+        export $(cat .to_export_back)
+        if [[ "$BUILD_LEADER" == "YES" ]]; then
+          if [[ "$BUILD_AGGREGATE_STATUS" == "others_succeeded" ]]; then
+            echo "All jobs succeeded! Creating multi arch image..."
+            make multi-arch
+          else
+            echo "Some jobs failed" && exit 1
+          fi
+        fi
+      fi
+
+#  build only master and tagged/branch releases.
 branches:
-  only:
+  only: 
     - master
-    - dev
     - /^[0-9]+\..*$/
     - /^v[0-9]+\..*$/
     - /^release-[0-9]+\..*$/
 
-jobs:
-  include:
-    - stage: "build and run test"
-
-      os: linux
-      before_install:
-        - go version
-      install:
-        - go mod tidy
-        - |
-          os=$(go env GOOS)
-          arch=$(go env GOARCH)
-          curl -sL https://go.kubebuilder.io/dl/2.1.0/${os}/${arch} | tar -xz -C /tmp/
-          sudo mv /tmp/kubebuilder_2.1.0_${os}_${arch} /usr/local/kubebuilder
-        - |
-          curl -sfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh| sh -s v1.21.0
-          export PATH="$PATH:$(pwd)/bin"
-      before_script:
-        - go mod tidy
-      script:
-        - make lint
-        - make coverage
-        - mv $GOPATH/out/codecov/coverage.cov ./coverage.out
-        - cat coverage.out
-        - go test -json ./... > tests.json
-        - cat tests.json
+notifications:
+  slack: 
+    rooms:
+      - ibm-cloudplatform:9YJcmhOhUJM1pMJfRkYXgb5G#icp-policy-grc-build
+    on_pull_requests: false
+    on_success: change
+    on_failure: always
