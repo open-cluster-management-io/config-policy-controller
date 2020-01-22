@@ -22,8 +22,6 @@ init::
 
 .PHONY: deps
 deps::
-	go get -d github.com/coreos/etcd
-	go install github.com/coreos/etcd
 	go get golang.org/x/lint/golint
 	go get -u github.com/apg/patter
 	go get -u github.com/wadey/gocovmerge
