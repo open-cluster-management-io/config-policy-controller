@@ -1,138 +1,120 @@
-# Copyright 2019 The Kubernetes Authors.
+###############################################################################
+# Licensed Materials - Property of IBM Copyright IBM Corporation 2017, 2019. All Rights Reserved.
+# U.S. Government Users Restricted Rights - Use, duplication or disclosure restricted by GSA ADP
+# Schedule Contract with IBM Corp.
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
+# Contributors:
+#  IBM Corporation - initial API and implementation
+###############################################################################
 
-# This repo is build locally for dev/test by default;
-# Override this variable in CI env.
-BUILD_LOCALLY ?= 1
+include Configfile
 
-# Image URL to use all building/pushing image targets;
-# Use your own docker registry and image name for dev/test by overridding the IMG and REGISTRY environment variable.
-IMG ?= multicloud-operators-policy-controller
-REGISTRY ?= quay.io/multicloudlab
-
-# Github host to use for checking the source tree;
-# Override this variable ue with your own value if you're working on forked repo.
-GIT_HOST ?= github.com/IBM
-
-PWD := $(shell pwd)
-BASE_DIR := $(shell basename $(PWD))
-
-# Keep an existing GOPATH, make a private one if it is undefined
-GOPATH_DEFAULT := $(PWD)/.go
-export GOPATH ?= $(GOPATH_DEFAULT)
-GOBIN_DEFAULT := $(GOPATH)/bin
-export GOBIN ?= $(GOBIN_DEFAULT)
-TESTARGS_DEFAULT := "-v"
-export TESTARGS ?= $(TESTARGS_DEFAULT)
-DEST := $(GOPATH)/src/$(GIT_HOST)/$(BASE_DIR)
-VERSION ?= $(shell git describe --exact-match 2> /dev/null || \
-                 git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
-LOCAL_OS := $(shell uname)
-ifeq ($(LOCAL_OS),Linux)
-    TARGET_OS ?= linux
-    XARGS_FLAGS="-r"
-else ifeq ($(LOCAL_OS),Darwin)
-    TARGET_OS ?= darwin
-    XARGS_FLAGS=
+ifneq ($(ARCH), x86_64)
+DOCKER_FILE = Dockerfile.$(ARCH)
 else
-    $(error "This system's OS $(LOCAL_OS) isn't recognized/supported")
+DOCKER_FILE = Dockerfile
+endif
+@echo "using DOCKER_FILE: $(DOCKER_FILE)"
+
+.PHONY: init\:
+init::
+-include $(shell curl -fso .build-harness -H "Authorization: token ${GITHUB_TOKEN}" -H "Accept: application/vnd.github.v3.raw" "https://raw.github.ibm.com/ICP-DevOps/build-harness/master/templates/Makefile.build-harness"; echo .build-harness)
+
+.PHONY: deps
+deps::
+	go get -d github.com/coreos/etcd
+	go install github.com/coreos/etcd
+	go get golang.org/x/lint/golint
+	go get -u github.com/apg/patter
+	go get -u github.com/wadey/gocovmerge
+	curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
+ifeq ($(ARCH), x86_64)
+	curl -O https://storage.googleapis.com/kubernetes-release/release/v1.10.3/bin/linux/amd64/kube-apiserver &&\
+	chmod a+x kube-apiserver &&\
+	mv kube-apiserver ${GOPATH}/bin
+else
+	wget https://dl.k8s.io/v1.10.3/kubernetes-server-linux-$(ARCH).tar.gz
+	tar -xf kubernetes-server-linux-$(ARCH).tar.gz 
+	chmod a+x kubernetes/server/bin/kube-apiserver
+	mv kubernetes/server/bin/kube-apiserver ${GOPATH}/bin
+	rm -f kubernetes-server-linux-$(ARCH).tar.gz
+	rm -rf kubernetes
 endif
 
-.PHONY: all work fmt check coverage lint test build images build-push-images
+.PHONY: gocompile
+gocompile:
+	build-tools/build-all.sh
 
-all: fmt check test coverage build images
+PHONY: propagator
+propagator:
+	build-tools/build-propagator.sh
 
-ifeq (,$(wildcard go.mod))
-ifneq ("$(realpath $(DEST))", "$(realpath $(PWD))")
-    $(error Please run 'make' from $(DEST). Current directory is $(PWD))
-endif
-endif
+.PHONY: clean
+clean::
+	rm -rf _build/
 
-include common/Makefile.common.mk
+clean-test:
+	-@rm -rf test-output
+	-@rm -f cover.*
 
+lint: 
+	golint -set_exit_status=true pkg/
 
-############################################################
-# work section
-############################################################
-$(GOBIN):
-	@echo "create gobin"
-	@mkdir -p $(GOBIN)
+fmt:
+	gofmt -l ${GOFILES}
 
-work: $(GOBIN)
+.PHONY: lintall
+lintall: fmt lint vet
 
-############################################################
-# format section
-############################################################
-
-# All available format: format-go format-protos format-python
-# Default value will run all formats, override these make target with your requirements:
-#    eg: fmt: format-go format-protos
-fmt: format-go format-protos format-python
-
-############################################################
-# check section
-############################################################
-
-check: lint
-
-# All available linters: lint-dockerfiles lint-scripts lint-yaml lint-copyright-banner lint-go lint-python lint-helm lint-markdown lint-sass lint-typescript lint-protos
-# Default value will run all linters, override these make target with your requirements:
-#    eg: lint: lint-go lint-yaml
-# The MARKDOWN_LINT_WHITELIST variable can be set with comma separated urls you want to whitelist
-lint: lint-go
-
-############################################################
-# test section
-############################################################
-
-test:
-	@go test ${TESTARGS} ./...
-
-############################################################
-# coverage section
-############################################################
+.PHONY: test
+test: 
+	@./build-tools/test.sh
 
 coverage:
-	@common/scripts/codecov.sh ${BUILD_LOCALLY}
+	go tool cover -html=cover.out -o=cover.html
+	@./build-tools/calculate-coverage.sh
 
+#Check default DOCKER_REGISTRY/DOCKER_BUILD_TAG/SCRATCH_TAG/DOCKER_TAG values in Configfile
+#Only new value other than default need to be set here
+.PHONY: docker-logins
+docker-logins:
+	make docker:login DOCKER_REGISTRY=$(DOCKER_EDGE_REGISTRY)
+	make docker:login DOCKER_REGISTRY=$(DOCKER_SCRATCH_REGISTRY)
+	make docker:login
 
-############################################################
-# build section
-############################################################
+.PHONY: image
+image:: docker-logins
+	make docker:info
+	make docker:build
+	docker image ls -a
 
-build:
-	@common/scripts/gobuild.sh build/_output/bin/multicloud-operators-policy-controller ./cmd/manager
+.PHONY: run
+run: 
+	make docker:info
+	make docker:run
 
+.PHONY: push
+push:
+	make docker:login DOCKER_REGISTRY=$(DOCKER_SCRATCH_REGISTRY)
+	make docker:tag-arch DOCKER_REGISTRY=$(DOCKER_SCRATCH_REGISTRY) DOCKER_TAG=$(SCRATCH_TAG)
+	make docker:push-arch DOCKER_REGISTRY=$(DOCKER_SCRATCH_REGISTRY) DOCKER_TAG=$(SCRATCH_TAG)
 
-############################################################
-# images section
-############################################################
-
-images: build build-push-images
-
-ifeq ($(BUILD_LOCALLY),0)
-    export CONFIG_DOCKER_TARGET = config-docker
+.PHONY: release
+release:
+	make docker:login
+	make docker:tag-arch
+	make docker:push-arch
+	make docker:tag-arch DOCKER_TAG=$(SEMVERSION)
+	make docker:push-arch DOCKER_TAG=$(SEMVERSION)
+ifeq ($(ARCH), x86_64)
+	make docker:tag-arch DOCKER_TAG=$(RELEASE_TAG_RED_HAT)
+	make docker:push-arch DOCKER_TAG=$(RELEASE_TAG_RED_HAT)
+	make docker:tag-arch DOCKER_TAG=$(SEMVERSION_RED_HAT)
+	make docker:push-arch DOCKER_TAG=$(SEMVERSION_RED_HAT)
 endif
 
-build-push-images: $(CONFIG_DOCKER_TARGET)
-	@docker build . -f build/Dockerfile -t $(REGISTRY)/$(IMG):$(VERSION)
-	@docker tag $(REGISTRY)/$(IMG):$(VERSION) $(REGISTRY)/$(IMG):latest
-	@docker push $(REGISTRY)/$(IMG):$(VERSION)
-	@docker push $(REGISTRY)/$(IMG):latest
-
-############################################################
-# clean section
-############################################################
-clean:
-	rm -f build/_output/bin/*
+.PHONY: multi-arch
+multi-arch:
+	make docker:manifest-tool
+	make docker:multi-arch
+	make docker:multi-arch DOCKER_TAG=$(SEMVERSION)

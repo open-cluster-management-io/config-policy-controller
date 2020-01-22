@@ -1,14 +1,23 @@
 module github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller
 
 require (
+	github.com/alecthomas/gometalinter v3.0.0+incompatible // indirect
+	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
+	github.com/apg/patter v0.0.0-20160930163000-bd185be70ac8 // indirect
+	github.com/coreos/etcd v3.3.18+incompatible // indirect
 	github.com/go-openapi/spec v0.17.2
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
+	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/onsi/gomega v1.5.0
 	github.com/operator-framework/operator-sdk v0.11.1-0.20191021213754-e7135197e816
 	github.com/spf13/pflag v1.0.3
-	github.com/stretchr/testify v1.3.0
+	github.com/stretchr/testify v1.4.0
+	github.com/wadey/gocovmerge v0.0.0-20160331181800-b5bfa59ec0ad // indirect
 	github.ibm.com/OMaaS/alerttargetcontroller v0.0.0-20190912101104-acf59dd4715d
-	golang.org/x/net v0.0.0-20190522155817-f3200d17e092
+	golang.org/x/lint v0.0.0-20191125180803-fdd1cda4f05f // indirect
+	golang.org/x/net v0.0.0-20190620200207-3b0461eec859
+	golang.org/x/tools v0.0.0-20200122042241-dc16b66866f1 // indirect
+	gopkg.in/alecthomas/kingpin.v3-unstable v3.0.0-20191105091915-95d230a53780 // indirect
 	k8s.io/api v0.0.0-20190918155943-95b840bb6a1f
 	k8s.io/apimachinery v0.0.0-20190913080033-27d36303b655
 	k8s.io/client-go v11.0.1-0.20190409021438-1a26190bd76a+incompatible
