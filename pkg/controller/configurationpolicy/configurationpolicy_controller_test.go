@@ -417,34 +417,11 @@ func TestDeepCompareRoleTtoRole(t *testing.T) {
 	}
 }
 
-func TestValidateRoleTemplate(t *testing.T) {
-	valideResult := map[string]map[string]map[string]bool{
-		"musthave":     map[string]map[string]bool{"deployments.extensions": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
-		"mustnothave":  map[string]map[string]bool{"deployments.apps": map[string]bool{"apply": true}},
-		"mustonlyhave": map[string]map[string]bool{"deployments.apps": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
-	}
-	invalideResult := map[string]map[string]map[string]bool{
-		"musthave":     map[string]map[string]bool{"deployments.apps": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
-		"mustnothave":  map[string]map[string]bool{"deployments.apps": map[string]bool{"get": true, "patch": true}},
-		"mustonlyhave": map[string]map[string]bool{"deployments.apps": map[string]bool{"get": true, "patch": true, "watch": true, "list": true}},
-	}
-
-	res, isValid := validateRoleTemplate(invalideResult)
-	if isValid {
-		t.Fatalf("\n validation failed because: %v", res)
-	}
-	res, isValid = validateRoleTemplate(valideResult)
-	if !isValid {
-		t.Fatalf("\n validation failed because: %v ", res)
-	}
-
-}
-
 func TestFlattenRoleTemplate(t *testing.T) {
-	ruleT := newRuleTemplate("get,watch,list,patch", "apps", "deployments", "", policyv1alpha1.MustHave)
-	ruleT2 := newRuleTemplate("get,watch,list,patch", "extensions", "deployments", "", policyv1alpha1.MustNotHave)
-	ruleT3 := newRuleTemplate("get,watch,list,patch", "", "secrets", "", policyv1alpha1.MustOnlyHave)
-	roleT := newRoleTemplate("dev", "default", policyv1alpha1.MustHave, ruleT, ruleT2, ruleT3)
+	ruleT := newRuleTemplate("get,watch,list,patch", "apps", "deployments", "", policiesv1alpha1.MustHave)
+	ruleT2 := newRuleTemplate("get,watch,list,patch", "extensions", "deployments", "", policiesv1alpha1.MustNotHave)
+	ruleT3 := newRuleTemplate("get,watch,list,patch", "", "secrets", "", policiesv1alpha1.MustOnlyHave)
+	roleT := newRoleTemplate("dev", "default", policiesv1alpha1.MustHave, ruleT, ruleT2, ruleT3)
 	actualResult := flattenRoleTemplate(*roleT)
 
 	expectedResult := map[string]map[string]map[string]bool{
@@ -505,8 +482,8 @@ func newRole(name, namespace string, rules ...rbacv1.PolicyRule) *rbacv1.Role {
 	return &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}, Rules: rules}
 }
 
-func newRuleTemplate(verbs, apiGroups, resources, nonResourceURLs string, complianceT policyv1alpha1.ComplianceType) policyv1alpha1.PolicyRuleTemplate {
-	return policyv1alpha1.PolicyRuleTemplate{
+func newRuleTemplate(verbs, apiGroups, resources, nonResourceURLs string, complianceT policiesv1alpha1.ComplianceType) policiesv1alpha1.PolicyRuleTemplate {
+	return policiesv1alpha1.PolicyRuleTemplate{
 		ComplianceType: complianceT,
 		PolicyRule: rbacv1.PolicyRule{
 			Verbs:           strings.Split(verbs, ","),
@@ -517,8 +494,8 @@ func newRuleTemplate(verbs, apiGroups, resources, nonResourceURLs string, compli
 	}
 }
 
-func newRoleTemplate(name, namespace string, rolecompT policyv1alpha1.ComplianceType, rulesT ...policyv1alpha1.PolicyRuleTemplate) *policyv1alpha1.RoleTemplate {
-	return &policyv1alpha1.RoleTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
+func newRoleTemplate(name, namespace string, rolecompT policiesv1alpha1.ComplianceType, rulesT ...policiesv1alpha1.PolicyRuleTemplate) *policiesv1alpha1.RoleTemplate {
+	return &policiesv1alpha1.RoleTemplate{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name},
 		ComplianceType: rolecompT,
 		Rules:          rulesT}
 }

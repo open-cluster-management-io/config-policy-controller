@@ -4,7 +4,7 @@ require (
 	github.com/alecthomas/gometalinter v3.0.0+incompatible // indirect
 	github.com/alecthomas/units v0.0.0-20190924025748-f65c72e2690d // indirect
 	github.com/apg/patter v0.0.0-20160930163000-bd185be70ac8 // indirect
-	github.com/coreos/ v3.3.18+incompatible // indirect
+	github.com/coreos/etcd v3.3.18+incompatible // indirect
 	github.com/go-openapi/spec v0.17.2
 	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect

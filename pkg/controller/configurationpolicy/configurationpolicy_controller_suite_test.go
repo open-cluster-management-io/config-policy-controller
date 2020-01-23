@@ -21,7 +21,9 @@ import (
 
 	"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis"
 	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
+	sub "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
@@ -29,7 +31,7 @@ import (
 
 var cfg *rest.Config
 
-var samplePolicy = := &policiesv1alpha1.ConfigurationPolicy{
+var samplePolicy = policiesv1alpha1.ConfigurationPolicy{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:      "foo",
 		Namespace: "default",
