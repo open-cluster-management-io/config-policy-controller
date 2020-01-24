@@ -39,6 +39,8 @@ DEST := $(GOPATH)/src/$(GIT_HOST)/$(BASE_DIR)
 VERSION ?= $(shell git describe --exact-match 2> /dev/null || \
                  git describe --match=$(git rev-parse --short=8 HEAD) --always --dirty --abbrev=8)
 LOCAL_OS := $(shell uname)
+GO_OS := $(shell go env GOOS)
+GO_ARCH := $(shell go env GOARCH)
 ifeq ($(LOCAL_OS),Linux)
     TARGET_OS ?= linux
     XARGS_FLAGS="-r"
@@ -49,9 +51,9 @@ else
     $(error "This system's OS $(LOCAL_OS) isn't recognized/supported")
 endif
 
-.PHONY: all work fmt check coverage lint test build images build-push-images
+.PHONY: all work deps fmt check coverage lint test build images build-push-images
 
-all: fmt check test coverage build images
+all: fmt deps check test coverage build images
 
 ifeq (,$(wildcard go.mod))
 ifneq ("$(realpath $(DEST))", "$(realpath $(PWD))")
@@ -79,6 +81,15 @@ work: $(GOBIN)
 # Default value will run all formats, override these make target with your requirements:
 #    eg: fmt: format-go format-protos
 fmt: format-go format-protos format-python
+
+############################################################
+# deps section
+############################################################
+
+deps:
+	curl -L https://go.kubebuilder.io/dl/2.2.0/${GO_OS}/${GO_ARCH} | tar -xz -C /tmp/
+	sudo mv /tmp/kubebuilder_2.2.0_${GO_OS}_${GO_ARCH} /usr/local/kubebuilder
+	export PATH=$PATH:/usr/local/kubebuilder/bin
 
 ############################################################
 # check section
