@@ -1372,9 +1372,7 @@ func getAllNamespaces() (list []string) {
 	if err != nil {
 		glog.Errorf("Error fetching namespaces from the API server: %v", err)
 	}
-	glog.Error("NAMESPACE LIST")
 	namespacesNames := []string{}
-	glog.Error(nsList)
 	for _, n := range nsList.Items {
 		namespacesNames = append(namespacesNames, n.Name)
 	}
