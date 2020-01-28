@@ -87,6 +87,7 @@ fmt: format-go format-protos format-python
 ############################################################
 
 deps:
+	curl https://raw.githubusercontent.com/golang/dep/master/install.sh | sh
 	curl -L https://go.kubebuilder.io/dl/2.2.0/${GO_OS}/${GO_ARCH} | tar -xz -C /tmp/
 	sudo mv /tmp/kubebuilder_2.2.0_${GO_OS}_${GO_ARCH} /usr/local/kubebuilder
 	export PATH=$PATH:/usr/local/kubebuilder/bin
