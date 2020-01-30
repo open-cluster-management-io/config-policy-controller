@@ -167,7 +167,7 @@ func main() {
 	common.Initialize(&generatedClient, cfg)
 	policyStatusHandler.Initialize(cfg, &generatedClient, mgr, namespace, eventOnParent, alertTarget, clustername)
 	// PeriodicallyExecSamplePolicies is the go-routine that periodically checks the policies and does the needed work to make sure the desired state is achieved
-	go policyStatusHandler.PeriodicallyExecSamplePolicies(frequency)
+	go policyStatusHandler.PeriodicallyExecSamplePolicies(frequency, false)
 
 	log.Info("Starting the Cmd.")
 

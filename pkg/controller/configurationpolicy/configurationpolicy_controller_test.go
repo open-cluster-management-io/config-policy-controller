@@ -14,6 +14,7 @@
 package configurationpolicy
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -111,7 +112,7 @@ func TestReconcile(t *testing.T) {
 	}
 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 	common.Initialize(&simpleClient, nil)
-	Initialize(nil, &simpleClient, nil, namespace, "ifpresent", false, "test")
+	InitializeClient(&simpleClient)
 	res, err := r.Reconcile(req)
 	if err != nil {
 		t.Fatalf("reconcile: (%v)", err)
@@ -134,6 +135,19 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 		TypeMeta:   typeMeta,
 		ObjectMeta: objMeta,
 	}
+	var def = map[string]interface{}{
+		"apiDefinition": "v1",
+		"kind":          "Pod",
+		"metadata": metav1.ObjectMeta{
+			Name: "nginx-pod",
+		},
+		"spec": map[string]interface{}{},
+	}
+	defJSON, err := json.Marshal(def)
+	if err != nil {
+		t.Log(err)
+	}
+
 	// Mock request to simulate Reconcile() being called on an event for a
 	// watched resource .
 	req := reconcile.Request{
@@ -183,8 +197,10 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 			},
 			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
 				&policiesv1alpha1.ObjectTemplate{
-					ComplianceType:   "musthave",
-					ObjectDefinition: runtime.RawExtension{},
+					ComplianceType: "musthave",
+					ObjectDefinition: runtime.RawExtension{
+						Raw: defJSON,
+					},
 				},
 			},
 		},
@@ -213,7 +229,7 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 	samplePolicy.Spec.NamespaceSelector.Include = target
 	err = handleAddingPolicy(&samplePolicy)
 	assert.Nil(t, err)
-	PeriodicallyExecSamplePolicies(1)
+	PeriodicallyExecSamplePolicies(1, true)
 }
 
 func TestCheckUnNamespacedPolicies(t *testing.T) {

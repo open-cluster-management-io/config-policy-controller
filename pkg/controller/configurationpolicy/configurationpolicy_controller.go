@@ -174,7 +174,7 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 // Initialize to initialize some controller variables
 func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string,
 	syncAlert bool, clustName string) {
-	KubeClient = kClient
+	InitializeClient(kClient)
 	PlcChan = make(chan *policyv1alpha1.ConfigurationPolicy, 100) //buffering up to 100 policies for update
 
 	NamespaceWatched = namespace
@@ -200,6 +200,11 @@ func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr mana
 	} else {
 		clusterName = clustName
 	}
+}
+
+//InitializeClient helper function to initialize kubeclient
+func InitializeClient(kClient *kubernetes.Interface) {
+	KubeClient = kClient
 }
 
 // blank assignment to verify that ReconcileConfigurationPolicy implements reconcile.Reconciler
@@ -367,7 +372,7 @@ func handlePolicyPerNamespace(namespace string, plc *policyv1alpha1.Configuratio
 }
 
 // PeriodicallyExecSamplePolicies always check status
-func PeriodicallyExecSamplePolicies(freq uint) {
+func PeriodicallyExecSamplePolicies(freq uint, test bool) {
 	var plcToUpdateMap map[string]*policyv1alpha1.ConfigurationPolicy
 	for {
 		start := time.Now()
@@ -429,6 +434,9 @@ func PeriodicallyExecSamplePolicies(freq uint) {
 			time.Sleep(time.Duration(remainingSleep) * time.Second)
 		}
 		if KubeClient == nil {
+			return
+		}
+		if test == true {
 			return
 		}
 	}
@@ -496,9 +504,13 @@ func handleMustNotHaveRole(rtValue roleOrigin) {
 
 	if updateNeeded {
 		if rtValue.roleTemplate.Status.ComplianceState == policyv1alpha1.NonCompliant {
-			recorder.Event(rtValue.policy, "Warning", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+			if recorder != nil {
+				recorder.Event(rtValue.policy, "Warning", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+			}
 		} else {
-			recorder.Event(rtValue.policy, "Normal", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+			if recorder != nil {
+				recorder.Event(rtValue.policy, "Normal", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+			}
 		}
 
 		err = updatePolicy(rtValue.policy, 0)
@@ -547,7 +559,6 @@ func handleMustHaveRole(rtValue roleOrigin) {
 			role := buildRole(rtValue)
 			_, err = (*KubeClient).RbacV1().Roles(rtValue.namespace).Create(role)
 			if err != nil {
-
 				rtValue.roleTemplate.Status.ComplianceState = policyv1alpha1.NonCompliant
 
 				rtValue.policy.Status.ComplianceState = policyv1alpha1.NonCompliant
@@ -568,7 +579,6 @@ func handleMustHaveRole(rtValue roleOrigin) {
 
 		} else { //it is inform only
 			rtValue.roleTemplate.Status.ComplianceState = policyv1alpha1.NonCompliant
-
 			rtValue.policy.Status.ComplianceState = policyv1alpha1.NonCompliant
 			rtValue.roleTemplate.Status.Conditions = createRoleTemplateCondition("missingRole", rtValue, err, rtValue.roleTemplate.Status.Conditions, rtValue.roleTemplate.Name)
 			updateNeeded = true
@@ -576,7 +586,6 @@ func handleMustHaveRole(rtValue roleOrigin) {
 				rtValue.namespace, rtValue.roleTemplate.Name, rtValue.policy.Name)
 		}
 	} else if len(foundRoles) > 0 { //I need to do a deep comparison after flattening
-
 		for _, fRole := range foundRoles {
 			roleN := []string{fRole, rtValue.namespace}
 			roleNamespace := strings.Join(roleN, "-")
@@ -640,11 +649,14 @@ func handleMustHaveRole(rtValue roleOrigin) {
 	}
 	if updateNeeded {
 		if rtValue.roleTemplate.Status.ComplianceState == policyv1alpha1.NonCompliant {
-			recorder.Event(rtValue.policy, "Warning", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+			if recorder != nil {
+				recorder.Event(rtValue.policy, "Warning", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+			}
 		} else {
-			recorder.Event(rtValue.policy, "Normal", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+			if recorder != nil {
+				recorder.Event(rtValue.policy, "Normal", fmt.Sprintf("policy: %s/%s", rtValue.policy.GetName(), rtValue.roleTemplate.ObjectMeta.GetName()), fmt.Sprintf("%s; %s", rtValue.roleTemplate.Status.ComplianceState, rtValue.roleTemplate.Status.Conditions[0].Message))
+			}
 		}
-
 		if _, ok := UpdatePolicyMap[rtValue.policy.Name]; !ok {
 			MxUpdateMap.Lock()
 			UpdatePolicyMap[rtValue.policy.Name] = rtValue.policy
@@ -685,6 +697,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 	ext := objectT.ObjectDefinition
 	glog.V(9).Infof("reading raw object: %v", string(ext.Raw))
 	versions := &runtime.VersionedObjects{}
+	glog.Error(ext)
 	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, versions)
 	if err != nil {
 		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
@@ -728,7 +741,9 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 			}
 		}
 		if updateNeeded {
-			recorder.Event(policy, "Warning", fmt.Sprintf("policy: %s/%s", policy.GetName(), "policy"), errMsg)
+			if recorder != nil {
+				recorder.Event(policy, "Warning", fmt.Sprintf("policy: %s/%s", policy.GetName(), "policy"), errMsg)
+			}
 			//addForUpdate(policy, 0, &dclient, &gvr)
 		}
 		return
@@ -844,7 +859,9 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		if objectT.Status.ComplianceState == policyv1alpha1.NonCompliant {
 			eventType = "Warning"
 		}
-		recorder.Event(policy, eventType, fmt.Sprintf("policy: %s/%s", policy.GetName(), name), fmt.Sprintf("%s; %s", objectT.Status.ComplianceState, objectT.Status.Conditions[0].Message))
+		if recorder != nil {
+			recorder.Event(policy, eventType, fmt.Sprintf("policy: %s/%s", policy.GetName(), name), fmt.Sprintf("%s; %s", objectT.Status.ComplianceState, objectT.Status.Conditions[0].Message))
+		}
 		addForUpdate(policy, 0, &dclient, &rsrc)
 	}
 }
@@ -1705,6 +1722,11 @@ func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int) error {
 	var tmp policyv1alpha1.ConfigurationPolicy
 	tmp = *plc
 
+	if restClient == nil {
+		glog.Errorf("REST Client was not created properly, could not update policy %v", plc.Name)
+		return nil
+	}
+
 	err := restClient.Get().
 		Name(tmp.Name).
 		Namespace(tmp.Namespace).
@@ -1726,6 +1748,7 @@ func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int) error {
 		Body(copy).
 		Do().
 		Into(copy)
+
 	if err != nil {
 		glog.Errorf("Error update policy %v, the error is: %v", plc.Name, err)
 	}
@@ -2483,10 +2506,12 @@ func createParentPolicyEvent(instance *policyv1alpha1.ConfigurationPolicy) {
 
 	parentPlc := createParentPolicy(instance)
 
-	reconcilingAgent.recorder.Event(&parentPlc,
-		corev1.EventTypeNormal,
-		fmt.Sprintf("policy: %s/%s", instance.Namespace, instance.Name),
-		convertPolicyStatusToString(instance))
+	if reconcilingAgent.recorder != nil {
+		reconcilingAgent.recorder.Event(&parentPlc,
+			corev1.EventTypeNormal,
+			fmt.Sprintf("policy: %s/%s", instance.Namespace, instance.Name),
+			convertPolicyStatusToString(instance))
+	}
 }
 
 func createParentPolicy(instance *policyv1alpha1.ConfigurationPolicy) policyv1alpha1.ConfigurationPolicy {
