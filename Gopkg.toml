@@ -30,10 +30,5 @@
 [[override]]
   name = "github.com/stretchr/testify" 
 
-[[constraint]]
-  name = "github.ibm.com/OMaaS/alerttargetcontroller"
-  source =  "git@github.ibm.com:OMaaS/alerttargetcontroller.git"
-  branch = "master"  
-
 [prune]
   go-tests = true

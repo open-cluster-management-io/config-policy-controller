@@ -1,16 +1,8 @@
-// Copyright 2019 The Kubernetes Authors.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
+// Note to U.S. Government Users Restricted Rights:
+// Use, duplication or disclosure restricted by GSA ADP Schedule
+// Contract with IBM Corp.
+// Copyright (c) 2020 Red Hat, Inc.
+
 package configurationpolicy
 
 import (
@@ -26,7 +18,6 @@ import (
 	"github.com/golang/glog"
 	policyv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
 	common "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/common"
-	alerttargetcontroller "github.ibm.com/OMaaS/alerttargetcontroller/pkg/apis/alerttargetcontroller/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	v1 "k8s.io/api/rbac/v1"
@@ -1012,7 +1003,7 @@ func handleMissingMustNotHave(objectT *policyv1alpha1.ObjectTemplate, name strin
 	glog.V(7).Infof("entering `does not exists` & ` must not have`")
 	var cond *policyv1alpha1.Condition
 	var update bool
-	message := fmt.Sprintf("%v `%v` is missing as it should be, therefore the this Object template is compliant", rsrc.Resource, name)
+	message := fmt.Sprintf("%v `%v` is missing as it should be, therefore this Object template is compliant", rsrc.Resource, name)
 	cond = &policyv1alpha1.Condition{
 		Type:               "succeeded",
 		Status:             corev1.ConditionTrue,
@@ -1036,7 +1027,7 @@ func handleMissingMustNotHave(objectT *policyv1alpha1.ObjectTemplate, name strin
 func handleExistsMustHave(objectT *policyv1alpha1.ObjectTemplate, name string, rsrc schema.GroupVersionResource) (updateNeeded bool) {
 	var cond *policyv1alpha1.Condition
 	var update bool
-	message := fmt.Sprintf("%v `%v` exists as it should be, therefore the this Object template is compliant", rsrc.Resource, name)
+	message := fmt.Sprintf("%v `%v` exists as it should be, therefore this Object template is compliant", rsrc.Resource, name)
 	cond = &policyv1alpha1.Condition{
 		Type:               "notification",
 		Status:             corev1.ConditionTrue,
@@ -1102,25 +1093,6 @@ func handleExistsMustNotHave(objectT *policyv1alpha1.ObjectTemplate, action poli
 				update = true
 			}
 		}
-	} else { //inform
-		message := fmt.Sprintf("%v `%v` exists, and should be deleted", rsrc.Resource, name)
-		cond = &policyv1alpha1.Condition{
-			Type:               "notification",
-			Status:             corev1.ConditionTrue,
-			LastTransitionTime: metav1.Now(),
-			Reason:             "K8s has a must `not` have object",
-			Message:            message,
-		}
-		if objectT.Status.ComplianceState != policyv1alpha1.NonCompliant {
-			update = true
-		}
-		objectT.Status.ComplianceState = policyv1alpha1.NonCompliant
-		if !checkMessageSimilarity(objectT, cond) {
-			conditions := AppendCondition(objectT.Status.Conditions, cond, rsrc.Resource, false)
-			objectT.Status.Conditions = conditions
-			return true, err
-		}
-
 	}
 	return update, err
 }
@@ -1170,25 +1142,6 @@ func handleMissingMustHave(objectT *policyv1alpha1.ObjectTemplate, action policy
 				objectT.Status.Conditions = conditions
 				update = true
 			}
-		}
-	} else { //inform
-		message := fmt.Sprintf("%v `%v` is missing, and should be created", rsrc.Resource, name)
-		cond = &policyv1alpha1.Condition{
-			Type:               "violation",
-			Status:             corev1.ConditionTrue,
-			LastTransitionTime: metav1.Now(),
-			Reason:             "K8s missing a must have object",
-			Message:            message,
-		}
-		if objectT.Status.ComplianceState != policyv1alpha1.NonCompliant {
-			update = true
-		}
-		objectT.Status.ComplianceState = policyv1alpha1.NonCompliant
-
-		if !checkMessageSimilarity(objectT, cond) {
-			conditions := AppendCondition(objectT.Status.Conditions, cond, rsrc.Resource, false)
-			objectT.Status.Conditions = conditions
-			update = true
 		}
 	}
 	return update, err
@@ -1774,7 +1727,10 @@ func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}
 	return merged.(map[string]interface{}), nil
 }
 
-func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface, typeStr string) (success bool, message string) {
+func updateTemplate(
+	namespaced bool, namespace string, name string, remediation policyv1alpha1.RemediationAction,
+	rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface,
+	typeStr string, parent *policyv1alpha1.Policy) (success bool, throwSpecViolation bool, message string) {
 	updateNeeded := false
 	if namespaced {
 		res := dclient.Resource(rsrc).Namespace(namespace)
@@ -1784,22 +1740,29 @@ func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.
 		} else {
 			newObj := unstruct.Object["spec"]
 			oldObj := existingObj.UnstructuredContent()["spec"]
+			if newObj == nil || oldObj == nil {
+				return false, false, ""
+			}
+			if parent != nil {
+				// overwrite remediation from parent
+				newObj.(map[string]interface{})["remediationAction"] = parent.Spec.RemediationAction
+			}
 			//merge changes into new spec
 			newObj, err = compareSpecs(newObj.(map[string]interface{}), oldObj.(map[string]interface{}))
 			if err != nil {
 				message := fmt.Sprintf("Error merging changes into spec: %s", err)
-				return false, message
+				return false, false, message
 			}
 			//check if merged spec has changed
 			nJSON, err := json.Marshal(newObj)
 			if err != nil {
 				message := fmt.Sprintf("Error converting updated spec to JSON: %s", err)
-				return false, message
+				return false, false, message
 			}
 			oJSON, err := json.Marshal(oldObj)
 			if err != nil {
 				message := fmt.Sprintf("Error converting updated spec to JSON: %s", err)
-				return false, message
+				return false, false, message
 			}
 			if !reflect.DeepEqual(nJSON, oJSON) {
 				updateNeeded = true
@@ -1809,18 +1772,22 @@ func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.
 			existingObj.UnstructuredContent()["spec"] = newObj
 			mapMtx.Unlock()
 			if updateNeeded {
+				if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Inform)) {
+					return false, true, ""
+				}
+				//enforce
 				glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
 				_, err = res.Update(existingObj, metav1.UpdateOptions{})
 				if errors.IsNotFound(err) {
 					message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
-					return false, message
+					return false, false, message
 				}
 				if err != nil {
 					message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
-					return false, message
+					return false, false, message
 				}
 				glog.V(4).Infof("Resource `%v` updated\n", name)
-				return true, ""
+				return false, false, ""
 			}
 		}
 	} else {
@@ -1831,6 +1798,9 @@ func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.
 		} else {
 			newObj := unstruct.Object["spec"]
 			oldObj := existingObj.UnstructuredContent()["spec"]
+			if newObj == nil || oldObj == nil {
+				return false, false, ""
+			}
 			updateNeeded := !(reflect.DeepEqual(newObj, oldObj))
 			oldMap := existingObj.UnstructuredContent()["metadata"].(map[string]interface{})
 			resVer := oldMap["resourceVersion"]
@@ -1839,22 +1809,26 @@ func updateTemplate(namespaced bool, namespace string, name string, rsrc schema.
 			unstruct.Object["metadata"].(map[string]interface{})["resourceVersion"] = resVer
 			mapMtx.Unlock()
 			if updateNeeded {
+				if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Inform)) {
+					return false, true, ""
+				}
+				//enforce
 				glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
 				_, err = res.Update(&unstruct, metav1.UpdateOptions{})
 				if errors.IsNotFound(err) {
 					message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
-					return false, message
+					return false, false, message
 				}
 				if err != nil {
 					message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
-					return false, message
+					return false, false, message
 				}
 				glog.V(4).Infof("Resource `%v` updated\n", name)
-				return true, ""
+				return false, false, ""
 			}
 		}
 	}
-	return false, ""
+	return false, false, ""
 }
 
 func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int) error {
@@ -2223,65 +2197,12 @@ func (p *PluralScheme) SetPlural(gvk schema.GroupVersionKind, plural string) {
 }
 
 // GetCEMWebhookURL populate the webhook value from a CRD
-func GetCEMWebhookURL(namespace, clusterName string, config *rest.Config) (url string, err error) {
-	alertScheme := NewScheme()
-	alerttargetcontroller.AddToScheme(alertScheme.Scheme)
-	alertScheme.SetPlural(alerttargetcontroller.SchemeGroupVersion.WithKind("AlertTarget"), "alerttargets")
+func GetCEMWebhookURL() (url string, err error) {
 
-	cfg := *config
-	cfg.GroupVersion = &alerttargetcontroller.SchemeGroupVersion
-	cfg.APIPath = "/apis"
-	cfg.ContentType = runtime.ContentTypeJSON
-	cfg.NegotiatedSerializer = PassthruCodecFactory{CodecFactory: serializer.NewCodecFactory(alertScheme.Scheme)}
-	alertClient, err := rest.RESTClientFor(&cfg)
-	if err != nil {
-		glog.Error("Error generating AlertClient")
-		return "", err
+	if CemWebhookURL == "" {
+		return "", fmt.Errorf("undefined CEM webhook: %s", CemWebhookURL)
 	}
-	at := createAlertTargetInstance(namespace, clusterName)
-	atmeta, err := meta.Accessor(&at)
-	if err != nil {
-		glog.Error("Error generating AlertTargetInstance")
-		return "", err
-	}
-	err = alertClient.Get().
-		Name(atmeta.GetName()).
-		Namespace(atmeta.GetNamespace()).
-		Resource("alerttargets").
-		Do().
-		Into(&at)
-	if err != nil {
-		if errors.IsNotFound(err) {
-			glog.Errorf("The CRD instance `%v` of the alertTarget is not found, therefore no events will be triggered", fmt.Sprintf("%s-%s", namespace, clusterName))
-		} else {
-			glog.Errorf("The CRD instance `%v` of the alertTarget is not accessible, therefore no events will be triggered", fmt.Sprintf("%s-%s", namespace, clusterName))
-		}
-		return "", err
-	}
-
-	url = extractURL(at)
-
-	glog.Infof("CEM Webhook URL found: %s", url)
-	return url, nil
-}
-
-func extractURL(instance alerttargetcontroller.AlertTarget) string {
-	return instance.Spec.ComplianceWebhook
-}
-
-func createAlertTargetInstance(namespace, clusterName string) (instance alerttargetcontroller.AlertTarget) {
-	atName := fmt.Sprintf("%s-%s", namespace, clusterName)
-	at := alerttargetcontroller.AlertTarget{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "AlertTarget",
-			APIVersion: "v1alpha1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      atName,
-			Namespace: namespace,
-		},
-	}
-	return at
+	return CemWebhookURL, nil
 }
 
 func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy, retry int, dclient *dynamic.Interface, gvr *schema.GroupVersionResource) {
