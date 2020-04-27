@@ -1,4 +1,4 @@
-module github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller
+module github.com/open-cluster-management/multicloud-operators-policy-controller
 
 require (
 	github.com/alecthomas/gometalinter v3.0.0+incompatible // indirect

@@ -2,11 +2,6 @@
   "k8s.io/code-generator/cmd/deepcopy-gen"]
 
 [[constraint]]
-  name = "github.ibm.com/IBMPrivateCloud/hcm-api"
-  source =  "git@github.ibm.com:IBMPrivateCloud/hcm-api.git"
-  branch = "master"
-
-[[constraint]]
   name = "k8s.io/code-generator"
   version = "kubernetes-1.13.1"
 
