@@ -14,7 +14,7 @@
 package controller
 
 import (
-	configurationpolicy "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/controller/configurationpolicy"
+	configurationpolicy "github.com/open-cluster-management/config-policy-controller/pkg/controller/configurationpolicy"
 )
 
 func init() {

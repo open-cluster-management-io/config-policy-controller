@@ -25,9 +25,11 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 
-	"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis"
-	"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/controller"
+	"github.com/open-cluster-management/config-policy-controller/pkg/apis"
+	"github.com/open-cluster-management/config-policy-controller/pkg/controller"
 
+	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
+	policyStatusHandler "github.com/open-cluster-management/config-policy-controller/pkg/controller/configurationpolicy"
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
 	kubemetrics "github.com/operator-framework/operator-sdk/pkg/kube-metrics"
 	"github.com/operator-framework/operator-sdk/pkg/leader"
@@ -36,8 +38,6 @@ import (
 	"github.com/operator-framework/operator-sdk/pkg/restmapper"
 	sdkVersion "github.com/operator-framework/operator-sdk/version"
 	"github.com/spf13/pflag"
-	common "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/common"
-	policyStatusHandler "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/controller/configurationpolicy"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -163,9 +163,14 @@ func main() {
 	}
 
 	// Initialize some variables
+	client, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		log.Info("cannot create kube client sucessfully: %v", err)
+	}
 	var generatedClient kubernetes.Interface = kubernetes.NewForConfigOrDie(mgr.GetConfig())
 	common.Initialize(&generatedClient, cfg)
-	policyStatusHandler.Initialize(cfg, &generatedClient, mgr, namespace, eventOnParent, alertTarget, clustername)
+	policyStatusHandler.Initialize(cfg, client, &generatedClient, mgr, namespace, eventOnParent, alertTarget, clustername)
+	log.Info("********* initialize complete, entering loop")
 	// PeriodicallyExecSamplePolicies is the go-routine that periodically checks the policies and does the needed work to make sure the desired state is achieved
 	go policyStatusHandler.PeriodicallyExecSamplePolicies(frequency, false)
 

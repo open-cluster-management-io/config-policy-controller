@@ -18,14 +18,14 @@ Make sure to export GO111MODULE=on as it uses go mod as dependency manager.
 
 ```bash
 export GO111MODULE=on
-kubectl apply -f deploy/crds/policies.ibm.com_samplepolicies_crd.yaml
-operator-sdk up local --verbose
+kubectl apply -f deploy/crds/policies.ibm.com_configurationpolicies_crd.yaml
+operator-sdk run --local --verbose
 ```
 It takes seconds for the sample policy controller to fully start. You will get the message `Waiting for policies to be available for processing...` once it's fully started and watching for policies.
 
 To test a sample policy, open another command prompt to deploy the sample policy file
 ```
-kubectl apply -f deploy/crds/policies.ibm.com_v1alpha1_samplepolicy_cr.yaml -n default
+kubectl apply -f deploy/crds/policies.ibm.com_v1alpha1_configurationpolicy_cr.yaml -n default
 ```
 The local process outputs the following messages
 ```

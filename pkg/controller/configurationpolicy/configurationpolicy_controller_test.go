@@ -19,8 +19,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
-	"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/common"
+	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1alpha1"
+	"github.com/open-cluster-management/config-policy-controller/pkg/common"
 	coretypes "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	sub "k8s.io/api/rbac/v1"

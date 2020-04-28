@@ -17,7 +17,7 @@ package common
 import (
 	"sync"
 
-	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
+	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1alpha1"
 )
 
 //SyncedPolicyMap a thread safe map

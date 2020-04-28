@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/golang/glog"
-	policyv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
-	common "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/common"
+	policyv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1alpha1"
+	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	v1 "k8s.io/api/rbac/v1"
@@ -66,12 +66,18 @@ var PlcChan chan *policyv1alpha1.ConfigurationPolicy
 
 var recorder record.EventRecorder
 
+var clientSet *kubernetes.Clientset
+
+var eventNormal = "Normal"
+var eventWarning = "Warning"
+
 var config *rest.Config
 
 var restClient *rest.RESTClient
 
 var syncAlertTargets bool
 
+//CemWebhookURL url to send events to
 var CemWebhookURL string
 
 var clusterName string
@@ -95,9 +101,6 @@ var EventOnParent string
 
 // PrometheusAddr port addr for prom metrics
 var PrometheusAddr string
-
-//PlcLister used to List obj
-var PlcLister plcList.PolicyLister
 
 type roleOrigin struct {
 	roleTemplate *policyv1alpha1.RoleTemplate
@@ -165,12 +168,13 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 }
 
 // Initialize to initialize some controller variables
-func Initialize(kubeconfig *rest.Config, kClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string,
+func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset, kClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string,
 	syncAlert bool, clustName string) {
 	InitializeClient(kClient)
 	PlcChan = make(chan *policyv1alpha1.ConfigurationPolicy, 100) //buffering up to 100 policies for update
 
 	NamespaceWatched = namespace
+	clientSet = clientset
 
 	EventOnParent = strings.ToLower(eventParent)
 
@@ -232,15 +236,18 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 			// Request object not found, could have been deleted after reconcile request.
 			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
 			// Return and don't requeue
+			reqLogger.Info("error 1 *********")
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
+		reqLogger.Info("error 2 *********")
 		return reconcile.Result{}, err
 	}
 
 	// name of our mcm custom finalizer
 	myFinalizerName := Finalizer
 
+	//if instance.ObjectMeta.DeletionTimestamp.IsZero()
 	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
 		updateNeeded := false
 		// The object is not being deleted, so if it might not have our finalizer,
@@ -283,7 +290,7 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 		return reconcile.Result{}, nil
 	}
 
-	relevantNamespaces := getPolicyNamespaces(instance)
+	relevantNamespaces := getPolicyNamespaces(*instance)
 	//for each namespace, check the compliance against the policy:
 	for _, ns := range relevantNamespaces {
 		handlePolicyPerNamespace(ns, instance, instance.ObjectMeta.DeletionTimestamp.IsZero())
@@ -366,12 +373,15 @@ func handlePolicyPerNamespace(namespace string, plc *policyv1alpha1.Configuratio
 
 // PeriodicallyExecSamplePolicies always check status
 func PeriodicallyExecSamplePolicies(freq uint, test bool) {
+	log.Info("----------IN PeriodicallyExecSamplePolicies ------")
 	var plcToUpdateMap map[string]*policyv1alpha1.ConfigurationPolicy
 	for {
 		start := time.Now()
 		printMap(availablePolicies.PolicyMap)
 		plcToUpdateMap = make(map[string]*policyv1alpha1.ConfigurationPolicy)
+		log.Info(fmt.Sprintf("****** number of available policies: %d", len(availablePolicies.PolicyMap)))
 		for namespace, policy := range availablePolicies.PolicyMap {
+			log.Info(fmt.Sprintf("--- handling policy %s ----", policy.GetName()))
 			//For each namespace, fetch all the RoleBindings in that NS according to the policy selector
 			//For each RoleBindings get the number of users
 			//update the status internal map
@@ -402,7 +412,7 @@ func PeriodicallyExecSamplePolicies(freq uint, test bool) {
 			}
 			Mx.Unlock()
 			Mx.Lock()
-			handleObjectTemplates(policy)
+			handleObjectTemplates(*policy)
 			Mx.Unlock()
 
 			checkComplianceBasedOnDetails(policy)
@@ -659,18 +669,60 @@ func handleMustHaveRole(rtValue roleOrigin) {
 	}
 }
 
-func handleObjectTemplates(plc policyv1alpha1.Policy) {
-	if reflect.DeepEqual(plc.Labels["ignore"], "true") {
-		plc.Status = policyv1alpha1.PolicyStatus{
-			ComplianceState: policyv1alpha1.UnknownCompliancy,
-			Valid:           true,
-			Message:         "policy is part of a compliance that is being ignored now",
-			Reason:          "ignored",
-			State:           "Unknown",
-		}
-		continue
+func createViolation(objectT *policyv1alpha1.ObjectTemplate, reason string, message string) (result bool) {
+	var update bool
+	var cond *policyv1alpha1.Condition
+	cond = &policyv1alpha1.Condition{
+		Type:               "violation",
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
 	}
-	plcNamespaces := getPolicyNamespaces(ctx, plc)
+	if objectT.Status.ComplianceState != policyv1alpha1.NonCompliant {
+		update = true
+	}
+	objectT.Status.ComplianceState = policyv1alpha1.NonCompliant
+
+	if !checkMessageSimilarity(objectT, cond) {
+		conditions := AppendCondition(objectT.Status.Conditions, cond, "", false)
+		objectT.Status.Conditions = conditions
+		update = true
+	}
+	return update
+}
+
+func createNotification(objectT *policyv1alpha1.ObjectTemplate, reason string, message string) (result bool) {
+	var update bool
+	var cond *policyv1alpha1.Condition
+	cond = &policyv1alpha1.Condition{
+		Type:               "notification",
+		Status:             corev1.ConditionTrue,
+		LastTransitionTime: metav1.Now(),
+		Reason:             reason,
+		Message:            message,
+	}
+	if objectT.Status.ComplianceState != policyv1alpha1.Compliant {
+		update = true
+	}
+	objectT.Status.ComplianceState = policyv1alpha1.Compliant
+
+	if !checkMessageSimilarity(objectT, cond) {
+		conditions := AppendCondition(objectT.Status.Conditions, cond, "", false)
+		objectT.Status.Conditions = conditions
+		update = true
+	}
+	return update
+}
+
+func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
+	log.Info("---- entered handleObjectTemplates -----")
+	if reflect.DeepEqual(plc.Labels["ignore"], "true") {
+		plc.Status = policyv1alpha1.ConfigurationPolicyStatus{
+			ComplianceState: policyv1alpha1.UnknownCompliancy,
+		}
+	}
+	plcNamespaces := getPolicyNamespaces(plc)
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
 		mustHave := strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustHave))
@@ -702,8 +754,8 @@ func handleObjectTemplates(plc policyv1alpha1.Policy) {
 		numNonCompliant := 0
 
 		for _, ns := range relevantNamespaces {
-			glog.V(5).Infof("Handling Object template [%v] from Policy `%v` in namespace `%v`", indx, plc.Name, ns)
-			names, compliant, objKind := handleObjects(objectT, ns, indx, plc, client, config, recorder)
+			log.Info(fmt.Sprintf("Handling Object template [%v] from Policy `%v` in namespace `%v`", indx, plc.Name, ns))
+			names, compliant, objKind := handleObjects(objectT, ns, indx, &plc, clientSet, config, recorder)
 			if objKind != "" {
 				kind = objKind
 			}
@@ -722,6 +774,7 @@ func handleObjectTemplates(plc policyv1alpha1.Policy) {
 		}
 
 		if !enforce {
+			log.Info("***** entered violation creation block")
 			update := false
 			if mustHave && numCompliant == 0 {
 				//noncompliant; musthave and objects do not exist
@@ -764,14 +817,14 @@ func handleObjectTemplates(plc policyv1alpha1.Policy) {
 				if objectT.Status.ComplianceState == policyv1alpha1.NonCompliant {
 					eventType = eventWarning
 				}
-				recorder.Event(plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), fmt.Sprintf("%s; %s", objectT.Status.ComplianceState, objectT.Status.Conditions[0].Message))
-				addForUpdate(plc)
+				recorder.Event(&plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), fmt.Sprintf("%s; %s", objectT.Status.ComplianceState, objectT.Status.Conditions[0].Message))
+				addForUpdate(&plc)
 			}
 		}
 	}
 }
 
-func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, index int, policy *policyv1alpha1.Policy, clientset *kubernetes.Clientset, config *rest.Config, recorder record.EventRecorder) (objNameList []string, compliant bool, rsrcKind string) {
+func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, index int, policy *policyv1alpha1.ConfigurationPolicy, clientset *kubernetes.Clientset, config *rest.Config, recorder record.EventRecorder) (objNameList []string, compliant bool, rsrcKind string) {
 	updateNeeded := false
 	namespaced := true
 	dd := clientset.Discovery()
@@ -789,7 +842,13 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 	if err != nil {
 		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
 		glog.Errorf(decodeErr)
-		policy.Status.Message = decodeErr
+		if policy.Status.CompliancyDetails == nil {
+			policy.Status.CompliancyDetails = make(map[string]map[string][]string)
+		}
+		if _, ok := policy.Status.CompliancyDetails[policy.Name]; !ok {
+			policy.Status.CompliancyDetails[policy.Name] = make(map[string][]string)
+		}
+		policy.Status.CompliancyDetails[policy.Name][namespace] = []string{decodeErr}
 		updatePolicy(policy, 0)
 		return nil, false, ""
 	}
@@ -828,7 +887,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 			}
 		}
 		if updateNeeded {
-			recorder.Event(policy, eventWarning, fmt.Sprintf("policy: %s/%s", policy.GetName(), name), errMsg)
+			recorder.Event(policy, eventWarning, fmt.Sprintf("policy: %s", policy.GetName()), errMsg)
 			addForUpdate(policy)
 		}
 		return nil, false, ""
@@ -996,6 +1055,33 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		}
 	}
 	return nil, compliant, ""
+}
+
+func getNamesOfKind(rsrc schema.GroupVersionResource, namespaced bool, ns string, dclient dynamic.Interface) (kindNameList []string) {
+	if namespaced {
+		res := dclient.Resource(rsrc).Namespace(ns)
+		resList, err := res.List(metav1.ListOptions{})
+		if err != nil {
+			glog.Error(err)
+			return []string{}
+		}
+		kindNameList = []string{}
+		for _, uObj := range resList.Items {
+			kindNameList = append(kindNameList, uObj.Object["metadata"].(map[string]interface{})["name"].(string))
+		}
+		return kindNameList
+	}
+	res := dclient.Resource(rsrc)
+	resList, err := res.List(metav1.ListOptions{})
+	if err != nil {
+		glog.Error(err)
+		return []string{}
+	}
+	kindNameList = []string{}
+	for _, uObj := range resList.Items {
+		kindNameList = append(kindNameList, uObj.Object["metadata"].(map[string]interface{})["name"].(string))
+	}
+	return kindNameList
 }
 
 func handleMissingMustNotHave(objectT *policyv1alpha1.ObjectTemplate, name string, rsrc schema.GroupVersionResource) bool {
@@ -1444,7 +1530,7 @@ func flattenRoleTemplate(roleT policyv1alpha1.RoleTemplate) map[string]map[strin
 	return flatT
 }
 
-func getPolicyNamespaces(policy *policyv1alpha1.ConfigurationPolicy) []string {
+func getPolicyNamespaces(policy policyv1alpha1.ConfigurationPolicy) []string {
 	//get all namespaces
 	allNamespaces := getAllNamespaces()
 	//then get the list of included
@@ -1729,7 +1815,7 @@ func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}
 func updateTemplate(
 	namespaced bool, namespace string, name string, remediation policyv1alpha1.RemediationAction,
 	rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface,
-	typeStr string, parent *policyv1alpha1.Policy) (success bool, throwSpecViolation bool, message string) {
+	typeStr string, parent *policyv1alpha1.ConfigurationPolicy) (success bool, throwSpecViolation bool, message string) {
 	updateNeeded := false
 	if namespaced {
 		res := dclient.Resource(rsrc).Namespace(namespace)
@@ -2152,7 +2238,7 @@ func triggerEvent(cond policyv1alpha1.Condition, resourceType string, resolved [
 		eventSeverity = "Critical"
 		eventType = "violation"
 	}
-	WebHookURL, err := GetCEMWebhookURL(NamespaceWatched, clusterName, config)
+	WebHookURL, err := GetCEMWebhookURL()
 	if err != nil {
 		return "", err
 	}
@@ -2204,7 +2290,7 @@ func GetCEMWebhookURL() (url string, err error) {
 	return CemWebhookURL, nil
 }
 
-func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy, retry int, dclient *dynamic.Interface, gvr *schema.GroupVersionResource) {
+func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy) {
 	compliant := true
 	for _, objectT := range policy.Spec.ObjectTemplates {
 		if objectT.Status.ComplianceState == policyv1alpha1.NonCompliant {
@@ -2217,7 +2303,7 @@ func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy, retry int, dclient
 		policy.Status.ComplianceState = policyv1alpha1.NonCompliant
 	}
 
-	err := updatePolicy(policy, retry)
+	err := updatePolicy(policy, 0)
 	if err != nil {
 		time.Sleep(100) //giving enough time to sync
 	}
@@ -2463,6 +2549,7 @@ func handleRemovingPolicy(plc *policyv1alpha1.ConfigurationPolicy) {
 }
 
 func handleAddingPolicy(plc *policyv1alpha1.ConfigurationPolicy) error {
+	log.Info("oooooooo in handleAddingPolicy ooooooooo")
 	allNamespaces, err := common.GetAllNamespaces()
 	if err != nil {
 		glog.Errorf("reason: error fetching the list of available namespaces, subject: K8s API server, namespace: all, according to policy: %v, additional-info: %v",
@@ -2478,9 +2565,11 @@ func handleAddingPolicy(plc *policyv1alpha1.ConfigurationPolicy) error {
 		}
 	}
 	selectedNamespaces := common.GetSelectedNamespaces(plc.Spec.NamespaceSelector.Include, plc.Spec.NamespaceSelector.Exclude, allNamespaces)
+	log.Info(fmt.Sprintf("222222222 selected ns:::: %s", selectedNamespaces))
 	for _, ns := range selectedNamespaces {
 		availablePolicies.AddObject(ns, plc)
 	}
+	log.Info(fmt.Sprintf("222222222 number of available policies: %d", len(availablePolicies.PolicyMap)))
 	return err
 }
 
