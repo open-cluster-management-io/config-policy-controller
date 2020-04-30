@@ -725,7 +725,7 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 	plcNamespaces := getPolicyNamespaces(plc)
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
-		mustHave := strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustHave))
+		mustNotHave := strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustNotHave))
 		enforce := strings.ToLower(string(plc.Spec.RemediationAction)) == strings.ToLower(string(policyv1alpha1.Enforce))
 		relevantNamespaces := plcNamespaces
 		kind := "unknown"
@@ -776,7 +776,7 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 		if !enforce {
 			log.Info("***** entered violation creation block")
 			update := false
-			if mustHave && numCompliant == 0 {
+			if !mustNotHave && numCompliant == 0 {
 				//noncompliant; musthave and objects do not exist
 				message := fmt.Sprintf("No instances of `%v` exist as specified, and one should be created", kind)
 				if desiredName != "" {
@@ -784,7 +784,7 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 				}
 				update = createViolation(objectT, "K8s missing a must have object", message)
 			}
-			if !mustHave && numNonCompliant > 0 {
+			if mustNotHave && numNonCompliant > 0 {
 				//noncompliant; mustnothave and objects exist
 				nameStr := ""
 				for ns, names := range nonCompliantObjects {
@@ -801,12 +801,12 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 				message := fmt.Sprintf("%v exist and should be deleted: %v", kind, nameStr)
 				update = createViolation(objectT, "K8s has a must `not` have object", message)
 			}
-			if mustHave && numCompliant > 0 {
+			if !mustNotHave && numCompliant > 0 {
 				//compliant; musthave and objects exist
 				message := fmt.Sprintf("%d instances of %v exist as specified, therefore this Object template is compliant", numCompliant, kind)
 				update = createNotification(objectT, "K8s must `not` have object already missing", message)
 			}
-			if !mustHave && numNonCompliant == 0 {
+			if mustNotHave && numNonCompliant == 0 {
 				//compliant; mustnothave and no objects exist
 				message := fmt.Sprintf("no instances of `%v` exist as specified, therefore this Object template is compliant", kind)
 				update = createNotification(objectT, "K8s `must have` object already exists", message)
@@ -966,9 +966,10 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 			exists = false
 		}
 	}
+	objShouldExist := !(strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustNotHave)))
 	if len(objNames) == 1 {
 		name = objNames[0]
-		if !exists && strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustHave)) {
+		if !exists && objShouldExist {
 			//it is a musthave and it does not exist, so it must be created
 			if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Enforce)) {
 				updateNeeded, err = handleMissingMustHave(objectT, remediation, namespaced, namespace, name, rsrc, unstruct, dclient)
@@ -980,7 +981,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 				compliant = false
 			}
 		}
-		if exists && strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustNotHave)) {
+		if exists && !objShouldExist {
 			//it is a mustnothave but it exist, so it must be deleted
 			if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Enforce)) {
 				updateNeeded, err = handleExistsMustNotHave(objectT, remediation, namespaced, namespace, name, rsrc, dclient)
@@ -991,19 +992,19 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 				compliant = false
 			}
 		}
-		if !exists && strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustNotHave)) {
+		if !exists && !objShouldExist {
 			//it is a must not have and it does not exist, so it is compliant
 			updateNeeded = handleMissingMustNotHave(objectT, name, rsrc)
 			compliant = true
 		}
-		if exists && strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustHave)) {
+		if exists && objShouldExist {
 			//it is a must have and it does exist, so it is compliant
 			updateNeeded = handleExistsMustHave(objectT, name, rsrc)
 			compliant = true
 		}
 
 		if exists {
-			updated, throwSpecViolation, msg := updateTemplate(namespaced, namespace, name, remediation, rsrc, unstruct, dclient, unstruct.Object["kind"].(string), nil)
+			updated, throwSpecViolation, msg := updateTemplate(strings.ToLower(string(objectT.ComplianceType)), namespaced, namespace, name, remediation, rsrc, unstruct, dclient, unstruct.Object["kind"].(string), nil)
 			if !updated && throwSpecViolation {
 				compliant = false
 			} else if !updated && msg != "" {
@@ -1041,16 +1042,16 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 			addForUpdate(policy)
 		}
 	} else {
-		if !exists && strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustHave)) {
+		if !exists && objShouldExist {
 			return objNames, false, rsrc.Resource
 		}
-		if exists && strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustNotHave)) {
+		if exists && !objShouldExist {
 			return objNames, false, rsrc.Resource
 		}
-		if !exists && strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustNotHave)) {
+		if !exists && !objShouldExist {
 			return objNames, true, rsrc.Resource
 		}
-		if exists && strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustHave)) {
+		if exists && objShouldExist {
 			return objNames, true, rsrc.Resource
 		}
 	}
@@ -1741,7 +1742,7 @@ func deleteObject(namespaced bool, namespace string, name string, rsrc schema.Gr
 	return deleted, err
 }
 
-func mergeSpecs(x1, x2 interface{}) (interface{}, error) {
+func mergeSpecs(x1, x2 interface{}, ctype string) (interface{}, error) {
 	data1, err := json.Marshal(x1)
 	if err != nil {
 		return nil, err
@@ -1760,10 +1761,10 @@ func mergeSpecs(x1, x2 interface{}) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	return mergeSpecsHelper(j1, j2), nil
+	return mergeSpecsHelper(j1, j2, ctype), nil
 }
 
-func mergeSpecsHelper(x1, x2 interface{}) interface{} {
+func mergeSpecsHelper(x1, x2 interface{}, ctype string) interface{} {
 	switch x1 := x1.(type) {
 	case map[string]interface{}:
 		x2, ok := x2.(map[string]interface{})
@@ -1772,7 +1773,7 @@ func mergeSpecsHelper(x1, x2 interface{}) interface{} {
 		}
 		for k, v2 := range x2 {
 			if v1, ok := x1[k]; ok {
-				x1[k] = mergeSpecsHelper(v1, v2)
+				x1[k] = mergeSpecsHelper(v1, v2, ctype)
 			} else {
 				x1[k] = v2
 			}
@@ -1787,9 +1788,12 @@ func mergeSpecsHelper(x1, x2 interface{}) interface{} {
 			if ok {
 				for idx, v2 := range x2 {
 					v1 := x1[idx]
-					x1[idx] = mergeSpecsHelper(v1, v2)
+					x1[idx] = mergeSpecsHelper(v1, v2, ctype)
 				}
 			} else {
+				if ctype == "musthave" {
+					return mergeArrays(x1, x2)
+				}
 				return x1
 			}
 		} else {
@@ -1804,16 +1808,41 @@ func mergeSpecsHelper(x1, x2 interface{}) interface{} {
 	return x1
 }
 
-func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}) (updatedSpec map[string]interface{}, err error) {
-	merged, err := mergeSpecs(newSpec, oldSpec)
+func mergeArrays(new []interface{}, old []interface{}) (result []interface{}) {
+	for _, val1 := range new {
+		found := false
+		for _, val2 := range old {
+			if val2 == val1 {
+				found = true
+			}
+		}
+		if !found {
+			new = append(new, val1)
+		}
+	}
+	return new
+}
+
+func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}, ctype string) (updatedSpec map[string]interface{}, err error) {
+	merged, err := mergeSpecs(newSpec, oldSpec, ctype)
 	if err != nil {
 		return merged.(map[string]interface{}), err
 	}
 	return merged.(map[string]interface{}), nil
 }
 
+func isBlacklisted(key string) (result bool) {
+	blacklist := []string{"apiVersion", "metadata", "kind", "status"}
+	for _, val := range blacklist {
+		if key == val {
+			return true
+		}
+	}
+	return false
+}
+
 func updateTemplate(
-	namespaced bool, namespace string, name string, remediation policyv1alpha1.RemediationAction,
+	complianceType string, namespaced bool, namespace string, name string, remediation policyv1alpha1.RemediationAction,
 	rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface,
 	typeStr string, parent *policyv1alpha1.ConfigurationPolicy) (success bool, throwSpecViolation bool, message string) {
 	updateNeeded := false
@@ -1823,57 +1852,61 @@ func updateTemplate(
 		if err != nil {
 			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
 		} else {
-			newObj := unstruct.Object["spec"]
-			oldObj := existingObj.UnstructuredContent()["spec"]
-			if newObj == nil || oldObj == nil {
-				return false, false, ""
-			}
-			if parent != nil {
-				// overwrite remediation from parent
-				newObj.(map[string]interface{})["remediationAction"] = parent.Spec.RemediationAction
-			}
-			//merge changes into new spec
-			newObj, err = compareSpecs(newObj.(map[string]interface{}), oldObj.(map[string]interface{}))
-			if err != nil {
-				message := fmt.Sprintf("Error merging changes into spec: %s", err)
-				return false, false, message
-			}
-			//check if merged spec has changed
-			nJSON, err := json.Marshal(newObj)
-			if err != nil {
-				message := fmt.Sprintf("Error converting updated spec to JSON: %s", err)
-				return false, false, message
-			}
-			oJSON, err := json.Marshal(oldObj)
-			if err != nil {
-				message := fmt.Sprintf("Error converting updated spec to JSON: %s", err)
-				return false, false, message
-			}
-			if !reflect.DeepEqual(nJSON, oJSON) {
-				updateNeeded = true
-			}
-			mapMtx := sync.RWMutex{}
-			mapMtx.Lock()
-			existingObj.UnstructuredContent()["spec"] = newObj
-			mapMtx.Unlock()
-			if updateNeeded {
-				if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Inform)) {
-					return false, true, ""
+			for key := range unstruct.Object {
+				if !isBlacklisted(key) {
+					newObj := unstruct.Object[key]
+					oldObj := existingObj.UnstructuredContent()[key]
+					if newObj == nil || oldObj == nil {
+						return false, false, ""
+					}
+					if parent != nil {
+						// overwrite remediation from parent
+						newObj.(map[string]interface{})["remediationAction"] = parent.Spec.RemediationAction
+					}
+					//merge changes into new spec
+					newObj, err = compareSpecs(newObj.(map[string]interface{}), oldObj.(map[string]interface{}), complianceType)
+					if err != nil {
+						message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
+						return false, false, message
+					}
+					//check if merged spec has changed
+					nJSON, err := json.Marshal(newObj)
+					if err != nil {
+						message := fmt.Sprintf("Error converting updated %s to JSON: %s", key, err)
+						return false, false, message
+					}
+					oJSON, err := json.Marshal(oldObj)
+					if err != nil {
+						message := fmt.Sprintf("Error converting updated %s to JSON: %s", key, err)
+						return false, false, message
+					}
+					if !reflect.DeepEqual(nJSON, oJSON) {
+						updateNeeded = true
+					}
+					mapMtx := sync.RWMutex{}
+					mapMtx.Lock()
+					existingObj.UnstructuredContent()[key] = newObj
+					mapMtx.Unlock()
+					if updateNeeded {
+						if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Inform)) {
+							return false, true, ""
+						}
+						//enforce
+						glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
+						_, err = res.Update(existingObj, metav1.UpdateOptions{})
+						if errors.IsNotFound(err) {
+							message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
+							return false, false, message
+						}
+						if err != nil {
+							message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
+							return false, false, message
+						}
+						glog.V(4).Infof("Resource `%v` updated\n", name)
+					}
 				}
-				//enforce
-				glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
-				_, err = res.Update(existingObj, metav1.UpdateOptions{})
-				if errors.IsNotFound(err) {
-					message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
-					return false, false, message
-				}
-				if err != nil {
-					message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
-					return false, false, message
-				}
-				glog.V(4).Infof("Resource `%v` updated\n", name)
-				return false, false, ""
 			}
+			return false, false, ""
 		}
 	} else {
 		res := dclient.Resource(rsrc)
@@ -1881,36 +1914,40 @@ func updateTemplate(
 		if err != nil {
 			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
 		} else {
-			newObj := unstruct.Object["spec"]
-			oldObj := existingObj.UnstructuredContent()["spec"]
-			if newObj == nil || oldObj == nil {
-				return false, false, ""
+			for key := range unstruct.Object {
+				if !isBlacklisted(key) {
+					newObj := unstruct.Object[key]
+					oldObj := existingObj.UnstructuredContent()[key]
+					if newObj == nil || oldObj == nil {
+						return false, false, ""
+					}
+					updateNeeded := !(reflect.DeepEqual(newObj, oldObj))
+					oldMap := existingObj.UnstructuredContent()["metadata"].(map[string]interface{})
+					resVer := oldMap["resourceVersion"]
+					mapMtx := sync.RWMutex{}
+					mapMtx.Lock()
+					unstruct.Object["metadata"].(map[string]interface{})["resourceVersion"] = resVer
+					mapMtx.Unlock()
+					if updateNeeded {
+						if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Inform)) {
+							return false, true, ""
+						}
+						//enforce
+						glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
+						_, err = res.Update(&unstruct, metav1.UpdateOptions{})
+						if errors.IsNotFound(err) {
+							message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
+							return false, false, message
+						}
+						if err != nil {
+							message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
+							return false, false, message
+						}
+						glog.V(4).Infof("Resource `%v` updated\n", name)
+					}
+				}
 			}
-			updateNeeded := !(reflect.DeepEqual(newObj, oldObj))
-			oldMap := existingObj.UnstructuredContent()["metadata"].(map[string]interface{})
-			resVer := oldMap["resourceVersion"]
-			mapMtx := sync.RWMutex{}
-			mapMtx.Lock()
-			unstruct.Object["metadata"].(map[string]interface{})["resourceVersion"] = resVer
-			mapMtx.Unlock()
-			if updateNeeded {
-				if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Inform)) {
-					return false, true, ""
-				}
-				//enforce
-				glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
-				_, err = res.Update(&unstruct, metav1.UpdateOptions{})
-				if errors.IsNotFound(err) {
-					message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
-					return false, false, message
-				}
-				if err != nil {
-					message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
-					return false, false, message
-				}
-				glog.V(4).Infof("Resource `%v` updated\n", name)
-				return false, false, ""
-			}
+			return false, false, ""
 		}
 	}
 	return false, false, ""
