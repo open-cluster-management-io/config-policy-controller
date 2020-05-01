@@ -758,7 +758,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 
 		if updateNeeded {
 			eventType := eventNormal
-			if policy.Status.CompliancyDetails[index].ComplianceState == policyv1alpha1.NonCompliant {
+			if index < len(policy.Status.CompliancyDetails) && policy.Status.CompliancyDetails[index].ComplianceState == policyv1alpha1.NonCompliant {
 				eventType = eventWarning
 			}
 			recorder.Event(policy, eventType, fmt.Sprintf("policy: %s/%s", policy.GetName(), name), convertPolicyStatusToString(policy))
@@ -1606,6 +1606,12 @@ func GetCEMWebhookURL() (url string, err error) {
 func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy) {
 	compliant := true
 	for index := range policy.Spec.ObjectTemplates {
+		if len(policy.Status.CompliancyDetails) <= index {
+			policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+				ComplianceState: "",
+				Conditions:      []policyv1alpha1.Condition{},
+			})
+		}
 		if policy.Status.CompliancyDetails[index].ComplianceState == policyv1alpha1.NonCompliant {
 			compliant = false
 		}
