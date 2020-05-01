@@ -24,7 +24,6 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -43,10 +42,6 @@ import (
 
 	"k8s.io/client-go/restmapper"
 )
-
-var mustNotHaveRole = make(map[string]roleOrigin)
-var mustHaveRole = make(map[string]roleOrigin)
-var mustOnlyHaveRole = make(map[string]roleOrigin)
 
 //UpdatePolicyMap used to keep track of policies to be updated
 var UpdatePolicyMap = make(map[string]*policyv1alpha1.ConfigurationPolicy)
@@ -101,13 +96,6 @@ var EventOnParent string
 
 // PrometheusAddr port addr for prom metrics
 var PrometheusAddr string
-
-type roleOrigin struct {
-	roleTemplate *policyv1alpha1.RoleTemplate
-	policy       *policyv1alpha1.ConfigurationPolicy
-	namespace    string
-	//TODO add flatRole representation here to save on calculation
-}
 
 type roleCompareResult struct {
 	roleName     string
@@ -317,31 +305,32 @@ func PeriodicallyExecSamplePolicies(freq uint, test bool) {
 		start := time.Now()
 		printMap(availablePolicies.PolicyMap)
 		plcToUpdateMap = make(map[string]*policyv1alpha1.ConfigurationPolicy)
-		for namespace, policy := range availablePolicies.PolicyMap {
+		for _, policy := range availablePolicies.PolicyMap {
 			//For each namespace, fetch all the RoleBindings in that NS according to the policy selector
 			//For each RoleBindings get the number of users
 			//update the status internal map
 			//no difference between enforce and inform here
-			roleBindingList, err := (*common.KubeClient).RbacV1().RoleBindings(namespace).
-				List(metav1.ListOptions{LabelSelector: labels.Set(policy.Spec.LabelSelector).String()})
-			if err != nil {
-				glog.Errorf("reason: communication error, subject: k8s API server, namespace: %v, according to policy: %v, additional-info: %v\n",
-					namespace, policy.Name, err)
-				continue
-			}
-			userViolationCount, GroupViolationCount := checkViolationsPerNamespace(roleBindingList, policy)
+
+			// roleBindingList, err := (*common.KubeClient).RbacV1().RoleBindings(namespace).
+			// 	List(metav1.ListOptions{LabelSelector: labels.Set(policy.Spec.LabelSelector).String()})
+			// if err != nil {
+			// 	glog.Errorf("reason: communication error, subject: k8s API server, namespace: %v, according to policy: %v, additional-info: %v\n",
+			// 		namespace, policy.Name, err)
+			// 	continue
+			// }
+			// userViolationCount, GroupViolationCount := checkViolationsPerNamespace(roleBindingList, policy)
 			if strings.EqualFold(string(policy.Spec.RemediationAction), string(policyv1alpha1.Enforce)) {
 				glog.V(5).Infof("Enforce is set, but ignored :-)")
 			}
-			if addViolationCount(policy, userViolationCount, GroupViolationCount, namespace) {
-				plcToUpdateMap[policy.Name] = policy
-			}
+			// if addViolationCount(policy, userViolationCount, GroupViolationCount, namespace) {
+			// 	plcToUpdateMap[policy.Name] = policy
+			// }
 
 			Mx.Lock()
 			handleObjectTemplates(*policy)
 			Mx.Unlock()
 
-			checkComplianceBasedOnDetails(policy)
+			// checkComplianceBasedOnDetails(policy)
 		}
 		err := checkUnNamespacedPolicies(plcToUpdateMap)
 		if err != nil {
@@ -371,7 +360,7 @@ func PeriodicallyExecSamplePolicies(freq uint, test bool) {
 	}
 }
 
-func createViolation(objectT *policyv1alpha1.ObjectTemplate, reason string, message string) (result bool) {
+func createViolation(plc policyv1alpha1.ConfigurationPolicy, index int, reason string, message string) (result bool) {
 	var update bool
 	var cond *policyv1alpha1.Condition
 	cond = &policyv1alpha1.Condition{
@@ -381,20 +370,27 @@ func createViolation(objectT *policyv1alpha1.ObjectTemplate, reason string, mess
 		Reason:             reason,
 		Message:            message,
 	}
-	if objectT.Status.ComplianceState != policyv1alpha1.NonCompliant {
+	if len(plc.Status.CompliancyDetails) <= index {
+		plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+			ComplianceState: policyv1alpha1.NonCompliant,
+			Conditions:      []policyv1alpha1.Condition{},
+		})
+	}
+	if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
 		update = true
 	}
-	objectT.Status.ComplianceState = policyv1alpha1.NonCompliant
+	plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
+	plc.Status.ComplianceState = policyv1alpha1.NonCompliant
 
-	if !checkMessageSimilarity(objectT, cond) {
-		conditions := AppendCondition(objectT.Status.Conditions, cond, "", false)
-		objectT.Status.Conditions = conditions
+	if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
+		conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
+		plc.Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
 	return update
 }
 
-func createNotification(objectT *policyv1alpha1.ObjectTemplate, reason string, message string) (result bool) {
+func createNotification(plc policyv1alpha1.ConfigurationPolicy, index int, reason string, message string) (result bool) {
 	var update bool
 	var cond *policyv1alpha1.Condition
 	cond = &policyv1alpha1.Condition{
@@ -404,14 +400,20 @@ func createNotification(objectT *policyv1alpha1.ObjectTemplate, reason string, m
 		Reason:             reason,
 		Message:            message,
 	}
-	if objectT.Status.ComplianceState != policyv1alpha1.Compliant {
+	if len(plc.Status.CompliancyDetails) <= index {
+		plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+			ComplianceState: policyv1alpha1.Compliant,
+			Conditions:      []policyv1alpha1.Condition{},
+		})
+	}
+	if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 		update = true
 	}
-	objectT.Status.ComplianceState = policyv1alpha1.Compliant
+	plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
 
-	if !checkMessageSimilarity(objectT, cond) {
-		conditions := AppendCondition(objectT.Status.Conditions, cond, "", false)
-		objectT.Status.Conditions = conditions
+	if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
+		conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
+		plc.Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
 	return update
@@ -481,7 +483,7 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 				if desiredName != "" {
 					message = fmt.Sprintf("%v `%v` is missing, and should be created", kind, desiredName)
 				}
-				update = createViolation(objectT, "K8s missing a must have object", message)
+				update = createViolation(plc, indx, "K8s missing a must have object", message)
 			}
 			if mustNotHave && numNonCompliant > 0 {
 				//noncompliant; mustnothave and objects exist
@@ -498,25 +500,25 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 				}
 				nameStr = nameStr[:len(nameStr)-2]
 				message := fmt.Sprintf("%v exist and should be deleted: %v", kind, nameStr)
-				update = createViolation(objectT, "K8s has a must `not` have object", message)
+				update = createViolation(plc, indx, "K8s has a must `not` have object", message)
 			}
 			if !mustNotHave && numCompliant > 0 {
 				//compliant; musthave and objects exist
 				message := fmt.Sprintf("%d instances of %v exist as specified, therefore this Object template is compliant", numCompliant, kind)
-				update = createNotification(objectT, "K8s must `not` have object already missing", message)
+				update = createNotification(plc, indx, "K8s must `not` have object already missing", message)
 			}
 			if mustNotHave && numNonCompliant == 0 {
 				//compliant; mustnothave and no objects exist
 				message := fmt.Sprintf("no instances of `%v` exist as specified, therefore this Object template is compliant", kind)
-				update = createNotification(objectT, "K8s `must have` object already exists", message)
+				update = createNotification(plc, indx, "K8s `must have` object already exists", message)
 			}
 			if update {
 				//update parent policy with violation
 				eventType := eventNormal
-				if objectT.Status.ComplianceState == policyv1alpha1.NonCompliant {
+				if plc.Status.CompliancyDetails[indx].ComplianceState == policyv1alpha1.NonCompliant {
 					eventType = eventWarning
 				}
-				recorder.Event(&plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), fmt.Sprintf("%s; %s", objectT.Status.ComplianceState, objectT.Status.Conditions[0].Message))
+				recorder.Event(&plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), convertPolicyStatusToString(&plc))
 				addForUpdate(&plc)
 			}
 		}
@@ -541,13 +543,23 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 	if err != nil {
 		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
 		glog.Errorf(decodeErr)
-		if policy.Status.CompliancyDetails == nil {
-			policy.Status.CompliancyDetails = make(map[string]map[string][]string)
+
+		if len(policy.Status.CompliancyDetails) <= index {
+			policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+				ComplianceState: policyv1alpha1.NonCompliant,
+				Conditions:      []policyv1alpha1.Condition{},
+			})
 		}
-		if _, ok := policy.Status.CompliancyDetails["unknown"]; !ok {
-			policy.Status.CompliancyDetails["unknown"] = make(map[string][]string)
+		policy.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
+		policy.Status.CompliancyDetails[index].Conditions = []policyv1alpha1.Condition{
+			policyv1alpha1.Condition{
+				Type:               "violation",
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "K8s decode object definition error",
+				Message:            decodeErr,
+			},
 		}
-		policy.Status.CompliancyDetails["unknown"]["message"] = []string{decodeErr}
 		updatePolicy(policy, 0)
 		return nil, false, ""
 	}
@@ -574,14 +586,20 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 				Reason:             "K8s creation error",
 				Message:            mappingErrMsg,
 			}
-			if objectT.Status.ComplianceState != policyv1alpha1.NonCompliant {
+			if len(policy.Status.CompliancyDetails) <= index {
+				policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+					ComplianceState: policyv1alpha1.NonCompliant,
+					Conditions:      []policyv1alpha1.Condition{},
+				})
+			}
+			if policy.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
 				updateNeeded = true
 			}
-			objectT.Status.ComplianceState = policyv1alpha1.NonCompliant
+			policy.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
 
-			if !checkMessageSimilarity(objectT, cond) {
-				conditions := AppendCondition(objectT.Status.Conditions, cond, gvk.GroupKind().Kind, false)
-				objectT.Status.Conditions = conditions
+			if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond, gvk.GroupKind().Kind, false)
+				policy.Status.CompliancyDetails[index].Conditions = conditions
 				updateNeeded = true
 			}
 		}
@@ -671,7 +689,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		if !exists && objShouldExist {
 			//it is a musthave and it does not exist, so it must be created
 			if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Enforce)) {
-				updateNeeded, err = handleMissingMustHave(objectT, remediation, namespaced, namespace, name, rsrc, unstruct, dclient)
+				updateNeeded, err = handleMissingMustHave(*policy, index, remediation, namespaced, namespace, name, rsrc, unstruct, dclient)
 				if err != nil {
 					// violation created for handling error
 					glog.Errorf("error handling a missing object `%v` that is a must have according to policy `%v`", name, policy.Name)
@@ -683,7 +701,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		if exists && !objShouldExist {
 			//it is a mustnothave but it exist, so it must be deleted
 			if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Enforce)) {
-				updateNeeded, err = handleExistsMustNotHave(objectT, remediation, namespaced, namespace, name, rsrc, dclient)
+				updateNeeded, err = handleExistsMustNotHave(*policy, index, remediation, namespaced, namespace, name, rsrc, dclient)
 				if err != nil {
 					glog.Errorf("error handling a existing object `%v` that is a must NOT have according to policy `%v`", name, policy.Name)
 				}
@@ -693,12 +711,12 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		}
 		if !exists && !objShouldExist {
 			//it is a must not have and it does not exist, so it is compliant
-			updateNeeded = handleMissingMustNotHave(objectT, name, rsrc)
+			updateNeeded = handleMissingMustNotHave(*policy, index, name, rsrc)
 			compliant = true
 		}
 		if exists && objShouldExist {
 			//it is a must have and it does exist, so it is compliant
-			updateNeeded = handleExistsMustHave(objectT, name, rsrc)
+			updateNeeded = handleExistsMustHave(*policy, index, name, rsrc)
 			compliant = true
 		}
 
@@ -714,14 +732,20 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 					Reason:             "K8s update template error",
 					Message:            msg,
 				}
-				if objectT.Status.ComplianceState != policyv1alpha1.NonCompliant {
+				if len(policy.Status.CompliancyDetails) <= index {
+					policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+						ComplianceState: policyv1alpha1.NonCompliant,
+						Conditions:      []policyv1alpha1.Condition{},
+					})
+				}
+				if policy.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
 					updateNeeded = true
 				}
-				objectT.Status.ComplianceState = policyv1alpha1.NonCompliant
+				policy.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
 
-				if !checkMessageSimilarity(objectT, cond) {
-					conditions := AppendCondition(objectT.Status.Conditions, cond, rsrc.Resource, false)
-					objectT.Status.Conditions = conditions
+				if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
+					conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond, rsrc.Resource, false)
+					policy.Status.CompliancyDetails[index].Conditions = conditions
 					updateNeeded = true
 				}
 				glog.Errorf(msg)
@@ -734,10 +758,10 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 
 		if updateNeeded {
 			eventType := eventNormal
-			if objectT.Status.ComplianceState == policyv1alpha1.NonCompliant {
+			if policy.Status.CompliancyDetails[index].ComplianceState == policyv1alpha1.NonCompliant {
 				eventType = eventWarning
 			}
-			recorder.Event(policy, eventType, fmt.Sprintf("policy: %s/%s", policy.GetName(), name), fmt.Sprintf("%s; %s", objectT.Status.ComplianceState, objectT.Status.Conditions[0].Message))
+			recorder.Event(policy, eventType, fmt.Sprintf("policy: %s/%s", policy.GetName(), name), convertPolicyStatusToString(policy))
 			addForUpdate(policy)
 		}
 	} else {
@@ -784,7 +808,7 @@ func getNamesOfKind(rsrc schema.GroupVersionResource, namespaced bool, ns string
 	return kindNameList
 }
 
-func handleMissingMustNotHave(objectT *policyv1alpha1.ObjectTemplate, name string, rsrc schema.GroupVersionResource) bool {
+func handleMissingMustNotHave(policy policyv1alpha1.ConfigurationPolicy, index int, name string, rsrc schema.GroupVersionResource) bool {
 	glog.V(7).Infof("entering `does not exists` & ` must not have`")
 	var cond *policyv1alpha1.Condition
 	var update bool
@@ -796,20 +820,26 @@ func handleMissingMustNotHave(objectT *policyv1alpha1.ObjectTemplate, name strin
 		Reason:             "K8s must `not` have object already missing",
 		Message:            message,
 	}
-	if objectT.Status.ComplianceState != policyv1alpha1.Compliant {
+	if len(policy.Status.CompliancyDetails) <= index {
+		policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+			ComplianceState: policyv1alpha1.Compliant,
+			Conditions:      []policyv1alpha1.Condition{},
+		})
+	}
+	if policy.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 		update = true
 	}
-	objectT.Status.ComplianceState = policyv1alpha1.Compliant
+	policy.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
 
-	if !checkMessageSimilarity(objectT, cond) {
-		conditions := AppendCondition(objectT.Status.Conditions, cond, rsrc.Resource, true)
-		objectT.Status.Conditions = conditions
+	if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
+		conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond, rsrc.Resource, true)
+		policy.Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
 	return update
 }
 
-func handleExistsMustHave(objectT *policyv1alpha1.ObjectTemplate, name string, rsrc schema.GroupVersionResource) (updateNeeded bool) {
+func handleExistsMustHave(policy policyv1alpha1.ConfigurationPolicy, index int, name string, rsrc schema.GroupVersionResource) (updateNeeded bool) {
 	var cond *policyv1alpha1.Condition
 	var update bool
 	message := fmt.Sprintf("%v `%v` exists as it should be, therefore this Object template is compliant", rsrc.Resource, name)
@@ -820,20 +850,26 @@ func handleExistsMustHave(objectT *policyv1alpha1.ObjectTemplate, name string, r
 		Reason:             "K8s `must have` object already exists",
 		Message:            message,
 	}
-	if objectT.Status.ComplianceState != policyv1alpha1.Compliant {
+	if len(policy.Status.CompliancyDetails) <= index {
+		policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+			ComplianceState: policyv1alpha1.Compliant,
+			Conditions:      []policyv1alpha1.Condition{},
+		})
+	}
+	if policy.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 		update = true
 	}
-	objectT.Status.ComplianceState = policyv1alpha1.Compliant
+	policy.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
 
-	if !checkMessageSimilarity(objectT, cond) {
-		conditions := AppendCondition(objectT.Status.Conditions, cond, rsrc.Resource, true) //true = resolved
-		objectT.Status.Conditions = conditions
+	if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
+		conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond, rsrc.Resource, true)
+		policy.Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
 	return update
 }
 
-func handleExistsMustNotHave(objectT *policyv1alpha1.ObjectTemplate, action policyv1alpha1.RemediationAction, namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, dclient dynamic.Interface) (result bool, erro error) {
+func handleExistsMustNotHave(plc policyv1alpha1.ConfigurationPolicy, index int, action policyv1alpha1.RemediationAction, namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, dclient dynamic.Interface) (result bool, erro error) {
 	glog.V(7).Infof("entering `exists` & ` must not have`")
 	var cond *policyv1alpha1.Condition
 	var update, deleted bool
@@ -849,14 +885,21 @@ func handleExistsMustNotHave(objectT *policyv1alpha1.ObjectTemplate, action poli
 				Reason:             "K8s deletion error",
 				Message:            message,
 			}
-			if objectT.Status.ComplianceState != policyv1alpha1.NonCompliant {
+			if len(plc.Status.CompliancyDetails) <= index {
+				plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+					ComplianceState: policyv1alpha1.NonCompliant,
+					Conditions:      []policyv1alpha1.Condition{},
+				})
+			}
+			if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
 				update = true
 			}
-			objectT.Status.ComplianceState = policyv1alpha1.NonCompliant
+			plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
+			plc.Status.ComplianceState = policyv1alpha1.NonCompliant
 
-			if !checkMessageSimilarity(objectT, cond) {
-				conditions := AppendCondition(objectT.Status.Conditions, cond, rsrc.Resource, false)
-				objectT.Status.Conditions = conditions
+			if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
+				plc.Status.CompliancyDetails[index].Conditions = conditions
 				update = true
 			}
 		} else { //deleted successfully
@@ -868,13 +911,20 @@ func handleExistsMustNotHave(objectT *policyv1alpha1.ObjectTemplate, action poli
 				Reason:             "K8s deletion success",
 				Message:            message,
 			}
-			if objectT.Status.ComplianceState != policyv1alpha1.Compliant {
+			if len(plc.Status.CompliancyDetails) <= index {
+				plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+					ComplianceState: policyv1alpha1.Compliant,
+					Conditions:      []policyv1alpha1.Condition{},
+				})
+			}
+			if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 				update = true
 			}
-			objectT.Status.ComplianceState = policyv1alpha1.Compliant
-			if !checkMessageSimilarity(objectT, cond) {
-				conditions := AppendCondition(objectT.Status.Conditions, cond, rsrc.Resource, true)
-				objectT.Status.Conditions = conditions
+			plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
+
+			if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
+				plc.Status.CompliancyDetails[index].Conditions = conditions
 				update = true
 			}
 		}
@@ -882,7 +932,7 @@ func handleExistsMustNotHave(objectT *policyv1alpha1.ObjectTemplate, action poli
 	return update, err
 }
 
-func handleMissingMustHave(objectT *policyv1alpha1.ObjectTemplate, action policyv1alpha1.RemediationAction, namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface) (result bool, erro error) {
+func handleMissingMustHave(plc policyv1alpha1.ConfigurationPolicy, index int, action policyv1alpha1.RemediationAction, namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface) (result bool, erro error) {
 	glog.V(7).Infof("entering `does not exists` & ` must have`")
 
 	var update, created bool
@@ -898,13 +948,21 @@ func handleMissingMustHave(objectT *policyv1alpha1.ObjectTemplate, action policy
 				Reason:             "K8s creation error",
 				Message:            message,
 			}
-			if objectT.Status.ComplianceState != policyv1alpha1.NonCompliant {
+			if len(plc.Status.CompliancyDetails) <= index {
+				plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+					ComplianceState: policyv1alpha1.NonCompliant,
+					Conditions:      []policyv1alpha1.Condition{},
+				})
+			}
+			if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
 				update = true
 			}
-			objectT.Status.ComplianceState = policyv1alpha1.NonCompliant
+			plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
+			plc.Status.ComplianceState = policyv1alpha1.NonCompliant
 
-			if !checkMessageSimilarity(objectT, cond) {
-				objectT.Status.Conditions = AppendCondition(objectT.Status.Conditions, cond, rsrc.Resource, false)
+			if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
+				plc.Status.CompliancyDetails[index].Conditions = conditions
 				update = true
 			}
 		} else { //created successfully
@@ -917,317 +975,25 @@ func handleMissingMustHave(objectT *policyv1alpha1.ObjectTemplate, action policy
 				Reason:             "K8s creation success",
 				Message:            message,
 			}
-			if objectT.Status.ComplianceState != policyv1alpha1.Compliant {
+			if len(plc.Status.CompliancyDetails) <= index {
+				plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+					ComplianceState: policyv1alpha1.Compliant,
+					Conditions:      []policyv1alpha1.Condition{},
+				})
+			}
+			if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 				update = true
 			}
-			objectT.Status.ComplianceState = policyv1alpha1.Compliant
+			plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
 
-			if !checkMessageSimilarity(objectT, cond) {
-				conditions := AppendCondition(objectT.Status.Conditions, cond, rsrc.Resource, true)
-				objectT.Status.Conditions = conditions
+			if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
+				plc.Status.CompliancyDetails[index].Conditions = conditions
 				update = true
 			}
 		}
 	}
 	return update, err
-}
-
-func deepCompareRoleTtoRole(desired map[string]map[string]map[string]bool, actual map[string]map[string]bool) (match bool, res *roleCompareResult) {
-	/*TODO: consider the ["*"] case. e.g.
-		apiGroups: ["*"]
-	  	resources: ["*"]
-	  	verbs: ["*"]
-	*/
-	matched := true
-	compRes := &roleCompareResult{}
-	//result := []string{}
-	if desired["musthave"] != nil && len(desired["musthave"]) > 0 {
-		match, compRes = compareRoleMustHave(desired["musthave"], actual, compRes)
-		if !match {
-			matched = false
-		}
-	}
-	if desired["mustnothave"] != nil && len(desired["mustnothave"]) > 0 {
-		match, compRes = compareRoleMustNotHave(desired["mustnothave"], actual, compRes)
-		if !match {
-			matched = false
-		}
-	}
-	if desired["mustonlyhave"] != nil && len(desired["mustonlyhave"]) > 0 {
-		match, compRes = compareRoleMustOnlyHave(desired["mustonlyhave"], actual, compRes)
-		if !match {
-			matched = false
-		}
-	}
-
-	return matched, compRes
-}
-
-func compareRoleMustHave(desired map[string]map[string]bool, actual map[string]map[string]bool, compRes *roleCompareResult) (match bool, res *roleCompareResult) {
-	match = true
-	for key, desG := range desired {
-		// must have it means that's the minimum set of rules the role must have, if a rule has more verbes that's ok
-		if _, ok := actual[key]; ok {
-			for keyVerb := range desG {
-				if _, ok := actual[key][keyVerb]; ok {
-					// the verb in desG exists in actualresults
-				} else {
-					//glog.V(2).Infof("INFORM:The verb %s is not found in actual, when looking into key %s", keyVerb, key)
-					if compRes.missingVerbs == nil { //initialize the map
-						compRes.missingVerbs = make(map[string]map[string]bool)
-						if compRes.missingVerbs[key] == nil {
-							compRes.missingVerbs[key] = make(map[string]bool)
-						}
-						compRes.missingVerbs[key][keyVerb] = false
-					} else {
-						if compRes.missingVerbs[key] == nil {
-							compRes.missingVerbs[key] = make(map[string]bool)
-						}
-						compRes.missingVerbs[key][keyVerb] = false
-					}
-					match = false
-				}
-			}
-		} else {
-			if compRes.missingKeys == nil { //initialize the map
-				compRes.missingKeys = make(map[string]map[string]bool)
-				if compRes.missingKeys[key] == nil {
-					compRes.missingKeys[key] = make(map[string]bool)
-				}
-				compRes.missingKeys[key] = desired[key]
-			} else {
-				if compRes.missingKeys[key] == nil {
-					compRes.missingKeys[key] = make(map[string]bool)
-				}
-				compRes.missingKeys[key] = desired[key]
-			}
-			match = false
-		}
-	}
-	return match, compRes
-}
-
-func compareRoleMustNotHave(desired map[string]map[string]bool, actual map[string]map[string]bool, compRes *roleCompareResult) (match bool, res *roleCompareResult) {
-	match = true
-	for key, desG := range desired {
-		// must not have it means that's the set of rules the role NOT must have, if a rule has different verbes that's ok
-		if _, ok := actual[key]; ok {
-			glog.V(2).Infof("The Key %s is found in actual, and has a value of: %v ", key, actual)
-			for keyVerb := range desG {
-				if _, ok := actual[key][keyVerb]; ok {
-					// the verb in desG exists in actualresults
-					if compRes.AddtionalVerbs == nil { //initialize the map
-						compRes.AddtionalVerbs = make(map[string]map[string]bool)
-						if compRes.AddtionalVerbs[key] == nil {
-							compRes.AddtionalVerbs[key] = make(map[string]bool)
-						}
-						compRes.AddtionalVerbs[key][keyVerb] = false
-					} else {
-						if compRes.AddtionalVerbs[key] == nil {
-							compRes.AddtionalVerbs[key] = make(map[string]bool)
-						}
-						compRes.AddtionalVerbs[key][keyVerb] = false
-					}
-					match = false
-				}
-			}
-		}
-	}
-	return match, compRes
-}
-
-func compareRoleMustOnlyHave(desired map[string]map[string]bool, actual map[string]map[string]bool, compRes *roleCompareResult) (match bool, res *roleCompareResult) {
-	match = true
-	for key, desG := range desired {
-		// must have it means that's the minimum set of rules the role must have, if a rule has more verbes that's ok
-		if _, ok := actual[key]; ok {
-			for keyVerb := range desG {
-				if _, ok := actual[key][keyVerb]; ok {
-					// the verb in desG exists in actualresults
-				} else {
-					if compRes.missingVerbs == nil { //initialize the map
-						compRes.missingVerbs = make(map[string]map[string]bool)
-						if compRes.missingVerbs[key] == nil {
-							compRes.missingVerbs[key] = make(map[string]bool)
-						}
-						compRes.missingVerbs[key][keyVerb] = false
-					} else {
-						if compRes.missingVerbs[key] == nil {
-							compRes.missingVerbs[key] = make(map[string]bool)
-						}
-						compRes.missingVerbs[key][keyVerb] = false
-					}
-					match = false
-				}
-			}
-		} else {
-			if compRes.missingKeys == nil { //initialize the map
-				compRes.missingKeys = make(map[string]map[string]bool)
-				if compRes.missingKeys[key] == nil {
-					compRes.missingKeys[key] = make(map[string]bool)
-				}
-				compRes.missingKeys[key] = desired[key]
-			} else {
-				if compRes.missingKeys[key] == nil {
-					compRes.missingKeys[key] = make(map[string]bool)
-				}
-				compRes.missingKeys[key] = desired[key]
-			}
-			match = false
-		}
-	}
-
-	// now we reverse the order
-
-	for key, actl := range actual {
-		// must have it means that's the minimum set of rules the role must have, if a rule has more verbes that's ok
-		if _, ok := desired[key]; ok {
-			for keyVerb := range actl {
-				if _, ok := desired[key][keyVerb]; ok {
-					// the verb in desG exists in actualresults
-				} else {
-					//glog.V(2).Infof("INFORM:The verb %s is not found in actual, when looking into key %s", keyVerb, key)
-					if compRes.AddtionalVerbs == nil { //initialize the map
-						compRes.AddtionalVerbs = make(map[string]map[string]bool)
-						if compRes.AddtionalVerbs[key] == nil {
-							compRes.AddtionalVerbs[key] = make(map[string]bool)
-						}
-						compRes.AddtionalVerbs[key][keyVerb] = false
-					} else {
-						if compRes.AddtionalVerbs[key] == nil {
-							compRes.AddtionalVerbs[key] = make(map[string]bool)
-						}
-						compRes.AddtionalVerbs[key][keyVerb] = false
-					}
-					match = false
-				}
-			}
-		} else {
-			//the key exists in actual, but does not exist in desired, i.e. mustonlyhave
-			//based on the latest discussion with Kuan, we will allow this to exist, if we change this, and instead not allow any other keys to exist,
-			//we can uncomment the code below
-			/*
-				if compRes.AdditionalKeys == nil { //initialize the map
-					compRes.AdditionalKeys = make(map[string]map[string]bool)
-					if compRes.AdditionalKeys[key] == nil {
-						compRes.AdditionalKeys[key] = make(map[string]bool)
-					}
-					compRes.AdditionalKeys[key] = actual[key]
-				} else {
-					if compRes.AdditionalKeys[key] == nil {
-						compRes.AdditionalKeys[key] = make(map[string]bool)
-					}
-					compRes.AdditionalKeys[key] = actual[key]
-				}
-				match = false
-			*/
-
-		}
-	}
-	return match, compRes
-}
-
-func flattenRole(role rbacv1.Role) map[string]map[string]bool {
-	//takes as input a role, and flattens it out
-	//from a role we create a map of apigroups. each group has a map of resources, each resource has a map of verbs
-	flat := make(map[string]map[string]bool)
-
-	//run thru the roles apigroup and resource and generate a combination
-	for _, rule := range role.Rules {
-		for _, apiG := range rule.APIGroups {
-			for _, res := range rule.Resources {
-				key := fmt.Sprintf("%s.%s", res, apiG)
-				if _, ok := flat[key]; !ok {
-					//the key does not exist, add it
-					flat[key] = make(map[string]bool)
-				}
-				for _, verb := range rule.Verbs {
-					if _, ok := flat[key][verb]; ok {
-						//the verbs exist
-					} else {
-						// the verb does not exist
-						flat[key][verb] = true
-					}
-				}
-			}
-		}
-	}
-	return flat
-}
-
-func flattenRoleTemplate(roleT policyv1alpha1.RoleTemplate) map[string]map[string]map[string]bool {
-	//TODO make sure the verbs in mustnothave are not present in the musthave for the same keys
-	//TODO make sure that the keys in mustonlyhave are deleted from the musthave and mustnothave
-	flatT := make(map[string]map[string]map[string]bool)
-	//run thru the roles template apigroup and resource and generate a combination
-	for _, rule := range roleT.Rules {
-		switch strings.ToLower(string(rule.ComplianceType)) {
-		case strings.ToLower(string(policyv1alpha1.MustHave)):
-			if flatT["musthave"] == nil {
-				flatT["musthave"] = make(map[string]map[string]bool)
-			}
-			for _, apiG := range rule.PolicyRule.APIGroups {
-				for _, res := range rule.PolicyRule.Resources {
-					key := fmt.Sprintf("%s.%s", res, apiG)
-					if _, ok := flatT["musthave"][key]; !ok {
-						//the key does not exist, add it
-						flatT["musthave"][key] = make(map[string]bool)
-					}
-					for _, verb := range rule.PolicyRule.Verbs {
-						if _, ok := flatT["musthave"][key][verb]; ok {
-							//the verbs exist
-						} else {
-							// the verb does not exist
-							flatT["musthave"][key][verb] = true
-						}
-					}
-				}
-			}
-		case strings.ToLower(string(policyv1alpha1.MustNotHave)):
-			if flatT["mustnothave"] == nil {
-				flatT["mustnothave"] = make(map[string]map[string]bool)
-			}
-			for _, apiG := range rule.PolicyRule.APIGroups {
-				for _, res := range rule.PolicyRule.Resources {
-					key := fmt.Sprintf("%s.%s", res, apiG)
-					if _, ok := flatT["mustnothave"][key]; !ok {
-						//the key does not exist, add it
-						flatT["mustnothave"][key] = make(map[string]bool)
-					}
-					for _, verb := range rule.PolicyRule.Verbs {
-						if _, ok := flatT["mustnothave"][key][verb]; ok {
-							//the verbs exist
-						} else {
-							// the verb does not exist
-							flatT["mustnothave"][key][verb] = true
-						}
-					}
-				}
-			}
-		case strings.ToLower(string(policyv1alpha1.MustOnlyHave)):
-			if flatT["mustonlyhave"] == nil {
-				flatT["mustonlyhave"] = make(map[string]map[string]bool)
-			}
-			for _, apiG := range rule.PolicyRule.APIGroups {
-				for _, res := range rule.PolicyRule.Resources {
-					key := fmt.Sprintf("%s.%s", res, apiG)
-					if _, ok := flatT["mustonlyhave"][key]; !ok {
-						//the key does not exist, add it
-						flatT["mustonlyhave"][key] = make(map[string]bool)
-					}
-					for _, verb := range rule.PolicyRule.Verbs {
-						if _, ok := flatT["mustonlyhave"][key][verb]; ok {
-							//the verbs exist
-						} else {
-							// the verb does not exist
-							flatT["mustonlyhave"][key][verb] = true
-						}
-					}
-				}
-			}
-		}
-	}
-	return flatT
 }
 
 func getPolicyNamespaces(policy policyv1alpha1.ConfigurationPolicy) []string {
@@ -1277,33 +1043,17 @@ func getAllNamespaces() (list []string) {
 	return namespacesNames
 }
 
-func checkMessageSimilarity(objectT *policyv1alpha1.ObjectTemplate, cond *policyv1alpha1.Condition) bool {
+func checkMessageSimilarity(conditions []policyv1alpha1.Condition, cond *policyv1alpha1.Condition) bool {
 	same := true
-	lastIndex := len(objectT.Status.Conditions)
+	lastIndex := len(conditions)
 	if lastIndex > 0 {
-		oldCond := objectT.Status.Conditions[lastIndex-1]
+		oldCond := conditions[lastIndex-1]
 		if !IsSimilarToLastCondition(oldCond, *cond) {
 			// objectT.Status.Conditions = AppendCondition(objectT.Status.Conditions, cond, "object", false)
 			same = false
 		}
 	} else {
 		// objectT.Status.Conditions = AppendCondition(objectT.Status.Conditions, cond, "object", false)
-		same = false
-	}
-	return same
-}
-
-func checkPolicyMessageSimilarity(policyT *policyv1alpha1.PolicyTemplate, cond *policyv1alpha1.Condition) bool {
-	same := true
-	lastIndex := len(policyT.Status.Conditions)
-	if lastIndex > 0 {
-		oldCond := policyT.Status.Conditions[lastIndex-1]
-		if !IsSimilarToLastCondition(oldCond, *cond) {
-			// policyT.Status.Conditions = AppendCondition(policyT.Status.Conditions, cond, "policy", false)
-			same = false
-		}
-	} else {
-		// policyT.Status.Conditions = AppendCondition(policyT.Status.Conditions, cond, "policy", false)
 		same = false
 	}
 	return same
@@ -1747,42 +1497,6 @@ func AppendCondition(conditions []policyv1alpha1.Condition, newCond *policyv1alp
 	return conditions
 }
 
-func getdesiredRules(rtValue policyv1alpha1.RoleTemplate) []rbacv1.PolicyRule {
-	pr := []rbacv1.PolicyRule{}
-	for _, rule := range rtValue.Rules {
-		if strings.ToLower(string(rule.ComplianceType)) == strings.ToLower(string(policyv1alpha1.MustNotHave)) {
-			glog.Infof("skipping a mustnothave rule")
-			continue
-		} else {
-			pr = append(pr, rule.PolicyRule)
-		}
-
-	}
-	return pr
-}
-
-func buildRole(ro roleOrigin) *rbacv1.Role {
-	role := &rbacv1.Role{}
-	role.Name = ro.roleTemplate.Name
-
-	if ro.roleTemplate.Selector != nil {
-		if ro.roleTemplate.Selector.MatchLabels != nil {
-			role.Labels = ro.roleTemplate.Selector.MatchLabels
-		}
-	}
-
-	role.Namespace = ro.namespace
-
-	for _, rl := range ro.roleTemplate.Rules {
-		if strings.ToLower(string(rl.ComplianceType)) != "mustnothave" {
-			role.Rules = append(role.Rules, rl.PolicyRule)
-			glog.V(2).Infof("adding rule: %v ", rl.PolicyRule)
-		}
-	}
-
-	return role
-}
-
 func getRoleNames(list []rbacv1.Role) []string {
 	roleNames := []string{}
 	for _, n := range list {
@@ -1891,8 +1605,8 @@ func GetCEMWebhookURL() (url string, err error) {
 
 func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy) {
 	compliant := true
-	for _, objectT := range policy.Spec.ObjectTemplates {
-		if objectT.Status.ComplianceState == policyv1alpha1.NonCompliant {
+	for index := range policy.Spec.ObjectTemplates {
+		if policy.Status.CompliancyDetails[index].ComplianceState == policyv1alpha1.NonCompliant {
 			compliant = false
 		}
 	}
@@ -1928,30 +1642,30 @@ func ensureDefaultLabel(instance *policyv1alpha1.ConfigurationPolicy) (updateNee
 }
 
 func checkUnNamespacedPolicies(plcToUpdateMap map[string]*policyv1alpha1.ConfigurationPolicy) error {
-	plcMap := convertMaptoPolicyNameKey()
-	// group the policies with cluster users and the ones with groups
-	// take the plc with min users and groups and make it your baseline
-	ClusteRoleBindingList, err := (*common.KubeClient).RbacV1().ClusterRoleBindings().List(metav1.ListOptions{})
-	if err != nil {
-		glog.Errorf("reason: communication error, subject: k8s API server, namespace: all, according to policy: none, additional-info: %v\n", err)
-		return err
-	}
+	// plcMap := convertMaptoPolicyNameKey()
+	// // group the policies with cluster users and the ones with groups
+	// // take the plc with min users and groups and make it your baseline
+	// ClusteRoleBindingList, err := (*common.KubeClient).RbacV1().ClusterRoleBindings().List(metav1.ListOptions{})
+	// if err != nil {
+	// 	glog.Errorf("reason: communication error, subject: k8s API server, namespace: all, according to policy: none, additional-info: %v\n", err)
+	// 	return err
+	// }
 
-	clusterLevelUsers, clusterLevelGroups := checkAllClusterLevel(ClusteRoleBindingList)
+	// clusterLevelUsers, clusterLevelGroups := checkAllClusterLevel(ClusteRoleBindingList)
 
-	for _, policy := range plcMap {
-		var userViolationCount, groupViolationCount int
-		if policy.Spec.MaxClusterRoleBindingUsers < clusterLevelUsers && policy.Spec.MaxClusterRoleBindingUsers >= 0 {
-			userViolationCount = clusterLevelUsers - policy.Spec.MaxClusterRoleBindingUsers
-		}
-		if policy.Spec.MaxClusterRoleBindingGroups < clusterLevelGroups && policy.Spec.MaxClusterRoleBindingGroups >= 0 {
-			groupViolationCount = clusterLevelGroups - policy.Spec.MaxClusterRoleBindingGroups
-		}
-		if addViolationCount(policy, userViolationCount, groupViolationCount, "cluster-wide") {
-			plcToUpdateMap[policy.Name] = policy
-		}
-		checkComplianceBasedOnDetails(policy)
-	}
+	// for _, policy := range plcMap {
+	// 	var userViolationCount, groupViolationCount int
+	// 	if policy.Spec.MaxClusterRoleBindingUsers < clusterLevelUsers && policy.Spec.MaxClusterRoleBindingUsers >= 0 {
+	// 		userViolationCount = clusterLevelUsers - policy.Spec.MaxClusterRoleBindingUsers
+	// 	}
+	// 	if policy.Spec.MaxClusterRoleBindingGroups < clusterLevelGroups && policy.Spec.MaxClusterRoleBindingGroups >= 0 {
+	// 		groupViolationCount = clusterLevelGroups - policy.Spec.MaxClusterRoleBindingGroups
+	// 	}
+	// 	if addViolationCount(policy, userViolationCount, groupViolationCount, "cluster-wide") {
+	// 		plcToUpdateMap[policy.Name] = policy
+	// 	}
+	// 	checkComplianceBasedOnDetails(policy)
+	// }
 
 	return nil
 }
@@ -2003,96 +1717,96 @@ func checkViolationsPerNamespace(roleBindingList *v1.RoleBindingList, plc *polic
 	return userViolationCount, groupViolationCount
 }
 
-func addViolationCount(plc *policyv1alpha1.ConfigurationPolicy, userCount int, groupCount int, namespace string) bool {
-	changed := false
-	msg := fmt.Sprintf("%s violations detected in namespace `%s`, there are %v users violations and %v groups violations",
-		fmt.Sprint(userCount+groupCount),
-		namespace,
-		userCount,
-		groupCount)
-	if plc.Status.CompliancyDetails == nil {
-		plc.Status.CompliancyDetails = make(map[string]map[string][]string)
-	}
-	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
-		plc.Status.CompliancyDetails[plc.Name] = make(map[string][]string)
-	}
-	if plc.Status.CompliancyDetails[plc.Name][namespace] == nil {
-		plc.Status.CompliancyDetails[plc.Name][namespace] = []string{}
-	}
-	if len(plc.Status.CompliancyDetails[plc.Name][namespace]) == 0 {
-		plc.Status.CompliancyDetails[plc.Name][namespace] = []string{msg}
-		changed = true
-		return changed
-	}
-	firstNum := strings.Split(plc.Status.CompliancyDetails[plc.Name][namespace][0], " ")
-	if len(firstNum) > 0 {
-		if firstNum[0] == fmt.Sprint(userCount+groupCount) {
-			return false
-		}
-	}
-	plc.Status.CompliancyDetails[plc.Name][namespace][0] = msg
-	changed = true
-	return changed
-}
+// func addViolationCount(plc *policyv1alpha1.ConfigurationPolicy, userCount int, groupCount int, namespace string) bool {
+// 	changed := false
+// 	msg := fmt.Sprintf("%s violations detected in namespace `%s`, there are %v users violations and %v groups violations",
+// 		fmt.Sprint(userCount+groupCount),
+// 		namespace,
+// 		userCount,
+// 		groupCount)
+// 	if plc.Status.CompliancyDetails == nil {
+// 		plc.Status.CompliancyDetails = make(map[string]map[string][]string)
+// 	}
+// 	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
+// 		plc.Status.CompliancyDetails[plc.Name] = make(map[string][]string)
+// 	}
+// 	if plc.Status.CompliancyDetails[plc.Name][namespace] == nil {
+// 		plc.Status.CompliancyDetails[plc.Name][namespace] = []string{}
+// 	}
+// 	if len(plc.Status.CompliancyDetails[plc.Name][namespace]) == 0 {
+// 		plc.Status.CompliancyDetails[plc.Name][namespace] = []string{msg}
+// 		changed = true
+// 		return changed
+// 	}
+// 	firstNum := strings.Split(plc.Status.CompliancyDetails[plc.Name][namespace][0], " ")
+// 	if len(firstNum) > 0 {
+// 		if firstNum[0] == fmt.Sprint(userCount+groupCount) {
+// 			return false
+// 		}
+// 	}
+// 	plc.Status.CompliancyDetails[plc.Name][namespace][0] = msg
+// 	changed = true
+// 	return changed
+// }
 
-func checkComplianceBasedOnDetails(plc *policyv1alpha1.ConfigurationPolicy) {
-	plc.Status.ComplianceState = policyv1alpha1.Compliant
-	if plc.Status.CompliancyDetails == nil {
-		return
-	}
-	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
-		return
-	}
-	if len(plc.Status.CompliancyDetails[plc.Name]) == 0 {
-		return
-	}
-	for namespace, msgList := range plc.Status.CompliancyDetails[plc.Name] {
-		if len(msgList) > 0 {
-			violationNum := strings.Split(plc.Status.CompliancyDetails[plc.Name][namespace][0], " ")
-			if len(violationNum) > 0 {
-				if violationNum[0] != fmt.Sprint(0) {
-					plc.Status.ComplianceState = policyv1alpha1.NonCompliant
-				}
-			}
-		} else {
-			return
-		}
-	}
-}
+// func checkComplianceBasedOnDetails(plc *policyv1alpha1.ConfigurationPolicy) {
+// 	plc.Status.ComplianceState = policyv1alpha1.Compliant
+// 	if plc.Status.CompliancyDetails == nil {
+// 		return
+// 	}
+// 	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
+// 		return
+// 	}
+// 	if len(plc.Status.CompliancyDetails[plc.Name]) == 0 {
+// 		return
+// 	}
+// 	for namespace, msgList := range plc.Status.CompliancyDetails[plc.Name] {
+// 		if len(msgList) > 0 {
+// 			violationNum := strings.Split(plc.Status.CompliancyDetails[plc.Name][namespace][0], " ")
+// 			if len(violationNum) > 0 {
+// 				if violationNum[0] != fmt.Sprint(0) {
+// 					plc.Status.ComplianceState = policyv1alpha1.NonCompliant
+// 				}
+// 			}
+// 		} else {
+// 			return
+// 		}
+// 	}
+// }
 
-func checkComplianceChangeBasedOnDetails(plc *policyv1alpha1.ConfigurationPolicy) (complianceChanged bool) {
-	//used in case we also want to know not just the compliance state, but also whether the compliance changed or not.
-	previous := plc.Status.ComplianceState
-	if plc.Status.CompliancyDetails == nil {
-		plc.Status.ComplianceState = policyv1alpha1.UnknownCompliancy
-		return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-	}
-	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
-		plc.Status.ComplianceState = policyv1alpha1.UnknownCompliancy
-		return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-	}
-	if len(plc.Status.CompliancyDetails[plc.Name]) == 0 {
-		plc.Status.ComplianceState = policyv1alpha1.UnknownCompliancy
-		return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-	}
-	plc.Status.ComplianceState = policyv1alpha1.Compliant
-	for namespace, msgList := range plc.Status.CompliancyDetails[plc.Name] {
-		if len(msgList) > 0 {
-			violationNum := strings.Split(plc.Status.CompliancyDetails[plc.Name][namespace][0], " ")
-			if len(violationNum) > 0 {
-				if violationNum[0] != fmt.Sprint(0) {
-					plc.Status.ComplianceState = policyv1alpha1.NonCompliant
-				}
-			}
-		} else {
-			return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-		}
-	}
-	if plc.Status.ComplianceState != policyv1alpha1.NonCompliant {
-		plc.Status.ComplianceState = policyv1alpha1.Compliant
-	}
-	return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-}
+// func checkComplianceChangeBasedOnDetails(plc *policyv1alpha1.ConfigurationPolicy) (complianceChanged bool) {
+// 	//used in case we also want to know not just the compliance state, but also whether the compliance changed or not.
+// 	previous := plc.Status.ComplianceState
+// 	if plc.Status.CompliancyDetails == nil {
+// 		plc.Status.ComplianceState = policyv1alpha1.UnknownCompliancy
+// 		return reflect.DeepEqual(previous, plc.Status.ComplianceState)
+// 	}
+// 	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
+// 		plc.Status.ComplianceState = policyv1alpha1.UnknownCompliancy
+// 		return reflect.DeepEqual(previous, plc.Status.ComplianceState)
+// 	}
+// 	if len(plc.Status.CompliancyDetails[plc.Name]) == 0 {
+// 		plc.Status.ComplianceState = policyv1alpha1.UnknownCompliancy
+// 		return reflect.DeepEqual(previous, plc.Status.ComplianceState)
+// 	}
+// 	plc.Status.ComplianceState = policyv1alpha1.Compliant
+// 	for namespace, msgList := range plc.Status.CompliancyDetails[plc.Name] {
+// 		if len(msgList) > 0 {
+// 			violationNum := strings.Split(plc.Status.CompliancyDetails[plc.Name][namespace][0], " ")
+// 			if len(violationNum) > 0 {
+// 				if violationNum[0] != fmt.Sprint(0) {
+// 					plc.Status.ComplianceState = policyv1alpha1.NonCompliant
+// 				}
+// 			}
+// 		} else {
+// 			return reflect.DeepEqual(previous, plc.Status.ComplianceState)
+// 		}
+// 	}
+// 	if plc.Status.ComplianceState != policyv1alpha1.NonCompliant {
+// 		plc.Status.ComplianceState = policyv1alpha1.Compliant
+// 	}
+// 	return reflect.DeepEqual(previous, plc.Status.ComplianceState)
+// }
 
 func updatePolicyStatus(policies map[string]*policyv1alpha1.ConfigurationPolicy) (*policyv1alpha1.ConfigurationPolicy, error) {
 	for _, instance := range policies { // policies is a map where: key = plc.Name, value = pointer to plc
@@ -2112,14 +1826,8 @@ func updatePolicyStatus(policies map[string]*policyv1alpha1.ConfigurationPolicy)
 
 func setStatus(policy *policyv1alpha1.ConfigurationPolicy) {
 	compliant := true
-	for _, objectT := range policy.Spec.ObjectTemplates {
-		if objectT.Status.ComplianceState == policyv1alpha1.NonCompliant {
-			compliant = false
-		}
-	}
-	for _, roleT := range policy.Spec.RoleTemplates {
-
-		if roleT.Status.ComplianceState == policyv1alpha1.NonCompliant {
+	for index := range policy.Spec.ObjectTemplates {
+		if policy.Status.CompliancyDetails[index].ComplianceState == policyv1alpha1.NonCompliant {
 			compliant = false
 		}
 	}
@@ -2292,11 +2000,14 @@ func convertPolicyStatusToString(plc *policyv1alpha1.ConfigurationPolicy) (resul
 	if plc.Status.CompliancyDetails == nil {
 		return result
 	}
-	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
+	if len(plc.Status.CompliancyDetails) == 0 {
 		return result
 	}
-	for _, v := range plc.Status.CompliancyDetails[plc.Name] {
-		result += fmt.Sprintf("; %s", strings.Join(v, ", "))
+	for _, v := range plc.Status.CompliancyDetails {
+		result += "; "
+		for _, cond := range v.Conditions {
+			result += cond.Type + " - " + cond.Message + ", "
+		}
 	}
 	return result
 }
