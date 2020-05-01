@@ -49,7 +49,7 @@ var UpdatePolicyMap = make(map[string]*policyv1alpha1.ConfigurationPolicy)
 var log = logf.Log.WithName("controller_configurationpolicy")
 
 // Finalizer used to ensure consistency when deleting a CRD
-const Finalizer = "finalizer.policies.ibm.com"
+const Finalizer = "finalizer.policies.open-cluster-management.io"
 
 const grcCategory = "system-and-information-integrity"
 
@@ -168,7 +168,7 @@ func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset, kClien
 
 	recorder, _ = common.CreateRecorder(*KubeClient, "policy-controller")
 	config = kubeconfig
-	config.GroupVersion = &schema.GroupVersion{Group: "policies.ibm.com", Version: "v1alpha1"}
+	config.GroupVersion = &schema.GroupVersion{Group: "policies.open-cluster-management.io", Version: "v1alpha1"}
 	config.APIPath = "/apis"
 	config.ContentType = runtime.ContentTypeJSON
 	config.NegotiatedSerializer = PassthruCodecFactory{CodecFactory: serializer.NewCodecFactory(scheme.Scheme)}
@@ -1982,7 +1982,7 @@ func createParentPolicy(instance *policyv1alpha1.ConfigurationPolicy) policyv1al
 		},
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "ConfigurationPolicy",
-			APIVersion: "policies.ibm.com/v1alpha1",
+			APIVersion: "policies.open-cluster-management.io/v1",
 		},
 	}
 	return plc

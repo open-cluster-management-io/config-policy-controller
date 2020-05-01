@@ -5,7 +5,7 @@ metadata:
   name: multicloud-operators-policy-controller
 rules:
 - apiGroups:
-  - policies.ibm.com
+  - policies.open-cluster-management.io
   resources:
   - configurationpolicies
   verbs:
