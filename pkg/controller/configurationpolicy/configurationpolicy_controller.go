@@ -373,15 +373,12 @@ func handlePolicyPerNamespace(namespace string, plc *policyv1alpha1.Configuratio
 
 // PeriodicallyExecSamplePolicies always check status
 func PeriodicallyExecSamplePolicies(freq uint, test bool) {
-	log.Info("----------IN PeriodicallyExecSamplePolicies ------")
 	var plcToUpdateMap map[string]*policyv1alpha1.ConfigurationPolicy
 	for {
 		start := time.Now()
 		printMap(availablePolicies.PolicyMap)
 		plcToUpdateMap = make(map[string]*policyv1alpha1.ConfigurationPolicy)
-		log.Info(fmt.Sprintf("****** number of available policies: %d", len(availablePolicies.PolicyMap)))
 		for namespace, policy := range availablePolicies.PolicyMap {
-			log.Info(fmt.Sprintf("--- handling policy %s ----", policy.GetName()))
 			//For each namespace, fetch all the RoleBindings in that NS according to the policy selector
 			//For each RoleBindings get the number of users
 			//update the status internal map
@@ -716,7 +713,6 @@ func createNotification(objectT *policyv1alpha1.ObjectTemplate, reason string, m
 }
 
 func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
-	log.Info("---- entered handleObjectTemplates -----")
 	if reflect.DeepEqual(plc.Labels["ignore"], "true") {
 		plc.Status = policyv1alpha1.ConfigurationPolicyStatus{
 			ComplianceState: policyv1alpha1.UnknownCompliancy,
@@ -754,7 +750,6 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 		numNonCompliant := 0
 
 		for _, ns := range relevantNamespaces {
-			log.Info(fmt.Sprintf("Handling Object template [%v] from Policy `%v` in namespace `%v`", indx, plc.Name, ns))
 			names, compliant, objKind := handleObjects(objectT, ns, indx, &plc, clientSet, config, recorder)
 			if objKind != "" {
 				kind = objKind
@@ -774,7 +769,6 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 		}
 
 		if !enforce {
-			log.Info("***** entered violation creation block")
 			update := false
 			if !mustNotHave && numCompliant == 0 {
 				//noncompliant; musthave and objects do not exist
@@ -845,10 +839,10 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		if policy.Status.CompliancyDetails == nil {
 			policy.Status.CompliancyDetails = make(map[string]map[string][]string)
 		}
-		if _, ok := policy.Status.CompliancyDetails[policy.Name]; !ok {
-			policy.Status.CompliancyDetails[policy.Name] = make(map[string][]string)
+		if _, ok := policy.Status.CompliancyDetails["unknown"]; !ok {
+			policy.Status.CompliancyDetails["unknown"] = make(map[string][]string)
 		}
-		policy.Status.CompliancyDetails[policy.Name][namespace] = []string{decodeErr}
+		policy.Status.CompliancyDetails["unknown"]["message"] = []string{decodeErr}
 		updatePolicy(policy, 0)
 		return nil, false, ""
 	}
@@ -1812,7 +1806,7 @@ func mergeArrays(new []interface{}, old []interface{}) (result []interface{}) {
 	for _, val1 := range new {
 		found := false
 		for _, val2 := range old {
-			if val2 == val1 {
+			if reflect.DeepEqual(val1, val2) {
 				found = true
 			}
 		}
@@ -1821,6 +1815,22 @@ func mergeArrays(new []interface{}, old []interface{}) (result []interface{}) {
 		}
 	}
 	return new
+}
+
+func compareLists(newList []interface{}, oldList []interface{}, ctype string) (updatedList []interface{}, err error) {
+	if ctype == "musthave" {
+		return mergeArrays(newList, oldList), nil
+	}
+	//mustonlyhave
+	mergedList := []interface{}{}
+	for idx, item := range newList {
+		newItem, err := mergeSpecs(item, oldList[idx], ctype)
+		if err != nil {
+			return nil, err
+		}
+		mergedList = append(mergedList, newItem)
+	}
+	return mergedList, nil
 }
 
 func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}, ctype string) (updatedSpec map[string]interface{}, err error) {
@@ -1859,12 +1869,14 @@ func updateTemplate(
 					if newObj == nil || oldObj == nil {
 						return false, false, ""
 					}
-					if parent != nil {
-						// overwrite remediation from parent
-						newObj.(map[string]interface{})["remediationAction"] = parent.Spec.RemediationAction
-					}
+
 					//merge changes into new spec
-					newObj, err = compareSpecs(newObj.(map[string]interface{}), oldObj.(map[string]interface{}), complianceType)
+					switch newObj := newObj.(type) {
+					case []interface{}:
+						newObj, err = compareLists(newObj, oldObj.([]interface{}), complianceType)
+					case map[string]interface{}:
+						newObj, err = compareSpecs(newObj, oldObj.(map[string]interface{}), complianceType)
+					}
 					if err != nil {
 						message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
 						return false, false, message
@@ -2586,7 +2598,6 @@ func handleRemovingPolicy(plc *policyv1alpha1.ConfigurationPolicy) {
 }
 
 func handleAddingPolicy(plc *policyv1alpha1.ConfigurationPolicy) error {
-	log.Info("oooooooo in handleAddingPolicy ooooooooo")
 	allNamespaces, err := common.GetAllNamespaces()
 	if err != nil {
 		glog.Errorf("reason: error fetching the list of available namespaces, subject: K8s API server, namespace: all, according to policy: %v, additional-info: %v",
@@ -2602,11 +2613,9 @@ func handleAddingPolicy(plc *policyv1alpha1.ConfigurationPolicy) error {
 		}
 	}
 	selectedNamespaces := common.GetSelectedNamespaces(plc.Spec.NamespaceSelector.Include, plc.Spec.NamespaceSelector.Exclude, allNamespaces)
-	log.Info(fmt.Sprintf("222222222 selected ns:::: %s", selectedNamespaces))
 	for _, ns := range selectedNamespaces {
 		availablePolicies.AddObject(ns, plc)
 	}
-	log.Info(fmt.Sprintf("222222222 number of available policies: %d", len(availablePolicies.PolicyMap)))
 	return err
 }
 
