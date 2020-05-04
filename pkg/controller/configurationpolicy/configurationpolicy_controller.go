@@ -386,8 +386,6 @@ func createViolation(plc *policyv1alpha1.ConfigurationPolicy, index int, reason 
 		(*plc).Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
-	log.Info("------ policy status vio -------")
-	log.WithValues((*plc).Status)
 	return update
 }
 
@@ -417,8 +415,6 @@ func createNotification(plc *policyv1alpha1.ConfigurationPolicy, index int, reas
 		(*plc).Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
-	log.Info("------ policy status noti -------")
-	log.WithValues((*plc).Status)
 	return update
 }
 
@@ -484,7 +480,7 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 				//noncompliant; musthave and objects do not exist
 				message := fmt.Sprintf("No instances of `%v` exist as specified, and one should be created", kind)
 				if desiredName != "" {
-					message = fmt.Sprintf("%v `%v` is missing, and should be created", kind, desiredName)
+					message = fmt.Sprintf("%v `%v` does not exist as specified, and should be created", kind, desiredName)
 				}
 				update = createViolation(&plc, indx, "K8s missing a must have object", message)
 			}
@@ -563,7 +559,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 				Message:            decodeErr,
 			},
 		}
-		updatePolicy(policy, 0)
+		addForUpdate(policy)
 		return nil, false, ""
 	}
 	mapping, err := restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
@@ -1421,47 +1417,6 @@ func updateTemplate(
 	return false, false, ""
 }
 
-func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int) error {
-	setStatus(plc)
-	copy := plc.DeepCopy()
-
-	var tmp policyv1alpha1.ConfigurationPolicy
-	tmp = *plc
-
-	if restClient == nil {
-		log.Info(fmt.Sprintf("REST Client was not created properly, could not update policy %v", plc.Name))
-		return nil
-	}
-
-	err := restClient.Get().
-		Name(tmp.Name).
-		Namespace(tmp.Namespace).
-		Resource("configurationpolicies").
-		Do().
-		Into(&tmp)
-	if err != nil {
-		log.Info(fmt.Sprintf("Error fetching policy %v, from the K8s API server the error is: %v", plc.Name, err))
-	}
-
-	if copy.ResourceVersion != tmp.ResourceVersion {
-		copy.ResourceVersion = tmp.ResourceVersion
-	}
-
-	err = restClient.Put().
-		Name(tmp.Name).
-		Namespace(tmp.Namespace).
-		Resource("configurationpolicies").
-		Body(copy).
-		Do().
-		Into(copy)
-
-	if err != nil {
-		log.Info(fmt.Sprintf("Error update policy %v, the error is: %v", plc.Name, err))
-	}
-	log.Info(fmt.Sprintf("Updated the policy `%v` in namespace `%v`", plc.Name, plc.Namespace))
-	return err
-}
-
 // AppendCondition check and appends conditions
 func AppendCondition(conditions []policyv1alpha1.Condition, newCond *policyv1alpha1.Condition, resourceType string, resolved ...bool) (conditionsRes []policyv1alpha1.Condition) {
 	defer recoverFlow()
@@ -1616,7 +1571,9 @@ func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy) {
 		policy.Status.ComplianceState = policyv1alpha1.NonCompliant
 	}
 
-	err := updatePolicy(policy, 0)
+	_, err := updatePolicyStatus(map[string]*policyv1alpha1.ConfigurationPolicy{
+		(*policy).GetName(): policy,
+	})
 	if err != nil {
 		time.Sleep(100) //giving enough time to sync
 	}

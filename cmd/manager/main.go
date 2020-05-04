@@ -170,7 +170,6 @@ func main() {
 	var generatedClient kubernetes.Interface = kubernetes.NewForConfigOrDie(mgr.GetConfig())
 	common.Initialize(&generatedClient, cfg)
 	policyStatusHandler.Initialize(cfg, client, &generatedClient, mgr, namespace, eventOnParent, alertTarget, clustername)
-	log.Info("********* initialize complete, entering loop")
 	// PeriodicallyExecSamplePolicies is the go-routine that periodically checks the policies and does the needed work to make sure the desired state is achieved
 	go policyStatusHandler.PeriodicallyExecSamplePolicies(frequency, false)
 
