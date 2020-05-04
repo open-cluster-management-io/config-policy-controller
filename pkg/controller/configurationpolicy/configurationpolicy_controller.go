@@ -360,7 +360,7 @@ func PeriodicallyExecSamplePolicies(freq uint, test bool) {
 	}
 }
 
-func createViolation(plc policyv1alpha1.ConfigurationPolicy, index int, reason string, message string) (result bool) {
+func createViolation(plc *policyv1alpha1.ConfigurationPolicy, index int, reason string, message string) (result bool) {
 	var update bool
 	var cond *policyv1alpha1.Condition
 	cond = &policyv1alpha1.Condition{
@@ -370,27 +370,28 @@ func createViolation(plc policyv1alpha1.ConfigurationPolicy, index int, reason s
 		Reason:             reason,
 		Message:            message,
 	}
-	if len(plc.Status.CompliancyDetails) <= index {
-		plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+	if len((*plc).Status.CompliancyDetails) <= index {
+		(*plc).Status.CompliancyDetails = append((*plc).Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
 			ComplianceState: policyv1alpha1.NonCompliant,
 			Conditions:      []policyv1alpha1.Condition{},
 		})
 	}
-	if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
+	if (*plc).Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
 		update = true
 	}
-	plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
-	plc.Status.ComplianceState = policyv1alpha1.NonCompliant
+	(*plc).Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
 
-	if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
-		conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
-		plc.Status.CompliancyDetails[index].Conditions = conditions
+	if !checkMessageSimilarity((*plc).Status.CompliancyDetails[index].Conditions, cond) {
+		conditions := AppendCondition((*plc).Status.CompliancyDetails[index].Conditions, cond, "", false)
+		(*plc).Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
+	log.Info("------ policy status vio -------")
+	log.WithValues((*plc).Status)
 	return update
 }
 
-func createNotification(plc policyv1alpha1.ConfigurationPolicy, index int, reason string, message string) (result bool) {
+func createNotification(plc *policyv1alpha1.ConfigurationPolicy, index int, reason string, message string) (result bool) {
 	var update bool
 	var cond *policyv1alpha1.Condition
 	cond = &policyv1alpha1.Condition{
@@ -400,22 +401,24 @@ func createNotification(plc policyv1alpha1.ConfigurationPolicy, index int, reaso
 		Reason:             reason,
 		Message:            message,
 	}
-	if len(plc.Status.CompliancyDetails) <= index {
-		plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+	if len((*plc).Status.CompliancyDetails) <= index {
+		(*plc).Status.CompliancyDetails = append((*plc).Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
 			ComplianceState: policyv1alpha1.Compliant,
 			Conditions:      []policyv1alpha1.Condition{},
 		})
 	}
-	if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
+	if (*plc).Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 		update = true
 	}
-	plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
+	(*plc).Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
 
-	if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
-		conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
-		plc.Status.CompliancyDetails[index].Conditions = conditions
+	if !checkMessageSimilarity((*plc).Status.CompliancyDetails[index].Conditions, cond) {
+		conditions := AppendCondition((*plc).Status.CompliancyDetails[index].Conditions, cond, "", false)
+		(*plc).Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
+	log.Info("------ policy status noti -------")
+	log.WithValues((*plc).Status)
 	return update
 }
 
@@ -483,7 +486,7 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 				if desiredName != "" {
 					message = fmt.Sprintf("%v `%v` is missing, and should be created", kind, desiredName)
 				}
-				update = createViolation(plc, indx, "K8s missing a must have object", message)
+				update = createViolation(&plc, indx, "K8s missing a must have object", message)
 			}
 			if mustNotHave && numNonCompliant > 0 {
 				//noncompliant; mustnothave and objects exist
@@ -500,17 +503,17 @@ func handleObjectTemplates(plc policyv1alpha1.ConfigurationPolicy) {
 				}
 				nameStr = nameStr[:len(nameStr)-2]
 				message := fmt.Sprintf("%v exist and should be deleted: %v", kind, nameStr)
-				update = createViolation(plc, indx, "K8s has a must `not` have object", message)
+				update = createViolation(&plc, indx, "K8s has a must `not` have object", message)
 			}
 			if !mustNotHave && numCompliant > 0 {
 				//compliant; musthave and objects exist
 				message := fmt.Sprintf("%d instances of %v exist as specified, therefore this Object template is compliant", numCompliant, kind)
-				update = createNotification(plc, indx, "K8s must `not` have object already missing", message)
+				update = createNotification(&plc, indx, "K8s must `not` have object already missing", message)
 			}
 			if mustNotHave && numNonCompliant == 0 {
 				//compliant; mustnothave and no objects exist
 				message := fmt.Sprintf("no instances of `%v` exist as specified, therefore this Object template is compliant", kind)
-				update = createNotification(plc, indx, "K8s `must have` object already exists", message)
+				update = createNotification(&plc, indx, "K8s `must have` object already exists", message)
 			}
 			if update {
 				//update parent policy with violation
@@ -689,7 +692,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		if !exists && objShouldExist {
 			//it is a musthave and it does not exist, so it must be created
 			if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Enforce)) {
-				updateNeeded, err = handleMissingMustHave(*policy, index, remediation, namespaced, namespace, name, rsrc, unstruct, dclient)
+				updateNeeded, err = handleMissingMustHave(policy, index, remediation, namespaced, namespace, name, rsrc, unstruct, dclient)
 				if err != nil {
 					// violation created for handling error
 					glog.Errorf("error handling a missing object `%v` that is a must have according to policy `%v`", name, policy.Name)
@@ -701,7 +704,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		if exists && !objShouldExist {
 			//it is a mustnothave but it exist, so it must be deleted
 			if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1alpha1.Enforce)) {
-				updateNeeded, err = handleExistsMustNotHave(*policy, index, remediation, namespaced, namespace, name, rsrc, dclient)
+				updateNeeded, err = handleExistsMustNotHave(policy, index, remediation, namespaced, namespace, name, rsrc, dclient)
 				if err != nil {
 					glog.Errorf("error handling a existing object `%v` that is a must NOT have according to policy `%v`", name, policy.Name)
 				}
@@ -711,12 +714,12 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 		}
 		if !exists && !objShouldExist {
 			//it is a must not have and it does not exist, so it is compliant
-			updateNeeded = handleMissingMustNotHave(*policy, index, name, rsrc)
+			updateNeeded = handleMissingMustNotHave(policy, index, name, rsrc)
 			compliant = true
 		}
 		if exists && objShouldExist {
 			//it is a must have and it does exist, so it is compliant
-			updateNeeded = handleExistsMustHave(*policy, index, name, rsrc)
+			updateNeeded = handleExistsMustHave(policy, index, name, rsrc)
 			compliant = true
 		}
 
@@ -808,7 +811,7 @@ func getNamesOfKind(rsrc schema.GroupVersionResource, namespaced bool, ns string
 	return kindNameList
 }
 
-func handleMissingMustNotHave(policy policyv1alpha1.ConfigurationPolicy, index int, name string, rsrc schema.GroupVersionResource) bool {
+func handleMissingMustNotHave(plc *policyv1alpha1.ConfigurationPolicy, index int, name string, rsrc schema.GroupVersionResource) bool {
 	glog.V(7).Infof("entering `does not exists` & ` must not have`")
 	var cond *policyv1alpha1.Condition
 	var update bool
@@ -820,26 +823,26 @@ func handleMissingMustNotHave(policy policyv1alpha1.ConfigurationPolicy, index i
 		Reason:             "K8s must `not` have object already missing",
 		Message:            message,
 	}
-	if len(policy.Status.CompliancyDetails) <= index {
-		policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+	if len((*plc).Status.CompliancyDetails) <= index {
+		(*plc).Status.CompliancyDetails = append((*plc).Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
 			ComplianceState: policyv1alpha1.Compliant,
 			Conditions:      []policyv1alpha1.Condition{},
 		})
 	}
-	if policy.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
+	if (*plc).Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 		update = true
 	}
-	policy.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
+	(*plc).Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
 
-	if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
-		conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond, rsrc.Resource, true)
-		policy.Status.CompliancyDetails[index].Conditions = conditions
+	if !checkMessageSimilarity((*plc).Status.CompliancyDetails[index].Conditions, cond) {
+		conditions := AppendCondition((*plc).Status.CompliancyDetails[index].Conditions, cond, rsrc.Resource, true)
+		(*plc).Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
 	return update
 }
 
-func handleExistsMustHave(policy policyv1alpha1.ConfigurationPolicy, index int, name string, rsrc schema.GroupVersionResource) (updateNeeded bool) {
+func handleExistsMustHave(plc *policyv1alpha1.ConfigurationPolicy, index int, name string, rsrc schema.GroupVersionResource) (updateNeeded bool) {
 	var cond *policyv1alpha1.Condition
 	var update bool
 	message := fmt.Sprintf("%v `%v` exists as it should be, therefore this Object template is compliant", rsrc.Resource, name)
@@ -850,26 +853,26 @@ func handleExistsMustHave(policy policyv1alpha1.ConfigurationPolicy, index int, 
 		Reason:             "K8s `must have` object already exists",
 		Message:            message,
 	}
-	if len(policy.Status.CompliancyDetails) <= index {
-		policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+	if len((*plc).Status.CompliancyDetails) <= index {
+		(*plc).Status.CompliancyDetails = append((*plc).Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
 			ComplianceState: policyv1alpha1.Compliant,
 			Conditions:      []policyv1alpha1.Condition{},
 		})
 	}
-	if policy.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
+	if (*plc).Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 		update = true
 	}
-	policy.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
+	(*plc).Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
 
-	if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
-		conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond, rsrc.Resource, true)
-		policy.Status.CompliancyDetails[index].Conditions = conditions
+	if !checkMessageSimilarity((*plc).Status.CompliancyDetails[index].Conditions, cond) {
+		conditions := AppendCondition((*plc).Status.CompliancyDetails[index].Conditions, cond, rsrc.Resource, true)
+		(*plc).Status.CompliancyDetails[index].Conditions = conditions
 		update = true
 	}
 	return update
 }
 
-func handleExistsMustNotHave(plc policyv1alpha1.ConfigurationPolicy, index int, action policyv1alpha1.RemediationAction, namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, dclient dynamic.Interface) (result bool, erro error) {
+func handleExistsMustNotHave(plc *policyv1alpha1.ConfigurationPolicy, index int, action policyv1alpha1.RemediationAction, namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, dclient dynamic.Interface) (result bool, erro error) {
 	glog.V(7).Infof("entering `exists` & ` must not have`")
 	var cond *policyv1alpha1.Condition
 	var update, deleted bool
@@ -885,21 +888,20 @@ func handleExistsMustNotHave(plc policyv1alpha1.ConfigurationPolicy, index int, 
 				Reason:             "K8s deletion error",
 				Message:            message,
 			}
-			if len(plc.Status.CompliancyDetails) <= index {
-				plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+			if len((*plc).Status.CompliancyDetails) <= index {
+				(*plc).Status.CompliancyDetails = append((*plc).Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
 					ComplianceState: policyv1alpha1.NonCompliant,
 					Conditions:      []policyv1alpha1.Condition{},
 				})
 			}
-			if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
+			if (*plc).Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
 				update = true
 			}
-			plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
-			plc.Status.ComplianceState = policyv1alpha1.NonCompliant
+			(*plc).Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
 
-			if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
-				conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
-				plc.Status.CompliancyDetails[index].Conditions = conditions
+			if !checkMessageSimilarity((*plc).Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition((*plc).Status.CompliancyDetails[index].Conditions, cond, "", false)
+				(*plc).Status.CompliancyDetails[index].Conditions = conditions
 				update = true
 			}
 		} else { //deleted successfully
@@ -911,20 +913,20 @@ func handleExistsMustNotHave(plc policyv1alpha1.ConfigurationPolicy, index int, 
 				Reason:             "K8s deletion success",
 				Message:            message,
 			}
-			if len(plc.Status.CompliancyDetails) <= index {
-				plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+			if len((*plc).Status.CompliancyDetails) <= index {
+				(*plc).Status.CompliancyDetails = append((*plc).Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
 					ComplianceState: policyv1alpha1.Compliant,
 					Conditions:      []policyv1alpha1.Condition{},
 				})
 			}
-			if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
+			if (*plc).Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 				update = true
 			}
-			plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
+			(*plc).Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
 
-			if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
-				conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
-				plc.Status.CompliancyDetails[index].Conditions = conditions
+			if !checkMessageSimilarity((*plc).Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition((*plc).Status.CompliancyDetails[index].Conditions, cond, "", false)
+				(*plc).Status.CompliancyDetails[index].Conditions = conditions
 				update = true
 			}
 		}
@@ -932,7 +934,7 @@ func handleExistsMustNotHave(plc policyv1alpha1.ConfigurationPolicy, index int, 
 	return update, err
 }
 
-func handleMissingMustHave(plc policyv1alpha1.ConfigurationPolicy, index int, action policyv1alpha1.RemediationAction, namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface) (result bool, erro error) {
+func handleMissingMustHave(plc *policyv1alpha1.ConfigurationPolicy, index int, action policyv1alpha1.RemediationAction, namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface) (result bool, erro error) {
 	glog.V(7).Infof("entering `does not exists` & ` must have`")
 
 	var update, created bool
@@ -948,21 +950,20 @@ func handleMissingMustHave(plc policyv1alpha1.ConfigurationPolicy, index int, ac
 				Reason:             "K8s creation error",
 				Message:            message,
 			}
-			if len(plc.Status.CompliancyDetails) <= index {
-				plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+			if len((*plc).Status.CompliancyDetails) <= index {
+				(*plc).Status.CompliancyDetails = append((*plc).Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
 					ComplianceState: policyv1alpha1.NonCompliant,
 					Conditions:      []policyv1alpha1.Condition{},
 				})
 			}
-			if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
+			if (*plc).Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.NonCompliant {
 				update = true
 			}
-			plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
-			plc.Status.ComplianceState = policyv1alpha1.NonCompliant
+			(*plc).Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.NonCompliant
 
-			if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
-				conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
-				plc.Status.CompliancyDetails[index].Conditions = conditions
+			if !checkMessageSimilarity((*plc).Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition((*plc).Status.CompliancyDetails[index].Conditions, cond, "", false)
+				(*plc).Status.CompliancyDetails[index].Conditions = conditions
 				update = true
 			}
 		} else { //created successfully
@@ -975,20 +976,20 @@ func handleMissingMustHave(plc policyv1alpha1.ConfigurationPolicy, index int, ac
 				Reason:             "K8s creation success",
 				Message:            message,
 			}
-			if len(plc.Status.CompliancyDetails) <= index {
-				plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
+			if len((*plc).Status.CompliancyDetails) <= index {
+				(*plc).Status.CompliancyDetails = append((*plc).Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
 					ComplianceState: policyv1alpha1.Compliant,
 					Conditions:      []policyv1alpha1.Condition{},
 				})
 			}
-			if plc.Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
+			if (*plc).Status.CompliancyDetails[index].ComplianceState != policyv1alpha1.Compliant {
 				update = true
 			}
-			plc.Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
+			(*plc).Status.CompliancyDetails[index].ComplianceState = policyv1alpha1.Compliant
 
-			if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
-				conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
-				plc.Status.CompliancyDetails[index].Conditions = conditions
+			if !checkMessageSimilarity((*plc).Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition((*plc).Status.CompliancyDetails[index].Conditions, cond, "", false)
+				(*plc).Status.CompliancyDetails[index].Conditions = conditions
 				update = true
 			}
 		}
@@ -1428,7 +1429,7 @@ func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int) error {
 	tmp = *plc
 
 	if restClient == nil {
-		glog.Errorf("REST Client was not created properly, could not update policy %v", plc.Name)
+		log.Info(fmt.Sprintf("REST Client was not created properly, could not update policy %v", plc.Name))
 		return nil
 	}
 
@@ -1439,7 +1440,7 @@ func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int) error {
 		Do().
 		Into(&tmp)
 	if err != nil {
-		glog.Errorf("Error fetching policy %v, from the K8s API server the error is: %v", plc.Name, err)
+		log.Info(fmt.Sprintf("Error fetching policy %v, from the K8s API server the error is: %v", plc.Name, err))
 	}
 
 	if copy.ResourceVersion != tmp.ResourceVersion {
@@ -1455,10 +1456,9 @@ func updatePolicy(plc *policyv1alpha1.ConfigurationPolicy, retry int) error {
 		Into(copy)
 
 	if err != nil {
-		glog.Errorf("Error update policy %v, the error is: %v", plc.Name, err)
+		log.Info(fmt.Sprintf("Error update policy %v, the error is: %v", plc.Name, err))
 	}
-	glog.V(2).Infof("Updated the policy `%v` in namespace `%v`", plc.Name, plc.Namespace)
-
+	log.Info(fmt.Sprintf("Updated the policy `%v` in namespace `%v`", plc.Name, plc.Namespace))
 	return err
 }
 
@@ -1606,12 +1606,6 @@ func GetCEMWebhookURL() (url string, err error) {
 func addForUpdate(policy *policyv1alpha1.ConfigurationPolicy) {
 	compliant := true
 	for index := range policy.Spec.ObjectTemplates {
-		if len(policy.Status.CompliancyDetails) <= index {
-			policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1alpha1.TemplateStatus{
-				ComplianceState: "",
-				Conditions:      []policyv1alpha1.Condition{},
-			})
-		}
 		if policy.Status.CompliancyDetails[index].ComplianceState == policyv1alpha1.NonCompliant {
 			compliant = false
 		}
