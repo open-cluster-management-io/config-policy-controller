@@ -27,7 +27,6 @@ before_install:
 
 before_script:
   - make deps
-  - dep ensure
   - make lintall
   - make test
   - make image
