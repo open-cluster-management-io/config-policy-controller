@@ -20,5 +20,9 @@
 [[override]]
   name = "github.com/stretchr/testify" 
 
+[[override]]
+  name = "gopkg.in/fsnotify.v1"
+  source = "https://github.com/fsnotify/fsnotify.git"
+
 [prune]
   go-tests = true
