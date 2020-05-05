@@ -5,11 +5,6 @@
   name = "k8s.io/code-generator"
   version = "kubernetes-1.13.1"
 
-
-[[override]]
-  name = "k8s.io/api"
-  version = "kubernetes-1.13.1"
-
 [[override]]
   name = "k8s.io/apiextensions-apiserver"
   version = "kubernetes-1.13.1"  
