@@ -102,7 +102,7 @@ check: lint
 # Default value will run all linters, override these make target with your requirements:
 #    eg: lint: lint-go lint-yaml
 # The MARKDOWN_LINT_WHITELIST variable can be set with comma separated urls you want to whitelist
-lint: lint-go
+lint: lint-all
 
 ############################################################
 # test section
