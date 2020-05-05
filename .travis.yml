@@ -27,7 +27,7 @@ before_install:
 
 before_script:
   - make deps
-  - make lintall
+  - make lint
   - make test
   - make image
 
