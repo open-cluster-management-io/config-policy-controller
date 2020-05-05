@@ -6,10 +6,6 @@
   version = "kubernetes-1.13.1"
 
 [[override]]
-  name = "k8s.io/klog"
-  version = "v2.0.0"  
-
-[[override]]
   name = "k8s.io/apiextensions-apiserver"
   version = "kubernetes-1.13.1"  
 
