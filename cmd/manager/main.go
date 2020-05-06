@@ -28,7 +28,6 @@ import (
 	"github.com/open-cluster-management/config-policy-controller/pkg/apis"
 	"github.com/open-cluster-management/config-policy-controller/pkg/controller"
 
-	restmapper "github.com/kubernetes-sigs/controller-runtime/pkg/client/apiutil"
 	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
 	policyStatusHandler "github.com/open-cluster-management/config-policy-controller/pkg/controller/configurationpolicy"
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
@@ -40,6 +39,7 @@ import (
 	"github.com/spf13/pflag"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	restmapper "sigs.k8s.io/controller-runtime/pkg/client/apiutil"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
