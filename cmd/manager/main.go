@@ -28,6 +28,7 @@ import (
 	"github.com/open-cluster-management/config-policy-controller/pkg/apis"
 	"github.com/open-cluster-management/config-policy-controller/pkg/controller"
 
+	restmapper "github.com/kubernetes-sigs/controller-runtime/pkg/client/apiutil"
 	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
 	policyStatusHandler "github.com/open-cluster-management/config-policy-controller/pkg/controller/configurationpolicy"
 	"github.com/operator-framework/operator-sdk/pkg/k8sutil"
@@ -35,7 +36,6 @@ import (
 	"github.com/operator-framework/operator-sdk/pkg/leader"
 	"github.com/operator-framework/operator-sdk/pkg/log/zap"
 	"github.com/operator-framework/operator-sdk/pkg/metrics"
-	"github.com/operator-framework/operator-sdk/pkg/restmapper"
 	sdkVersion "github.com/operator-framework/operator-sdk/version"
 	"github.com/spf13/pflag"
 	v1 "k8s.io/api/core/v1"
