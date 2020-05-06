@@ -537,8 +537,7 @@ func handleObjects(objectT *policyv1alpha1.ObjectTemplate, namespace string, ind
 	//ext := runtime.RawExtension{}
 	ext := objectT.ObjectDefinition
 	glog.V(9).Infof("reading raw object: %v", string(ext.Raw))
-	versions := &runtime.VersionedObjects{}
-	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, versions)
+	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, nil)
 	if err != nil {
 		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
 		glog.Errorf(decodeErr)
