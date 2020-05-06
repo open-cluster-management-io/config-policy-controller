@@ -83,7 +83,6 @@ type ConfigurationPolicySpec struct {
 	MaxRoleBindingGroupsPerNamespace int               `json:"maxRoleBindingGroupsPerNamespace,omitempty"`
 	MaxClusterRoleBindingUsers       int               `json:"maxClusterRoleBindingUsers,omitempty"`
 	MaxClusterRoleBindingGroups      int               `json:"maxClusterRoleBindingGroups,omitempty"`
-	RoleTemplates                    []*RoleTemplate   `json:"role-templates,omitempty"`
 	ObjectTemplates                  []*ObjectTemplate `json:"object-templates,omitempty"`
 }
 
@@ -96,31 +95,12 @@ type ObjectTemplate struct {
 
 	// RoleBinding
 	ObjectDefinition runtime.RawExtension `json:"objectDefinition,omitempty"`
-	//Status shows the individual status of each template within a policy
-	Status TemplateStatus `json:"status,omitempty" protobuf:"bytes,12,rep,name=status"`
-}
-
-//RoleTemplate describes how a role should look
-type RoleTemplate struct {
-	metav1.TypeMeta `json:",inline"`
-	// Standard object's metadata.
-	// +optional
-	metav1.ObjectMeta `json:"metadata,omitempty" protobuf:"bytes,1,opt,name=metadata"`
-
-	ComplianceType ComplianceType `json:"complianceType,omitempty"`
-
-	Selector *metav1.LabelSelector `json:"selector,omitempty" protobuf:"bytes,2,opt,name=selector"`
-
-	// Rules holds all the PolicyRules for this Role
-	Rules []PolicyRuleTemplate `json:"rules,omitempty" protobuf:"bytes,2,rep,name=rules"`
-
-	Status TemplateStatus `json:"status,omitempty" protobuf:"bytes,12,rep,name=status"`
 }
 
 // ConfigurationPolicyStatus is the status for a Policy resource
 type ConfigurationPolicyStatus struct {
-	ComplianceState   ComplianceState                `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnkownCompliancy
-	CompliancyDetails map[string]map[string][]string `json:"compliancyDetails,omitempty"` // reason for non-compliancy
+	ComplianceState   ComplianceState  `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnkownCompliancy
+	CompliancyDetails []TemplateStatus `json:"compliancyDetails,omitempty"` // reason for non-compliancy
 }
 
 //CompliancePerClusterStatus contains aggregate status of other policies in cluster
@@ -175,13 +155,6 @@ type PolicyList struct {
 	metav1.ListMeta `json:"metadata"`
 
 	Items []Policy `json:"items"`
-}
-
-//PolicyTemplate template for custom security policy
-type PolicyTemplate struct {
-	ObjectDefinition runtime.RawExtension `json:"objectDefinition,omitempty"`
-	//Status shows the individual status of each template within a policy
-	Status TemplateStatus `json:"status,omitempty" protobuf:"bytes,12,rep,name=status"`
 }
 
 //TemplateStatus hold the status result

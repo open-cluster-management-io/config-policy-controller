@@ -15,7 +15,7 @@
 package apis
 
 import (
-	"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
+	"github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1alpha1"
 )
 
 func init() {

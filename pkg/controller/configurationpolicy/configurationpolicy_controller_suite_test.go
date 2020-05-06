@@ -19,8 +19,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis"
-	policiesv1alpha1 "github.ibm.com/IBMPrivateCloud/multicloud-operators-policy-controller/pkg/apis/policies/v1alpha1"
+	"github.com/open-cluster-management/config-policy-controller/pkg/apis"
+	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1alpha1"
 	sub "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"

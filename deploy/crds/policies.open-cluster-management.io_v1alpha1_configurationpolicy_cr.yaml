@@ -1,4 +1,4 @@
-apiVersion: policies.ibm.com/v1alpha1
+apiVersion: policies.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
   name: example-configurationpolicy-3
