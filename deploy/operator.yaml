@@ -1,28 +1,33 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: multicloud-operators-policy-controller
+  name: config-policy-ctrl
 spec:
   replicas: 1
   selector:
     matchLabels:
-      name: multicloud-operators-policy-controller
+      name: config-policy-ctrl
   template:
     metadata:
       labels:
-        name: multicloud-operators-policy-controller
+        name: config-policy-ctrl
     spec:
+      serviceAccountName: config-policy-ctrl
+      imagePullSecrets:
+        - name: multiclusterhub-operator-pull-secret
       containers:
-        - name: multicloud-operators-policy-controller
+        - name: config-policy-ctrl
           # Replace this with the built image name
-          image: ibm/multicloud-operators-policy-controller
+          image: quay.io/open-cluster-management/config-policy-controller:1.0.0-cb5e6c92aafb0f1a1b2934df9a2a18dd71a88ac3
           command:
-          - multicloud-operators-policy-controller
+          - config-policy-controller
           imagePullPolicy: Always
           env:
             - name: WATCH_NAMESPACE
+              value: calamari
+            - name: POD_NAME
               valueFrom:
                 fieldRef:
-                  fieldPath: metadata.namespace
+                  fieldPath: metadata.name
             - name: OPERATOR_NAME
-              value: "multicloud-operators-policy-controller"
+              value: "config-policy-ctrl"
