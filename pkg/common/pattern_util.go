@@ -19,7 +19,7 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
-	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1alpha1"
+	policiesv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1"
 )
 
 // IfMatch check matches
@@ -134,7 +134,7 @@ func Round(num float64) int {
 }
 
 // ExtractNamespaceLabel to find out the cluster-namespace from the label
-func ExtractNamespaceLabel(instance *policiesv1alpha1.ConfigurationPolicy) string {
+func ExtractNamespaceLabel(instance *policiesv1.ConfigurationPolicy) string {
 	if instance.ObjectMeta.Labels == nil {
 		return ""
 	}

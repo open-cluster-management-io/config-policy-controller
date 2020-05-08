@@ -1,14 +1,27 @@
 apiVersion: policies.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: example-configurationpolicy-3
+  name: policy-role-check-3
+  namespace: default
+  annotations:
+    policy.mcm.ibm.com/standards: NIST-CSF
+    policy.mcm.ibm.com/categories: PR.PT Protective Technology
+    policy.mcm.ibm.com/controls: PR.PT-3 Least Functionality
 spec:
-  severity: low
-  namespaceSelector:
-    include: ["default","kube-*"]
-    exclude: ["kube-system"]
+  complianceType: mustnothave
   remediationAction: inform
-  maxClusterRoleBindingGroups: 10
-  maxClusterRoleBindingUsers: 10
-  maxRoleBindingGroupsPerNamespace: 2
-  maxRoleBindingUsersPerNamespace: 2
+  disabled: false
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: mustonlyhave
+      objectDefinition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: Role
+        metadata:
+          name: pod-reader-thur
+        rules:
+          - apiGroups: ["extensions", "apps"]
+            resources: ["deployments"]
+            verbs: ["get", "list", "watch", "delete","patch"]

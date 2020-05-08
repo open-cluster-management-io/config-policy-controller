@@ -19,12 +19,12 @@ import (
 	"reflect"
 	"testing"
 
-	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1alpha1"
+	policiesv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 /*
-	apiVersion: mcm.ibm.com/v1alpha1
+	apiVersion: mcm.ibm.com/v1
 		kind: GRCPolicy
 		metadata:
 			name: GRC-policy
@@ -36,14 +36,14 @@ import (
 			conditions:
 				ownership: [ReplicaSet, Deployment, DeamonSet, ReplicationController]
 */
-var plc = &policiesv1alpha1.ConfigurationPolicy{
+var plc = &policiesv1.ConfigurationPolicy{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:      "testPolicy",
 		Namespace: "default",
 	},
-	Spec: policiesv1alpha1.ConfigurationPolicySpec{
-		RemediationAction: policiesv1alpha1.Enforce,
-		NamespaceSelector: policiesv1alpha1.Target{
+	Spec: policiesv1.ConfigurationPolicySpec{
+		RemediationAction: policiesv1.Enforce,
+		NamespaceSelector: policiesv1.Target{
 			Include: []string{"default"},
 			Exclude: []string{"kube*"},
 		},
@@ -51,7 +51,7 @@ var plc = &policiesv1alpha1.ConfigurationPolicy{
 }
 
 var sm = SyncedPolicyMap{
-	PolicyMap: make(map[string]*policiesv1alpha1.ConfigurationPolicy),
+	PolicyMap: make(map[string]*policiesv1.ConfigurationPolicy),
 }
 
 //TestGetObject testing get object in map
