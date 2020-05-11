@@ -1,0 +1,12 @@
+#file extensions to ignore
+.copyrightignore
+.yml
+.yaml
+.properties
+# directories to ingore
+operator-sdk/*
+build-harness/*
+build-harness-extensions/*
+vendor
+vbh
+build

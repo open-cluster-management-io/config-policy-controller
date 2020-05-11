@@ -11,11 +11,11 @@ branches:
     - master
     - /^release-[0-9]+\..*$/
 
-# addons:
-#   sonarcloud:
-#     organization: "open-cluster-management"
-#     token:
-#       secure: "GTwvxkCBtPYRBlJeucjiCVWvwIwZ3EBH3hu83q9yVSjjgbg6Ge2gFY/ocWLowyrAxynxzAChvlCvtEuEO44iuBFaKr38036q+4v6ysDQWO6AqU+NMThAhtGiJIJsJjtyxupgw+z6OUNFtQIIUlGYVPO7SZvj/Q7D7wYKTHgMxBRk/i9GYol/unZA6qThgI628KstPR5zEI5itW3qECJSzlm385K07c+XYCWb4FXc6zhlAHXvbT5mLzuW1xW2ipcxvRAP73N2ARUWhoDbUfiZsK0HaYwBN6MtLsCq+u6i5f8KcmwjNKqZxbldlOWtebQ3v2VHt67gUvdpMwPaqBoqKMauYoUpAtfvvhAmeWo4M58AwDn9FJuSdFyZfSjI7MLofrs2NKUdx/RETQWVYNXnKLI+AThgXZXTxDBdnW+g5nOYoYOUI9R7/i0gTnJekHQYdLbN2vkii2ryVrn8F7hp1wuLmrJKgD7lurbLkEsAZhxmFBoBVHtOhXzYkpC4DmNCanuDPmRmNm7ifasLDtU5C8cWRzDs/9L1HkCKbeaTTCiXD8dwJNH5n6jMAPMwYumJ5B2NucZQPLhngUGZ/Bw7aNO02zMKmx/BCBUN3hMfCSXLrmQgW6woPorcJ4sjs2fn5PrqsXeqK/yktdJjkkczDSC+aINZfmbq3UkL6gaL5Q4="
+addons:
+  sonarcloud:
+    organization: "open-cluster-management"
+    token:
+      secure: "GDwcEouX35WwwS01FH0t6hoVrkZGvBmHd3l4Y1s5LKZ60pM95W4pkuaDqez/ilYQxTIVwVxJvcwpnWqP/BdisbHiLPNfTSl/4KEa9TsYigWKjb4h772SIPexuUzeW+mHHC4hYVhCqa6f4gPRppumLCEVFVBCmKDRlARnuZs2l2gdEf27Xgh9VRhP+khGQKxtczbZM/+Wa6KZk9U8MJFg2xVPUbl6K+/BAZQ51oS7u9jb+A1X/CBwIO8wBJeDvpODTAfGamEHCqppqFLLX3waj8s8A56jGODYlw4v0TRLVldDMIcKXgBF6cOh20lhNm8YKV9mPf11yMFQ97heEftz4KOQvu91OUO2fk5fUpopG8+jQngcAVGMFb62rIVTuyyoN7O1FQrnNTmB67E/T+9YeRZdQEXJoDDU73LNnkRYWK6lEGQhugl9Ogr/Ba0I2esnSsfYBcGBY7Jae90+cLD54pORhOhDXpQTJyc2KD85BbZqSOgIJ1A4wIbOXCd0hit8wtMNj/RTEP7NaPD4/lJJyukKgChp3QJ0+oabCe2kjRztfw+yqRrD79DYgFYP3Tlx9Wv+PrkANTeNDs/uyK7EQ8gCgdK/TEKlqXmBk6kkLDrrLFvw5ukEOjfSHNLPYbWARfbfPW+bBdwLlRWx0E45FNZHtJu4s1rl5qXe+Gvpteg="
 env:
   global:
     # Required
@@ -41,14 +41,15 @@ jobs:
     #   if: type = pull_request
     #   script: bash ${TRAVIS_BUILD_DIR}/build/run-code-lint.sh
     - stage: build
-      name: "Build the image and run unit tests"
+      name: "Build the image and push it"
       script:
         - if [ "$TRAVIS_PULL_REQUEST" != "false" ]; then export COMPONENT_TAG_EXTENSION="-PR${TRAVIS_PULL_REQUEST}-${TRAVIS_COMMIT}"; fi;
+        - make copyright-check TRAVIS_BRANCH=${TRAVIS_BRANCH}
         - |
           make
           make component/build
           make component/push
-          make security/scans
+          if [ "$IMAGE_SCAN" != "false" ]; then make security/scans; fi;
     - stage: unit-test
       name: "Run unit test"
       script:
@@ -57,8 +58,9 @@ jobs:
         # Bootstrap the build harness, pull test image, and run unit tests.
         - |
           make
+          make component/pull
           make component/test/unit
-        # make sonar/go
+          make sonar/go
     - stage: test-e2e
       name: "Deploy the image to a cluster and run e2e tests"
       if: type = pull_request

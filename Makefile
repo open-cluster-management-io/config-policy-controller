@@ -142,3 +142,9 @@ build-images:
 ############################################################
 clean::
 	rm -f build/_output/bin/$(IMG)
+
+############################################################
+# check copyright section
+############################################################
+copyright-check:
+	./build/copyright-check.sh $(TRAVIS_BRANCH)
