@@ -441,7 +441,8 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 		var blob interface{}
 		ext := objectT.ObjectDefinition
 		if jsonErr := json.Unmarshal(ext.Raw, &blob); jsonErr != nil {
-			glog.Fatal(jsonErr)
+			glog.Error(jsonErr)
+			return
 		}
 		unstruct.Object = blob.(map[string]interface{})
 		if md, ok := unstruct.Object["metadata"]; ok {
@@ -1256,15 +1257,15 @@ func mergeSpecsHelper(x1, x2 interface{}, ctype string) interface{} {
 }
 
 func mergeArrays(new []interface{}, old []interface{}) (result []interface{}) {
-	for _, val1 := range new {
+	for _, val2 := range old {
 		found := false
-		for _, val2 := range old {
+		for _, val1 := range new {
 			if reflect.DeepEqual(val1, val2) {
 				found = true
 			}
 		}
 		if !found {
-			new = append(new, val1)
+			new = append(new, val2)
 		}
 	}
 	return new
@@ -1287,6 +1288,9 @@ func compareLists(newList []interface{}, oldList []interface{}, ctype string) (u
 }
 
 func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}, ctype string) (updatedSpec map[string]interface{}, err error) {
+	if ctype == "mustonlyhave" {
+		return newSpec, nil
+	}
 	merged, err := mergeSpecs(newSpec, oldSpec, ctype)
 	if err != nil {
 		return merged.(map[string]interface{}), err
