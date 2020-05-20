@@ -190,3 +190,20 @@ install-resources:
 
 e2e-test:
 	${GOPATH}/bin/ginkgo -v --slowSpecThreshold=10 test/e2e
+
+############################################################
+# e2e test coverage
+############################################################
+build-instrumented:
+	go test -covermode=atomic -coverpkg=github.com/open-cluster-management/$(IMG)... -c -tags e2e ./cmd/manager -o build/_output/bin/$(IMG)-instrumented
+
+run-instrumented:
+	WATCH_NAMESPACE="managed" ./build/_output/bin/$(IMG)-instrumented -test.run "^TestRunMain$$" -test.coverprofile=coverage_e2e.out &>/dev/null &
+
+stop-instrumented:
+	ps -ef | grep 'config-po' | grep -v grep | awk '{print $$2}' | xargs kill
+
+coverage-merge:
+	@echo merging the coverage report
+	gocovmerge $(PWD)/coverage_* >> coverage.out
+	cat coverage.out

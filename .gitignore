@@ -89,3 +89,4 @@ deploy/crds/test-policy.yaml
 !vbh/build-harness-extensions 
 kubeconfig_managed
 kind_kubeconfig.yaml
+report.json
