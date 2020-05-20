@@ -16,15 +16,14 @@ spec:
       imagePullSecrets:
         - name: multiclusterhub-operator-pull-secret
       containers:
-        - name: config-policy-ctrl
-          # Replace this with the built image name
-          image: quay.io/open-cluster-management/config-policy-controller:1.0.0-cb5e6c92aafb0f1a1b2934df9a2a18dd71a88ac3
+        - image: quay.io/open-cluster-management/config-policy-controller:latest-dev
+          name: config-policy-ctrl
           command:
           - config-policy-controller
           imagePullPolicy: Always
           env:
             - name: WATCH_NAMESPACE
-              value: calamari
+              value: config-policy-test
             - name: POD_NAME
               valueFrom:
                 fieldRef:

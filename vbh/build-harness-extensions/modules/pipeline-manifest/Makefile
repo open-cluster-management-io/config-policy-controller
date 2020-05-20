@@ -204,14 +204,13 @@ pipeline-manifest/_promote: %_promote: %_clone
 	$(call assert-set,LATEST_MANIFEST)
 	@cp $(PIPELINE_MANIFEST_DIR)/$(PIPELINE_MANIFEST_SNAPSHOT_FOLDER)/$(LATEST_MANIFEST).json $(LATEST_MANIFEST).json
 	@cp $(PIPELINE_MANIFEST_DIR)/$(PIPELINE_MANIFEST_SNAPSHOT_FOLDER)/$(LATEST_MANIFEST)-v2.json $(LATEST_MANIFEST)-v2.json
-	@if [ $(PROMOTE_TO) = "stable" ]; then \
-	$(SELF) pipeline-manifest/_validate-tag PIPELINE_MANIFEST_RETAG_REPO=git PIPELINE_MANIFEST_FILE_NAME=$(LATEST_MANIFEST) PIPELINE_MANIFEST_FILE_NAME_V2=$(LATEST_MANIFEST_V2); \
-	fi
 	@cd $(PIPELINE_MANIFEST_DIR); $(GIT) checkout $(PIPELINE_MANIFEST_RELEASE_VERSION)-$(PROMOTE_TO)
 	@cp $(LATEST_MANIFEST).json $(PIPELINE_MANIFEST_DIR)/$(PIPELINE_MANIFEST_FILE_NAME).json
 	@cp $(LATEST_MANIFEST)-v2.json $(PIPELINE_MANIFEST_DIR)/$(PIPELINE_MANIFEST_FILE_NAME)-v2.json
 	@mv $(LATEST_MANIFEST).json $(PIPELINE_MANIFEST_DIR)/$(PIPELINE_MANIFEST_SNAPSHOT_FOLDER)/$(LATEST_MANIFEST).json
+	@mv $(LATEST_MANIFEST)-v2.json $(PIPELINE_MANIFEST_DIR)/$(PIPELINE_MANIFEST_SNAPSHOT_FOLDER)/$(LATEST_MANIFEST)-v2.json
 	@cd $(PIPELINE_MANIFEST_DIR); $(GIT) add $(PIPELINE_MANIFEST_SNAPSHOT_FOLDER)/$(LATEST_MANIFEST).json
+	@cd $(PIPELINE_MANIFEST_DIR); $(GIT) add $(PIPELINE_MANIFEST_SNAPSHOT_FOLDER)/$(LATEST_MANIFEST)-v2.json
 	@cd $(PIPELINE_MANIFEST_DIR); $(GIT) commit -am "Promote from $(PROMOTE_FROM) to $(PROMOTE_TO)" --quiet
 	@cd $(PIPELINE_MANIFEST_DIR); $(GIT) push
 
@@ -243,12 +242,16 @@ pipeline-manifest/_snapshot: %_snapshot: %_clone %_validate-tag
 	@cd $(PIPELINE_MANIFEST_DIR); $(GIT) push --quiet
 
 .PHONY: pipeline-manifest/_validate-tag
-# Validate all images identified in manifest exist in quay and create sha-based manifest
-pipeline-manifest/_validate-tag: %_validate-tag:
-	@python3 $(BUILD_HARNESS_EXTENSIONS_PATH)/modules/pipeline-manifest/bin/parser.py $(PIPELINE_MANIFEST_FILE_NAME).json $(TAG) true $(PIPELINE_MANIFEST_RETAG_REPO)
-	@python3 $(BUILD_HARNESS_EXTENSIONS_PATH)/modules/pipeline-manifest/bin/parser.py $(PIPELINE_MANIFEST_FILE_NAME).json $(TAG) false $(PIPELINE_MANIFEST_RETAG_REPO)
+# Validate all images or git repos identified in manifest exist and create sha-based manifest
+pipeline-manifest/_validate-tag: %_validate-tag: %_retag
 	@$(BUILD_HARNESS_EXTENSIONS_PATH)/modules/pipeline-manifest/bin/decorate-manifest.sh $(PIPELINE_MANIFEST_FILE_NAME_V2).json $(PIPELINE_MANIFEST_FILE_NAME)-$(TAG)-$(PIPELINE_MANIFEST_SHA_RELEASE_VERSION).json $(PIPELINE_MANIFEST_ALIAS_FILE_NAME).json > out.tmp
 	@cat out.tmp
+
+.PHONY: pipeline-manifest/_retag
+# Validate and retag all images or git repos identified in manifest
+pipeline-manifest/_retag: %_retag:
+	@python3 $(BUILD_HARNESS_EXTENSIONS_PATH)/modules/pipeline-manifest/bin/parser.py $(PIPELINE_MANIFEST_FILE_NAME).json $(TAG) true $(PIPELINE_MANIFEST_RETAG_REPO)
+	@python3 $(BUILD_HARNESS_EXTENSIONS_PATH)/modules/pipeline-manifest/bin/parser.py $(PIPELINE_MANIFEST_FILE_NAME).json $(TAG) false $(PIPELINE_MANIFEST_RETAG_REPO)
 
 .PHONY: pipeline-manifest/_postprocess
 # Postprocessing steps

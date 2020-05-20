@@ -1,0 +1,29 @@
+apiVersion: policies.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-pod-create-inform
+  annotations:
+    policy.mcm.ibm.com/standards: NIST-CSF
+    policy.mcm.ibm.com/categories: PR.PT Protective Technology
+    policy.mcm.ibm.com/controls: PR.PT-3 Least Functionality
+spec:
+  complianceType: musthave
+  remediationAction: inform
+  disabled: false
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-pod-e2e
+        spec:
+          containers:
+            - image: nginx:1.7.9
+              name: nginx
+              ports:
+                - containerPort: 80
+          

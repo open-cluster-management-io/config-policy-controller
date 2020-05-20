@@ -50,6 +50,13 @@ jobs:
           make component/build
           make component/push
           if [ "$IMAGE_SCAN" != "false" ]; then make security/scans; fi;
+        - if [ "$TRAVIS_PULL_REQUEST" == "false" ]; then 
+            export COMPONENT_NEWTAG="latest-dev";
+            make component/tag;
+            export COMPONENT_VERSION="latest";
+            export COMPONENT_TAG_EXTENSION="-dev";
+            make component/push;
+          fi;
     - stage: unit-test
       name: "Run unit test"
       script:
@@ -58,8 +65,8 @@ jobs:
         # Bootstrap the build harness, pull test image, and run unit tests.
         - |
           make
-          make component/pull
           make component/test/unit
+          export SONAR_GO_TEST_ARGS="\`go list ./... | grep -v test/e2e\`"
           make sonar/go
     - stage: test-e2e
       name: "Deploy the image to a cluster and run e2e tests"

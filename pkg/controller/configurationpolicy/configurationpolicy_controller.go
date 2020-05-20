@@ -143,15 +143,6 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	if err != nil {
 		return err
 	}
-	// Watch for changes to secondary resource Pods and requeue the owner ConfigurationPolicy
-	err = c.Watch(&source.Kind{Type: &corev1.Pod{}}, &handler.EnqueueRequestForOwner{
-		IsController: true,
-		OwnerType:    &policyv1.ConfigurationPolicy{},
-	})
-	if err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -233,25 +224,25 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 	}
 
 	// name of our mcm custom finalizer
-	myFinalizerName := Finalizer
+	// myFinalizerName := Finalizer
 
 	//if instance.ObjectMeta.DeletionTimestamp.IsZero()
 	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
-		updateNeeded := false
+		// updateNeeded := false
 		// The object is not being deleted, so if it might not have our finalizer,
 		// then lets add the finalizer and update the object.
-		if !containsString(instance.ObjectMeta.Finalizers, myFinalizerName) {
-			instance.ObjectMeta.Finalizers = append(instance.ObjectMeta.Finalizers, myFinalizerName)
-			updateNeeded = true
-		}
-		if !ensureDefaultLabel(instance) {
-			updateNeeded = true
-		}
-		if updateNeeded {
-			if err := r.client.Update(context.Background(), instance); err != nil {
-				return reconcile.Result{Requeue: true}, nil
-			}
-		}
+		// if !containsString(instance.ObjectMeta.Finalizers, myFinalizerName) {
+		// 	instance.ObjectMeta.Finalizers = append(instance.ObjectMeta.Finalizers, myFinalizerName)
+		// 	updateNeeded = true
+		// }
+		// if !ensureDefaultLabel(instance) {
+		// 	updateNeeded = true
+		// }
+		// if updateNeeded {
+		// 	if err := r.client.Update(context.Background(), instance); err != nil {
+		// 		return reconcile.Result{Requeue: true}, nil
+		// 	}
+		// }
 		instance.Status.CompliancyDetails = nil //reset CompliancyDetails
 		log.Info(fmt.Sprintf("adding policy %s", instance.GetName()))
 		err := handleAddingPolicy(instance)
@@ -262,20 +253,20 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 		log.Info(fmt.Sprintf("removing policy %s", instance.GetName()))
 		handleRemovingPolicy(instance)
 		// The object is being deleted
-		if containsString(instance.ObjectMeta.Finalizers, myFinalizerName) {
-			// our finalizer is present, so lets handle our external dependency
-			if err := r.deleteExternalDependency(instance); err != nil {
-				// if fail to delete the external dependency here, return with error
-				// so that it can be retried
-				return reconcile.Result{}, err
-			}
+		// if containsString(instance.ObjectMeta.Finalizers, myFinalizerName) {
+		// 	// our finalizer is present, so lets handle our external dependency
+		// 	if err := r.deleteExternalDependency(instance); err != nil {
+		// 		// if fail to delete the external dependency here, return with error
+		// 		// so that it can be retried
+		// 		return reconcile.Result{}, err
+		// 	}
 
-			// remove our finalizer from the list and update it.
-			instance.ObjectMeta.Finalizers = removeString(instance.ObjectMeta.Finalizers, myFinalizerName)
-			if err := r.client.Update(context.Background(), instance); err != nil {
-				return reconcile.Result{Requeue: true}, nil
-			}
-		}
+		// 	// remove our finalizer from the list and update it.
+		// 	instance.ObjectMeta.Finalizers = removeString(instance.ObjectMeta.Finalizers, myFinalizerName)
+		// 	if err := r.client.Update(context.Background(), instance); err != nil {
+		// 		return reconcile.Result{Requeue: true}, nil
+		// 	}
+		// }
 		// Our finalizer has finished, so the reconciler can do nothing.
 		return reconcile.Result{}, nil
 	}

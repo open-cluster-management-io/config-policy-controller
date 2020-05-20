@@ -38,5 +38,6 @@ else
 fi
 jq --arg ep_quaysha $ep_quaysha '(.[] | select (.["image-name"] == "endpoint-operator") | .["image-digest"]) |= $ep_quaysha' $manifest_filename > tmp.json ; mv tmp.json $manifest_filename
 jq --arg mco_quaysha $mco_quaysha '(.[] | select (.["image-name"] == "multiclusterhub-operator") | .["image-digest"]) |= $mco_quaysha' $manifest_filename > tmp.json ; mv tmp.json $manifest_filename
+if [[ "$ep_quaysha" == "null" || "$mco_quaysha" == "null" ]]; then echo Oh no - one of the operator image digests is missing!; exit 1; fi
 echo After, $manifest_filename is:
 cat $manifest_filename
