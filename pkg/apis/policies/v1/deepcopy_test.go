@@ -11,6 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+// Copyright (c) 2020 Red Hat, Inc.
 package v1
 
 import (
@@ -28,10 +29,8 @@ var samplePolicy = ConfigurationPolicy{
 	}}
 
 var samplePolicySpec = ConfigurationPolicySpec{
-	Severity:                        "high",
-	RemediationAction:               "enforce",
-	MaxRoleBindingUsersPerNamespace: 1,
-	MaxClusterRoleBindingGroups:     1,
+	Severity:          "high",
+	RemediationAction: "enforce",
 }
 
 var typeMeta = metav1.TypeMeta{

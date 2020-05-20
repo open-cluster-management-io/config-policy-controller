@@ -3,6 +3,7 @@
 .yml
 .yaml
 .properties
+.openapi.go
 # directories to ingore
 operator-sdk/*
 build-harness/*

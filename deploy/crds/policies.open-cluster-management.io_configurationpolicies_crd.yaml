@@ -36,14 +36,6 @@ spec:
               additionalProperties:
                 type: string
               type: object
-            maxClusterRoleBindingGroups:
-              type: integer
-            maxClusterRoleBindingUsers:
-              type: integer
-            maxRoleBindingGroupsPerNamespace:
-              type: integer
-            maxRoleBindingUsersPerNamespace:
-              type: integer
             namespaceSelector:
               description: Target defines the list of namespaces to include/exclude
               properties:
@@ -65,7 +57,8 @@ spec:
                       mustnothave, mustonlyhave'
                     type: string
                   objectDefinition:
-                    description: RoleBinding
+                    description: ObjectDefinition defines required fields for the
+                      object
                     type: object
                 required:
                 - complianceType
@@ -136,6 +129,3 @@ spec:
   - name: v1
     served: true
     storage: true
-  - name: v1alpha1
-    served: false
-    storage: false

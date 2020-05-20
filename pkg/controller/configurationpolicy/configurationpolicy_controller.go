@@ -20,7 +20,6 @@ import (
 	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
-	v1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -215,34 +214,14 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 			// Request object not found, could have been deleted after reconcile request.
 			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
 			// Return and don't requeue
-			reqLogger.Info("error 1 *********")
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
-		reqLogger.Info("error 2 *********")
 		return reconcile.Result{}, err
 	}
 
-	// name of our mcm custom finalizer
-	// myFinalizerName := Finalizer
-
 	//if instance.ObjectMeta.DeletionTimestamp.IsZero()
 	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
-		// updateNeeded := false
-		// The object is not being deleted, so if it might not have our finalizer,
-		// then lets add the finalizer and update the object.
-		// if !containsString(instance.ObjectMeta.Finalizers, myFinalizerName) {
-		// 	instance.ObjectMeta.Finalizers = append(instance.ObjectMeta.Finalizers, myFinalizerName)
-		// 	updateNeeded = true
-		// }
-		// if !ensureDefaultLabel(instance) {
-		// 	updateNeeded = true
-		// }
-		// if updateNeeded {
-		// 	if err := r.client.Update(context.Background(), instance); err != nil {
-		// 		return reconcile.Result{Requeue: true}, nil
-		// 	}
-		// }
 		instance.Status.CompliancyDetails = nil //reset CompliancyDetails
 		log.Info(fmt.Sprintf("adding policy %s", instance.GetName()))
 		err := handleAddingPolicy(instance)
@@ -252,29 +231,9 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 	} else {
 		log.Info(fmt.Sprintf("removing policy %s", instance.GetName()))
 		handleRemovingPolicy(instance)
-		// The object is being deleted
-		// if containsString(instance.ObjectMeta.Finalizers, myFinalizerName) {
-		// 	// our finalizer is present, so lets handle our external dependency
-		// 	if err := r.deleteExternalDependency(instance); err != nil {
-		// 		// if fail to delete the external dependency here, return with error
-		// 		// so that it can be retried
-		// 		return reconcile.Result{}, err
-		// 	}
 
-		// 	// remove our finalizer from the list and update it.
-		// 	instance.ObjectMeta.Finalizers = removeString(instance.ObjectMeta.Finalizers, myFinalizerName)
-		// 	if err := r.client.Update(context.Background(), instance); err != nil {
-		// 		return reconcile.Result{Requeue: true}, nil
-		// 	}
-		// }
 		// Our finalizer has finished, so the reconciler can do nothing.
 		return reconcile.Result{}, nil
-	}
-
-	relevantNamespaces := getPolicyNamespaces(*instance)
-	//for each namespace, check the compliance against the policy:
-	for _, ns := range relevantNamespaces {
-		handlePolicyPerNamespace(ns, instance, instance.ObjectMeta.DeletionTimestamp.IsZero())
 	}
 
 	glog.V(3).Infof("reason: successful processing, subject: policy/%v, namespace: %v, according to policy: %v, additional-info: none",
@@ -285,56 +244,21 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 	return reconcile.Result{}, nil
 }
 
-func handlePolicyPerNamespace(namespace string, plc *policyv1.ConfigurationPolicy, added bool) {
-	//for each template we should handle each Kind of objects. I.e. iterate on all the items
-	//of a given Kind
-	glog.V(6).Infof("Policy: %v, namespace: %v\n", plc.Name, namespace)
-}
-
 // PeriodicallyExecSamplePolicies always check status
 func PeriodicallyExecSamplePolicies(freq uint, test bool) {
-	var plcToUpdateMap map[string]*policyv1.ConfigurationPolicy
 	for {
 		start := time.Now()
 		printMap(availablePolicies.PolicyMap)
-		plcToUpdateMap = make(map[string]*policyv1.ConfigurationPolicy)
 		for _, policy := range availablePolicies.PolicyMap {
-			//For each namespace, fetch all the RoleBindings in that NS according to the policy selector
-			//For each RoleBindings get the number of users
-			//update the status internal map
-			//no difference between enforce and inform here
 
-			// roleBindingList, err := (*common.KubeClient).RbacV1().RoleBindings(namespace).
-			// 	List(metav1.ListOptions{LabelSelector: labels.Set(policy.Spec.LabelSelector).String()})
-			// if err != nil {
-			// 	glog.Errorf("reason: communication error, subject: k8s API server, namespace: %v, according to policy: %v, additional-info: %v\n",
-			// 		namespace, policy.Name, err)
-			// 	continue
-			// }
-			// userViolationCount, GroupViolationCount := checkViolationsPerNamespace(roleBindingList, policy)
 			if strings.EqualFold(string(policy.Spec.RemediationAction), string(policyv1.Enforce)) {
 				glog.V(5).Infof("Enforce is set, but ignored :-)")
 			}
-			// if addViolationCount(policy, userViolationCount, GroupViolationCount, namespace) {
-			// 	plcToUpdateMap[policy.Name] = policy
-			// }
 
 			Mx.Lock()
 			handleObjectTemplates(*policy)
 			Mx.Unlock()
 
-			// checkComplianceBasedOnDetails(policy)
-		}
-		err := checkUnNamespacedPolicies(plcToUpdateMap)
-		if err != nil {
-			glog.V(3).Infof("Failed to checkUnNamespacedPolicies")
-		}
-
-		//update status of all policies that changed:
-		faultyPlc, err := updatePolicyStatus(plcToUpdateMap)
-		if err != nil {
-			glog.Errorf("reason: policy update error, subject: policy/%v, namespace: %v, according to policy: %v, additional-info: %v\n",
-				faultyPlc.Name, faultyPlc.Namespace, faultyPlc.Name, err)
 		}
 
 		// making sure that if processing is > freq we don't sleep
@@ -507,11 +431,11 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 			}
 			if update {
 				//update parent policy with violation
-				eventType := eventNormal
-				if plc.Status.CompliancyDetails[indx].ComplianceState == policyv1.NonCompliant {
-					eventType = eventWarning
-				}
-				recorder.Event(&plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), convertPolicyStatusToString(&plc))
+				// eventType := eventNormal
+				// if plc.Status.CompliancyDetails[indx].ComplianceState == policyv1.NonCompliant {
+				// 	eventType = eventWarning
+				// }
+				//recorder.Event(&plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), convertPolicyStatusToString(&plc))
 				addForUpdate(&plc)
 			}
 		}
@@ -1319,18 +1243,19 @@ func updateTemplate(
 					}
 
 					//merge changes into new spec
+					var mergedObj interface{}
 					switch newObj := newObj.(type) {
 					case []interface{}:
-						newObj, err = compareLists(newObj, oldObj.([]interface{}), complianceType)
+						mergedObj, err = compareLists(newObj, oldObj.([]interface{}), complianceType)
 					case map[string]interface{}:
-						newObj, err = compareSpecs(newObj, oldObj.(map[string]interface{}), complianceType)
+						mergedObj, err = compareSpecs(newObj, oldObj.(map[string]interface{}), complianceType)
 					}
 					if err != nil {
 						message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
 						return false, false, message
 					}
 					//check if merged spec has changed
-					nJSON, err := json.Marshal(newObj)
+					nJSON, err := json.Marshal(mergedObj)
 					if err != nil {
 						message := fmt.Sprintf("Error converting updated %s to JSON: %s", key, err)
 						return false, false, message
@@ -1345,7 +1270,7 @@ func updateTemplate(
 					}
 					mapMtx := sync.RWMutex{}
 					mapMtx.Lock()
-					existingObj.UnstructuredContent()[key] = newObj
+					existingObj.UnstructuredContent()[key] = mergedObj
 					mapMtx.Unlock()
 					if updateNeeded {
 						if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform)) {
@@ -1594,51 +1519,6 @@ func ensureDefaultLabel(instance *policyv1.ConfigurationPolicy) (updateNeeded bo
 	return false
 }
 
-func checkUnNamespacedPolicies(plcToUpdateMap map[string]*policyv1.ConfigurationPolicy) error {
-	// plcMap := convertMaptoPolicyNameKey()
-	// // group the policies with cluster users and the ones with groups
-	// // take the plc with min users and groups and make it your baseline
-	// ClusteRoleBindingList, err := (*common.KubeClient).RbacV1().ClusterRoleBindings().List(metav1.ListOptions{})
-	// if err != nil {
-	// 	glog.Errorf("reason: communication error, subject: k8s API server, namespace: all, according to policy: none, additional-info: %v\n", err)
-	// 	return err
-	// }
-
-	// clusterLevelUsers, clusterLevelGroups := checkAllClusterLevel(ClusteRoleBindingList)
-
-	// for _, policy := range plcMap {
-	// 	var userViolationCount, groupViolationCount int
-	// 	if policy.Spec.MaxClusterRoleBindingUsers < clusterLevelUsers && policy.Spec.MaxClusterRoleBindingUsers >= 0 {
-	// 		userViolationCount = clusterLevelUsers - policy.Spec.MaxClusterRoleBindingUsers
-	// 	}
-	// 	if policy.Spec.MaxClusterRoleBindingGroups < clusterLevelGroups && policy.Spec.MaxClusterRoleBindingGroups >= 0 {
-	// 		groupViolationCount = clusterLevelGroups - policy.Spec.MaxClusterRoleBindingGroups
-	// 	}
-	// 	if addViolationCount(policy, userViolationCount, groupViolationCount, "cluster-wide") {
-	// 		plcToUpdateMap[policy.Name] = policy
-	// 	}
-	// 	checkComplianceBasedOnDetails(policy)
-	// }
-
-	return nil
-}
-
-func checkAllClusterLevel(clusterRoleBindingList *v1.ClusterRoleBindingList) (userV, groupV int) {
-	usersMap := make(map[string]bool)
-	groupsMap := make(map[string]bool)
-	for _, clusterRoleBinding := range clusterRoleBindingList.Items {
-		for _, subject := range clusterRoleBinding.Subjects {
-			if subject.Kind == "User" {
-				usersMap[subject.Name] = true
-			}
-			if subject.Kind == "Group" {
-				groupsMap[subject.Name] = true
-			}
-		}
-	}
-	return len(usersMap), len(groupsMap)
-}
-
 func convertMaptoPolicyNameKey() map[string]*policyv1.ConfigurationPolicy {
 	plcMap := make(map[string]*policyv1.ConfigurationPolicy)
 	for _, policy := range availablePolicies.PolicyMap {
@@ -1646,120 +1526,6 @@ func convertMaptoPolicyNameKey() map[string]*policyv1.ConfigurationPolicy {
 	}
 	return plcMap
 }
-
-func checkViolationsPerNamespace(roleBindingList *v1.RoleBindingList, plc *policyv1.ConfigurationPolicy) (userV, groupV int) {
-	usersMap := make(map[string]bool)
-	groupsMap := make(map[string]bool)
-	for _, roleBinding := range roleBindingList.Items {
-		for _, subject := range roleBinding.Subjects {
-			if subject.Kind == "User" {
-				usersMap[subject.Name] = true
-			}
-			if subject.Kind == "Group" {
-				groupsMap[subject.Name] = true
-			}
-		}
-	}
-	var userViolationCount, groupViolationCount int
-	if plc.Spec.MaxRoleBindingUsersPerNamespace < len(usersMap) && plc.Spec.MaxRoleBindingUsersPerNamespace >= 0 {
-		userViolationCount = (len(usersMap) - plc.Spec.MaxRoleBindingUsersPerNamespace)
-	}
-	if plc.Spec.MaxRoleBindingGroupsPerNamespace < len(groupsMap) && plc.Spec.MaxRoleBindingGroupsPerNamespace >= 0 {
-		groupViolationCount = (len(groupsMap) - plc.Spec.MaxRoleBindingGroupsPerNamespace)
-	}
-	return userViolationCount, groupViolationCount
-}
-
-// func addViolationCount(plc *policyv1.ConfigurationPolicy, userCount int, groupCount int, namespace string) bool {
-// 	changed := false
-// 	msg := fmt.Sprintf("%s violations detected in namespace `%s`, there are %v users violations and %v groups violations",
-// 		fmt.Sprint(userCount+groupCount),
-// 		namespace,
-// 		userCount,
-// 		groupCount)
-// 	if plc.Status.CompliancyDetails == nil {
-// 		plc.Status.CompliancyDetails = make(map[string]map[string][]string)
-// 	}
-// 	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
-// 		plc.Status.CompliancyDetails[plc.Name] = make(map[string][]string)
-// 	}
-// 	if plc.Status.CompliancyDetails[plc.Name][namespace] == nil {
-// 		plc.Status.CompliancyDetails[plc.Name][namespace] = []string{}
-// 	}
-// 	if len(plc.Status.CompliancyDetails[plc.Name][namespace]) == 0 {
-// 		plc.Status.CompliancyDetails[plc.Name][namespace] = []string{msg}
-// 		changed = true
-// 		return changed
-// 	}
-// 	firstNum := strings.Split(plc.Status.CompliancyDetails[plc.Name][namespace][0], " ")
-// 	if len(firstNum) > 0 {
-// 		if firstNum[0] == fmt.Sprint(userCount+groupCount) {
-// 			return false
-// 		}
-// 	}
-// 	plc.Status.CompliancyDetails[plc.Name][namespace][0] = msg
-// 	changed = true
-// 	return changed
-// }
-
-// func checkComplianceBasedOnDetails(plc *policyv1.ConfigurationPolicy) {
-// 	plc.Status.ComplianceState = policyv1.Compliant
-// 	if plc.Status.CompliancyDetails == nil {
-// 		return
-// 	}
-// 	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
-// 		return
-// 	}
-// 	if len(plc.Status.CompliancyDetails[plc.Name]) == 0 {
-// 		return
-// 	}
-// 	for namespace, msgList := range plc.Status.CompliancyDetails[plc.Name] {
-// 		if len(msgList) > 0 {
-// 			violationNum := strings.Split(plc.Status.CompliancyDetails[plc.Name][namespace][0], " ")
-// 			if len(violationNum) > 0 {
-// 				if violationNum[0] != fmt.Sprint(0) {
-// 					plc.Status.ComplianceState = policyv1.NonCompliant
-// 				}
-// 			}
-// 		} else {
-// 			return
-// 		}
-// 	}
-// }
-
-// func checkComplianceChangeBasedOnDetails(plc *policyv1.ConfigurationPolicy) (complianceChanged bool) {
-// 	//used in case we also want to know not just the compliance state, but also whether the compliance changed or not.
-// 	previous := plc.Status.ComplianceState
-// 	if plc.Status.CompliancyDetails == nil {
-// 		plc.Status.ComplianceState = policyv1.UnknownCompliancy
-// 		return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-// 	}
-// 	if _, ok := plc.Status.CompliancyDetails[plc.Name]; !ok {
-// 		plc.Status.ComplianceState = policyv1.UnknownCompliancy
-// 		return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-// 	}
-// 	if len(plc.Status.CompliancyDetails[plc.Name]) == 0 {
-// 		plc.Status.ComplianceState = policyv1.UnknownCompliancy
-// 		return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-// 	}
-// 	plc.Status.ComplianceState = policyv1.Compliant
-// 	for namespace, msgList := range plc.Status.CompliancyDetails[plc.Name] {
-// 		if len(msgList) > 0 {
-// 			violationNum := strings.Split(plc.Status.CompliancyDetails[plc.Name][namespace][0], " ")
-// 			if len(violationNum) > 0 {
-// 				if violationNum[0] != fmt.Sprint(0) {
-// 					plc.Status.ComplianceState = policyv1.NonCompliant
-// 				}
-// 			}
-// 		} else {
-// 			return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-// 		}
-// 	}
-// 	if plc.Status.ComplianceState != policyv1.NonCompliant {
-// 		plc.Status.ComplianceState = policyv1.Compliant
-// 	}
-// 	return reflect.DeepEqual(previous, plc.Status.ComplianceState)
-// }
 
 func updatePolicyStatus(policies map[string]*policyv1.ConfigurationPolicy) (*policyv1.ConfigurationPolicy, error) {
 	for _, instance := range policies { // policies is a map where: key = plc.Name, value = pointer to plc
@@ -1775,29 +1541,6 @@ func updatePolicyStatus(policies map[string]*policyv1.ConfigurationPolicy) (*pol
 		}
 	}
 	return nil, nil
-}
-
-func setStatus(policy *policyv1.ConfigurationPolicy) {
-	compliant := true
-	for index := range policy.Spec.ObjectTemplates {
-		if policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
-			compliant = false
-		}
-	}
-	if compliant {
-		policy.Status.ComplianceState = policyv1.Compliant
-	} else {
-		policy.Status.ComplianceState = policyv1.NonCompliant
-	}
-}
-
-func getContainerID(pod corev1.Pod, containerName string) string {
-	for _, containerStatus := range pod.Status.ContainerStatuses {
-		if containerStatus.Name == containerName {
-			return containerStatus.ContainerID
-		}
-	}
-	return ""
 }
 
 func handleRemovingPolicy(plc *policyv1.ConfigurationPolicy) {
@@ -1830,29 +1573,6 @@ func handleAddingPolicy(plc *policyv1.ConfigurationPolicy) error {
 	return err
 }
 
-func newConfigurationPolicy(plc *policyv1.ConfigurationPolicy) *unstructured.Unstructured {
-	return &unstructured.Unstructured{
-		Object: map[string]interface{}{
-			"kind":       plc.Kind,
-			"apiVersion": plc.APIVersion,
-			"metadata":   plc.GetObjectMeta(),
-			"spec":       plc.Spec,
-		},
-	}
-}
-
-//=================================================================
-//deleteExternalDependency in case the CRD was related to non-k8s resource
-//nolint
-func (r *ReconcileConfigurationPolicy) deleteExternalDependency(instance *policyv1.ConfigurationPolicy) error {
-	glog.V(0).Infof("reason: CRD deletion, subject: policy/%v, namespace: %v, according to policy: none, additional-info: none\n",
-		instance.Name,
-		instance.Namespace)
-	// Ensure that delete implementation is idempotent and safe to invoke
-	// multiple types for same object.
-	return nil
-}
-
 //=================================================================
 // Helper function to join strings
 func join(strs ...string) string {
@@ -1864,29 +1584,6 @@ func join(strs ...string) string {
 		result += str
 	}
 	return result
-}
-
-//=================================================================
-// Helper functions to check if a string exists in a slice of strings.
-func containsString(slice []string, s string) bool {
-	for _, item := range slice {
-		if item == s {
-			return true
-		}
-	}
-	return false
-}
-
-//=================================================================
-// Helper functions to remove a string from a slice of strings.
-func removeString(slice []string, s string) (result []string) {
-	for _, item := range slice {
-		if item == s {
-			continue
-		}
-		result = append(result, item)
-	}
-	return
 }
 
 //=================================================================

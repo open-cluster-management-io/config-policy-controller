@@ -11,6 +11,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+// Copyright (c) 2020 Red Hat, Inc.
 
 package v1
 
@@ -75,15 +76,11 @@ type Target struct {
 // ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
 // +k8s:openapi-gen=true
 type ConfigurationPolicySpec struct {
-	Severity                         Severity          `json:"severity,omitempty"`          //low, medium, high
-	RemediationAction                RemediationAction `json:"remediationAction,omitempty"` //enforce, inform
-	NamespaceSelector                Target            `json:"namespaceSelector,omitempty"` // selecting a list of namespaces where the policy applies
-	LabelSelector                    map[string]string `json:"labelSelector,omitempty"`
-	MaxRoleBindingUsersPerNamespace  int               `json:"maxRoleBindingUsersPerNamespace,omitempty"`
-	MaxRoleBindingGroupsPerNamespace int               `json:"maxRoleBindingGroupsPerNamespace,omitempty"`
-	MaxClusterRoleBindingUsers       int               `json:"maxClusterRoleBindingUsers,omitempty"`
-	MaxClusterRoleBindingGroups      int               `json:"maxClusterRoleBindingGroups,omitempty"`
-	ObjectTemplates                  []*ObjectTemplate `json:"object-templates,omitempty"`
+	Severity          Severity          `json:"severity,omitempty"`          //low, medium, high
+	RemediationAction RemediationAction `json:"remediationAction,omitempty"` //enforce, inform
+	NamespaceSelector Target            `json:"namespaceSelector,omitempty"` // selecting a list of namespaces where the policy applies
+	LabelSelector     map[string]string `json:"labelSelector,omitempty"`
+	ObjectTemplates   []*ObjectTemplate `json:"object-templates,omitempty"`
 }
 
 //ObjectTemplate describes how an object should look
@@ -91,9 +88,7 @@ type ObjectTemplate struct {
 	// ComplianceType specifies wether it is a : //musthave, mustnothave, mustonlyhave
 	ComplianceType ComplianceType `json:"complianceType"`
 
-	//Selector *metav1.LabelSelector `json:"selector,omitempty" protobuf:"bytes,2,opt,name=selector"`
-
-	// RoleBinding
+	// ObjectDefinition defines required fields for the object
 	ObjectDefinition runtime.RawExtension `json:"objectDefinition,omitempty"`
 }
 
