@@ -1,6 +1,3 @@
-// Note to U.S. Government Users Restricted Rights:
-// Use, duplication or disclosure restricted by GSA ADP Schedule
-// Contract with IBM Corp.
 // Copyright (c) 2020 Red Hat, Inc.
 
 package configurationpolicy
@@ -25,10 +22,8 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -42,15 +37,9 @@ import (
 	"k8s.io/client-go/restmapper"
 )
 
-//UpdatePolicyMap used to keep track of policies to be updated
-var UpdatePolicyMap = make(map[string]*policyv1.ConfigurationPolicy)
+const controllerName string = "configuration-policy-controller"
 
-var log = logf.Log.WithName("controller_configurationpolicy")
-
-// Finalizer used to ensure consistency when deleting a CRD
-const Finalizer = "finalizer.policies.open-cluster-management.io"
-
-const grcCategory = "system-and-information-integrity"
+var log = logf.Log.WithName(controllerName)
 
 // availablePolicies is a cach all all available polices
 var availablePolicies common.SyncedPolicyMap
@@ -66,15 +55,6 @@ var eventNormal = "Normal"
 var eventWarning = "Warning"
 
 var config *rest.Config
-
-var restClient *rest.RESTClient
-
-var syncAlertTargets bool
-
-//CemWebhookURL url to send events to
-var CemWebhookURL string
-
-var clusterName string
 
 //Mx for making the map thread safe
 var Mx sync.RWMutex
@@ -93,31 +73,6 @@ var NamespaceWatched string
 // EventOnParent specifies if we also want to send events to the parent policy. Available options are yes/no/ifpresent
 var EventOnParent string
 
-// PrometheusAddr port addr for prom metrics
-var PrometheusAddr string
-
-type roleCompareResult struct {
-	roleName     string
-	missingKeys  map[string]map[string]bool
-	missingVerbs map[string]map[string]bool
-
-	AdditionalKeys map[string]map[string]bool
-	AddtionalVerbs map[string]map[string]bool
-}
-
-// PassthruCodecFactory provides methods for retrieving "DirectCodec"s, which do not do conversion.
-type PassthruCodecFactory struct {
-	serializer.CodecFactory
-}
-
-// PluralScheme extends scheme with plurals
-type PluralScheme struct {
-	Scheme *runtime.Scheme
-
-	// plurals for group, version and kinds
-	plurals map[schema.GroupVersionKind]string
-}
-
 // Add creates a new ConfigurationPolicy Controller and adds it to the Manager. The Manager will set fields on the Controller
 // and Start it when the Manager is Started.
 func Add(mgr manager.Manager) error {
@@ -132,7 +87,7 @@ func newReconciler(mgr manager.Manager) reconcile.Reconciler {
 // add adds a new Controller to mgr with r as the reconcile.Reconciler
 func add(mgr manager.Manager, r reconcile.Reconciler) error {
 	// Create a new controller
-	c, err := controller.New("configurationpolicy-controller", mgr, controller.Options{Reconciler: r})
+	c, err := controller.New(controllerName, mgr, controller.Options{Reconciler: r})
 	if err != nil {
 		return err
 	}
@@ -146,40 +101,20 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 }
 
 // Initialize to initialize some controller variables
-func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset, kClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string,
-	syncAlert bool, clustName string) {
-	InitializeClient(kClient)
+func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset,
+	kubeClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string) {
+	InitializeClient(kubeClient)
 	PlcChan = make(chan *policyv1.ConfigurationPolicy, 100) //buffering up to 100 policies for update
-
 	NamespaceWatched = namespace
 	clientSet = clientset
-
 	EventOnParent = strings.ToLower(eventParent)
-
-	recorder, _ = common.CreateRecorder(*KubeClient, "policy-controller")
+	recorder, _ = common.CreateRecorder(*KubeClient, controllerName)
 	config = kubeconfig
-	config.GroupVersion = &schema.GroupVersion{Group: "policies.open-cluster-management.io", Version: "v1"}
-	config.APIPath = "/apis"
-	config.ContentType = runtime.ContentTypeJSON
-	config.NegotiatedSerializer = PassthruCodecFactory{CodecFactory: serializer.NewCodecFactory(scheme.Scheme)}
-	client, err := rest.RESTClientFor(config)
-	if err != nil {
-		glog.Fatalf("error creating REST client: %s", err)
-	}
-	restClient = client
-
-	syncAlertTargets = syncAlert
-
-	if clustName == "" {
-		clusterName = "mcm-managed-cluster"
-	} else {
-		clusterName = clustName
-	}
 }
 
 //InitializeClient helper function to initialize kubeclient
-func InitializeClient(kClient *kubernetes.Interface) {
-	KubeClient = kClient
+func InitializeClient(kubeClient *kubernetes.Interface) {
+	KubeClient = kubeClient
 }
 
 // blank assignment to verify that ReconcileConfigurationPolicy implements reconcile.Reconciler
@@ -214,51 +149,36 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 			// Request object not found, could have been deleted after reconcile request.
 			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
 			// Return and don't requeue
+			reqLogger.Info("Confiugration policy was deleted, removing it...")
+			handleRemovingPolicy(instance)
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
+		reqLogger.Info("Failed to retrieve configuration policy", "err", err)
 		return reconcile.Result{}, err
 	}
 
-	//if instance.ObjectMeta.DeletionTimestamp.IsZero()
-	if instance.ObjectMeta.DeletionTimestamp.IsZero() {
-		instance.Status.CompliancyDetails = nil //reset CompliancyDetails
-		log.Info(fmt.Sprintf("adding policy %s", instance.GetName()))
-		err := handleAddingPolicy(instance)
-		if err != nil {
-			glog.V(3).Infof("Failed to handleAddingPolicy")
-		}
-	} else {
-		log.Info(fmt.Sprintf("removing policy %s", instance.GetName()))
-		handleRemovingPolicy(instance)
-
-		// Our finalizer has finished, so the reconciler can do nothing.
-		return reconcile.Result{}, nil
+	reqLogger.Info("Confiugration policy was found, adding it...")
+	err = handleAddingPolicy(instance)
+	if err != nil {
+		reqLogger.Info("Failed to handleAddingPolicy", "err", err)
+		return reconcile.Result{}, err
 	}
-
-	glog.V(3).Infof("reason: successful processing, subject: policy/%v, namespace: %v, according to policy: %v, additional-info: none",
-		instance.Name, instance.Namespace, instance.Name)
-
-	// Pod already exists - don't requeue
-	// reqLogger.Info("Skip reconcile: Pod already exists", "Pod.Namespace", found.Namespace, "Pod.Name", found.Name)
+	reqLogger.Info("Reconcile complete.")
 	return reconcile.Result{}, nil
 }
 
 // PeriodicallyExecSamplePolicies always check status
 func PeriodicallyExecSamplePolicies(freq uint, test bool) {
+	// var plcToUpdateMap map[string]*policyv1.ConfigurationPolicy
 	for {
 		start := time.Now()
 		printMap(availablePolicies.PolicyMap)
+		// plcToUpdateMap = make(map[string]*policyv1.ConfigurationPolicy)
 		for _, policy := range availablePolicies.PolicyMap {
-
-			if strings.EqualFold(string(policy.Spec.RemediationAction), string(policyv1.Enforce)) {
-				glog.V(5).Infof("Enforce is set, but ignored :-)")
-			}
-
 			Mx.Lock()
 			handleObjectTemplates(*policy)
 			Mx.Unlock()
-
 		}
 
 		// making sure that if processing is > freq we don't sleep
@@ -336,11 +256,6 @@ func createNotification(plc *policyv1.ConfigurationPolicy, index int, reason str
 }
 
 func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
-	if reflect.DeepEqual(plc.Labels["ignore"], "true") {
-		plc.Status = policyv1.ConfigurationPolicyStatus{
-			ComplianceState: policyv1.UnknownCompliancy,
-		}
-	}
 	plcNamespaces := getPolicyNamespaces(plc)
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
@@ -431,11 +346,11 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 			}
 			if update {
 				//update parent policy with violation
-				// eventType := eventNormal
-				// if plc.Status.CompliancyDetails[indx].ComplianceState == policyv1.NonCompliant {
-				// 	eventType = eventWarning
-				// }
-				//recorder.Event(&plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), convertPolicyStatusToString(&plc))
+				eventType := eventNormal
+				if plc.Status.CompliancyDetails[indx].ComplianceState == policyv1.NonCompliant {
+					eventType = eventWarning
+				}
+				recorder.Event(&plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), convertPolicyStatusToString(&plc))
 				addForUpdate(&plc)
 			}
 		}
@@ -1348,24 +1263,9 @@ func AppendCondition(conditions []policyv1.Condition, newCond *policyv1.Conditio
 			conditions[lastIndex-1] = *newCond
 			return conditions
 		}
-		//different than the last event, trigger event
-		if syncAlertTargets {
-			res, err := triggerEvent(*newCond, resourceType, resolved)
-			if err != nil {
-				glog.Errorf("event failed to be triggered: %v", err)
-			}
-			glog.V(3).Infof("event triggered: %v", res)
-		}
 
 	} else {
 		//first condition => trigger event
-		if syncAlertTargets {
-			res, err := triggerEvent(*newCond, resourceType, resolved)
-			if err != nil {
-				glog.Errorf("event failed to be triggered: %v", err)
-			}
-			glog.V(3).Infof("event triggered: %v", res)
-		}
 		conditions = append(conditions, *newCond)
 		return conditions
 	}
@@ -1415,70 +1315,6 @@ func IsSimilarToLastCondition(oldCond policyv1.Condition, newCond policyv1.Condi
 	return false
 }
 
-func triggerEvent(cond policyv1.Condition, resourceType string, resolved []bool) (res string, err error) {
-
-	resolutionResult := false
-	eventType := "notification"
-	eventSeverity := "Normal"
-	if len(resolved) > 0 {
-		resolutionResult = resolved[0]
-	}
-	if !resolutionResult {
-		eventSeverity = "Critical"
-		eventType = "violation"
-	}
-	WebHookURL, err := GetCEMWebhookURL()
-	if err != nil {
-		return "", err
-	}
-	glog.Errorf("webhook url: %s", WebHookURL)
-	event := common.CEMEvent{
-		Resource: common.Resource{
-			Name:    "compliance-issue",
-			Cluster: clusterName,
-			Type:    resourceType,
-		},
-		Summary:    cond.Message,
-		Severity:   eventSeverity,
-		Timestamp:  cond.LastTransitionTime.String(),
-		Resolution: resolutionResult,
-		Sender: common.Sender{
-			Name:    "MCM Policy Controller",
-			Cluster: clusterName,
-			Type:    "K8s controller",
-		},
-		Type: common.Type{
-			StatusOrThreshold: cond.Reason,
-			EventType:         eventType,
-		},
-	}
-	payload, err := json.Marshal(event)
-	if err != nil {
-		return "", err
-	}
-	result, err := common.PostEvent(WebHookURL, payload)
-	return result, err
-}
-
-// NewScheme creates an object for given group/version/kind and set ObjectKind
-func NewScheme() *PluralScheme {
-	return &PluralScheme{Scheme: runtime.NewScheme(), plurals: make(map[schema.GroupVersionKind]string)}
-}
-
-// SetPlural sets the plural for corresponding  group/version/kind
-func (p *PluralScheme) SetPlural(gvk schema.GroupVersionKind, plural string) {
-	p.plurals[gvk] = plural
-}
-
-// GetCEMWebhookURL populate the webhook value from a CRD
-func GetCEMWebhookURL() (url string, err error) {
-
-	if CemWebhookURL == "" {
-		return "", fmt.Errorf("undefined CEM webhook: %s", CemWebhookURL)
-	}
-	return CemWebhookURL, nil
-}
-
 func addForUpdate(policy *policyv1.ConfigurationPolicy) {
 	compliant := true
 	for index := range policy.Spec.ObjectTemplates {
@@ -1496,35 +1332,8 @@ func addForUpdate(policy *policyv1.ConfigurationPolicy) {
 	})
 	if err != nil {
 		log.Error(err, err.Error())
-		time.Sleep(100) //giving enough time to sync
+		// time.Sleep(100) //giving enough time to sync
 	}
-}
-
-func ensureDefaultLabel(instance *policyv1.ConfigurationPolicy) (updateNeeded bool) {
-	//we need to ensure this label exists -> category: "System and Information Integrity"
-	if instance.ObjectMeta.Labels == nil {
-		newlbl := make(map[string]string)
-		newlbl["category"] = grcCategory
-		instance.ObjectMeta.Labels = newlbl
-		return true
-	}
-	if _, ok := instance.ObjectMeta.Labels["category"]; !ok {
-		instance.ObjectMeta.Labels["category"] = grcCategory
-		return true
-	}
-	if instance.ObjectMeta.Labels["category"] != grcCategory {
-		instance.ObjectMeta.Labels["category"] = grcCategory
-		return true
-	}
-	return false
-}
-
-func convertMaptoPolicyNameKey() map[string]*policyv1.ConfigurationPolicy {
-	plcMap := make(map[string]*policyv1.ConfigurationPolicy)
-	for _, policy := range availablePolicies.PolicyMap {
-		plcMap[policy.Name] = policy
-	}
-	return plcMap
 }
 
 func updatePolicyStatus(policies map[string]*policyv1.ConfigurationPolicy) (*policyv1.ConfigurationPolicy, error) {
@@ -1660,64 +1469,6 @@ func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results str
 		}
 	}
 	return result
-}
-
-func prettyPrint(res roleCompareResult, roleTName string) string {
-	message := fmt.Sprintf("the role \" %v \" has ", roleTName)
-	if len(res.missingKeys) > 0 {
-		missingKeys := "missing keys: "
-		for key, value := range res.missingKeys {
-
-			missingKeys += (key + "{")
-			for k := range value {
-				missingKeys += (k + ",")
-			}
-			missingKeys = strings.TrimSuffix(missingKeys, ",")
-			missingKeys += "} "
-		}
-		message += missingKeys
-	}
-	if len(res.missingVerbs) > 0 {
-		missingVerbs := "missing verbs: "
-		for key, value := range res.missingVerbs {
-
-			missingVerbs += (key + "{")
-			for k := range value {
-				missingVerbs += (k + ",")
-			}
-			missingVerbs = strings.TrimSuffix(missingVerbs, ",")
-			missingVerbs += "} "
-		}
-		message += missingVerbs
-	}
-	if len(res.AdditionalKeys) > 0 {
-		AdditionalKeys := "additional keys: "
-		for key, value := range res.AdditionalKeys {
-
-			AdditionalKeys += (key + "{")
-			for k := range value {
-				AdditionalKeys += (k + ",")
-			}
-			AdditionalKeys = strings.TrimSuffix(AdditionalKeys, ",")
-			AdditionalKeys += "} "
-		}
-		message += AdditionalKeys
-	}
-	if len(res.AddtionalVerbs) > 0 {
-		AddtionalVerbs := "additional verbs: "
-		for key, value := range res.AddtionalVerbs {
-
-			AddtionalVerbs += (key + "{")
-			for k := range value {
-				AddtionalVerbs += (k + ",")
-			}
-			AddtionalVerbs = strings.TrimSuffix(AddtionalVerbs, ",")
-			AddtionalVerbs += "} "
-		}
-		message += AddtionalVerbs
-	}
-
-	return message
 }
 
 func recoverFlow() {

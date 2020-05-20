@@ -1,17 +1,5 @@
-// Copyright 2019 The Kubernetes Authors.
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 // Copyright (c) 2020 Red Hat, Inc.
+
 package configurationpolicy
 
 import (
@@ -86,7 +74,6 @@ func TestReconcile(t *testing.T) {
 	}
 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 	common.Initialize(&simpleClient, nil)
-	InitializeClient(&simpleClient)
 	res, err := r.Reconcile(req)
 	if err != nil {
 		t.Fatalf("reconcile: (%v)", err)
@@ -210,6 +197,7 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 	simpleClient.CoreV1().Namespaces().Create(&ns)
 	common.Initialize(&simpleClient, nil)
+	InitializeClient(&simpleClient)
 	res, err := r.Reconcile(req)
 	if err != nil {
 		t.Fatalf("reconcile: (%v)", err)
@@ -346,29 +334,6 @@ func TestCompareLists(t *testing.T) {
 		},
 	}
 	assert.Equal(t, reflect.DeepEqual(fmt.Sprint(merged), fmt.Sprint(mergedExpected)), true)
-}
-
-func TestEnsureDefaultLabel(t *testing.T) {
-	updateNeeded := ensureDefaultLabel(&samplePolicy)
-	assert.True(t, updateNeeded)
-
-	var labels1 = map[string]string{}
-	labels1["category"] = grcCategory
-	samplePolicy.Labels = labels1
-	updateNeeded = ensureDefaultLabel(&samplePolicy)
-	assert.False(t, updateNeeded)
-
-	var labels2 = map[string]string{}
-	labels2["category"] = "foo"
-	samplePolicy.Labels = labels2
-	updateNeeded = ensureDefaultLabel(&samplePolicy)
-	assert.True(t, updateNeeded)
-
-	var labels3 = map[string]string{}
-	labels3["foo"] = grcCategory
-	samplePolicy.Labels = labels3
-	updateNeeded = ensureDefaultLabel(&samplePolicy)
-	assert.True(t, updateNeeded)
 }
 
 func TestCreateParentPolicy(t *testing.T) {

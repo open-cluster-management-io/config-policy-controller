@@ -68,8 +68,8 @@ var _ = BeforeSuite(func() {
 	clientManagedDynamic = NewKubeClientDynamic("", kubeconfigManaged, "")
 	defaultImageRegistry = "quay.io/open-cluster-management"
 	defaultImagePullSecretName = "multiclusterhub-operator-pull-secret"
-	testNamespace = "config-policy-test"
-	defaultTimeoutSeconds = 120
+	testNamespace = "managed"
+	defaultTimeoutSeconds = 30
 	By("Create Namespace if needed")
 	namespaces := clientManaged.CoreV1().Namespaces()
 	if _, err := namespaces.Get(testNamespace, metav1.GetOptions{}); err != nil && errors.IsNotFound(err) {

@@ -186,7 +186,6 @@ install-crds:
 
 install-resources:
 	@echo creating namespaces
-	kubectl create ns config-policy-test
 	kubectl create ns managed
 
 e2e-test:

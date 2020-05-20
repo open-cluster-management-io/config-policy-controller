@@ -23,7 +23,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: WATCH_NAMESPACE
-              value: config-policy-test
+              value: managed
             - name: POD_NAME
               valueFrom:
                 fieldRef:
