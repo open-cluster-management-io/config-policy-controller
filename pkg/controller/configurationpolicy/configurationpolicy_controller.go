@@ -168,13 +168,12 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 	return reconcile.Result{}, nil
 }
 
-// PeriodicallyExecSamplePolicies always check status
-func PeriodicallyExecSamplePolicies(freq uint, test bool) {
+// PeriodicallyExecConfigPolicies always check status
+func PeriodicallyExecConfigPolicies(freq uint, test bool) {
 	// var plcToUpdateMap map[string]*policyv1.ConfigurationPolicy
 	for {
 		start := time.Now()
 		printMap(availablePolicies.PolicyMap)
-		// plcToUpdateMap = make(map[string]*policyv1.ConfigurationPolicy)
 		for _, policy := range availablePolicies.PolicyMap {
 			Mx.Lock()
 			handleObjectTemplates(*policy)
@@ -337,12 +336,12 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 			if !mustNotHave && numCompliant > 0 {
 				//compliant; musthave and objects exist
 				message := fmt.Sprintf("%d instances of %v exist as specified, therefore this Object template is compliant", numCompliant, kind)
-				update = createNotification(&plc, indx, "K8s must `not` have object already missing", message)
+				update = createNotification(&plc, indx, "K8s `must have` object already exists", message)
 			}
 			if mustNotHave && numNonCompliant == 0 {
 				//compliant; mustnothave and no objects exist
 				message := fmt.Sprintf("no instances of `%v` exist as specified, therefore this Object template is compliant", kind)
-				update = createNotification(&plc, indx, "K8s `must have` object already exists", message)
+				update = createNotification(&plc, indx, "K8s must `not` have object already missing", message)
 			}
 			if update {
 				//update parent policy with violation
@@ -1369,7 +1368,8 @@ func handleAddingPolicy(plc *policyv1.ConfigurationPolicy) error {
 	}
 	//clean up that policy from the existing namepsaces, in case the modification is in the namespace selector
 	for _, ns := range allNamespaces {
-		if policy, found := availablePolicies.GetObject(ns); found {
+		key := fmt.Sprintf("%s/%s", ns, plc.Name)
+		if policy, found := availablePolicies.GetObject(key); found {
 			if policy.Name == plc.Name {
 				availablePolicies.RemoveObject(ns)
 			}
@@ -1377,7 +1377,8 @@ func handleAddingPolicy(plc *policyv1.ConfigurationPolicy) error {
 	}
 	selectedNamespaces := common.GetSelectedNamespaces(plc.Spec.NamespaceSelector.Include, plc.Spec.NamespaceSelector.Exclude, allNamespaces)
 	for _, ns := range selectedNamespaces {
-		availablePolicies.AddObject(ns, plc)
+		key := fmt.Sprintf("%s/%s", ns, plc.Name)
+		availablePolicies.AddObject(key, plc)
 	}
 	return err
 }
@@ -1405,7 +1406,7 @@ func printMap(myMap map[string]*policyv1.ConfigurationPolicy) {
 	fmt.Println("Available policies in namespaces: ")
 
 	for k, v := range myMap {
-		fmt.Printf("namespace = %v; policy = %v \n", k, v.Name)
+		fmt.Printf("namespace = %v; policy = %v \n", strings.Split(k, "/")[0], v.Name)
 	}
 }
 

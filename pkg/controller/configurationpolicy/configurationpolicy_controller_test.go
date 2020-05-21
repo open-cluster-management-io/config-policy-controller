@@ -131,7 +131,7 @@ func TestReconcile(t *testing.T) {
 // 	handleObjectTemplates(*instance)
 // }
 
-func TestPeriodicallyExecSamplePolicies(t *testing.T) {
+func TestPeriodicallyExecConfigPolicies(t *testing.T) {
 	var (
 		name      = "foo"
 		namespace = "default"
@@ -207,7 +207,7 @@ func TestPeriodicallyExecSamplePolicies(t *testing.T) {
 	samplePolicy.Spec.NamespaceSelector.Include = target
 	err = handleAddingPolicy(&samplePolicy)
 	assert.Nil(t, err)
-	PeriodicallyExecSamplePolicies(1, true)
+	PeriodicallyExecConfigPolicies(1, true)
 }
 
 func TestCompareSpecs(t *testing.T) {
