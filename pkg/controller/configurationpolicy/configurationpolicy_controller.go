@@ -258,6 +258,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 	plcNamespaces := getPolicyNamespaces(plc)
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
+		compliantObjects := map[string][]string{}
 		mustNotHave := strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1.MustNotHave))
 		enforce := strings.ToLower(string(plc.Spec.RemediationAction)) == strings.ToLower(string(policyv1.Enforce))
 		relevantNamespaces := plcNamespaces
@@ -302,6 +303,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 					nonCompliantObjects[ns] = names
 				} else {
 					numCompliant += len(names)
+					compliantObjects[ns] = names
 				}
 			}
 		}
@@ -337,7 +339,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 			if !mustNotHave && numCompliant > 0 {
 				//compliant; musthave and objects exist
 				nameStr := ""
-				for ns, names := range nonCompliantObjects {
+				for ns, names := range compliantObjects {
 					nameStr += "["
 					for i, name := range names {
 						nameStr += name
