@@ -149,8 +149,8 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 			// Request object not found, could have been deleted after reconcile request.
 			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
 			// Return and don't requeue
-			reqLogger.Info("Confiugration policy was deleted, removing it...")
-			handleRemovingPolicy(instance)
+			reqLogger.Info("Configuration policy was deleted, removing it...")
+			handleRemovingPolicy(request.NamespacedName.Name)
 			return reconcile.Result{}, nil
 		}
 		// Error reading the object - requeue the request.
@@ -158,7 +158,7 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 		return reconcile.Result{}, err
 	}
 
-	reqLogger.Info("Confiugration policy was found, adding it...")
+	reqLogger.Info("Configuration policy was found, adding it...")
 	err = handleAddingPolicy(instance)
 	if err != nil {
 		reqLogger.Info("Failed to handleAddingPolicy", "err", err)
@@ -1348,9 +1348,9 @@ func updatePolicyStatus(policies map[string]*policyv1.ConfigurationPolicy) (*pol
 	return nil, nil
 }
 
-func handleRemovingPolicy(plc *policyv1.ConfigurationPolicy) {
+func handleRemovingPolicy(name string) {
 	for k, v := range availablePolicies.PolicyMap {
-		if v.Name == plc.Name {
+		if v.Name == name {
 			availablePolicies.RemoveObject(k)
 		}
 	}
@@ -1368,7 +1368,7 @@ func handleAddingPolicy(plc *policyv1.ConfigurationPolicy) error {
 		key := fmt.Sprintf("%s/%s", ns, plc.Name)
 		if policy, found := availablePolicies.GetObject(key); found {
 			if policy.Name == plc.Name {
-				availablePolicies.RemoveObject(ns)
+				availablePolicies.RemoveObject(key)
 			}
 		}
 	}
