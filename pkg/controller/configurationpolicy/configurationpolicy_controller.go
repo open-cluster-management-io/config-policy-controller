@@ -308,6 +308,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 
 		if !enforce {
 			update := false
+			compliant := false
 			if !mustNotHave && numCompliant == 0 {
 				//noncompliant; musthave and objects do not exist
 				message := fmt.Sprintf("No instances of `%v` exist as specified, and one should be created", kind)
@@ -335,18 +336,32 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 			}
 			if !mustNotHave && numCompliant > 0 {
 				//compliant; musthave and objects exist
-				message := fmt.Sprintf("%d instances of %v exist as specified, therefore this Object template is compliant", numCompliant, kind)
+				nameStr := ""
+				for ns, names := range nonCompliantObjects {
+					nameStr += "["
+					for i, name := range names {
+						nameStr += name
+						if i != len(names)-1 {
+							nameStr += ", "
+						}
+					}
+					nameStr += "] in namespace " + ns + "; "
+				}
+				nameStr = nameStr[:len(nameStr)-2]
+				message := fmt.Sprintf("%v %v exist as specified, therefore this Object template is compliant", kind, nameStr)
 				update = createNotification(&plc, indx, "K8s `must have` object already exists", message)
+				compliant = true
 			}
 			if mustNotHave && numNonCompliant == 0 {
 				//compliant; mustnothave and no objects exist
 				message := fmt.Sprintf("no instances of `%v` exist as specified, therefore this Object template is compliant", kind)
 				update = createNotification(&plc, indx, "K8s must `not` have object already missing", message)
+				compliant = true
 			}
 			if update {
 				//update parent policy with violation
 				eventType := eventNormal
-				if plc.Status.CompliancyDetails[indx].ComplianceState == policyv1.NonCompliant {
+				if !compliant {
 					eventType = eventWarning
 				}
 				recorder.Event(&plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), convertPolicyStatusToString(&plc))
@@ -768,7 +783,7 @@ func handleMissingMustHave(plc *policyv1.ConfigurationPolicy, index int, action 
 	var err error
 	var cond *policyv1.Condition
 	if strings.ToLower(string(action)) == strings.ToLower(string(policyv1.Enforce)) {
-		if created, err = createObject(namespaced, namespace, name, rsrc, unstruct, dclient, nil); !created {
+		if created, err = createObject(namespaced, namespace, name, rsrc, unstruct, dclient); !created {
 			message := fmt.Sprintf("%v `%v` is missing, and cannot be created, reason: `%v`", rsrc.Resource, name, err)
 			cond = &policyv1.Condition{
 				Type:               "violation",
@@ -922,31 +937,11 @@ func objectExists(namespaced bool, namespace string, name string, rsrc schema.Gr
 	return exists
 }
 
-func createObject(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource, unstruct unstructured.Unstructured, dclient dynamic.Interface, parent *policyv1.ConfigurationPolicy) (result bool, erro error) {
+func createObject(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource,
+	unstruct unstructured.Unstructured, dclient dynamic.Interface) (result bool, erro error) {
 	var err error
 	created := false
 	// set ownerReference for mutaionPolicy and override remediationAction
-	if parent != nil {
-		plcOwnerReferences := *metav1.NewControllerRef(parent, schema.GroupVersionKind{
-			Group:   policyv1.SchemeGroupVersion.Group,
-			Version: policyv1.SchemeGroupVersion.Version,
-			Kind:    "Policy",
-		})
-		labels := unstruct.GetLabels()
-		if labels == nil {
-			labels = map[string]string{"cluster-namespace": namespace}
-		} else {
-			labels["cluster-namespace"] = namespace
-		}
-		unstruct.SetLabels(labels)
-		unstruct.SetOwnerReferences([]metav1.OwnerReference{plcOwnerReferences})
-		if spec, ok := unstruct.Object["spec"]; ok {
-			specObject := spec.(map[string]interface{})
-			if _, ok := specObject["remediationAction"]; ok {
-				specObject["remediationAction"] = parent.Spec.RemediationAction
-			}
-		}
-	}
 
 	glog.V(6).Infof("createObject:  `%s`", unstruct)
 
@@ -1422,26 +1417,30 @@ func createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
 	parentPlc := createParentPolicy(instance)
 
 	if reconcilingAgent.recorder != nil {
+		eventType := "Normal"
+		if instance.Status.ComplianceState == policyv1.NonCompliant {
+			eventType = "Warning"
+		}
 		reconcilingAgent.recorder.Event(&parentPlc,
-			corev1.EventTypeNormal,
+			eventType,
 			fmt.Sprintf("policy: %s/%s", instance.Namespace, instance.Name),
 			convertPolicyStatusToString(instance))
 	}
 }
 
-func createParentPolicy(instance *policyv1.ConfigurationPolicy) policyv1.ConfigurationPolicy {
+func createParentPolicy(instance *policyv1.ConfigurationPolicy) policyv1.Policy {
 	ns := common.ExtractNamespaceLabel(instance)
 	if ns == "" {
 		ns = NamespaceWatched
 	}
-	plc := policyv1.ConfigurationPolicy{
+	plc := policyv1.Policy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      instance.OwnerReferences[0].Name,
 			Namespace: ns, // we are making an assumption here that the parent policy is in the watched-namespace passed as flag
 			UID:       instance.OwnerReferences[0].UID,
 		},
 		TypeMeta: metav1.TypeMeta{
-			Kind:       "ConfigurationPolicy",
+			Kind:       "Policy",
 			APIVersion: "policies.open-cluster-management.io/v1",
 		},
 	}
@@ -1469,6 +1468,7 @@ func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results str
 			result += cond.Type + " - " + cond.Message + ", "
 		}
 	}
+	result = result[:len(result)-1]
 	return result
 }
 
