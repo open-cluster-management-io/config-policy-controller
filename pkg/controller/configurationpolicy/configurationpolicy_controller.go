@@ -1104,11 +1104,15 @@ func compareLists(newList []interface{}, oldList []interface{}, ctype string) (u
 	//mustonlyhave
 	mergedList := []interface{}{}
 	for idx, item := range newList {
-		newItem, err := mergeSpecs(item, oldList[idx], ctype)
-		if err != nil {
-			return nil, err
+		if idx < len(oldList) {
+			newItem, err := mergeSpecs(item, oldList[idx], ctype)
+			if err != nil {
+				return nil, err
+			}
+			mergedList = append(mergedList, newItem)
+		} else {
+			mergedList = append(mergedList, item)
 		}
-		mergedList = append(mergedList, newItem)
 	}
 	return mergedList, nil
 }
