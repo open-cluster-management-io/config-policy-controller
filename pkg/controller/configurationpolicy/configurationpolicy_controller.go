@@ -558,12 +558,16 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 		}
 		if !exists && !objShouldExist {
 			//it is a must not have and it does not exist, so it is compliant
-			updateNeeded = handleMissingMustNotHave(policy, index, name, rsrc)
+			if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Enforce)) {
+				updateNeeded = handleMissingMustNotHave(policy, index, name, rsrc)
+			}
 			compliant = true
 		}
 		if exists && objShouldExist {
 			//it is a must have and it does exist, so it is compliant
-			updateNeeded = handleExistsMustHave(policy, index, name, rsrc)
+			if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Enforce)) {
+				updateNeeded = handleExistsMustHave(policy, index, name, rsrc)
+			}
 			compliant = true
 		}
 
