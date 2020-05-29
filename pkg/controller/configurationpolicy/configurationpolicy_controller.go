@@ -18,6 +18,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -255,6 +256,7 @@ func createNotification(plc *policyv1.ConfigurationPolicy, index int, reason str
 }
 
 func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
+	fmt.Println(fmt.Sprintf("processing object templates for policy %s...", plc.GetName()))
 	plcNamespaces := getPolicyNamespaces(plc)
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
@@ -288,8 +290,18 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 		numCompliant := 0
 		numNonCompliant := 0
 
+		dd := clientSet.Discovery()
+		apiresourcelist, err := dd.ServerResources()
+		if err != nil {
+			glog.Fatal(err)
+		}
+		apigroups, err := restmapper.GetAPIGroupResources(dd)
+		if err != nil {
+			glog.Fatal(err)
+		}
+
 		for _, ns := range relevantNamespaces {
-			names, compliant, objKind := handleObjects(objectT, ns, indx, &plc, clientSet, config, recorder)
+			names, compliant, objKind := handleObjects(objectT, ns, indx, &plc, config, recorder, apiresourcelist, apigroups)
 			if objKind != "" {
 				kind = objKind
 			}
@@ -373,154 +385,34 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 	}
 }
 
-func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int, policy *policyv1.ConfigurationPolicy, clientset *kubernetes.Clientset, config *rest.Config, recorder record.EventRecorder) (objNameList []string, compliant bool, rsrcKind string) {
+func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int, policy *policyv1.ConfigurationPolicy,
+	config *rest.Config, recorder record.EventRecorder, apiresourcelist []*metav1.APIResourceList,
+	apigroups []*restmapper.APIGroupResources) (objNameList []string, compliant bool, rsrcKind string) {
+	fmt.Println(fmt.Sprintf("handling object template [%d] in namespace %s", index, namespace))
+	var err error
 	updateNeeded := false
 	namespaced := true
-	dd := clientset.Discovery()
-	apigroups, err := restmapper.GetAPIGroupResources(dd)
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
-	//ext := runtime.RawExtension{}
 	ext := objectT.ObjectDefinition
-	glog.V(9).Infof("reading raw object: %v", string(ext.Raw))
-	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, nil)
-	if err != nil {
-		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
-		glog.Errorf(decodeErr)
-
-		if len(policy.Status.CompliancyDetails) <= index {
-			policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1.TemplateStatus{
-				ComplianceState: policyv1.NonCompliant,
-				Conditions:      []policyv1.Condition{},
-			})
-		}
-		policy.Status.CompliancyDetails[index].ComplianceState = policyv1.NonCompliant
-		policy.Status.CompliancyDetails[index].Conditions = []policyv1.Condition{
-			policyv1.Condition{
-				Type:               "violation",
-				Status:             corev1.ConditionTrue,
-				LastTransitionTime: metav1.Now(),
-				Reason:             "K8s decode object definition error",
-				Message:            decodeErr,
-			},
-		}
-		addForUpdate(policy)
+	mapping := getMapping(apigroups, ext, policy, index)
+	if mapping == nil {
 		return nil, false, ""
-	}
-	mapping, err := restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	mappingErrMsg := ""
-	if err != nil {
-		prefix := "no matches for kind \""
-		startIdx := strings.Index(err.Error(), prefix)
-		if startIdx == -1 {
-			glog.Errorf("unidentified mapping error from raw object: `%v`", err)
-		} else {
-			afterPrefix := err.Error()[(startIdx + len(prefix)):len(err.Error())]
-			kind := afterPrefix[0:(strings.Index(afterPrefix, "\" "))]
-			mappingErrMsg = "couldn't find mapping resource with kind " + kind + ", please check if you have CRD deployed"
-			glog.Errorf(mappingErrMsg)
-		}
-		errMsg := err.Error()
-		if mappingErrMsg != "" {
-			errMsg = mappingErrMsg
-			cond := &policyv1.Condition{
-				Type:               "violation",
-				Status:             corev1.ConditionFalse,
-				LastTransitionTime: metav1.Now(),
-				Reason:             "K8s creation error",
-				Message:            mappingErrMsg,
-			}
-			if len(policy.Status.CompliancyDetails) <= index {
-				policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1.TemplateStatus{
-					ComplianceState: policyv1.NonCompliant,
-					Conditions:      []policyv1.Condition{},
-				})
-			}
-			if policy.Status.CompliancyDetails[index].ComplianceState != policyv1.NonCompliant {
-				updateNeeded = true
-			}
-			policy.Status.CompliancyDetails[index].ComplianceState = policyv1.NonCompliant
-
-			if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
-				conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond, gvk.GroupKind().Kind, false)
-				policy.Status.CompliancyDetails[index].Conditions = conditions
-				updateNeeded = true
-			}
-		}
-		if updateNeeded {
-			recorder.Event(policy, eventWarning, fmt.Sprintf("policy: %s", policy.GetName()), errMsg)
-			addForUpdate(policy)
-		}
-		return nil, false, ""
-	}
-	glog.V(9).Infof("mapping found from raw object: %v", mapping)
-
-	restconfig := config
-	restconfig.GroupVersion = &schema.GroupVersion{
-		Group:   mapping.GroupVersionKind.Group,
-		Version: mapping.GroupVersionKind.Version,
-	}
-	dclient, err := dynamic.NewForConfig(restconfig)
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	apiresourcelist, err := dd.ServerResources()
-	if err != nil {
-		glog.Fatal(err)
-	}
-
-	rsrc := mapping.Resource
-	for _, apiresourcegroup := range apiresourcelist {
-		if apiresourcegroup.GroupVersion == join(mapping.GroupVersionKind.Group, "/", mapping.GroupVersionKind.Version) {
-			for _, apiresource := range apiresourcegroup.APIResources {
-				if apiresource.Name == mapping.Resource.Resource && apiresource.Kind == mapping.GroupVersionKind.Kind {
-					rsrc = mapping.Resource
-					namespaced = apiresource.Namespaced
-					glog.V(7).Infof("is raw object namespaced? %v", namespaced)
-				}
-			}
-		}
 	}
 	var unstruct unstructured.Unstructured
 	unstruct.Object = make(map[string]interface{})
 	var blob interface{}
-	if err = json.Unmarshal(ext.Raw, &blob); err != nil {
+	if err := json.Unmarshal(ext.Raw, &blob); err != nil {
 		glog.Fatal(err)
 	}
 	unstruct.Object = blob.(map[string]interface{}) //set object to the content of the blob after Unmarshalling
-
-	//namespace := "default"
-	name := ""
-	kind := ""
-	named := false
-	if md, ok := unstruct.Object["metadata"]; ok {
-
-		metadata := md.(map[string]interface{})
-		if objectName, ok := metadata["name"]; ok {
-			name = objectName.(string)
-			named = true
-		}
-		// override the namespace if specified in objectTemplates
-		if objectns, ok := metadata["namespace"]; ok {
-			glog.V(5).Infof("overriding the namespace as it is specified in objectTemplates...")
-			namespace = objectns.(string)
-		}
-
-	}
-
-	if objKind, ok := unstruct.Object["kind"]; ok {
-		kind = objKind.(string)
-	}
-
 	exists := true
 	objNames := []string{}
 	remediation := policy.Spec.RemediationAction
-
-	if named {
+	name, kind, metaNamespace := getDetails(unstruct)
+	if metaNamespace != "" {
+		namespace = metaNamespace
+	}
+	dclient, rsrc, namespaced := getClientRsrc(mapping, apiresourcelist)
+	if name != "" {
 		exists = objectExists(namespaced, namespace, name, rsrc, unstruct, dclient)
 		objNames = append(objNames, name)
 	} else if kind != "" {
@@ -630,6 +522,136 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 		}
 	}
 	return nil, compliant, ""
+}
+
+func getClientRsrc(mapping *meta.RESTMapping, apiresourcelist []*metav1.APIResourceList) (dclient dynamic.Interface,
+	rsrc schema.GroupVersionResource, namespaced bool) {
+	namespaced = false
+	restconfig := config
+	restconfig.GroupVersion = &schema.GroupVersion{
+		Group:   mapping.GroupVersionKind.Group,
+		Version: mapping.GroupVersionKind.Version,
+	}
+	dclient, err := dynamic.NewForConfig(restconfig)
+	if err != nil {
+		glog.Fatal(err)
+	}
+
+	rsrc = mapping.Resource
+	for _, apiresourcegroup := range apiresourcelist {
+		if apiresourcegroup.GroupVersion == join(mapping.GroupVersionKind.Group, "/", mapping.GroupVersionKind.Version) {
+			for _, apiresource := range apiresourcegroup.APIResources {
+				if apiresource.Name == mapping.Resource.Resource && apiresource.Kind == mapping.GroupVersionKind.Kind {
+					rsrc = mapping.Resource
+					namespaced = apiresource.Namespaced
+					glog.V(7).Infof("is raw object namespaced? %v", namespaced)
+				}
+			}
+		}
+	}
+	return dclient, rsrc, namespaced
+}
+
+func getMapping(apigroups []*restmapper.APIGroupResources, ext runtime.RawExtension,
+	policy *policyv1.ConfigurationPolicy, index int) (mapping *meta.RESTMapping) {
+	updateNeeded := false
+	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
+	glog.V(9).Infof("reading raw object: %v", string(ext.Raw))
+	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, nil)
+	if err != nil {
+		decodeErr := fmt.Sprintf("Decoding error, please check your policy file! Aborting handling the object template at index [%v] in policy `%v` with error = `%v`", index, policy.Name, err)
+		glog.Errorf(decodeErr)
+
+		if len(policy.Status.CompliancyDetails) <= index {
+			policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1.TemplateStatus{
+				ComplianceState: policyv1.NonCompliant,
+				Conditions:      []policyv1.Condition{},
+			})
+		}
+		policy.Status.CompliancyDetails[index].ComplianceState = policyv1.NonCompliant
+		policy.Status.CompliancyDetails[index].Conditions = []policyv1.Condition{
+			policyv1.Condition{
+				Type:               "violation",
+				Status:             corev1.ConditionTrue,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "K8s decode object definition error",
+				Message:            decodeErr,
+			},
+		}
+		addForUpdate(policy)
+		return nil
+	}
+	mapping, err = restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	mappingErrMsg := ""
+	if err != nil {
+		prefix := "no matches for kind \""
+		startIdx := strings.Index(err.Error(), prefix)
+		if startIdx == -1 {
+			glog.Errorf("unidentified mapping error from raw object: `%v`", err)
+		} else {
+			afterPrefix := err.Error()[(startIdx + len(prefix)):len(err.Error())]
+			kind := afterPrefix[0:(strings.Index(afterPrefix, "\" "))]
+			mappingErrMsg = "couldn't find mapping resource with kind " + kind + ", please check if you have CRD deployed"
+			glog.Errorf(mappingErrMsg)
+		}
+		errMsg := err.Error()
+		if mappingErrMsg != "" {
+			errMsg = mappingErrMsg
+			cond := &policyv1.Condition{
+				Type:               "violation",
+				Status:             corev1.ConditionFalse,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "K8s creation error",
+				Message:            mappingErrMsg,
+			}
+			if len(policy.Status.CompliancyDetails) <= index {
+				policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1.TemplateStatus{
+					ComplianceState: policyv1.NonCompliant,
+					Conditions:      []policyv1.Condition{},
+				})
+			}
+			if policy.Status.CompliancyDetails[index].ComplianceState != policyv1.NonCompliant {
+				updateNeeded = true
+			}
+			policy.Status.CompliancyDetails[index].ComplianceState = policyv1.NonCompliant
+
+			if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
+				conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond, gvk.GroupKind().Kind, false)
+				policy.Status.CompliancyDetails[index].Conditions = conditions
+				updateNeeded = true
+			}
+		}
+		if updateNeeded {
+			recorder.Event(policy, eventWarning, fmt.Sprintf("policy: %s", policy.GetName()), errMsg)
+			addForUpdate(policy)
+		}
+		return nil
+	}
+	return mapping
+}
+
+func getDetails(unstruct unstructured.Unstructured) (name string, kind string, namespace string) {
+	name = ""
+	kind = ""
+	namespace = ""
+	if md, ok := unstruct.Object["metadata"]; ok {
+
+		metadata := md.(map[string]interface{})
+		if objectName, ok := metadata["name"]; ok {
+			name = objectName.(string)
+		}
+		// override the namespace if specified in objectTemplates
+		if objectns, ok := metadata["namespace"]; ok {
+			glog.V(5).Infof("overriding the namespace as it is specified in objectTemplates...")
+			namespace = objectns.(string)
+		}
+
+	}
+
+	if objKind, ok := unstruct.Object["kind"]; ok {
+		kind = objKind.(string)
+	}
+	return name, kind, namespace
 }
 
 func getNamesOfKind(rsrc schema.GroupVersionResource, namespaced bool, ns string, dclient dynamic.Interface) (kindNameList []string) {
