@@ -175,7 +175,17 @@ func PeriodicallyExecConfigPolicies(freq uint, test bool) {
 	for {
 		start := time.Now()
 		printMap(availablePolicies.PolicyMap)
+		flattenedPolicyList := map[string]*policyv1.ConfigurationPolicy{}
 		for _, policy := range availablePolicies.PolicyMap {
+			key := fmt.Sprintf("%s/%s", policy.GetName(), policy.GetResourceVersion())
+			if _, ok := flattenedPolicyList[key]; ok {
+				continue
+			} else {
+				flattenedPolicyList[key] = policy
+			}
+		}
+		//flattenedpolicylist only contains 1 of each policy instance
+		for _, policy := range flattenedPolicyList {
 			Mx.Lock()
 			handleObjectTemplates(*policy)
 			Mx.Unlock()
@@ -1432,8 +1442,25 @@ func printMap(myMap map[string]*policyv1.ConfigurationPolicy) {
 	}
 	fmt.Println("Available policies in namespaces: ")
 
+	mapToPrint := map[string][]string{}
 	for k, v := range myMap {
-		fmt.Printf("namespace = %v; policy = %v \n", strings.Split(k, "/")[0], v.Name)
+		if _, ok := mapToPrint[v.Name]; ok {
+			mapToPrint[v.Name] = append(mapToPrint[v.Name], strings.Split(k, "/")[0])
+		} else {
+			mapToPrint[v.Name] = []string{strings.Split(k, "/")[0]}
+		}
+	}
+
+	for k, v := range mapToPrint {
+		nsString := "["
+		for idx, ns := range v {
+			nsString += ns
+			if idx != len(v)-1 {
+				nsString += ", "
+			}
+		}
+		nsString += "]"
+		fmt.Println(fmt.Sprintf("configpolicy %s in namespace(s) %s", k, nsString))
 	}
 }
 
