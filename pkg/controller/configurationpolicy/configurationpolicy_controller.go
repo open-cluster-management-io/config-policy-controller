@@ -1523,8 +1523,11 @@ func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results str
 	}
 	for _, v := range plc.Status.CompliancyDetails {
 		result += "; "
-		for _, cond := range v.Conditions {
-			result += cond.Type + " - " + cond.Message + ", "
+		for idx, cond := range v.Conditions {
+			result += cond.Type + " - " + cond.Message
+			if idx != len(v.Conditions)-1 {
+				result += ", "
+			}
 		}
 	}
 	result = result[:len(result)-1]
