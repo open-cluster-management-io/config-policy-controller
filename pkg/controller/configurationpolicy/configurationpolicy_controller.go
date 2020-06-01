@@ -1274,12 +1274,35 @@ func updateTemplate(
 					if newObj == nil || oldObj == nil {
 						return false, false, ""
 					}
-					updateNeeded := !(reflect.DeepEqual(newObj, oldObj))
-					oldMap := existingObj.UnstructuredContent()["metadata"].(map[string]interface{})
-					resVer := oldMap["resourceVersion"]
+					//merge changes into new spec
+					var mergedObj interface{}
+					switch newObj := newObj.(type) {
+					case []interface{}:
+						mergedObj, err = compareLists(newObj, oldObj.([]interface{}), complianceType)
+					case map[string]interface{}:
+						mergedObj, err = compareSpecs(newObj, oldObj.(map[string]interface{}), complianceType)
+					}
+					if err != nil {
+						message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
+						return false, false, message
+					}
+					//check if merged spec has changed
+					nJSON, err := json.Marshal(mergedObj)
+					if err != nil {
+						message := fmt.Sprintf("Error converting updated %s to JSON: %s", key, err)
+						return false, false, message
+					}
+					oJSON, err := json.Marshal(oldObj)
+					if err != nil {
+						message := fmt.Sprintf("Error converting updated %s to JSON: %s", key, err)
+						return false, false, message
+					}
+					if !reflect.DeepEqual(nJSON, oJSON) {
+						updateNeeded = true
+					}
 					mapMtx := sync.RWMutex{}
 					mapMtx.Lock()
-					unstruct.Object["metadata"].(map[string]interface{})["resourceVersion"] = resVer
+					existingObj.UnstructuredContent()[key] = mergedObj
 					mapMtx.Unlock()
 					if updateNeeded {
 						if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform)) {
@@ -1287,7 +1310,7 @@ func updateTemplate(
 						}
 						//enforce
 						glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
-						_, err = res.Update(&unstruct, metav1.UpdateOptions{})
+						_, err = res.Update(existingObj, metav1.UpdateOptions{})
 						if errors.IsNotFound(err) {
 							message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
 							return false, false, message
