@@ -176,8 +176,7 @@ func TestPeriodicallyExecConfigPolicies(t *testing.T) {
 			RemediationAction: "inform",
 			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
 				&policiesv1alpha1.ObjectTemplate{
-					ComplianceType:   "musthave",
-					ObjectDefinition: re,
+					ComplianceType: "musthave",
 				},
 			},
 		},
