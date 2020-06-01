@@ -385,7 +385,7 @@ func TestHandleAddingPolicy(t *testing.T) {
 	common.Initialize(&simpleClient, nil)
 	err := handleAddingPolicy(&samplePolicy)
 	assert.Nil(t, err)
-	handleRemovingPolicy(&samplePolicy)
+	handleRemovingPolicy(samplePolicy.GetName())
 }
 
 func newRule(verbs, apiGroups, resources, nonResourceURLs string) rbacv1.PolicyRule {
