@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"testing"
 
-	policiesv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1"
+	policiesv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 

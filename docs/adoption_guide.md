@@ -18,14 +18,14 @@ Make sure to export GO111MODULE=on as it uses go mod as dependency manager.
 
 ```bash
 export GO111MODULE=on
-kubectl apply -f deploy/crds/policies.open-cluster-management.io_configurationpolicies_crd.yaml
+kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies_crd.yaml
 operator-sdk run --local --verbose
 ```
 It takes seconds for the configuration policy controller to fully start. You will get the message `Waiting for policies to be available for processing...` once it's fully started and watching for policies.
 
 To test a configuration policy, open another command prompt to deploy the configuration policy file
 ```
-kubectl apply -f deploy/crds/policies.open-cluster-management.io_v1_configurationpolicy_cr.yaml -n default
+kubectl apply -f deploy/crds/policy.open-cluster-management.io_v1_configurationpolicy_cr.yaml -n default
 ```
 The local process outputs the following messages
 ```

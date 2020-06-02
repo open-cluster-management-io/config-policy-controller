@@ -63,7 +63,7 @@ var _ = BeforeSuite(func() {
 	By("Setup Hub client")
 	gvrPod = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
 	gvrRole = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}
-	gvrConfigPolicy = schema.GroupVersionResource{Group: "policies.open-cluster-management.io", Version: "v1", Resource: "configurationpolicies"}
+	gvrConfigPolicy = schema.GroupVersionResource{Group: "policy.open-cluster-management.io", Version: "v1", Resource: "configurationpolicies"}
 	clientManaged = NewKubeClient("", kubeconfigManaged, "")
 	clientManagedDynamic = NewKubeClientDynamic("", kubeconfigManaged, "")
 	defaultImageRegistry = "quay.io/open-cluster-management"

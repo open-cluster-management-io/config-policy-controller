@@ -1,0 +1,17 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-imagemanifestvulnpolicy-example-imv
+spec:
+  namespaceSelector:
+    exclude:
+      - kube-*
+    include:
+      - '*'
+  object-templates:
+    - complianceType: mustnothave
+      objectDefinition:
+        apiVersion: secscan.quay.redhat.com/v1alpha1
+        kind: ImageManifestVuln
+  remediationAction: inform
+  severity: high

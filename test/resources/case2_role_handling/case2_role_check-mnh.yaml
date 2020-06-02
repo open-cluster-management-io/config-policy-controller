@@ -1,4 +1,4 @@
-apiVersion: policies.open-cluster-management.io/v1
+apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
   name: policy-role-check-mnh

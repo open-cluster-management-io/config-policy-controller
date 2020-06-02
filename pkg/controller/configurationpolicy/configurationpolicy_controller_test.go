@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1"
+	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
 	"github.com/open-cluster-management/config-policy-controller/pkg/common"
 	"github.com/stretchr/testify/assert"
 	coretypes "k8s.io/api/core/v1"

@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/open-cluster-management/config-policy-controller/pkg/apis"
-	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policies/v1"
+	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/scheme"
