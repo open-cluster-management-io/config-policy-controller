@@ -345,8 +345,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 }
 
 func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int, compliantObjects map[string][]string,
-	nonCompliantObjects map[string][]string, policy *policyv1.ConfigurationPolicy, objData map[string]interface{}) {
-	plc := *policy
+	nonCompliantObjects map[string][]string, plc *policyv1.ConfigurationPolicy, objData map[string]interface{}) {
 	update := false
 	compliant := false
 	desiredName := objData["desiredName"].(string)
@@ -358,7 +357,7 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 		if desiredName != "" {
 			message = fmt.Sprintf("%v `%v` does not exist as specified, and should be created", kind, desiredName)
 		}
-		update = createViolation(&plc, indx, "K8s missing a must have object", message)
+		update = createViolation(plc, indx, "K8s missing a must have object", message)
 	}
 	if mustNotHave && numNonCompliant > 0 {
 		//noncompliant; mustnothave and objects exist
@@ -375,7 +374,7 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 		}
 		nameStr = nameStr[:len(nameStr)-2]
 		message := fmt.Sprintf("%v exist and should be deleted: %v", kind, nameStr)
-		update = createViolation(&plc, indx, "K8s has a must `not` have object", message)
+		update = createViolation(plc, indx, "K8s has a must `not` have object", message)
 	}
 	if !mustNotHave && numCompliant > 0 {
 		//compliant; musthave and objects exist
@@ -392,13 +391,13 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 		}
 		nameStr = nameStr[:len(nameStr)-2]
 		message := fmt.Sprintf("%v %v exist as specified, therefore this Object template is compliant", kind, nameStr)
-		update = createNotification(&plc, indx, "K8s `must have` object already exists", message)
+		update = createNotification(plc, indx, "K8s `must have` object already exists", message)
 		compliant = true
 	}
 	if mustNotHave && numNonCompliant == 0 {
 		//compliant; mustnothave and no objects exist
 		message := fmt.Sprintf("no instances of `%v` exist as specified, therefore this Object template is compliant", kind)
-		update = createNotification(&plc, indx, "K8s must `not` have object already missing", message)
+		update = createNotification(plc, indx, "K8s must `not` have object already missing", message)
 		compliant = true
 	}
 	if update {
@@ -407,8 +406,8 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 		if !compliant {
 			eventType = eventWarning
 		}
-		recorder.Event(&plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), convertPolicyStatusToString(&plc))
-		addForUpdate(&plc)
+		recorder.Event(plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), convertPolicyStatusToString(plc))
+		addForUpdate(plc)
 	}
 }
 
