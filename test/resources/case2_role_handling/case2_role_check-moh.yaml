@@ -2,10 +2,6 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
   name: policy-role-check-moh
-  annotations:
-    policy.mcm.ibm.com/standards: NIST-CSF
-    policy.mcm.ibm.com/categories: PR.PT Protective Technology
-    policy.mcm.ibm.com/controls: PR.PT-3 Least Functionality
 spec:
   remediationAction: inform
   namespaceSelector:

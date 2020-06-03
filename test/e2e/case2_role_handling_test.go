@@ -37,28 +37,28 @@ var _ = Describe("Test role obj template handling", func() {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case2ConfigPolicyNameEnforce, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			// Eventually(func() interface{} {
-			// 	informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case2ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
-			// 	return utils.GetComplianceState(informPlc)
-			// }, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			Eventually(func() interface{} {
+				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case2ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(informPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 			role := utils.GetWithTimeout(clientManagedDynamic, gvrRole, case2roleName, "default", true, defaultTimeoutSeconds)
 			Expect(role).NotTo(BeNil())
 		})
-		// It("should create violations properly", func() {
-		// 	utils.Kubectl("apply", "-f", case2PolicyCheckMNHYaml, "-n", testNamespace)
-		// 	plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-role-check-mnh", testNamespace, true, defaultTimeoutSeconds)
-		// 	Expect(plc).NotTo(BeNil())
-		// 	Eventually(func() interface{} {
-		// 		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-role-check-mnh", testNamespace, true, defaultTimeoutSeconds)
-		// 		return utils.GetComplianceState(managedPlc)
-		// 	}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
-		// 	utils.Kubectl("apply", "-f", case2PolicyCheckMOHYaml, "-n", testNamespace)
-		// 	plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-role-check-moh", testNamespace, true, defaultTimeoutSeconds)
-		// 	Expect(plc).NotTo(BeNil())
-		// 	Eventually(func() interface{} {
-		// 		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-role-check-moh", testNamespace, true, defaultTimeoutSeconds)
-		// 		return utils.GetComplianceState(managedPlc)
-		// 	}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
-		// })
+		It("should create violations properly", func() {
+			utils.Kubectl("apply", "-f", case2PolicyCheckMNHYaml, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-role-check-mnh", testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-role-check-mnh", testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.Kubectl("apply", "-f", case2PolicyCheckMOHYaml, "-n", testNamespace)
+			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-role-check-moh", testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-role-check-moh", testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+		})
 	})
 })

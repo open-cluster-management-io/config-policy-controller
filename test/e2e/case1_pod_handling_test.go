@@ -37,10 +37,10 @@ var _ = Describe("Test pod obj template handling", func() {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case1ConfigPolicyNameEnforce, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			// Eventually(func() interface{} {
-			// 	informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case1ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
-			// 	return utils.GetComplianceState(informPlc)
-			// }, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			Eventually(func() interface{} {
+				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case1ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(informPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 			pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod, case1PodName, "default", true, defaultTimeoutSeconds)
 			Expect(pod).NotTo(BeNil())
 		})

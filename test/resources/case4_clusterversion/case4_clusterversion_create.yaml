@@ -1,0 +1,22 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: openshift-upgrade-channel-e2e
+  namespace: managed
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    exclude:
+    - kube-*
+    include:
+    - default
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: config.openshift.io/v1
+        kind: ClusterVersion
+        metadata:
+          name: version
+        spec:
+          clusterID: example-cluster-id
+          channel: fast-4.3
