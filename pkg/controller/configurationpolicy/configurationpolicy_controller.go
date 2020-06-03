@@ -1394,8 +1394,10 @@ func IsSimilarToLastCondition(oldCond policyv1.Condition, newCond policyv1.Condi
 func addForUpdate(policy *policyv1.ConfigurationPolicy) {
 	compliant := true
 	for index := range policy.Spec.ObjectTemplates {
-		if policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
-			compliant = false
+		if index < len(policy.Status.CompliancyDetails) {
+			if policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
+				compliant = false
+			}
 		}
 	}
 	if compliant {
