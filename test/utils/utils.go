@@ -35,6 +35,40 @@ func ParseYaml(file string) *unstructured.Unstructured {
 	return yamlPlc
 }
 
+// GetClusterLevelWithTimeout keeps polling to get the object for timeout seconds until wantFound is met (true for found, false for not found)
+func GetClusterLevelWithTimeout(
+	clientHubDynamic dynamic.Interface,
+	gvr schema.GroupVersionResource,
+	name string,
+	wantFound bool,
+	timeout int,
+) *unstructured.Unstructured {
+	if timeout < 1 {
+		timeout = 1
+	}
+	var obj *unstructured.Unstructured
+
+	Eventually(func() error {
+		var err error
+		namespace := clientHubDynamic.Resource(gvr)
+		obj, err = namespace.Get(name, metav1.GetOptions{})
+		if wantFound && err != nil {
+			return err
+		}
+		if !wantFound && err == nil {
+			return fmt.Errorf("expected to return IsNotFound error")
+		}
+		if !wantFound && err != nil && !errors.IsNotFound(err) {
+			return err
+		}
+		return nil
+	}, timeout, 1).Should(BeNil())
+	if wantFound {
+		return obj
+	}
+	return nil
+}
+
 // GetWithTimeout keeps polling to get the object for timeout seconds until wantFound is met (true for found, false for not found)
 func GetWithTimeout(
 	clientHubDynamic dynamic.Interface,

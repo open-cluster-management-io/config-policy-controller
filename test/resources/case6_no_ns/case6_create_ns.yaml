@@ -1,0 +1,13 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-ns
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        kind: Namespace # must have namespace 'e2etest'
+        apiVersion: v1
+        metadata:
+          name: e2etest

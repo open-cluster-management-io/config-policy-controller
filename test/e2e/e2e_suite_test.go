@@ -42,6 +42,7 @@ var (
 	gvrConfigPolicy       schema.GroupVersionResource
 	gvrPod                schema.GroupVersionResource
 	gvrRole               schema.GroupVersionResource
+	gvrNS                 schema.GroupVersionResource
 
 	defaultImageRegistry       string
 	defaultImagePullSecretName string
@@ -62,6 +63,7 @@ func init() {
 var _ = BeforeSuite(func() {
 	By("Setup Hub client")
 	gvrPod = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
+	gvrNS = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
 	gvrRole = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}
 	gvrConfigPolicy = schema.GroupVersionResource{Group: "policy.open-cluster-management.io", Version: "v1", Resource: "configurationpolicies"}
 	clientManaged = NewKubeClient("", kubeconfigManaged, "")

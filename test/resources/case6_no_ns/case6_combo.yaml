@@ -1,0 +1,26 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-combo-no-ns
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        kind: Namespace
+        apiVersion: v1
+        metadata:
+          name: e2etest2
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: Role
+        metadata:
+          name: role-policy-e2e2
+        rules:
+          - apiGroups: ["extensions", "apps"]
+            resources: ["deployments"]
+            verbs: ["get", "list", "watch", "create", "delete","patch"]
+          - apiGroups: [""]
+            resources: ["pods"]
+            verbs: ["get", "watch", "list"]
