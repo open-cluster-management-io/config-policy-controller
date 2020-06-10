@@ -9,8 +9,6 @@ import (
 //=================================================================
 // GetSelectedNamespaces returns the list of filtered namespaces according to the policy namespace selector
 func GetSelectedNamespaces(included, excluded, allNamespaces []string) []string {
-	//get all namespaces
-	//allNamespaces := getAllNamespaces() //TODO change this to call the func
 	//then get the list of included
 	includedNamespaces := []string{}
 	for _, value := range included {
