@@ -511,7 +511,8 @@ func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.
 		if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Enforce)) {
 			updateNeeded, err = handleExistsMustNotHave(policy, remediation, rsrc, dclient, data)
 			if err != nil {
-				glog.Errorf("error handling a existing object `%v` that is a must NOT have according to policy `%v`", name, policy.Name)
+				glog.Errorf("error handling a existing object `%v` that is a must NOT have according to policy `%v`",
+					name, policy.Name)
 			}
 		} else { //inform
 			compliant = false
