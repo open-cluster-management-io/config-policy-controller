@@ -279,7 +279,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		compliantObjects := map[string][]string{}
 		enforce := strings.ToLower(string(plc.Spec.RemediationAction)) == strings.ToLower(string(policyv1.Enforce))
 		relevantNamespaces := plcNamespaces
-		kind := "unknown"
+		kind := ""
 		desiredName := ""
 		mustNotHave := strings.ToLower(string(objectT.ComplianceType)) == strings.ToLower(string(policyv1.MustNotHave))
 
@@ -344,6 +344,9 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 	desiredName := objData["desiredName"].(string)
 	indx := objData["indx"].(int)
 	kind := objData["kind"].(string)
+	if kind == "" {
+		return
+	}
 	if !mustNotHave && numCompliant == 0 {
 		//noncompliant; musthave and objects do not exist
 		message := fmt.Sprintf("No instances of `%v` exist as specified, and one should be created", kind)
