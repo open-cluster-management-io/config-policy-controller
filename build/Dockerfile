@@ -12,4 +12,7 @@ RUN  /usr/local/bin/user_setup
 
 ENTRYPOINT ["/usr/local/bin/entrypoint"]
 
+RUN microdnf update && \
+    microdnf clean all
+
 USER ${USER_UID}
