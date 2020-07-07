@@ -55,6 +55,7 @@ var clientSet *kubernetes.Clientset
 var eventNormal = "Normal"
 var eventWarning = "Warning"
 var eventFmtStr = "policy: %s/%s"
+var plcFmtStr = "policy: %s"
 
 const getObjError = "object `%v` cannot be retrieved from the api server\n"
 const convertJSONError = "Error converting updated %s to JSON: %s"
@@ -274,6 +275,15 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 	apigroups []*restmapper.APIGroupResources) {
 	fmt.Println(fmt.Sprintf("processing object templates for policy %s...", plc.GetName()))
 	plcNamespaces := getPolicyNamespaces(plc)
+	if plc.Spec.RemediationAction == "" {
+		message := "Policy does not have a RemediationAction specified"
+		update := createViolation(&plc, 0, "No RemediationAction", message)
+		if update {
+			recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
+			addForUpdate(&plc)
+		}
+		return
+	}
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
 		compliantObjects := map[string][]string{}
@@ -402,7 +412,7 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 		if !compliant {
 			eventType = eventWarning
 		}
-		recorder.Event(plc, eventType, fmt.Sprintf("policy: %s", plc.GetName()), convertPolicyStatusToString(plc))
+		recorder.Event(plc, eventType, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(plc))
 		addForUpdate(plc)
 	}
 }
@@ -663,7 +673,7 @@ func getMapping(apigroups []*restmapper.APIGroupResources, ext runtime.RawExtens
 			}
 		}
 		if updateNeeded {
-			recorder.Event(policy, eventWarning, fmt.Sprintf("policy: %s", policy.GetName()), errMsg)
+			recorder.Event(policy, eventWarning, fmt.Sprintf(plcFmtStr, policy.GetName()), errMsg)
 			addForUpdate(policy)
 		}
 		return nil
