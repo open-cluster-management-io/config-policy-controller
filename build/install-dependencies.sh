@@ -3,7 +3,7 @@ set -e
 
 echo "INSTALL DEPENDENCIES GOES HERE!"
 
-_OPERATOR_SDK_VERSION=v0.17.0
+_OPERATOR_SDK_VERSION=v0.19.0
 
 if ! [ -x "$(command -v operator-sdk)" ]; then
     if [[ "$OSTYPE" == "linux-gnu" ]]; then

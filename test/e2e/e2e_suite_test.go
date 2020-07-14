@@ -43,6 +43,7 @@ var (
 	gvrPod                schema.GroupVersionResource
 	gvrRole               schema.GroupVersionResource
 	gvrNS                 schema.GroupVersionResource
+	gvrSCC                schema.GroupVersionResource
 
 	defaultImageRegistry       string
 	defaultImagePullSecretName string
@@ -66,6 +67,7 @@ var _ = BeforeSuite(func() {
 	gvrNS = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
 	gvrRole = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}
 	gvrConfigPolicy = schema.GroupVersionResource{Group: "policy.open-cluster-management.io", Version: "v1", Resource: "configurationpolicies"}
+	gvrSCC = schema.GroupVersionResource{Group: "security.openshift.io", Version: "v1", Resource: "securitycontextconstraints"}
 	clientManaged = NewKubeClient("", kubeconfigManaged, "")
 	clientManagedDynamic = NewKubeClientDynamic("", kubeconfigManaged, "")
 	defaultImageRegistry = "quay.io/open-cluster-management"

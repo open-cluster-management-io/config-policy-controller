@@ -1125,6 +1125,8 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 				mergedObj, err = compareLists(newObj, oldObj.([]interface{}), complianceType)
 			case map[string]interface{}:
 				mergedObj, err = compareSpecs(newObj, oldObj.(map[string]interface{}), complianceType)
+			default:
+				mergedObj = newObj
 			}
 			if err != nil {
 				message := fmt.Sprintf("Error merging changes into %s: %s", key, err)

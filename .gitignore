@@ -77,7 +77,7 @@ tags
 .history
 # End of https://www.gitignore.io/api/go,vim,emacs,visualstudiocode
 cmd/manager/__debug_bin
-deploy/crds/test-policy.yaml
+test/crds/test-policy.yaml
 
 /build-harness
 /build-harness-extensions
