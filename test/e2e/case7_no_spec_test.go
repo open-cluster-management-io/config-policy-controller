@@ -3,6 +3,8 @@
 package e2e
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/open-cluster-management/config-policy-controller/test/utils"
@@ -13,12 +15,63 @@ const case7ConfigPolicyName string = "policy-securitycontextconstraints-1-sample
 const case7ObjName string = "sample-restricted-scc"
 const case7PolicyYaml string = "../resources/case7_no_spec/case7_no_spec_enforce.yaml"
 
+var expectedObj = map[string]interface{}{
+	"allowHostDirVolumePlugin": false,
+	"allowHostIPC":             false,
+	"allowHostNetwork":         false,
+	"allowHostPID":             false,
+	"allowHostPorts":           false,
+	"allowPrivilegeEscalation": true,
+	"allowPrivilegedContainer": false,
+	"allowedCapabilities":      []string{},
+	"apiVersion":               "security.openshift.io/v1",
+	"defaultAddCapabilities":   []string{},
+	"fsGroup": map[string]string{
+		"type": "MustRunAs",
+	},
+	"groups": []string{
+		"system:authenticated",
+	},
+	"kind":                   "SecurityContextConstraints",
+	"priority":               int64(10),
+	"readOnlyRootFilesystem": false,
+	"requiredDropCapabilities": []string{
+		"KILL",
+		"MKNOD",
+		"SETUID",
+		"SETGID",
+	},
+	"runAsUser": map[string]string{
+		"type": "MustRunAsRange",
+	},
+	"seLinuxContext": map[string]string{
+		"type": "MustRunAs",
+	},
+	"supplementalGroups": map[string]string{
+		"type": "RunAsAny",
+	},
+	"users": []interface{}{},
+	"volumes": []string{
+		"configMap",
+		"downwardAPI",
+		"emptyDir",
+		"persistentVolumeClaim",
+		"projected",
+		"secret",
+	},
+}
+
 // GetPriority parses status field of object to get priority, a nullable field. if updateTemplate fails the field will be null
-func GetPriority(managedPlc *unstructured.Unstructured) (result interface{}) {
-	if managedPlc.Object["priority"] != nil {
-		return managedPlc.Object["priority"]
+func matchToExpected(managedPlc *unstructured.Unstructured) (result bool) {
+	createdObj := managedPlc.Object
+
+	r := true
+	for key, val := range expectedObj {
+		if fmt.Sprintf("%v", createdObj[key]) != fmt.Sprintf("%v", val) {
+			r = false
+		}
 	}
-	return nil
+	return r
 }
 
 var _ = Describe("Test cluster version obj template handling", func() {
@@ -36,8 +89,8 @@ var _ = Describe("Test cluster version obj template handling", func() {
 		It("should handle nullable fields properly", func() {
 			Consistently(func() interface{} {
 				managedObj := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrSCC, case7ObjName, true, defaultTimeoutSeconds)
-				return GetPriority(managedObj)
-			}, defaultTimeoutSeconds, 1).Should(Equal(int64(10)))
+				return matchToExpected(managedObj)
+			}, defaultTimeoutSeconds, 1).Should(Equal(true))
 		})
 	})
 })
