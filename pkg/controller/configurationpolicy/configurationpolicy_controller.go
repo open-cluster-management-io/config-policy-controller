@@ -1114,9 +1114,6 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 		if !isBlacklisted(key) {
 			newObj := unstruct.Object[key]
 			oldObj := existingObj.UnstructuredContent()[key]
-			if newObj == nil || oldObj == nil {
-				return false, false, ""
-			}
 
 			//merge changes into new spec
 			var mergedObj interface{}
