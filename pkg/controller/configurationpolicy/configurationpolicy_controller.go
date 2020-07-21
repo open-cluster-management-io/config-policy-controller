@@ -1115,15 +1115,31 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 			newObj := unstruct.Object[key]
 			oldObj := existingObj.UnstructuredContent()[key]
 
+			typeErr := ""
 			//merge changes into new spec
 			var mergedObj interface{}
 			switch newObj := newObj.(type) {
 			case []interface{}:
-				mergedObj, err = compareLists(newObj, oldObj.([]interface{}), complianceType)
+				switch oldObj := oldObj.(type) {
+				case []interface{}:
+					mergedObj, err = compareLists(newObj, oldObj, complianceType)
+				default:
+					typeErr = fmt.Sprintf("Error merging changes into key \"%s\": object type of template and existing do not match",
+						key)
+				}
 			case map[string]interface{}:
-				mergedObj, err = compareSpecs(newObj, oldObj.(map[string]interface{}), complianceType)
+				switch oldObj := oldObj.(type) {
+				case (map[string]interface{}):
+					mergedObj, err = compareSpecs(newObj, oldObj, complianceType)
+				default:
+					typeErr = fmt.Sprintf("Error merging changes into key \"%s\": object type of template and existing do not match",
+						key)
+				}
 			default:
 				mergedObj = newObj
+			}
+			if typeErr != "" {
+				return false, false, typeErr
 			}
 			if err != nil {
 				message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
