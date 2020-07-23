@@ -316,6 +316,8 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		numCompliant := 0
 		numNonCompliant := 0
 
+		handled := false
+
 		for _, ns := range relevantNamespaces {
 			names, compliant, objKind := handleObjects(objectT, ns, indx, &plc, config, recorder, apiresourcelist, apigroups)
 			if objKind != "" {
@@ -323,7 +325,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 			}
 			if names == nil {
 				//object template enforced, already handled in handleObjects
-				continue
+				handled = true
 			} else {
 				enforce = false
 				if !compliant {
@@ -336,7 +338,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 			}
 		}
 
-		if !enforce {
+		if !handled && !enforce {
 			objData := map[string]interface{}{
 				"indx":        indx,
 				"kind":        kind,
@@ -546,18 +548,18 @@ func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.
 		compliant = true
 	}
 
+	processingErr := false
+
 	if exists {
-		updated, throwSpecViolation, msg := updateTemplate(strings.ToLower(string(objectT.ComplianceType)),
+		updated, throwSpecViolation, msg, pErr := updateTemplate(
+			strings.ToLower(string(objectT.ComplianceType)),
 			data, remediation, rsrc, dclient, unstruct.Object["kind"].(string), nil)
 		if !updated && throwSpecViolation {
 			compliant = false
 		} else if !updated && msg != "" {
 			updateNeeded = createViolation(policy, data["index"].(int), "K8s update template error", msg)
 		}
-	}
-
-	if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform)) {
-		return []string{name}, compliant, rsrc.Resource
+		processingErr = pErr
 	}
 
 	if updateNeeded {
@@ -565,11 +567,22 @@ func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.
 		if data["index"].(int) < len(policy.Status.CompliancyDetails) &&
 			policy.Status.CompliancyDetails[data["index"].(int)].ComplianceState == policyv1.NonCompliant {
 			eventType = eventWarning
+			compliant = false
 		}
 		recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
 			convertPolicyStatusToString(policy))
 		addForUpdate(policy)
+		return nil, compliant, ""
 	}
+
+	if processingErr {
+		return nil, false, ""
+	}
+
+	if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform)) {
+		return []string{name}, compliant, rsrc.Resource
+	}
+
 	return nil, compliant, ""
 }
 
@@ -1107,7 +1120,7 @@ func isBlacklisted(key string) (result bool) {
 
 func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Unstructured,
 	remediation policyv1.RemediationAction, complianceType string, typeStr string, name string,
-	res dynamic.ResourceInterface) (a bool, b bool, c string) {
+	res dynamic.ResourceInterface) (a bool, b bool, c string, d bool) {
 	var err error
 	updateNeeded := false
 	for key := range unstruct.Object {
@@ -1139,22 +1152,22 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 				mergedObj = newObj
 			}
 			if typeErr != "" {
-				return false, false, typeErr
+				return false, false, typeErr, true
 			}
 			if err != nil {
 				message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
-				return false, false, message
+				return false, false, message, true
 			}
 			//check if merged spec has changed
 			nJSON, err := json.Marshal(mergedObj)
 			if err != nil {
 				message := fmt.Sprintf(convertJSONError, key, err)
-				return false, false, message
+				return false, false, message, true
 			}
 			oJSON, err := json.Marshal(oldObj)
 			if err != nil {
 				message := fmt.Sprintf(convertJSONError, key, err)
-				return false, false, message
+				return false, false, message, true
 			}
 			if !reflect.DeepEqual(nJSON, oJSON) {
 				updateNeeded = true
@@ -1165,30 +1178,31 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 			mapMtx.Unlock()
 			if updateNeeded {
 				if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform)) {
-					return false, true, ""
+					return false, true, "", false
 				}
 				//enforce
 				glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
 				_, err = res.Update(existingObj, metav1.UpdateOptions{})
 				if errors.IsNotFound(err) {
 					message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
-					return false, false, message
+					return false, false, message, true
 				}
 				if err != nil {
 					message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
-					return false, false, message
+					return false, false, message, true
 				}
 				glog.V(4).Infof("Resource `%v` updated\n", name)
 			}
 		}
 	}
-	return false, false, ""
+	return false, false, "", false
 }
 
 func updateTemplate(
 	complianceType string, metadata map[string]interface{}, remediation policyv1.RemediationAction,
 	rsrc schema.GroupVersionResource, dclient dynamic.Interface,
-	typeStr string, parent *policyv1.ConfigurationPolicy) (success bool, throwSpecViolation bool, message string) {
+	typeStr string, parent *policyv1.ConfigurationPolicy) (success bool, throwSpecViolation bool,
+	message string, processingErr bool) {
 	name := metadata["name"].(string)
 	namespace := metadata["namespace"].(string)
 	namespaced := metadata["namespaced"].(bool)
@@ -1206,7 +1220,7 @@ func updateTemplate(
 	} else {
 		return handleKeys(unstruct, existingObj, remediation, complianceType, typeStr, name, res)
 	}
-	return false, false, ""
+	return false, false, "", false
 }
 
 // AppendCondition check and appends conditions
