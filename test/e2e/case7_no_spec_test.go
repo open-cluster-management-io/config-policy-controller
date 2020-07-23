@@ -18,6 +18,8 @@ const case7ConfigPolicyNameNull string = "policy-securitycontextconstraints-1-sa
 const case7PolicyYamlNull string = "../resources/case7_no_spec/case7_no_spec_enforce_null.yaml"
 const case7ConfigPolicyNameInvalid string = "policy-securitycontextconstraints-1-sample-restricted-scc-invalid"
 const case7PolicyYamlInvalid string = "../resources/case7_no_spec/case7_no_spec_invalid_type.yaml"
+const case7ConfigPolicyNameInvalidInform string = "policy-securitycontextconstraints-1-sample-restricted-scc-invalid-inform"
+const case7PolicyYamlInvalidInform string = "../resources/case7_no_spec/case7_no_spec_invalid_type_inform.yaml"
 
 var expectedObj = map[string]interface{}{
 	"allowHostDirVolumePlugin": false,
@@ -128,13 +130,23 @@ var _ = Describe("Test cluster version obj template handling", func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal(true))
 			utils.Kubectl("delete", "configurationpolicy", case7ConfigPolicyName, "-n", testNamespace)
 		})
-		It("should generate violation if field type is invalid", func() {
+		It("should generate violation if field type is invalid (enforce)", func() {
 			By("Creating " + case7ConfigPolicyNameInvalid + " on managed")
 			utils.Kubectl("apply", "-f", case7PolicyYamlInvalid, "-n", testNamespace)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case7ConfigPolicyNameInvalid, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case7ConfigPolicyNameInvalid, testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+		})
+		It("should generate violation if field type is invalid (inform)", func() {
+			By("Creating " + case7ConfigPolicyNameInvalidInform + " on managed")
+			utils.Kubectl("apply", "-f", case7PolicyYamlInvalidInform, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case7ConfigPolicyNameInvalidInform, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case7ConfigPolicyNameInvalidInform, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 		})
