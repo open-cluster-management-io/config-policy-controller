@@ -764,7 +764,7 @@ func handleExistsMustHave(plc *policyv1.ConfigurationPolicy, rsrc schema.GroupVe
 
 	message := fmt.Sprintf("%v `%v` exists as it should be, therefore this Object template is compliant",
 		rsrc.Resource, name)
-	return createNotification(plc, index, "K8s must have object already missing", message)
+	return createNotification(plc, index, "K8s must have object already exists", message)
 }
 
 func handleExistsMustNotHave(plc *policyv1.ConfigurationPolicy, action policyv1.RemediationAction,
@@ -1127,7 +1127,6 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 		if !isBlacklisted(key) {
 			newObj := unstruct.Object[key]
 			oldObj := existingObj.UnstructuredContent()[key]
-
 			typeErr := ""
 			//merge changes into new spec
 			var mergedObj interface{}
@@ -1136,6 +1135,8 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 				switch oldObj := oldObj.(type) {
 				case []interface{}:
 					mergedObj, err = compareLists(newObj, oldObj, complianceType)
+				case nil:
+					mergedObj = newObj
 				default:
 					typeErr = fmt.Sprintf("Error merging changes into key \"%s\": object type of template and existing do not match",
 						key)
@@ -1144,6 +1145,8 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 				switch oldObj := oldObj.(type) {
 				case (map[string]interface{}):
 					mergedObj, err = compareSpecs(newObj, oldObj, complianceType)
+				case nil:
+					mergedObj = newObj
 				default:
 					typeErr = fmt.Sprintf("Error merging changes into key \"%s\": object type of template and existing do not match",
 						key)
