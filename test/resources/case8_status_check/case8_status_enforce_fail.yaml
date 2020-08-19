@@ -1,0 +1,20 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-status-enforce-fail
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["managed"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: policy-pod-to-check
+        status:
+          compliant: NonCompliant
+          compliancyDetails: []
+          

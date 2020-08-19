@@ -540,24 +540,25 @@ func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.
 		}
 		compliant = true
 	}
-	if exists && objShouldExist {
-		//it is a must have and it does exist, so it is compliant
-		if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Enforce)) {
-			updateNeeded = handleExistsMustHave(policy, rsrc, data)
-		}
-		compliant = true
-	}
 
 	processingErr := false
+	specViolation := false
 
 	if exists {
 		updated, throwSpecViolation, msg, pErr := updateTemplate(
 			strings.ToLower(string(objectT.ComplianceType)),
 			data, remediation, rsrc, dclient, unstruct.Object["kind"].(string), nil)
 		if !updated && throwSpecViolation {
+			specViolation = throwSpecViolation
 			compliant = false
 		} else if !updated && msg != "" {
 			updateNeeded = createViolation(policy, data["index"].(int), "K8s update template error", msg)
+		} else if objShouldExist {
+			//it is a must have and it does exist, so it is compliant
+			if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Enforce)) {
+				updateNeeded = handleExistsMustHave(policy, rsrc, data)
+			}
+			compliant = true
 		}
 		processingErr = pErr
 	}
@@ -579,7 +580,7 @@ func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.
 		return nil, false, ""
 	}
 
-	if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform)) {
+	if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform)) || specViolation {
 		return []string{name}, compliant, rsrc.Resource
 	}
 
@@ -1114,13 +1115,10 @@ func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}
 	return merged.(map[string]interface{}), nil
 }
 
-func isDenylisted(key string, remediation policyv1.RemediationAction) (result bool) {
+func isDenylisted(key string) (result bool) {
 	denylist := []string{"apiVersion", "metadata", "kind"}
 	for _, val := range denylist {
 		if key == val {
-			return true
-		}
-		if key == "status" && remediation == policyv1.Enforce {
 			return true
 		}
 	}
@@ -1133,7 +1131,8 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 	var err error
 	updateNeeded := false
 	for key := range unstruct.Object {
-		if !isDenylisted(key, remediation) {
+		isStatus := key == "status"
+		if !isDenylisted(key) {
 			newObj := unstruct.Object[key]
 			oldObj := existingObj.UnstructuredContent()[key]
 			typeErr := ""
@@ -1189,7 +1188,7 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 			existingObj.UnstructuredContent()[key] = mergedObj
 			mapMtx.Unlock()
 			if updateNeeded {
-				if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform)) {
+				if (strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform))) || isStatus {
 					return false, true, "", false
 				}
 				//enforce

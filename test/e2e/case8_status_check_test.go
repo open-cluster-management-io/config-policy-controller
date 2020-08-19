@@ -11,9 +11,11 @@ import (
 const case8ConfigPolicyNamePod string = "policy-pod-to-check"
 const case8ConfigPolicyNameCheck string = "policy-status-checker"
 const case8ConfigPolicyNameCheckFail string = "policy-status-checker-fail"
+const case8ConfigPolicyNameEnforceFail string = "policy-status-enforce-fail"
 const case8PolicyYamlPod string = "../resources/case8_status_check/case8_pod.yaml"
 const case8PolicyYamlCheck string = "../resources/case8_status_check/case8_status_check.yaml"
 const case8PolicyYamlCheckFail string = "../resources/case8_status_check/case8_status_check_fail.yaml"
+const case8PolicyYamlEnforceFail string = "../resources/case8_status_check/case8_status_enforce_fail.yaml"
 
 var _ = Describe("Test pod obj template handling", func() {
 	Describe("Create a policy on managed cluster in ns:"+testNamespace, func() {
@@ -44,6 +46,16 @@ var _ = Describe("Test pod obj template handling", func() {
 			Expect(plc).NotTo(BeNil())
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case8ConfigPolicyNameCheckFail, testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+		})
+		It("should return nonCompliant if status does not match (enforce)", func() {
+			By("Creating " + case8ConfigPolicyNameEnforceFail + " on managed")
+			utils.Kubectl("apply", "-f", case8PolicyYamlEnforceFail, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case8ConfigPolicyNameEnforceFail, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case8ConfigPolicyNameEnforceFail, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 		})
