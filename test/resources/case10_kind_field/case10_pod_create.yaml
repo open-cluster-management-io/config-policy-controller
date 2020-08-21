@@ -1,0 +1,27 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-pod-c10-create
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["managed"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-pod-e2e-10
+          annotations:
+            test: e2e10
+          labels:
+            test: e2e10
+        spec:
+          containers:
+            - image: nginx:1.7.9
+              name: nginx
+              ports:
+                - containerPort: 80
+          

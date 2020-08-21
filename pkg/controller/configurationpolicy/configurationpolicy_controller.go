@@ -468,7 +468,8 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 		exists = objectExists(namespaced, namespace, name, rsrc, unstruct, dclient)
 		objNames = append(objNames, name)
 	} else if kind != "" {
-		objNames = append(objNames, getNamesOfKind(rsrc, namespaced, namespace, dclient)...)
+		objNames = append(objNames, getNamesOfKind(unstruct, rsrc, namespaced,
+			namespace, dclient, strings.ToLower(string(objectT.ComplianceType)))...)
 		remediation = "inform"
 		if len(objNames) == 0 {
 			exists = false
@@ -719,8 +720,29 @@ func getDetails(unstruct unstructured.Unstructured) (name string, kind string, n
 	return name, kind, namespace
 }
 
-func getNamesOfKind(rsrc schema.GroupVersionResource, namespaced bool, ns string,
-	dclient dynamic.Interface) (kindNameList []string) {
+func buildNameList(unstruct unstructured.Unstructured, complianceType string,
+	resList *unstructured.UnstructuredList) (list []string) {
+	kindNameList := []string{}
+	for i := range resList.Items {
+		uObj := resList.Items[i]
+		match := true
+		for key := range unstruct.Object {
+			errorMsg, updateNeeded, _, skipped := handleSingleKey(key, unstruct, &uObj, complianceType)
+			if !skipped {
+				if errorMsg != "" || updateNeeded {
+					match = false
+				}
+			}
+		}
+		if match {
+			kindNameList = append(kindNameList, uObj.Object["metadata"].(map[string]interface{})["name"].(string))
+		}
+	}
+	return kindNameList
+}
+
+func getNamesOfKind(unstruct unstructured.Unstructured, rsrc schema.GroupVersionResource,
+	namespaced bool, ns string, dclient dynamic.Interface, complianceType string) (kindNameList []string) {
 	if namespaced {
 		res := dclient.Resource(rsrc).Namespace(ns)
 		resList, err := res.List(metav1.ListOptions{})
@@ -728,11 +750,7 @@ func getNamesOfKind(rsrc schema.GroupVersionResource, namespaced bool, ns string
 			glog.Error(err)
 			return []string{}
 		}
-		kindNameList = []string{}
-		for _, uObj := range resList.Items {
-			kindNameList = append(kindNameList, uObj.Object["metadata"].(map[string]interface{})["name"].(string))
-		}
-		return kindNameList
+		return buildNameList(unstruct, complianceType, resList)
 	}
 	res := dclient.Resource(rsrc)
 	resList, err := res.List(metav1.ListOptions{})
@@ -740,11 +758,7 @@ func getNamesOfKind(rsrc schema.GroupVersionResource, namespaced bool, ns string
 		glog.Error(err)
 		return []string{}
 	}
-	kindNameList = []string{}
-	for _, uObj := range resList.Items {
-		kindNameList = append(kindNameList, uObj.Object["metadata"].(map[string]interface{})["name"].(string))
-	}
-	return kindNameList
+	return buildNameList(unstruct, complianceType, resList)
 }
 
 func handleMissingMustNotHave(plc *policyv1.ConfigurationPolicy, rsrc schema.GroupVersionResource,
@@ -1116,7 +1130,7 @@ func compareSpecs(newSpec map[string]interface{}, oldSpec map[string]interface{}
 }
 
 func isDenylisted(key string) (result bool) {
-	denylist := []string{"apiVersion", "metadata", "kind"}
+	denylist := []string{"apiVersion", "kind"}
 	for _, val := range denylist {
 		if key == val {
 			return true
@@ -1125,85 +1139,115 @@ func isDenylisted(key string) (result bool) {
 	return false
 }
 
-func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Unstructured,
-	remediation policyv1.RemediationAction, complianceType string, typeStr string, name string,
-	res dynamic.ResourceInterface) (a bool, b bool, c string, d bool) {
+func formatTemplate(unstruct unstructured.Unstructured, key string) (obj interface{}) {
+	if key == "metadata" {
+		metadata := unstruct.Object[key].(map[string]interface{})
+		md := map[string]interface{}{}
+		if labels, ok := metadata["labels"]; ok {
+			md["labels"] = labels
+		}
+		if annos, ok := metadata["annotations"]; ok {
+			md["annotations"] = annos
+		}
+		return md
+	}
+	return unstruct.Object[key]
+}
+
+func handleSingleKey(key string, unstruct unstructured.Unstructured, existingObj *unstructured.Unstructured,
+	complianceType string) (errormsg string, update bool, merged interface{}, skip bool) {
 	var err error
 	updateNeeded := false
+	if !isDenylisted(key) {
+		newObj := formatTemplate(unstruct, key)
+		oldObj := existingObj.UnstructuredContent()[key]
+		typeErr := ""
+		//merge changes into new spec
+		var mergedObj interface{}
+		switch newObj := newObj.(type) {
+		case []interface{}:
+			switch oldObj := oldObj.(type) {
+			case []interface{}:
+				mergedObj, err = compareLists(newObj, oldObj, complianceType)
+			case nil:
+				mergedObj = newObj
+			default:
+				typeErr = fmt.Sprintf("Error merging changes into key \"%s\": object type of template and existing do not match",
+					key)
+			}
+		case map[string]interface{}:
+			switch oldObj := oldObj.(type) {
+			case (map[string]interface{}):
+				mergedObj, err = compareSpecs(newObj, oldObj, complianceType)
+			case nil:
+				mergedObj = newObj
+			default:
+				typeErr = fmt.Sprintf("Error merging changes into key \"%s\": object type of template and existing do not match",
+					key)
+			}
+		default:
+			mergedObj = newObj
+		}
+		if typeErr != "" {
+			return typeErr, false, mergedObj, false
+		}
+		if err != nil {
+			message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
+			return message, false, mergedObj, false
+		}
+		//check if merged spec has changed
+		nJSON, err := json.Marshal(mergedObj)
+		if err != nil {
+			message := fmt.Sprintf(convertJSONError, key, err)
+			return message, false, mergedObj, false
+		}
+		oJSON, err := json.Marshal(oldObj)
+		if err != nil {
+			message := fmt.Sprintf(convertJSONError, key, err)
+			return message, false, mergedObj, false
+		}
+		if !reflect.DeepEqual(nJSON, oJSON) {
+			updateNeeded = true
+		}
+		return "", updateNeeded, mergedObj, false
+	}
+	return "", false, nil, true
+}
+
+func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Unstructured,
+	remediation policyv1.RemediationAction, complianceType string, typeStr string, name string,
+	res dynamic.ResourceInterface) (success bool, throwSpecViolation bool, message string,
+	processingErr bool) {
+	var err error
 	for key := range unstruct.Object {
 		isStatus := key == "status"
-		if !isDenylisted(key) {
-			newObj := unstruct.Object[key]
-			oldObj := existingObj.UnstructuredContent()[key]
-			typeErr := ""
-			//merge changes into new spec
-			var mergedObj interface{}
-			switch newObj := newObj.(type) {
-			case []interface{}:
-				switch oldObj := oldObj.(type) {
-				case []interface{}:
-					mergedObj, err = compareLists(newObj, oldObj, complianceType)
-				case nil:
-					mergedObj = newObj
-				default:
-					typeErr = fmt.Sprintf("Error merging changes into key \"%s\": object type of template and existing do not match",
-						key)
-				}
-			case map[string]interface{}:
-				switch oldObj := oldObj.(type) {
-				case (map[string]interface{}):
-					mergedObj, err = compareSpecs(newObj, oldObj, complianceType)
-				case nil:
-					mergedObj = newObj
-				default:
-					typeErr = fmt.Sprintf("Error merging changes into key \"%s\": object type of template and existing do not match",
-						key)
-				}
-			default:
-				mergedObj = newObj
+		errorMsg, updateNeeded, mergedObj, skipped := handleSingleKey(key, unstruct, existingObj, complianceType)
+		if errorMsg != "" {
+			return false, false, errorMsg, true
+		}
+		if mergedObj == nil && skipped {
+			continue
+		}
+		mapMtx := sync.RWMutex{}
+		mapMtx.Lock()
+		existingObj.UnstructuredContent()[key] = mergedObj
+		mapMtx.Unlock()
+		if updateNeeded {
+			if (strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform))) || isStatus {
+				return false, true, "", false
 			}
-			if typeErr != "" {
-				return false, false, typeErr, true
-			}
-			if err != nil {
-				message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
+			//enforce
+			glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
+			_, err = res.Update(existingObj, metav1.UpdateOptions{})
+			if errors.IsNotFound(err) {
+				message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
 				return false, false, message, true
 			}
-			//check if merged spec has changed
-			nJSON, err := json.Marshal(mergedObj)
 			if err != nil {
-				message := fmt.Sprintf(convertJSONError, key, err)
+				message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
 				return false, false, message, true
 			}
-			oJSON, err := json.Marshal(oldObj)
-			if err != nil {
-				message := fmt.Sprintf(convertJSONError, key, err)
-				return false, false, message, true
-			}
-			if !reflect.DeepEqual(nJSON, oJSON) {
-				updateNeeded = true
-			}
-			mapMtx := sync.RWMutex{}
-			mapMtx.Lock()
-			existingObj.UnstructuredContent()[key] = mergedObj
-			mapMtx.Unlock()
-			if updateNeeded {
-				if (strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform))) || isStatus {
-					return false, true, "", false
-				}
-				//enforce
-				glog.V(4).Infof("Updating %v template `%v`...", typeStr, name)
-				_, err = res.Update(existingObj, metav1.UpdateOptions{})
-				if errors.IsNotFound(err) {
-					message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
-					return false, false, message, true
-				}
-				if err != nil {
-					message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
-					return false, false, message, true
-				}
-				glog.V(4).Infof("Resource `%v` updated\n", name)
-			}
+			glog.V(4).Infof("Resource `%v` updated\n", name)
 		}
 	}
 	return false, false, "", false

@@ -1,0 +1,25 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-label-patch
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-pod-e2e-9
+          labels:
+            test: e2e
+        spec:
+          containers:
+            - image: nginx:1.7.9
+              name: nginx
+              ports:
+                - containerPort: 80
+          
