@@ -284,6 +284,8 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		}
 		return
 	}
+	// initialize the RelatedObjects for this Configuration Policy
+	plc.Status.RelatedObjects = []policyv1.RelatedObject{}
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
 		compliantObjects := map[string][]string{}
@@ -464,42 +466,134 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 		}
 		return nil, false, ""
 	}
+	nameLinkMap := make(map[string]string)
+	var selfLink string
 	if name != "" {
-		exists = objectExists(namespaced, namespace, name, rsrc, unstruct, dclient)
+		exists, selfLink = objectExists(namespaced, namespace, name, rsrc, unstruct, dclient)
 		objNames = append(objNames, name)
+		nameLinkMap[name] = selfLink
 	} else if kind != "" {
-		objNames = append(objNames, getNamesOfKind(unstruct, rsrc, namespaced,
-			namespace, dclient, strings.ToLower(string(objectT.ComplianceType)))...)
+		var allNames []string
+		nameLinkMap = getNamesAndLinksOfKind(unstruct, rsrc, namespaced,
+			namespace, dclient, strings.ToLower(string(objectT.ComplianceType)))
+		for k := range nameLinkMap {
+			allNames = append(allNames, k)
+		}
+		objNames = append(objNames, allNames...)
 		remediation = "inform"
 		if len(objNames) == 0 {
 			exists = false
 		}
 	}
 	objShouldExist := strings.ToLower(string(objectT.ComplianceType)) != strings.ToLower(string(policyv1.MustNotHave))
+	rsrcKind = ""
+	reason := "Resource found as expected"
+	// if the compliance is calculated by the handleSingleObj function, do not override the setting
+	// when setting the reasons
+	complianceCalculated := false
 	if len(objNames) == 1 {
 		name = objNames[0]
-		return handleSingleObj(policy, remediation, exists, objShouldExist, rsrc, dclient, objectT, map[string]interface{}{
-			"name":       name,
-			"namespace":  namespace,
-			"namespaced": namespaced,
-			"index":      index,
-			"unstruct":   unstruct,
-		})
+		objNames, compliant, rsrcKind = handleSingleObj(policy, remediation, exists, objShouldExist, rsrc,
+			dclient, objectT, map[string]interface{}{
+				"name":       name,
+				"namespace":  namespace,
+				"namespaced": namespaced,
+				"index":      index,
+				"unstruct":   unstruct,
+			})
+		complianceCalculated = true
 	}
 	if !exists && objShouldExist {
-		return objNames, false, rsrc.Resource
+		if !complianceCalculated {
+			compliant = false
+			rsrcKind = rsrc.Resource
+		}
+		reason = "Resource not found but expected"
+	} else if exists && !objShouldExist {
+		if !complianceCalculated {
+			compliant = false
+			rsrcKind = rsrc.Resource
+		}
+		reason = "Resource found but not expected"
+	} else if !exists && !objShouldExist {
+		if !complianceCalculated {
+			compliant = true
+			rsrcKind = rsrc.Resource
+		}
+		reason = "Resource not found as expected"
+	} else if exists && objShouldExist {
+		if !complianceCalculated {
+			compliant = true
+			rsrcKind = rsrc.Resource
+		}
 	}
-	if exists && !objShouldExist {
-		return objNames, false, rsrc.Resource
+	if complianceCalculated {
+		// enforce could clear the objNames array so use name instead
+		addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, []string{name}, nameLinkMap, reason)
+	} else {
+		addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, objNames, nameLinkMap, reason)
 	}
-	if !exists && !objShouldExist {
-		return objNames, true, rsrc.Resource
-	}
-	if exists && objShouldExist {
-		return objNames, true, rsrc.Resource
-	}
+	return objNames, compliant, rsrcKind
+}
 
-	return nil, compliant, ""
+// addRelatedObjects builds the list of kubernetes resources related to the policy.  The list contains
+// details on whether the object is compliant or not compliant with the policy.  The results are updated in the
+// policy's Status information.
+func addRelatedObjects(policy *policyv1.ConfigurationPolicy, compliant bool, rsrc schema.GroupVersionResource,
+	namespace string, namespaced bool, objNames []string, nameLinkMap map[string]string, reason string) {
+
+	for _, name := range objNames {
+		// Initialize the related object from the object handling
+		var relatedObject policyv1.RelatedObject
+		if compliant {
+			relatedObject.Compliant = string(policyv1.Compliant)
+		} else {
+			relatedObject.Compliant = string(policyv1.NonCompliant)
+		}
+
+		relatedObject.Reason = reason
+
+		var metadata policyv1.ObjectMetadata
+		metadata.Name = name
+		if namespaced {
+			metadata.Namespace = namespace
+		} else {
+			metadata.Namespace = ""
+		}
+		selfLink, ok := nameLinkMap[name]
+		if ok {
+			metadata.SelfLink = selfLink
+		} else {
+			metadata.SelfLink = ""
+		}
+		relatedObject.Object.APIVersion = rsrc.GroupVersion().String()
+		relatedObject.Object.Kind = rsrc.Resource
+		relatedObject.Object.Metadata = metadata
+		updateRelatedObjectsStatus(policy, relatedObject)
+	}
+}
+
+// updateRelatedObjectsStatus adds or updates the RelatedObject in the policy status.
+func updateRelatedObjectsStatus(policy *policyv1.ConfigurationPolicy, relatedObject policyv1.RelatedObject) {
+	present := false
+	for index, currentObject := range policy.Status.RelatedObjects {
+		if currentObject.Object.APIVersion ==
+			relatedObject.Object.APIVersion && currentObject.Object.Kind == relatedObject.Object.Kind {
+			if currentObject.Object.Metadata.Name ==
+				relatedObject.Object.Metadata.Name && currentObject.Object.Metadata.Namespace ==
+				relatedObject.Object.Metadata.Namespace {
+				present = true
+				if currentObject.Compliant != relatedObject.Compliant {
+					policy.Status.RelatedObjects[index] = relatedObject
+					addForUpdate(policy)
+				}
+			}
+		}
+	}
+	if !present {
+		policy.Status.RelatedObjects = append(policy.Status.RelatedObjects, relatedObject)
+		addForUpdate(policy)
+	}
 }
 
 func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.RemediationAction, exists bool,
@@ -711,7 +805,6 @@ func getDetails(unstruct unstructured.Unstructured) (name string, kind string, n
 			glog.V(5).Infof("overriding the namespace as it is specified in objectTemplates...")
 			namespace = objectns.(string)
 		}
-
 	}
 
 	if objKind, ok := unstruct.Object["kind"]; ok {
@@ -721,8 +814,8 @@ func getDetails(unstruct unstructured.Unstructured) (name string, kind string, n
 }
 
 func buildNameList(unstruct unstructured.Unstructured, complianceType string,
-	resList *unstructured.UnstructuredList) (list []string) {
-	kindNameList := []string{}
+	resList *unstructured.UnstructuredList) (kindNameList map[string]string) {
+	kindNameList = make(map[string]string)
 	for i := range resList.Items {
 		uObj := resList.Items[i]
 		match := true
@@ -735,20 +828,23 @@ func buildNameList(unstruct unstructured.Unstructured, complianceType string,
 			}
 		}
 		if match {
-			kindNameList = append(kindNameList, uObj.Object["metadata"].(map[string]interface{})["name"].(string))
+			kindNameList[uObj.Object["metadata"].(map[string]interface{})["name"].(string)] =
+				uObj.Object["metadata"].(map[string]interface{})["selfLink"].(string)
 		}
 	}
 	return kindNameList
 }
 
-func getNamesOfKind(unstruct unstructured.Unstructured, rsrc schema.GroupVersionResource,
-	namespaced bool, ns string, dclient dynamic.Interface, complianceType string) (kindNameList []string) {
+// getNamesAndLinksOfKind returns a map with all of the resources found matching the GVK
+// specified.  The key is the resource name and the value is the selfLink to the resource.
+func getNamesAndLinksOfKind(unstruct unstructured.Unstructured, rsrc schema.GroupVersionResource,
+	namespaced bool, ns string, dclient dynamic.Interface, complianceType string) (kindNameList map[string]string) {
 	if namespaced {
 		res := dclient.Resource(rsrc).Namespace(ns)
 		resList, err := res.List(metav1.ListOptions{})
 		if err != nil {
 			glog.Error(err)
-			return []string{}
+			return kindNameList
 		}
 		return buildNameList(unstruct, complianceType, resList)
 	}
@@ -756,7 +852,7 @@ func getNamesOfKind(unstruct unstructured.Unstructured, rsrc schema.GroupVersion
 	resList, err := res.List(metav1.ListOptions{})
 	if err != nil {
 		glog.Error(err)
-		return []string{}
+		return kindNameList
 	}
 	return buildNameList(unstruct, complianceType, resList)
 }
@@ -896,40 +992,43 @@ func checkMessageSimilarity(conditions []policyv1.Condition, cond *policyv1.Cond
 	return same
 }
 
+// objectExists returns true if the object is found.  If it is found the selfLink is also returned.
 func objectExists(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource,
-	unstruct unstructured.Unstructured, dclient dynamic.Interface) (result bool) {
+	unstruct unstructured.Unstructured, dclient dynamic.Interface) (result bool, selfLink string) {
 	exists := false
 	if !namespaced {
 		res := dclient.Resource(rsrc)
-		_, err := res.Get(name, metav1.GetOptions{})
+		unstr, err := res.Get(name, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				glog.V(6).Infof("response to retrieve a non namespaced object `%v` from the api-server: %v", name, err)
 				exists = false
-				return exists
+				return exists, ""
 			}
 			glog.Errorf(getObjError, name)
 
 		} else {
 			exists = true
+			selfLink = unstr.GetSelfLink()
 			glog.V(6).Infof("object `%v` retrieved from the api server\n", name)
 		}
 	} else {
 		res := dclient.Resource(rsrc).Namespace(namespace)
-		_, err := res.Get(name, metav1.GetOptions{})
+		unstr, err := res.Get(name, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				exists = false
 				glog.V(6).Infof("response to retrieve a namespaced object `%v` from the api-server: %v", name, err)
-				return exists
+				return exists, ""
 			}
 			glog.Errorf(getObjError, name)
 		} else {
 			exists = true
+			selfLink = unstr.GetSelfLink()
 			glog.V(6).Infof("object `%v` retrieved from the api server\n", name)
 		}
 	}
-	return exists
+	return exists, selfLink
 }
 
 func createObject(namespaced bool, namespace string, name string, rsrc schema.GroupVersionResource,

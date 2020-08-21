@@ -83,6 +83,7 @@ type ObjectTemplate struct {
 type ConfigurationPolicyStatus struct {
 	ComplianceState   ComplianceState  `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnkownCompliancy
 	CompliancyDetails []TemplateStatus `json:"compliancyDetails,omitempty"` // reason for non-compliancy
+	RelatedObjects    []RelatedObject  `json:"relatedObjects,omitempty"`    // List of resources processed by the policy
 }
 
 //CompliancePerClusterStatus contains aggregate status of other policies in cluster
@@ -177,6 +178,36 @@ type PolicyRuleTemplate struct {
 	ComplianceType ComplianceType `json:"complianceType"`
 	// PolicyRule
 	PolicyRule rbacv1.PolicyRule `json:"policyRule"`
+}
+
+// RelatedObject is the list of objects matched by this Policy resource.
+type RelatedObject struct {
+	//
+	Object ObjectResource `json:"object,omitempty"`
+	//
+	Compliant string `json:"compliant,omitempty"`
+	//
+	Reason string `json:"reason,omitempty"`
+}
+
+// ObjectResource is an object identified by the policy as a resource that needs to be validated.
+type ObjectResource struct {
+	// Kind of the referent. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	Kind string `json:"kind,omitempty"`
+	// API version of the referent.
+	APIVersion string `json:"apiVersion,omitempty"`
+	// Metadata values from the referent.
+	Metadata ObjectMetadata `json:"metadata,omitempty"`
+}
+
+// ObjectMetadata contains the resource metadata for an object being processed by the policy
+type ObjectMetadata struct {
+	// Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+	Name string `json:"name,omitempty"`
+	// Namespace of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+	Namespace string `json:"namespace,omitempty"`
+	// An unqualified REST API link to the referent.
+	SelfLink string `json:"selfLink,omitempty"`
 }
 
 func init() {
