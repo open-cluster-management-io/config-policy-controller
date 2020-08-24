@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -533,6 +534,18 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 	} else {
 		addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, objNames, nameLinkMap, reason)
 	}
+	sort.SliceStable(policy.Status.RelatedObjects, func(i, j int) bool {
+		valuei := fmt.Sprintf("%s:%s:%s",
+			policy.Status.RelatedObjects[i].Object.Kind,
+			policy.Status.RelatedObjects[i].Object.Metadata.Namespace,
+			policy.Status.RelatedObjects[i].Object.Metadata.Name)
+		valuej := fmt.Sprintf("%s:%s:%s",
+			policy.Status.RelatedObjects[j].Object.Kind,
+			policy.Status.RelatedObjects[j].Object.Metadata.Namespace,
+			policy.Status.RelatedObjects[j].Object.Metadata.Name)
+		return valuei < valuej
+	})
+	addForUpdate(policy)
 	return objNames, compliant, rsrcKind
 }
 
@@ -585,14 +598,12 @@ func updateRelatedObjectsStatus(policy *policyv1.ConfigurationPolicy, relatedObj
 				present = true
 				if currentObject.Compliant != relatedObject.Compliant {
 					policy.Status.RelatedObjects[index] = relatedObject
-					addForUpdate(policy)
 				}
 			}
 		}
 	}
 	if !present {
 		policy.Status.RelatedObjects = append(policy.Status.RelatedObjects, relatedObject)
-		addForUpdate(policy)
 	}
 }
 
