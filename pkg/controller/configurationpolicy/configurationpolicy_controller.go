@@ -1241,16 +1241,20 @@ func isDenylisted(key string) (result bool) {
 func formatTemplate(unstruct unstructured.Unstructured, key string) (obj interface{}) {
 	if key == "metadata" {
 		metadata := unstruct.Object[key].(map[string]interface{})
-		md := map[string]interface{}{}
-		if labels, ok := metadata["labels"]; ok {
-			md["labels"] = labels
-		}
-		if annos, ok := metadata["annotations"]; ok {
-			md["annotations"] = annos
-		}
-		return md
+		return formatMetadata(metadata)
 	}
 	return unstruct.Object[key]
+}
+
+func formatMetadata(metadata map[string]interface{}) (formatted map[string]interface{}) {
+	md := map[string]interface{}{}
+	if labels, ok := metadata["labels"]; ok {
+		md["labels"] = labels
+	}
+	if annos, ok := metadata["annotations"]; ok {
+		md["annotations"] = annos
+	}
+	return md
 }
 
 func handleSingleKey(key string, unstruct unstructured.Unstructured, existingObj *unstructured.Unstructured,
@@ -1294,6 +1298,10 @@ func handleSingleKey(key string, unstruct unstructured.Unstructured, existingObj
 			message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
 			return message, false, mergedObj, false
 		}
+		if key == "metadata" {
+			oldObj = formatMetadata(oldObj.(map[string]interface{}))
+			mergedObj = formatMetadata(mergedObj.(map[string]interface{}))
+		}
 		//check if merged spec has changed
 		nJSON, err := json.Marshal(mergedObj)
 		if err != nil {
@@ -1329,7 +1337,14 @@ func handleKeys(unstruct unstructured.Unstructured, existingObj *unstructured.Un
 		}
 		mapMtx := sync.RWMutex{}
 		mapMtx.Lock()
-		existingObj.UnstructuredContent()[key] = mergedObj
+		if key == "metadata" {
+			existingObj.UnstructuredContent()["metadata"].(map[string]interface{})["annotations"] =
+				mergedObj.(map[string]interface{})["annotations"]
+			existingObj.UnstructuredContent()["metadata"].(map[string]interface{})["labels"] =
+				mergedObj.(map[string]interface{})["labels"]
+		} else {
+			existingObj.UnstructuredContent()[key] = mergedObj
+		}
 		mapMtx.Unlock()
 		if updateNeeded {
 			if (strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform))) || isStatus {
