@@ -1475,7 +1475,9 @@ func addForUpdate(policy *policyv1.ConfigurationPolicy) {
 			}
 		}
 	}
-	if compliant {
+	if len(policy.Status.CompliancyDetails) == 0 {
+		policy.Status.ComplianceState = "Undetermined"
+	} else if compliant {
 		policy.Status.ComplianceState = policyv1.Compliant
 	} else {
 		policy.Status.ComplianceState = policyv1.NonCompliant
@@ -1495,7 +1497,7 @@ func updatePolicyStatus(policies map[string]*policyv1.ConfigurationPolicy) (*pol
 		if err != nil {
 			return instance, err
 		}
-		if EventOnParent != "no" {
+		if EventOnParent != "no" && instance.Status.ComplianceState != "Undetermined" {
 			createParentPolicyEvent(instance)
 		}
 		if reconcilingAgent.recorder != nil {
