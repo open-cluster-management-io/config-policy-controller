@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/golang/glog"
+	gocmp "github.com/google/go-cmp/cmp"
 	policyv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
 	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
 	corev1 "k8s.io/api/core/v1"
@@ -286,6 +287,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		return
 	}
 	// initialize the RelatedObjects for this Configuration Policy
+	oldRelated := plc.Status.RelatedObjects
 	plc.Status.RelatedObjects = []policyv1.RelatedObject{}
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
@@ -349,6 +351,30 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 			}
 			createInformStatus(mustNotHave, numCompliant, numNonCompliant, compliantObjects, nonCompliantObjects, &plc, objData)
 		}
+	}
+	sort.SliceStable(plc.Status.RelatedObjects, func(i, j int) bool {
+		valuei := fmt.Sprintf("%s:%s:%s",
+			plc.Status.RelatedObjects[i].Object.Kind,
+			plc.Status.RelatedObjects[i].Object.Metadata.Namespace,
+			plc.Status.RelatedObjects[i].Object.Metadata.Name)
+		valuej := fmt.Sprintf("%s:%s:%s",
+			plc.Status.RelatedObjects[j].Object.Kind,
+			plc.Status.RelatedObjects[j].Object.Metadata.Namespace,
+			plc.Status.RelatedObjects[j].Object.Metadata.Name)
+		return valuei < valuej
+	})
+	update := false
+	if len(oldRelated) == len(plc.Status.RelatedObjects) {
+		for i, entry := range oldRelated {
+			if gocmp.Equal(entry, plc.Status.RelatedObjects[i]) == false {
+				update = true
+			}
+		}
+	} else {
+		update = true
+	}
+	if update {
+		addForUpdate(&plc)
 	}
 }
 
@@ -534,18 +560,6 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 	} else {
 		addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, objNames, nameLinkMap, reason)
 	}
-	sort.SliceStable(policy.Status.RelatedObjects, func(i, j int) bool {
-		valuei := fmt.Sprintf("%s:%s:%s",
-			policy.Status.RelatedObjects[i].Object.Kind,
-			policy.Status.RelatedObjects[i].Object.Metadata.Namespace,
-			policy.Status.RelatedObjects[i].Object.Metadata.Name)
-		valuej := fmt.Sprintf("%s:%s:%s",
-			policy.Status.RelatedObjects[j].Object.Kind,
-			policy.Status.RelatedObjects[j].Object.Metadata.Namespace,
-			policy.Status.RelatedObjects[j].Object.Metadata.Name)
-		return valuei < valuej
-	})
-	addForUpdate(policy)
 	return objNames, compliant, rsrcKind
 }
 
