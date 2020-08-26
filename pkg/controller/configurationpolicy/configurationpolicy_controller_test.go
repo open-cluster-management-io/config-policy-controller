@@ -383,6 +383,114 @@ func TestHandleAddingPolicy(t *testing.T) {
 	handleRemovingPolicy(samplePolicy.GetName())
 }
 
+func TestAddRelatedObject(t *testing.T) {
+
+	policy := &policiesv1alpha1.ConfigurationPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "default",
+		},
+		Spec: policiesv1alpha1.ConfigurationPolicySpec{
+			Severity: "low",
+			NamespaceSelector: policiesv1alpha1.Target{
+				Include: []string{"default", "kube-*"},
+				Exclude: []string{"kube-system"},
+			},
+			RemediationAction: "inform",
+			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
+				&policiesv1alpha1.ObjectTemplate{
+					ComplianceType:   "musthave",
+					ObjectDefinition: runtime.RawExtension{},
+				},
+			},
+		},
+	}
+	compliant := true
+	rsrc := policiesv1alpha1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy")
+	namespace := "default"
+	namespaced := true
+	name := "foo"
+	nameLinkMap := map[string]string{}
+	nameLinkMap[name] = "link"
+	reason := "reason"
+	relatedList := addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, []string{name}, nameLinkMap, reason)
+	related := relatedList[0]
+	// get the related object and validate what we added is in the status
+	assert.True(t, related.Compliant == string(policiesv1alpha1.Compliant))
+	assert.True(t, related.Reason == "reason")
+	assert.True(t, related.Object.APIVersion == rsrc.GroupVersion().String())
+	assert.True(t, related.Object.Kind == rsrc.Resource)
+	assert.True(t, related.Object.Metadata.Name == name)
+	assert.True(t, related.Object.Metadata.Namespace == namespace)
+	assert.True(t, related.Object.Metadata.SelfLink == "link")
+
+	// add the same object and make sure the existing one is overwritten
+	reason = "new"
+	compliant = false
+	relatedList = addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, []string{name}, nameLinkMap, reason)
+	related = relatedList[0]
+	assert.True(t, len(relatedList) == 1)
+	assert.True(t, related.Compliant == string(policiesv1alpha1.NonCompliant))
+	assert.True(t, related.Reason == "new")
+
+	// add a new related object and make sure the entry is appended
+	name = "bar"
+	relatedList = append(relatedList, addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, []string{name}, nameLinkMap, reason)...)
+	assert.True(t, len(relatedList) == 2)
+	related = relatedList[1]
+	assert.True(t, related.Object.Metadata.Name == name)
+}
+
+func TestSortRelatedObjectsAndUpdate(t *testing.T) {
+	policy := &policiesv1alpha1.ConfigurationPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "default",
+		},
+		Spec: policiesv1alpha1.ConfigurationPolicySpec{
+			Severity: "low",
+			NamespaceSelector: policiesv1alpha1.Target{
+				Include: []string{"default", "kube-*"},
+				Exclude: []string{"kube-system"},
+			},
+			RemediationAction: "inform",
+			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
+				&policiesv1alpha1.ObjectTemplate{
+					ComplianceType:   "musthave",
+					ObjectDefinition: runtime.RawExtension{},
+				},
+			},
+		},
+	}
+	rsrc := policiesv1alpha1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy")
+	name := "foo"
+	nameLinkMap := map[string]string{}
+	nameLinkMap[name] = "link"
+	relatedList := addRelatedObjects(policy, true, rsrc, "default", true, []string{name}, nameLinkMap, "reason")
+
+	// add the same object but after sorting it should be first
+	name = "bar"
+	relatedList = append(relatedList, addRelatedObjects(policy, true, rsrc, "default", true, []string{name}, nameLinkMap, "reason")...)
+
+	empty := []policiesv1alpha1.RelatedObject{}
+	sortRelatedObjectsAndUpdate(*policy, relatedList, empty)
+	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
+
+	// append another object named bar but also with namespace bar
+	relatedList = append(relatedList, addRelatedObjects(policy, true, rsrc, "bar", true, []string{name}, nameLinkMap, "reason")...)
+	sortRelatedObjectsAndUpdate(*policy, relatedList, empty)
+	assert.True(t, relatedList[0].Object.Metadata.Namespace == "bar")
+
+	// clear related objects and test sorting with no namespace
+	relatedList = []policiesv1alpha1.RelatedObject{}
+	name = "foo"
+	relatedList = addRelatedObjects(policy, true, rsrc, "", false, []string{name}, nameLinkMap, "reason")
+	name = "bar"
+	relatedList = append(relatedList, addRelatedObjects(policy, true, rsrc, "", false, []string{name}, nameLinkMap, "reason")...)
+	sortRelatedObjectsAndUpdate(*policy, relatedList, empty)
+	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
+}
+
 func newRule(verbs, apiGroups, resources, nonResourceURLs string) rbacv1.PolicyRule {
 	return rbacv1.PolicyRule{
 		Verbs:           strings.Split(verbs, ","),

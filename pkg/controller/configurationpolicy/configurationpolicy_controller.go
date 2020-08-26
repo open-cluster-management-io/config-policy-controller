@@ -287,8 +287,11 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		return
 	}
 	// initialize the RelatedObjects for this Configuration Policy
-	oldRelated := plc.Status.RelatedObjects
-	plc.Status.RelatedObjects = []policyv1.RelatedObject{}
+	oldRelated := []policyv1.RelatedObject{}
+	for i := range plc.Status.RelatedObjects {
+		oldRelated = append(oldRelated, plc.Status.RelatedObjects[i])
+	}
+	relatedObjects := []policyv1.RelatedObject{}
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
 		compliantObjects := map[string][]string{}
@@ -324,7 +327,8 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		handled := false
 
 		for _, ns := range relevantNamespaces {
-			names, compliant, objKind := handleObjects(objectT, ns, indx, &plc, config, recorder, apiresourcelist, apigroups)
+			names, compliant, objKind, related := handleObjects(objectT, ns, indx, &plc, config, recorder,
+				apiresourcelist, apigroups)
 			if objKind != "" {
 				kind = objKind
 			}
@@ -341,6 +345,11 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 					compliantObjects[ns] = names
 				}
 			}
+			if related != nil {
+				for _, object := range related {
+					relatedObjects = append(relatedObjects, object)
+				}
+			}
 		}
 
 		if !handled && !enforce {
@@ -352,21 +361,24 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 			createInformStatus(mustNotHave, numCompliant, numNonCompliant, compliantObjects, nonCompliantObjects, &plc, objData)
 		}
 	}
-	sort.SliceStable(plc.Status.RelatedObjects, func(i, j int) bool {
-		valuei := fmt.Sprintf("%s:%s:%s",
-			plc.Status.RelatedObjects[i].Object.Kind,
-			plc.Status.RelatedObjects[i].Object.Metadata.Namespace,
-			plc.Status.RelatedObjects[i].Object.Metadata.Name)
-		valuej := fmt.Sprintf("%s:%s:%s",
-			plc.Status.RelatedObjects[j].Object.Kind,
-			plc.Status.RelatedObjects[j].Object.Metadata.Namespace,
-			plc.Status.RelatedObjects[j].Object.Metadata.Name)
-		return valuei < valuej
+
+	sortRelatedObjectsAndUpdate(plc, relatedObjects, oldRelated)
+}
+
+func sortRelatedObjectsAndUpdate(plc policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject) {
+	sort.SliceStable(related, func(i, j int) bool {
+		if related[i].Object.Kind != related[j].Object.Kind {
+			return related[i].Object.Kind < related[j].Object.Kind
+		}
+		if related[i].Object.Metadata.Namespace != related[j].Object.Metadata.Namespace {
+			return related[i].Object.Metadata.Namespace < related[j].Object.Metadata.Namespace
+		}
+		return related[i].Object.Metadata.Name < related[j].Object.Metadata.Name
 	})
 	update := false
-	if len(oldRelated) == len(plc.Status.RelatedObjects) {
+	if len(oldRelated) == len(related) {
 		for i, entry := range oldRelated {
-			if gocmp.Equal(entry, plc.Status.RelatedObjects[i]) == false {
+			if gocmp.Equal(entry, related[i]) == false {
 				update = true
 			}
 		}
@@ -374,6 +386,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		update = true
 	}
 	if update {
+		plc.Status.RelatedObjects = related
 		addForUpdate(&plc)
 	}
 }
@@ -466,7 +479,8 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 
 func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int, policy *policyv1.ConfigurationPolicy,
 	config *rest.Config, recorder record.EventRecorder, apiresourcelist []*metav1.APIResourceList,
-	apigroups []*restmapper.APIGroupResources) (objNameList []string, compliant bool, rsrcKind string) {
+	apigroups []*restmapper.APIGroupResources) (objNameList []string, compliant bool,
+	rsrcKind string, relatedObjects []policyv1.RelatedObject) {
 	if namespace != "" {
 		fmt.Println(fmt.Sprintf("handling object template [%d] in namespace %s", index, namespace))
 	} else {
@@ -476,7 +490,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 	ext := objectT.ObjectDefinition
 	mapping := getMapping(apigroups, ext, policy, index)
 	if mapping == nil {
-		return nil, false, ""
+		return nil, false, "", nil
 	}
 	var unstruct unstructured.Unstructured
 	unstruct.Object = make(map[string]interface{})
@@ -507,7 +521,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 				convertPolicyStatusToString(policy))
 			addForUpdate(policy)
 		}
-		return nil, false, ""
+		return nil, false, "", nil
 	}
 	nameLinkMap := make(map[string]string)
 	var selfLink string
@@ -570,71 +584,16 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 			rsrcKind = rsrc.Resource
 		}
 	}
+
 	if complianceCalculated {
 		// enforce could clear the objNames array so use name instead
-		addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, []string{name}, nameLinkMap, reason)
+		relatedObjects = addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, []string{name},
+			nameLinkMap, reason)
 	} else {
-		addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, objNames, nameLinkMap, reason)
+		relatedObjects = addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, objNames,
+			nameLinkMap, reason)
 	}
-	return objNames, compliant, rsrcKind
-}
-
-// addRelatedObjects builds the list of kubernetes resources related to the policy.  The list contains
-// details on whether the object is compliant or not compliant with the policy.  The results are updated in the
-// policy's Status information.
-func addRelatedObjects(policy *policyv1.ConfigurationPolicy, compliant bool, rsrc schema.GroupVersionResource,
-	namespace string, namespaced bool, objNames []string, nameLinkMap map[string]string, reason string) {
-
-	for _, name := range objNames {
-		// Initialize the related object from the object handling
-		var relatedObject policyv1.RelatedObject
-		if compliant {
-			relatedObject.Compliant = string(policyv1.Compliant)
-		} else {
-			relatedObject.Compliant = string(policyv1.NonCompliant)
-		}
-
-		relatedObject.Reason = reason
-
-		var metadata policyv1.ObjectMetadata
-		metadata.Name = name
-		if namespaced {
-			metadata.Namespace = namespace
-		} else {
-			metadata.Namespace = ""
-		}
-		selfLink, ok := nameLinkMap[name]
-		if ok {
-			metadata.SelfLink = selfLink
-		} else {
-			metadata.SelfLink = ""
-		}
-		relatedObject.Object.APIVersion = rsrc.GroupVersion().String()
-		relatedObject.Object.Kind = rsrc.Resource
-		relatedObject.Object.Metadata = metadata
-		updateRelatedObjectsStatus(policy, relatedObject)
-	}
-}
-
-// updateRelatedObjectsStatus adds or updates the RelatedObject in the policy status.
-func updateRelatedObjectsStatus(policy *policyv1.ConfigurationPolicy, relatedObject policyv1.RelatedObject) {
-	present := false
-	for index, currentObject := range policy.Status.RelatedObjects {
-		if currentObject.Object.APIVersion ==
-			relatedObject.Object.APIVersion && currentObject.Object.Kind == relatedObject.Object.Kind {
-			if currentObject.Object.Metadata.Name ==
-				relatedObject.Object.Metadata.Name && currentObject.Object.Metadata.Namespace ==
-				relatedObject.Object.Metadata.Namespace {
-				present = true
-				if currentObject.Compliant != relatedObject.Compliant {
-					policy.Status.RelatedObjects[index] = relatedObject
-				}
-			}
-		}
-	}
-	if !present {
-		policy.Status.RelatedObjects = append(policy.Status.RelatedObjects, relatedObject)
-	}
+	return objNames, compliant, rsrcKind, relatedObjects
 }
 
 func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.RemediationAction, exists bool,
