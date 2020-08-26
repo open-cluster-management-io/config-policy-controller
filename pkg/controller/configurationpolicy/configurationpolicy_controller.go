@@ -390,16 +390,24 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 	}
 	if !mustNotHave && numCompliant == 0 {
 		//noncompliant; musthave and objects do not exist
-		message := fmt.Sprintf("No instances of `%v` exist as specified, and one should be created", kind)
+		message := fmt.Sprintf("No instances of `%v` exist as specified", kind)
 		if desiredName != "" {
-			message = fmt.Sprintf("%v `%v` does not exist as specified, and should be created", kind, desiredName)
+			message = fmt.Sprintf("%v `%v` does not exist as specified", kind, desiredName)
 		}
 		update = createViolation(plc, indx, "K8s missing a must have object", message)
 	}
 	if mustNotHave && numNonCompliant > 0 {
 		//noncompliant; mustnothave and objects exist
 		nameStr := ""
-		for ns, names := range nonCompliantObjects {
+		sortedNamespaces := []string{}
+		for n := range nonCompliantObjects {
+			sortedNamespaces = append(sortedNamespaces, n)
+		}
+		sort.Strings(sortedNamespaces)
+		for i := range sortedNamespaces {
+			ns := sortedNamespaces[i]
+			names := nonCompliantObjects[ns]
+			sort.Strings(names)
 			nameStr += "["
 			for i, name := range names {
 				nameStr += name
@@ -410,13 +418,21 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 			nameStr += "] in namespace " + ns + "; "
 		}
 		nameStr = nameStr[:len(nameStr)-2]
-		message := fmt.Sprintf("%v exist and should be deleted: %v", kind, nameStr)
+		message := fmt.Sprintf("%v exist: %v", kind, nameStr)
 		update = createViolation(plc, indx, "K8s has a must `not` have object", message)
 	}
 	if !mustNotHave && numCompliant > 0 {
 		//compliant; musthave and objects exist
 		nameStr := ""
-		for ns, names := range compliantObjects {
+		sortedNamespaces := []string{}
+		for n := range compliantObjects {
+			sortedNamespaces = append(sortedNamespaces, n)
+		}
+		sort.Strings(sortedNamespaces)
+		for i := range sortedNamespaces {
+			ns := sortedNamespaces[i]
+			names := compliantObjects[ns]
+			sort.Strings(names)
 			nameStr += "["
 			for i, name := range names {
 				nameStr += name
