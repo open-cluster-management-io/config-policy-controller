@@ -1,0 +1,26 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: tls-profile-enforce
+  annotations:
+    policy.open-cluster-management.io/standards: NIST SP 800-53
+    policy.open-cluster-management.io/categories: CM Configuration Management
+    policy.open-cluster-management.io/controls: CM-2 Baseline Configuration
+spec:
+  remediationAction: enforce
+  severity: low
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: config.openshift.io/v1
+        kind: APIServer
+        metadata:
+          name: cluster
+        spec:
+          tlsSecurityProfile:
+            type: Intermediate
+            intermediate: {}
+
