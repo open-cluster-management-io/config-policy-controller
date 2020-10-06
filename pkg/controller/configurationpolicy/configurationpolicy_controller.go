@@ -297,6 +297,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		oldRelated = append(oldRelated, plc.Status.RelatedObjects[i])
 	}
 	relatedObjects := []policyv1.RelatedObject{}
+	parentUpdate := false
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string][]string{}
 		compliantObjects := map[string][]string{}
@@ -325,15 +326,15 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 				desiredName = objectname.(string)
 			}
 		}
-
 		numCompliant := 0
 		numNonCompliant := 0
-
 		handled := false
-
 		for _, ns := range relevantNamespaces {
-			names, compliant, objKind, related := handleObjects(objectT, ns, indx, &plc, config, recorder,
+			names, compliant, objKind, related, update := handleObjects(objectT, ns, indx, &plc, config, recorder,
 				apiresourcelist, apigroups)
+			if update {
+				parentUpdate = true
+			}
 			if objKind != "" {
 				kind = objKind
 			}
@@ -356,21 +357,32 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 				}
 			}
 		}
-
 		if !handled && !enforce {
 			objData := map[string]interface{}{
 				"indx":        indx,
 				"kind":        kind,
 				"desiredName": desiredName,
 			}
-			createInformStatus(mustNotHave, numCompliant, numNonCompliant, compliantObjects, nonCompliantObjects, &plc, objData)
+			statusUpdate := createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+				compliantObjects, nonCompliantObjects, &plc, objData)
+			if statusUpdate {
+				parentUpdate = true
+			}
 		}
 	}
-
-	sortRelatedObjectsAndUpdate(plc, relatedObjects, oldRelated)
+	checkRelatedAndUpdate(parentUpdate, plc, relatedObjects, oldRelated)
 }
 
-func sortRelatedObjectsAndUpdate(plc policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject) {
+func checkRelatedAndUpdate(update bool, plc policyv1.ConfigurationPolicy, related,
+	oldRelated []policyv1.RelatedObject) {
+	sortUpdate := sortRelatedObjectsAndUpdate(&plc, related, oldRelated)
+	if update || sortUpdate {
+		addForUpdate(&plc)
+	}
+}
+
+func sortRelatedObjectsAndUpdate(plc *policyv1.ConfigurationPolicy, related,
+	oldRelated []policyv1.RelatedObject) (updateNeeded bool) {
 	sort.SliceStable(related, func(i, j int) bool {
 		if related[i].Object.Kind != related[j].Object.Kind {
 			return related[i].Object.Kind < related[j].Object.Kind
@@ -391,13 +403,14 @@ func sortRelatedObjectsAndUpdate(plc policyv1.ConfigurationPolicy, related, oldR
 		update = true
 	}
 	if update {
-		plc.Status.RelatedObjects = related
-		addForUpdate(&plc)
+		(*plc).Status.RelatedObjects = related
 	}
+	return update
 }
 
 func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int, compliantObjects map[string][]string,
-	nonCompliantObjects map[string][]string, plc *policyv1.ConfigurationPolicy, objData map[string]interface{}) {
+	nonCompliantObjects map[string][]string, plc *policyv1.ConfigurationPolicy,
+	objData map[string]interface{}) (updateNeeded bool) {
 	update := false
 	compliant := false
 	desiredName := objData["desiredName"].(string)
@@ -478,24 +491,25 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 			eventType = eventWarning
 		}
 		recorder.Event(plc, eventType, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(plc))
-		addForUpdate(plc)
 	}
+	return update
 }
 
 func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int, policy *policyv1.ConfigurationPolicy,
 	config *rest.Config, recorder record.EventRecorder, apiresourcelist []*metav1.APIResourceList,
 	apigroups []*restmapper.APIGroupResources) (objNameList []string, compliant bool,
-	rsrcKind string, relatedObjects []policyv1.RelatedObject) {
+	rsrcKind string, relatedObjects []policyv1.RelatedObject, pUpdate bool) {
 	if namespace != "" {
 		fmt.Println(fmt.Sprintf("handling object template [%d] in namespace %s", index, namespace))
 	} else {
 		fmt.Println(fmt.Sprintf("handling object template [%d] (no namespace specified)", index))
 	}
 	namespaced := true
+	needUpdate := false
 	ext := objectT.ObjectDefinition
-	mapping := getMapping(apigroups, ext, policy, index)
+	mapping, mappingUpdate := getMapping(apigroups, ext, policy, index)
 	if mapping == nil {
-		return nil, false, "", nil
+		return nil, false, "", nil, (needUpdate || mappingUpdate)
 	}
 	var unstruct unstructured.Unstructured
 	unstruct.Object = make(map[string]interface{})
@@ -524,9 +538,9 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 			}
 			recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
 				convertPolicyStatusToString(policy))
-			addForUpdate(policy)
+			needUpdate = true
 		}
-		return nil, false, "", nil
+		return nil, false, "", nil, needUpdate
 	}
 	nameLinkMap := make(map[string]string)
 	var selfLink string
@@ -555,7 +569,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 	complianceCalculated := false
 	if len(objNames) == 1 {
 		name = objNames[0]
-		objNames, compliant, rsrcKind = handleSingleObj(policy, remediation, exists, objShouldExist, rsrc,
+		objNames, compliant, rsrcKind, needUpdate = handleSingleObj(policy, remediation, exists, objShouldExist, rsrc,
 			dclient, objectT, map[string]interface{}{
 				"name":       name,
 				"namespace":  namespace,
@@ -604,12 +618,12 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 		relatedObjects = addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, objNames,
 			nameLinkMap, reason)
 	}
-	return objNames, compliant, rsrcKind, relatedObjects
+	return objNames, compliant, rsrcKind, relatedObjects, needUpdate
 }
 
 func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.RemediationAction, exists bool,
 	objShouldExist bool, rsrc schema.GroupVersionResource, dclient dynamic.Interface, objectT *policyv1.ObjectTemplate,
-	data map[string]interface{}) (objNameList []string, compliance bool, rsrcKind string) {
+	data map[string]interface{}) (objNameList []string, compliance bool, rsrcKind string, shouldUpdate bool) {
 	var err error
 	var compliant bool
 	updateNeeded := false
@@ -678,19 +692,18 @@ func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.
 		}
 		recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
 			convertPolicyStatusToString(policy))
-		addForUpdate(policy)
-		return nil, compliant, ""
+		return nil, compliant, "", updateNeeded
 	}
 
 	if processingErr {
-		return nil, false, ""
+		return nil, false, "", updateNeeded
 	}
 
 	if strings.ToLower(string(remediation)) == strings.ToLower(string(policyv1.Inform)) || specViolation {
-		return []string{name}, compliant, rsrc.Resource
+		return []string{name}, compliant, rsrc.Resource, updateNeeded
 	}
 
-	return nil, compliant, ""
+	return nil, compliant, "", false
 }
 
 func getClientRsrc(mapping *meta.RESTMapping, apiresourcelist []*metav1.APIResourceList) (dclient dynamic.Interface,
@@ -722,7 +735,7 @@ func getClientRsrc(mapping *meta.RESTMapping, apiresourcelist []*metav1.APIResou
 }
 
 func getMapping(apigroups []*restmapper.APIGroupResources, ext runtime.RawExtension,
-	policy *policyv1.ConfigurationPolicy, index int) (mapping *meta.RESTMapping) {
+	policy *policyv1.ConfigurationPolicy, index int) (mapping *meta.RESTMapping, update bool) {
 	updateNeeded := false
 	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
 	glog.V(9).Infof("reading raw object: %v", string(ext.Raw))
@@ -749,8 +762,7 @@ func getMapping(apigroups []*restmapper.APIGroupResources, ext runtime.RawExtens
 				Message:            decodeErr,
 			},
 		}
-		addForUpdate(policy)
-		return nil
+		return nil, true
 	}
 	mapping, err = restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	mappingErrMsg := ""
@@ -794,11 +806,10 @@ func getMapping(apigroups []*restmapper.APIGroupResources, ext runtime.RawExtens
 		}
 		if updateNeeded {
 			recorder.Event(policy, eventWarning, fmt.Sprintf(plcFmtStr, policy.GetName()), errMsg)
-			addForUpdate(policy)
 		}
-		return nil
+		return nil, updateNeeded
 	}
-	return mapping
+	return mapping, updateNeeded
 }
 
 func getDetails(unstruct unstructured.Unstructured) (name string, kind string, namespace string) {

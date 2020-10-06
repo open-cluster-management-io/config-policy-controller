@@ -473,12 +473,12 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 	relatedList = append(relatedList, addRelatedObjects(policy, true, rsrc, "default", true, []string{name}, nameLinkMap, "reason")...)
 
 	empty := []policiesv1alpha1.RelatedObject{}
-	sortRelatedObjectsAndUpdate(*policy, relatedList, empty)
+	sortRelatedObjectsAndUpdate(policy, relatedList, empty)
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
 
 	// append another object named bar but also with namespace bar
 	relatedList = append(relatedList, addRelatedObjects(policy, true, rsrc, "bar", true, []string{name}, nameLinkMap, "reason")...)
-	sortRelatedObjectsAndUpdate(*policy, relatedList, empty)
+	sortRelatedObjectsAndUpdate(policy, relatedList, empty)
 	assert.True(t, relatedList[0].Object.Metadata.Namespace == "bar")
 
 	// clear related objects and test sorting with no namespace
@@ -487,7 +487,7 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 	relatedList = addRelatedObjects(policy, true, rsrc, "", false, []string{name}, nameLinkMap, "reason")
 	name = "bar"
 	relatedList = append(relatedList, addRelatedObjects(policy, true, rsrc, "", false, []string{name}, nameLinkMap, "reason")...)
-	sortRelatedObjectsAndUpdate(*policy, relatedList, empty)
+	sortRelatedObjectsAndUpdate(policy, relatedList, empty)
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
 }
 
