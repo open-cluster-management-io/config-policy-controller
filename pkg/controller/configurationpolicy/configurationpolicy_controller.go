@@ -60,8 +60,9 @@ var eventFmtStr = "policy: %s/%s"
 var plcFmtStr = "policy: %s"
 
 var reasonWantFoundExists = "Resource found as expected"
-var reasonWantFoundDNE = "Resource not found but expected"
-var reasonWantNotFoundExists = "Resource found but not expected"
+var reasonWantFoundNoMatch = "Resource found but does not match"
+var reasonWantFoundDNE = "Resource not found but should exist"
+var reasonWantNotFoundExists = "Resource found but should not exist"
 var reasonWantNotFoundDNE = "Resource not found as expected"
 
 const getObjError = "object `%v` cannot be retrieved from the api server\n"
@@ -565,7 +566,6 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 	rsrcKind = ""
 	reason := ""
 	// if the compliance is calculated by the handleSingleObj function, do not override the setting
-	// when setting the reasons
 	complianceCalculated := false
 	if len(objNames) == 1 {
 		name = objNames[0]
@@ -581,15 +581,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 	}
 
 	if complianceCalculated {
-		if objShouldExist && compliant {
-			reason = reasonWantFoundExists
-		} else if objShouldExist && !compliant {
-			reason = reasonWantFoundDNE
-		} else if !objShouldExist && compliant {
-			reason = reasonWantNotFoundDNE
-		} else if !objShouldExist && !compliant {
-			reason = reasonWantNotFoundExists
-		}
+		reason = generateSingleObjReason(objShouldExist, compliant, exists)
 	} else {
 		if !exists && objShouldExist {
 			compliant = false
@@ -619,6 +611,22 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 			nameLinkMap, reason)
 	}
 	return objNames, compliant, rsrcKind, relatedObjects, needUpdate
+}
+
+func generateSingleObjReason(objShouldExist bool, compliant bool, exists bool) (rsn string) {
+	reason := ""
+	if objShouldExist && compliant {
+		reason = reasonWantFoundExists
+	} else if objShouldExist && !compliant && exists {
+		reason = reasonWantFoundNoMatch
+	} else if objShouldExist && !compliant {
+		reason = reasonWantFoundDNE
+	} else if !objShouldExist && compliant {
+		reason = reasonWantNotFoundDNE
+	} else if !objShouldExist && !compliant {
+		reason = reasonWantNotFoundExists
+	}
+	return reason
 }
 
 func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.RemediationAction, exists bool,
