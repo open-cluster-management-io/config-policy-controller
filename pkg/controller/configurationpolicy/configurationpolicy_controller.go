@@ -1220,6 +1220,7 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 	for _, val2 := range old {
 		found := false
 		for newIdx, val1 := range newCopy {
+			matches := false
 			if ctype == "musthave" {
 				var mergedObj interface{}
 				switch val2 := val2.(type) {
@@ -1230,8 +1231,9 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 				}
 				if reflect.DeepEqual(mergedObj, val2) {
 					found = true
+					matches = true
 				}
-				if found && ctype == "musthave" {
+				if matches && ctype == "musthave" {
 					new[newIdx] = mergedObj
 				}
 
