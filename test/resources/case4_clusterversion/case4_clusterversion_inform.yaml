@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: openshift-upgrade-channel-inform
+  namespace: managed
+spec:
+  remediationAction: inform
+  namespaceSelector:
+    exclude:
+    - kube-*
+    include:
+    - "*"
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: config.openshift.io/v1
+        kind: ClusterVersion
+        metadata:
+          name: version
+        spec:
+          channel: fast-4.4

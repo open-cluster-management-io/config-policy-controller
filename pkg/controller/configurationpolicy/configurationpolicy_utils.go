@@ -113,6 +113,15 @@ func checkListsMatch(oVal []interface{}, mVal []interface{}) (m bool) {
 	return match
 }
 
+func stringInSlice(a string, list []string) bool {
+	for _, b := range list {
+		if b == a {
+			return true
+		}
+	}
+	return false
+}
+
 func isDenylisted(key string) (result bool) {
 	denylist := []string{"apiVersion", "kind"}
 	for _, val := range denylist {

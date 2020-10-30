@@ -330,14 +330,18 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		numCompliant := 0
 		numNonCompliant := 0
 		handled := false
+		objNamespaced := false
 		for _, ns := range relevantNamespaces {
-			names, compliant, objKind, related, update := handleObjects(objectT, ns, indx, &plc, config, recorder,
+			names, compliant, objKind, related, update, namespaced := handleObjects(objectT, ns, indx, &plc, config, recorder,
 				apiresourcelist, apigroups)
 			if update {
 				parentUpdate = true
 			}
 			if objKind != "" {
 				kind = objKind
+			}
+			if namespaced {
+				objNamespaced = true
 			}
 			if names == nil {
 				//object template enforced, already handled in handleObjects
@@ -363,6 +367,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 				"indx":        indx,
 				"kind":        kind,
 				"desiredName": desiredName,
+				"namespaced":  objNamespaced,
 			}
 			statusUpdate := createInformStatus(mustNotHave, numCompliant, numNonCompliant,
 				compliantObjects, nonCompliantObjects, &plc, objData)
@@ -417,6 +422,7 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 	desiredName := objData["desiredName"].(string)
 	indx := objData["indx"].(int)
 	kind := objData["kind"].(string)
+	namespaced := objData["namespaced"].(bool)
 	if kind == "" {
 		return
 	}
@@ -430,13 +436,14 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 	}
 	if mustNotHave && numNonCompliant > 0 {
 		//noncompliant; mustnothave and objects exist
-		nameStr := ""
+		nameList := []string{}
 		sortedNamespaces := []string{}
 		for n := range nonCompliantObjects {
 			sortedNamespaces = append(sortedNamespaces, n)
 		}
 		sort.Strings(sortedNamespaces)
 		for i := range sortedNamespaces {
+			nameStr := ""
 			ns := sortedNamespaces[i]
 			names := nonCompliantObjects[ns]
 			sort.Strings(names)
@@ -447,21 +454,28 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 					nameStr += ", "
 				}
 			}
-			nameStr += "] in namespace " + ns + "; "
+			nameStr += "]"
+			if namespaced {
+				nameStr += " in namespace " + ns
+			}
+			if !stringInSlice(nameStr, nameList) {
+				nameList = append(nameList, nameStr)
+			}
 		}
-		nameStr = nameStr[:len(nameStr)-2]
-		message := fmt.Sprintf("%v exist: %v", kind, nameStr)
+		names := strings.Join(nameList, "; ")
+		message := fmt.Sprintf("%v exist: %v", kind, names)
 		update = createViolation(plc, indx, "K8s has a must `not` have object", message)
 	}
 	if !mustNotHave && numCompliant > 0 {
 		//compliant; musthave and objects exist
-		nameStr := ""
+		nameList := []string{}
 		sortedNamespaces := []string{}
 		for n := range compliantObjects {
 			sortedNamespaces = append(sortedNamespaces, n)
 		}
 		sort.Strings(sortedNamespaces)
 		for i := range sortedNamespaces {
+			nameStr := ""
 			ns := sortedNamespaces[i]
 			names := compliantObjects[ns]
 			sort.Strings(names)
@@ -472,10 +486,16 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 					nameStr += ", "
 				}
 			}
-			nameStr += "] in namespace " + ns + "; "
+			nameStr += "]"
+			if namespaced {
+				nameStr += " in namespace " + ns
+			}
+			if !stringInSlice(nameStr, nameList) {
+				nameList = append(nameList, nameStr)
+			}
 		}
-		nameStr = nameStr[:len(nameStr)-2]
-		message := fmt.Sprintf("%v %v exist as specified, therefore this Object template is compliant", kind, nameStr)
+		names := strings.Join(nameList, "; ")
+		message := fmt.Sprintf("%v %v exist as specified, therefore this Object template is compliant", kind, names)
 		update = createNotification(plc, indx, "K8s `must have` object already exists", message)
 		compliant = true
 	}
@@ -499,7 +519,7 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int, policy *policyv1.ConfigurationPolicy,
 	config *rest.Config, recorder record.EventRecorder, apiresourcelist []*metav1.APIResourceList,
 	apigroups []*restmapper.APIGroupResources) (objNameList []string, compliant bool,
-	rsrcKind string, relatedObjects []policyv1.RelatedObject, pUpdate bool) {
+	rsrcKind string, relatedObjects []policyv1.RelatedObject, pUpdate bool, isNamespaced bool) {
 	if namespace != "" {
 		fmt.Println(fmt.Sprintf("handling object template [%d] in namespace %s", index, namespace))
 	} else {
@@ -510,7 +530,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 	ext := objectT.ObjectDefinition
 	mapping, mappingUpdate := getMapping(apigroups, ext, policy, index)
 	if mapping == nil {
-		return nil, false, "", nil, (needUpdate || mappingUpdate)
+		return nil, false, "", nil, (needUpdate || mappingUpdate), namespaced
 	}
 	var unstruct unstructured.Unstructured
 	unstruct.Object = make(map[string]interface{})
@@ -541,7 +561,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 				convertPolicyStatusToString(policy))
 			needUpdate = true
 		}
-		return nil, false, "", nil, needUpdate
+		return nil, false, "", nil, needUpdate, namespaced
 	}
 	nameLinkMap := make(map[string]string)
 	var selfLink string
@@ -610,7 +630,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 		relatedObjects = addRelatedObjects(policy, compliant, rsrc, namespace, namespaced, objNames,
 			nameLinkMap, reason)
 	}
-	return objNames, compliant, rsrcKind, relatedObjects, needUpdate
+	return objNames, compliant, rsrcKind, relatedObjects, needUpdate, namespaced
 }
 
 func generateSingleObjReason(objShouldExist bool, compliant bool, exists bool) (rsn string) {

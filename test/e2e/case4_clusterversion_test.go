@@ -10,6 +10,8 @@ import (
 
 const case4ConfigPolicyName string = "openshift-upgrade-channel-e2e"
 const case4PolicyYaml string = "../resources/case4_clusterversion/case4_clusterversion_create.yaml"
+const case4ConfigPolicyNameInform string = "openshift-upgrade-channel-inform"
+const case4PolicyYamlInform string = "../resources/case4_clusterversion/case4_clusterversion_inform.yaml"
 const case4ConfigPolicyNamePatch string = "openshift-upgrade-channel-patch"
 const case4PolicyYamlPatch string = "../resources/case4_clusterversion/case4_clusterversion_patch.yaml"
 
@@ -35,6 +37,16 @@ var _ = Describe("Test cluster version obj template handling", func() {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case4ConfigPolicyNamePatch, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+		})
+		It("should be generate status properly for cluster-level resources", func() {
+			By("Creating " + case4ConfigPolicyNameInform + " on managed")
+			utils.Kubectl("apply", "-f", case4PolicyYamlInform, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case4ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case4ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetStatusMessage(managedPlc)
+			}, 120, 1).Should(Equal("clusterversions [version] exist as specified, therefore this Object template is compliant"))
 		})
 	})
 })
