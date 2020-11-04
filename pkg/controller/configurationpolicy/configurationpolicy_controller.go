@@ -358,7 +358,7 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 			}
 			if related != nil {
 				for _, object := range related {
-					relatedObjects = append(relatedObjects, object)
+					relatedObjects = updateRelatedObjectsStatus(relatedObjects, object)
 				}
 			}
 		}
