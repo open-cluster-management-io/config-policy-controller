@@ -79,7 +79,11 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 	for i, mVal := range mergedObj {
 		switch mVal := mVal.(type) {
 		case ([]interface{}):
-			oVal := oldObj[i].([]interface{})
+			oVal, ok := oldObj[i].([]interface{})
+			if !ok {
+				match = false
+				break
+			}
 			sort.Slice(oVal, func(i, j int) bool {
 				return fmt.Sprintf("%v", oVal[i]) < fmt.Sprintf("%v", oVal[j])
 			})

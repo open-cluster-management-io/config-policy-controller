@@ -11,11 +11,14 @@ import (
 const case1ConfigPolicyNameInform string = "policy-pod-create-inform"
 const case1ConfigPolicyNameEnforce string = "policy-pod-create"
 const case1PodName string = "nginx-pod-e2e"
+const case1PodNameEmpty string = "nginx-pod-e2e-empty"
 const case1PolicyYamlInform string = "../resources/case1_pod_handling/case1_pod_create_inform.yaml"
 const case1PolicyYamlEnforce string = "../resources/case1_pod_handling/case1_pod_create_enforce.yaml"
 const case1PolicyCheckMNHYaml string = "../resources/case1_pod_handling/case1_pod_check-mnh.yaml"
 const case1PolicyCheckMOHYaml string = "../resources/case1_pod_handling/case1_pod_check-moh.yaml"
 const case1PolicyCheckMHYaml string = "../resources/case1_pod_handling/case1_pod_check-mh.yaml"
+const case1PolicyYamlEnforceEmpty string = "../resources/case1_pod_handling/case1_pod_create_empty_list.yaml"
+const case1PolicyYamlInformEmpty string = "../resources/case1_pod_handling/case1_pod_check_empty_list.yaml"
 
 var _ = Describe("Test pod obj template handling", func() {
 	Describe("Create a policy on managed cluster in ns:"+testNamespace, func() {
@@ -51,6 +54,13 @@ var _ = Describe("Test pod obj template handling", func() {
 				mHPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-pod-check-mh-list", testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(mHPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.Kubectl("apply", "-f", case1PolicyYamlEnforceEmpty, "-n", testNamespace)
+			plcEmpty := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-pod-emptycontainerlist", testNamespace, true, defaultTimeoutSeconds)
+			Expect(plcEmpty).NotTo(BeNil())
+			Eventually(func() interface{} {
+				emptyPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-pod-emptycontainerlist", testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(emptyPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
 		It("should create violations properly", func() {
 			utils.Kubectl("apply", "-f", case1PolicyCheckMNHYaml, "-n", testNamespace)
@@ -65,6 +75,13 @@ var _ = Describe("Test pod obj template handling", func() {
 			Expect(plc).NotTo(BeNil())
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-pod-check-moh", testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.Kubectl("apply", "-f", case1PolicyYamlInformEmpty, "-n", testNamespace)
+			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-pod-check-emptycontainerlist", testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, "policy-pod-check-emptycontainerlist", testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 		})
