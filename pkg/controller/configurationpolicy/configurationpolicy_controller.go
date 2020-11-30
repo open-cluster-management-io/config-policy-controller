@@ -1237,6 +1237,11 @@ func mergeSpecsHelper(x1, x2 interface{}, ctype string) interface{} {
 
 func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []interface{}) {
 	newCopy := append([]interface{}{}, new...)
+	indexesSkipped := map[int]bool{}
+	for i := range newCopy {
+		indexesSkipped[i] = false
+	}
+
 	for _, val2 := range old {
 		found := false
 		for newIdx, val1 := range newCopy {
@@ -1249,16 +1254,18 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 				default:
 					mergedObj = val1
 				}
-				if reflect.DeepEqual(mergedObj, val2) {
+				if reflect.DeepEqual(mergedObj, val2) && !indexesSkipped[newIdx] {
 					found = true
 					matches = true
 				}
-				if matches && ctype == "musthave" {
+				if matches && ctype == "musthave" && !indexesSkipped[newIdx] {
 					new[newIdx] = mergedObj
+					indexesSkipped[newIdx] = true
 				}
 
-			} else if reflect.DeepEqual(val1, val2) {
+			} else if reflect.DeepEqual(val1, val2) && !indexesSkipped[newIdx] {
 				found = true
+				indexesSkipped[newIdx] = true
 			}
 		}
 		if !found {
