@@ -1201,7 +1201,7 @@ func mergeSpecsHelper(x1, x2 interface{}, ctype string) interface{} {
 			return x1
 		}
 		if len(x2) > len(x1) {
-			if ctype == "musthave" {
+			if ctype != "mustonlyhave" {
 				return mergeArrays(x1, x2, ctype)
 			}
 			return x1
@@ -1214,7 +1214,7 @@ func mergeSpecsHelper(x1, x2 interface{}, ctype string) interface{} {
 					x1[idx] = mergeSpecsHelper(v1, v2, ctype)
 				}
 			} else {
-				if ctype == "musthave" {
+				if ctype != "mustonlyhave" {
 					return mergeArrays(x1, x2, ctype)
 				}
 				return x1
@@ -1246,7 +1246,7 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 		found := false
 		for newIdx, val1 := range newCopy {
 			matches := false
-			if ctype == "musthave" {
+			if ctype != "mustonlyhave" {
 				var mergedObj interface{}
 				switch val2 := val2.(type) {
 				case map[string]interface{}:
@@ -1258,7 +1258,7 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 					found = true
 					matches = true
 				}
-				if matches && ctype == "musthave" && !indexesSkipped[newIdx] {
+				if matches && ctype != "mustonlyhave" && !indexesSkipped[newIdx] {
 					new[newIdx] = mergedObj
 					indexesSkipped[newIdx] = true
 				}
@@ -1276,7 +1276,7 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 }
 
 func compareLists(newList []interface{}, oldList []interface{}, ctype string) (updatedList []interface{}, err error) {
-	if ctype == "musthave" {
+	if ctype != "mustonlyhave" {
 		return mergeArrays(newList, oldList, ctype), nil
 	}
 	//mustonlyhave
