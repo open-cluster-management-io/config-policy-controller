@@ -5,11 +5,14 @@ package configurationpolicy
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	policyv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+var statusNamespaceString = " in namespace "
 
 // addRelatedObjects builds the list of kubernetes resources related to the policy.  The list contains
 // details on whether the object is compliant or not compliant with the policy.  The results are updated in the
@@ -171,4 +174,132 @@ func formatMetadata(metadata map[string]interface{}) (formatted map[string]inter
 		}
 	}
 	return md
+}
+
+//createCompliantMustHaveStatus generates a status for a musthave/mustonlyhave policy that is compliant
+func createCompliantMustHaveStatus(kind string, compliantObjects map[string]map[string]interface{},
+	namespaced bool, plc *policyv1.ConfigurationPolicy, indx int) (update bool) {
+	nameList := []string{}
+	sortedNamespaces := []string{}
+	for n := range compliantObjects {
+		sortedNamespaces = append(sortedNamespaces, n)
+	}
+	sort.Strings(sortedNamespaces)
+	for i := range sortedNamespaces {
+		nameStr := ""
+		ns := sortedNamespaces[i]
+		names := compliantObjects[ns]["names"].([]string)
+		sort.Strings(names)
+		nameStr += "["
+		for i, name := range names {
+			nameStr += name
+			if i != len(names)-1 {
+				nameStr += ", "
+			}
+		}
+		nameStr += "]"
+		if namespaced {
+			nameStr += statusNamespaceString + ns
+		}
+		if !stringInSlice(nameStr, nameList) {
+			nameList = append(nameList, nameStr)
+		}
+	}
+	names := strings.Join(nameList, "; ")
+	message := fmt.Sprintf("%v %v exist as specified, therefore this Object template is compliant", kind, names)
+	return createNotification(plc, indx, "K8s `must have` object already exists", message)
+}
+
+//createNonCompliantMustNotHaveStatus generates a status for a mustnothave policy that is noncompliant
+func createNonCompliantMustNotHaveStatus(kind string, nonCompliantObjects map[string]map[string]interface{},
+	namespaced bool, plc *policyv1.ConfigurationPolicy, indx int) (update bool) {
+	nameList := []string{}
+	sortedNamespaces := []string{}
+	for n := range nonCompliantObjects {
+		sortedNamespaces = append(sortedNamespaces, n)
+	}
+	sort.Strings(sortedNamespaces)
+	for i := range sortedNamespaces {
+		nameStr := ""
+		ns := sortedNamespaces[i]
+		names := nonCompliantObjects[ns]["names"].([]string)
+		sort.Strings(names)
+		nameStr += "["
+		for i, name := range names {
+			nameStr += name
+			if i != len(names)-1 {
+				nameStr += ", "
+			}
+		}
+		nameStr += "]"
+		if namespaced {
+			nameStr += statusNamespaceString + ns
+		}
+		if !stringInSlice(nameStr, nameList) {
+			nameList = append(nameList, nameStr)
+		}
+	}
+	names := strings.Join(nameList, "; ")
+	message := fmt.Sprintf("%v exist: %v", kind, names)
+	return createViolation(plc, indx, "K8s has a must `not` have object", message)
+}
+
+//createNonCompliantMustHaveStatus generates a status for a musthave/mustonlyhave policy that is noncompliant
+func createNonCompliantMustHaveStatus(desiredName string, kind string,
+	nonCompliantObjects map[string]map[string]interface{}, namespaced bool, plc *policyv1.ConfigurationPolicy,
+	indx int) (update bool) {
+	message := ""
+	if desiredName == "" {
+		message = fmt.Sprintf("No instances of `%v` exist as specified", kind)
+	} else {
+		nameList := []string{}
+		sortedNamespaces := []string{}
+		for n := range nonCompliantObjects {
+			sortedNamespaces = append(sortedNamespaces, n)
+		}
+		sort.Strings(sortedNamespaces)
+		for i := range sortedNamespaces {
+			nameStr := ""
+			ns := sortedNamespaces[i]
+			names := nonCompliantObjects[ns]["names"].([]string)
+			reason := nonCompliantObjects[ns]["reason"].(string)
+			sort.Strings(names)
+			nameStr += "["
+			for i, name := range names {
+				nameStr += name
+				if i != len(names)-1 {
+					nameStr += ", "
+				}
+			}
+			nameStr += "]"
+			single := false
+			if len(names) == 1 {
+				single = true
+			}
+			if reason == reasonWantFoundNoMatch && single {
+				nameStr += " exists but doesn't match"
+			} else if reason == reasonWantFoundNoMatch && !single {
+				nameStr += " exist but don't match"
+			} else if reason != reasonWantFoundNoMatch && single {
+				nameStr += " does not exist"
+			} else {
+				nameStr += " do not exist"
+			}
+			if namespaced {
+				nameStr += statusNamespaceString + ns
+			}
+			if !stringInSlice(nameStr, nameList) {
+				nameList = append(nameList, nameStr)
+			}
+		}
+		names := strings.Join(nameList, "; ")
+		message = fmt.Sprintf("%v not found: %v", kind, names)
+	}
+	return createViolation(plc, indx, "K8s has a must `not` have object", message)
+}
+
+//createCompliantMustNotHaveStatus generates a status for a mustnothave policy that is compliant
+func createCompliantMustNotHaveStatus(kind string, plc *policyv1.ConfigurationPolicy, indx int) (update bool) {
+	message := fmt.Sprintf("no instances of `%v` exist as specified, therefore this Object template is compliant", kind)
+	return createNotification(plc, indx, "K8s must `not` have object already missing", message)
 }
