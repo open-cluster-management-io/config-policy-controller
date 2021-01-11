@@ -46,7 +46,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case4ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetStatusMessage(managedPlc)
-			}, 120, 1).Should(Equal("clusterversions [version] exist as specified, therefore this Object template is compliant"))
+			}, 120, 1).Should(Equal("clusterversions [version] found as specified, therefore this Object template is compliant"))
 		})
 	})
 })

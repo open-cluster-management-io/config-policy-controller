@@ -13,9 +13,11 @@ Every reconcile does following things:
 2. Handles the object template specified in the configurationpolicy and creates an object / status update depending on the details of the object template
 
 ## Run
+
+To run the controller locally, point your CLI to a running cluster and then run:
 ```
 export WATCH_NAMESPACE=cluster_namespace_on_hub
-operator-sdk run --local
+go run cmd/manager/main.go
 ```
 <!---
 Date: 9/09/2020

@@ -33,7 +33,8 @@ if [ -z "$current_year" ] || [ $current_year -lt $origin_year ]; then
 fi
 
 lic_ibm_identifier=" (c) Copyright IBM Corporation"
-lic_redhat_identifier=" Copyright (c) ${current_year} Red Hat, Inc."
+lic_redhat_identifier_2020=" Copyright (c) 2020 Red Hat, Inc."
+lic_redhat_identifier_2021=" Copyright (c) ${current_year} Red Hat, Inc."
 
 lic_year=()
 #All possible combination within [origin_year, current_year] range is valid format
@@ -110,8 +111,8 @@ for f in $FILES_TO_SCAN; do
     must_have_redhat_license=true
   fi
 
-  if [[ "${must_have_redhat_license}" == "true" ]] && [[ "$header" != *"${lic_redhat_identifier}"* ]]; then
-    printf " Missing copyright\n >> Could not find [${lic_redhat_identifier}] in the file.\n"
+  if [[ "${must_have_redhat_license}" == "true" && "$header" != *"${lic_redhat_identifier_2020}"* && "$header" != *"${lic_redhat_identifier_2021}"* ]]; then
+    printf " Missing copyright\n >> Could not find [${lic_redhat_identifier_2021}] in the file.\n"
     ERROR=1
   fi
 
