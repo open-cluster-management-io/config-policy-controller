@@ -185,8 +185,17 @@ func createResourceNameStr(names []string, namespace string, namespaced bool) (n
 		}
 	}
 	nameStr += "]"
+	// No names found--return empty string instead
+	if nameStr == "[]" {
+		nameStr = ""
+	}
+	// Add namespace
 	if namespaced {
-		nameStr += " in namespace " + namespace
+		// Add a space if there are names
+		if nameStr != "" {
+			nameStr += " "
+		}
+		nameStr += "in namespace " + namespace
 	}
 	return nameStr
 }
