@@ -201,20 +201,28 @@ func PeriodicallyExecConfigPolicies(freq uint, test bool) {
 
 		//get resources once per cycle to avoid hanging
 		dd := clientSet.Discovery()
-		apiresourcelist, err := dd.ServerResources()
-		if err != nil {
-			glog.Fatal(err)
+		apiresourcelist, apiresourcelistErr := dd.ServerResources()
+		skipLoop := false
+		if apiresourcelistErr != nil {
+			skipLoop = true
+			glog.Errorf("Failed to retrieve apiresourcelist with err: %v", apiresourcelistErr)
 		}
-		apigroups, err := restmapper.GetAPIGroupResources(dd)
-		if err != nil {
-			glog.Fatal(err)
-		}
+		apigroups, apigroupsErr := restmapper.GetAPIGroupResources(dd)
 
-		//flattenedpolicylist only contains 1 of each policy instance
-		for _, policy := range flattenedPolicyList {
-			Mx.Lock()
-			handleObjectTemplates(*policy, apiresourcelist, apigroups)
-			Mx.Unlock()
+		if !skipLoop && apigroupsErr != nil {
+			skipLoop = true
+			glog.Errorf("Failed to retrieve apigroups with err: %v", apigroupsErr)
+
+		}
+		if skipLoop {
+			glog.Errorf("Unexpected failure detected. You api server might not be stable. Waiting for next loop...")
+		} else {
+			//flattenedpolicylist only contains 1 of each policy instance
+			for _, policy := range flattenedPolicyList {
+				Mx.Lock()
+				handleObjectTemplates(*policy, apiresourcelist, apigroups)
+				Mx.Unlock()
+			}
 		}
 
 		// making sure that if processing is > freq we don't sleep
