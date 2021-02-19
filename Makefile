@@ -53,15 +53,11 @@ endif
 
 .PHONY: fmt lint test coverage build build-images
 
-# GITHUB_USER containing '@' char must be escaped with '%40'
-GITHUB_USER := $(shell echo $(GITHUB_USER) | sed 's/@/%40/g')
-GITHUB_TOKEN ?=
-
 USE_VENDORIZED_BUILD_HARNESS ?=
 
 ifndef USE_VENDORIZED_BUILD_HARNESS
 	ifeq ($(TRAVIS_BUILD),1)
-	-include $(shell curl -H 'Authorization: token ${GITHUB_TOKEN}' -H 'Accept: application/vnd.github.v4.raw' -L https://api.github.com/repos/open-cluster-management/build-harness-extensions/contents/templates/Makefile.build-harness-bootstrap -o .build-harness-bootstrap; echo .build-harness-bootstrap)
+	-include $(shell curl -H 'Accept: application/vnd.github.v4.raw' -L https://api.github.com/repos/open-cluster-management/build-harness-extensions/contents/templates/Makefile.build-harness-bootstrap -o .build-harness-bootstrap; echo .build-harness-bootstrap)
 	endif
 else
 -include vbh/.build-harness-vendorized
@@ -130,7 +126,7 @@ local:
 ############################################################
 
 build-images:
-	@operator-sdk build ${IMAGE_NAME_AND_VERSION}
+	@docker build -t ${IMAGE_NAME_AND_VERSION} -f build/Dockerfile .
 	@docker tag ${IMAGE_NAME_AND_VERSION} $(REGISTRY)/$(IMG):latest
 
 ############################################################
