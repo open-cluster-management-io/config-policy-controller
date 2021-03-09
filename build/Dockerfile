@@ -1,3 +1,5 @@
+# Copyright Contributors to the Open Cluster Management project
+
 # Stage 1: Use image builder to build the target binaries
 FROM golang:1.14 AS builder
 

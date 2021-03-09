@@ -1,3 +1,5 @@
+[comment]: # ( Copyright Contributors to the Open Cluster Management project )
+
 # Configuration Policy Controller
 Red Hat Advanced Cluster Management - Governance - Configuration Policy Controller
 
