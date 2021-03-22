@@ -9,42 +9,19 @@ services:
 branches:
   only:
     - main
-    - /^release-[0-9]+\..*$/
 
-addons:
-  sonarcloud:
-    organization: "open-cluster-management"
-    token:
-      secure: "GDwcEouX35WwwS01FH0t6hoVrkZGvBmHd3l4Y1s5LKZ60pM95W4pkuaDqez/ilYQxTIVwVxJvcwpnWqP/BdisbHiLPNfTSl/4KEa9TsYigWKjb4h772SIPexuUzeW+mHHC4hYVhCqa6f4gPRppumLCEVFVBCmKDRlARnuZs2l2gdEf27Xgh9VRhP+khGQKxtczbZM/+Wa6KZk9U8MJFg2xVPUbl6K+/BAZQ51oS7u9jb+A1X/CBwIO8wBJeDvpODTAfGamEHCqppqFLLX3waj8s8A56jGODYlw4v0TRLVldDMIcKXgBF6cOh20lhNm8YKV9mPf11yMFQ97heEftz4KOQvu91OUO2fk5fUpopG8+jQngcAVGMFb62rIVTuyyoN7O1FQrnNTmB67E/T+9YeRZdQEXJoDDU73LNnkRYWK6lEGQhugl9Ogr/Ba0I2esnSsfYBcGBY7Jae90+cLD54pORhOhDXpQTJyc2KD85BbZqSOgIJ1A4wIbOXCd0hit8wtMNj/RTEP7NaPD4/lJJyukKgChp3QJ0+oabCe2kjRztfw+yqRrD79DYgFYP3Tlx9Wv+PrkANTeNDs/uyK7EQ8gCgdK/TEKlqXmBk6kkLDrrLFvw5ukEOjfSHNLPYbWARfbfPW+bBdwLlRWx0E45FNZHtJu4s1rl5qXe+Gvpteg="
 env:
   global:
     # Required
     - OS=linux
-    - COMPONENT_TAG_EXTENSION="-${TRAVIS_COMMIT}"
     # Component Specific
-    - COMPONENT_INIT_COMMAND=${TRAVIS_BUILD_DIR}/build/install-dependencies.sh
     - COMPONENT_BUILD_COMMAND=${TRAVIS_BUILD_DIR}/build/build.sh
-    - COMPONENT_UNIT_TEST_COMMAND=${TRAVIS_BUILD_DIR}/build/run-unit-tests.sh
-    - COMPONENT_E2E_TEST_COMMAND=${TRAVIS_BUILD_DIR}/build/run-e2e-tests.sh
 
 stages:
   - build
-  - unit-test
-  - test-e2e
 
 jobs:
   include:
-    - stage: build
-      name: "Build the image for pr and push it"
-      if: type = pull_request
-      script:
-        - set -e
-        - make copyright-check TRAVIS_BRANCH=${TRAVIS_BRANCH}
-        - export COMPONENT_TAG_EXTENSION="-PR${TRAVIS_PULL_REQUEST}-${TRAVIS_COMMIT}"
-        - |
-          make
-          make component/build
-          make component/push
     - stage: build
       name: "Build the image with latest-dev tag and push it"
       if: type = push AND branch = main
@@ -56,27 +33,4 @@ jobs:
           make
           make component/build
           make component/push
-    - stage: unit-test
-      name: "Run unit test and collect coverage"
-      script:
-        - set -e
-        - |
-          make
-          make component/test/unit
-        - |
-          set +e
-          make stop-instrumented  
-          set -e
-          make coverage-merge
-          make go/gosec-install
-          gosec -fmt sonarqube -out gosec.json -no-fail ./...
-          make sonar/js
-    - stage: test-e2e
-      name: "Deploy the image to a cluster and run e2e tests"
-      if: type = pull_request
-      script:
-        - export COMPONENT_TAG_EXTENSION="-PR${TRAVIS_PULL_REQUEST}-${TRAVIS_COMMIT}"
-        - |
-          make
-          make component/pull
-          make component/test/e2e
+

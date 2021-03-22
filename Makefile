@@ -22,6 +22,7 @@ TRAVIS_BUILD ?= 1
 # Use your own docker registry and image name for dev/test by overridding the IMG and REGISTRY environment variable.
 IMG ?= $(shell cat COMPONENT_NAME 2> /dev/null)
 REGISTRY ?= quay.io/open-cluster-management
+TAG ?= latest
 
 # Github host to use for checking the source tree;
 # Override this variable ue with your own value if you're working on forked repo.
@@ -40,6 +41,7 @@ export TESTARGS ?= $(TESTARGS_DEFAULT)
 DEST ?= $(GOPATH)/src/$(GIT_HOST)/$(BASE_DIR)
 VERSION ?= $(shell cat COMPONENT_VERSION 2> /dev/null)
 IMAGE_NAME_AND_VERSION ?= $(REGISTRY)/$(IMG)
+KIND_VERSION ?= "latest"
 
 
 LOCAL_OS := $(shell uname)
@@ -83,10 +85,8 @@ work: $(GOBIN)
 # format section
 ############################################################
 
-# All available format: format-go format-protos format-python
-# Default value will run all formats, override these make target with your requirements:
-#    eg: fmt: format-go format-protos
-fmt: format-go format-protos format-python
+fmt:
+	find . -type d -not -path "./\.*" ! -path "./build*" ! -path "./vbh" | go fmt
 
 ############################################################
 # check section
@@ -128,7 +128,7 @@ local:
 
 build-images:
 	@docker build -t ${IMAGE_NAME_AND_VERSION} -f build/Dockerfile .
-	@docker tag ${IMAGE_NAME_AND_VERSION} $(REGISTRY)/$(IMG):latest
+	@docker tag ${IMAGE_NAME_AND_VERSION} $(REGISTRY)/$(IMG):$(TAG)
 
 ############################################################
 # clean section
@@ -165,9 +165,20 @@ kind-deploy-controller: check-env
 	kubectl create secret -n multicluster-endpoint docker-registry multiclusterhub-operator-pull-secret --docker-server=quay.io --docker-username=${DOCKER_USER} --docker-password=${DOCKER_PASS}
 	kubectl apply -f deploy/ -n multicluster-endpoint
 
+kind-deploy-controller-dev:
+	@echo Pushing image to KinD cluster
+	kind load docker-image $(REGISTRY)/$(IMG):$(TAG) --name test-managed
+	@echo Installing config policy controller
+	kubectl create ns multicluster-endpoint
+	kubectl apply -f deploy/ -n multicluster-endpoint
+	@echo "Patch deployment image"
+	kubectl patch deployment config-policy-ctrl -n multicluster-endpoint -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"config-policy-ctrl\",\"imagePullPolicy\":\"Never\"}]}}}}"
+	kubectl patch deployment config-policy-ctrl -n multicluster-endpoint -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"config-policy-ctrl\",\"image\":\"$(REGISTRY)/$(IMG):$(TAG)\"}]}}}}"
+	kubectl rollout status -n multicluster-endpoint deployment config-policy-ctrl --timeout=180s
+
 kind-create-cluster:
 	@echo "creating cluster"
-	kind create cluster --name test-managed
+	kind create cluster --name test-managed --image kindest/node:$(KIND_VERSION)
 	kind get kubeconfig --name test-managed > $(PWD)/kubeconfig_managed
 
 kind-delete-cluster:
@@ -185,7 +196,7 @@ install-resources:
 	kubectl create ns managed
 
 e2e-test:
-	${GOPATH}/bin/ginkgo -v --slowSpecThreshold=10 test/e2e
+	${GOPATH}/bin/ginkgo -v --failFast --slowSpecThreshold=10 test/e2e
 
 ############################################################
 # e2e test coverage

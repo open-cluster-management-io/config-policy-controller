@@ -1,0 +1,100 @@
+name: KinD tests
+
+on:
+  push:
+    branches:
+      - main
+      - release-2.3
+  pull_request:
+    branches:
+      - main
+      - release-2.3
+
+defaults:
+  run:
+    shell: bash
+    working-directory: config-policy-controller
+
+jobs:
+  kind-tests:
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: localhost:5000
+    strategy:
+      matrix:
+        go:
+          - '1.14'
+        # Run tests on oldest and newest supported OCP Kubernetes
+        # - OCP 4.5 runs Kubernetes v1.18
+        # KinD tags: https://hub.docker.com/r/kindest/node/tags
+        kind:
+          - 'v1.18.15'
+          - 'v1.19.7' # This should be latest, but needs to be fixed by #10364
+    name: KinD tests
+    steps:
+    - name: Checkout Config Policy Controller
+      uses: actions/checkout@v2
+      with:
+        path: config-policy-controller
+        fetch-depth: 0 # Fetch all history for all tags and branches
+
+    - name: Set up Go - ${{ matrix.go }}
+      uses: actions/setup-go@v2
+      id: go
+      with:
+        go-version: ${{ matrix.go }}
+
+    - name: Verify modules
+      run: |
+        go mod verify
+
+    - name: Verify format
+      run: |
+        make fmt
+        git diff --exit-code
+
+    - name: Create K8s KinD Cluster - ${{ matrix.kind }}
+      env:
+        KIND_VERSION: ${{ matrix.kind }}
+      run: |
+        make kind-bootstrap-cluster-dev
+
+    - name: Build and Push Image to KinD node
+      env:
+        TAG: ${{ github.sha }}
+      run: |
+        make build-images
+        make kind-deploy-controller-dev
+
+    - name: Unit and Integration Tests
+      run: |
+        curl -L https://go.kubebuilder.io/dl/2.3.0/"$(go env GOOS)"/"$(go env GOARCH)" | tar -xz -C /tmp/
+        sudo mv /tmp/kubebuilder_2.3.0_"$(go env GOOS)"_"$(go env GOARCH)" /usr/local/kubebuilder
+        export PATH=$PATH:/usr/local/kubebuilder/bin
+        make test
+
+    - name: E2E Tests
+      run: |
+        export GOPATH=$(go env GOPATH)
+        go get github.com/onsi/ginkgo/ginkgo
+        go get github.com/onsi/gomega/...
+        make e2e-test
+
+    - name: SonarCloud Analysis
+      if: ${{ github.event_name == 'push' }}
+      run: |
+        echo "SonarCloud not implemented."
+
+    - name: Debug
+      if: ${{ failure() }}
+      run: |
+        kubectl get all -n multicluster-endpoint
+        kubectl get all -n managed
+        kubectl get configurationpolicies.policy.open-cluster-management.io --all-namespaces
+        kubectl describe pods -n multicluster-endpoint
+        kubectl logs $(kubectl get pods -n multicluster-endpoint -o name | grep config-policy) -n multicluster-endpoint
+
+    - name: Clean up cluster
+      if: ${{ always() }}
+      run: |
+        make kind-delete-cluster
