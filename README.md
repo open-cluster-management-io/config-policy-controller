@@ -1,6 +1,6 @@
 [comment]: # ( Copyright Contributors to the Open Cluster Management project )
 
-# Configuration Policy Controller [![KinD tests]([![KinD tests](https://github.com/open-cluster-management/config-policy-controller/actions/workflows/kind.yml/badge.svg?branch=main&event=push)](https://github.com/open-cluster-management/config-policy-controller/actions/workflows/kind.yml))
+# Configuration Policy Controller [![KinD tests](https://github.com/open-cluster-management/config-policy-controller/actions/workflows/kind.yml/badge.svg?branch=main&event=push)](https://github.com/open-cluster-management/config-policy-controller/actions/workflows/kind.yml)
 Red Hat Advanced Cluster Management - Governance - Configuration Policy Controller
 
 ## How it works
