@@ -36,13 +36,22 @@ GOPATH_DEFAULT := $(PWD)/.go
 export GOPATH ?= $(GOPATH_DEFAULT)
 GOBIN_DEFAULT := $(GOPATH)/bin
 export GOBIN ?= $(GOBIN_DEFAULT)
+GOARCH = $(shell go env GOARCH)
+GOOS = $(shell go env GOOS)
 TESTARGS_DEFAULT := "-v"
 export TESTARGS ?= $(TESTARGS_DEFAULT)
 DEST ?= $(GOPATH)/src/$(GIT_HOST)/$(BASE_DIR)
 VERSION ?= $(shell cat COMPONENT_VERSION 2> /dev/null)
 IMAGE_NAME_AND_VERSION ?= $(REGISTRY)/$(IMG)
-KIND_VERSION ?= "latest"
-
+# Handle KinD configuration
+KIND_NAME ?= test-managed
+KIND_NAMESPACE ?= multicluster-endpoint
+KIND_VERSION ?= latest
+ifneq ($(KIND_VERSION), latest)
+	KIND_ARGS = --image kindest/node:$(KIND_VERSION)
+else
+	KIND_ARGS =
+endif
 
 LOCAL_OS := $(shell uname)
 ifeq ($(LOCAL_OS),Linux)
@@ -86,7 +95,7 @@ work: $(GOBIN)
 ############################################################
 
 fmt:
-	find . -type d -not -path "./\.*" ! -path "./build*" ! -path "./vbh" | go fmt
+	go fmt ./...
 
 ############################################################
 # check section
@@ -105,6 +114,11 @@ lint: lint-all
 
 test:
 	@go test ${TESTARGS} `go list ./... | grep -v test/e2e`
+
+test-dependencies:
+	curl -L https://go.kubebuilder.io/dl/2.3.0/$(GOOS)/$(GOARCH) | tar -xz -C /tmp/
+	sudo mv /tmp/kubebuilder_2.3.0_$(GOOS)_$(GOARCH) /usr/local/kubebuilder
+	export PATH=$PATH:/usr/local/kubebuilder/bin
 
 ############################################################
 # coverage section
@@ -167,22 +181,23 @@ kind-deploy-controller: check-env
 
 kind-deploy-controller-dev:
 	@echo Pushing image to KinD cluster
-	kind load docker-image $(REGISTRY)/$(IMG):$(TAG) --name test-managed
-	@echo Installing config policy controller
-	kubectl create ns multicluster-endpoint
-	kubectl apply -f deploy/ -n multicluster-endpoint
+	kind load docker-image $(REGISTRY)/$(IMG):$(TAG) --name $(KIND_NAME)
+	@echo Installing $(IMG)
+	kubectl create ns $(KIND_NAMESPACE)
+	kubectl apply -f deploy/ -n $(KIND_NAMESPACE)
 	@echo "Patch deployment image"
-	kubectl patch deployment config-policy-ctrl -n multicluster-endpoint -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"config-policy-ctrl\",\"imagePullPolicy\":\"Never\"}]}}}}"
-	kubectl patch deployment config-policy-ctrl -n multicluster-endpoint -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"config-policy-ctrl\",\"image\":\"$(REGISTRY)/$(IMG):$(TAG)\"}]}}}}"
-	kubectl rollout status -n multicluster-endpoint deployment config-policy-ctrl --timeout=180s
+	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"imagePullPolicy\":\"Never\"}]}}}}"
+	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"image\":\"$(REGISTRY)/$(IMG):$(TAG)\"}]}}}}"
+	kubectl rollout status -n $(KIND_NAMESPACE) deployment $(IMG) --timeout=180s
 
+# Specify KIND_VERSION to indicate the version tag of the KinD image
 kind-create-cluster:
 	@echo "creating cluster"
-	kind create cluster --name test-managed --image kindest/node:$(KIND_VERSION)
-	kind get kubeconfig --name test-managed > $(PWD)/kubeconfig_managed
+	kind create cluster --name $(KIND_NAME) $(KIND_ARGS)
+	kind get kubeconfig --name $(KIND_NAME) > $(PWD)/kubeconfig_managed
 
 kind-delete-cluster:
-	kind delete cluster --name test-managed
+	kind delete cluster --name $(KIND_NAME)
 
 install-crds:
 	@echo installing crds
@@ -197,6 +212,17 @@ install-resources:
 
 e2e-test:
 	${GOPATH}/bin/ginkgo -v --failFast --slowSpecThreshold=10 test/e2e
+
+e2e-dependencies:
+	go get github.com/onsi/ginkgo/ginkgo
+	go get github.com/onsi/gomega/...
+
+e2e-debug:
+	kubectl get all -n $(KIND_NAMESPACE)
+	kubectl get all -n managed
+	kubectl get configurationpolicies.policy.open-cluster-management.io --all-namespaces
+	kubectl describe pods -n $(KIND_NAMESPACE)
+	kubectl logs $(kubectl get pods -n $(KIND_NAMESPACE) -o name | grep $(IMG)) -n $(KIND_NAMESPACE)
 
 ############################################################
 # e2e test coverage

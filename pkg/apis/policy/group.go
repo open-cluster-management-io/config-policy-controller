@@ -1,7 +1,6 @@
 // Copyright (c) 2020 Red Hat, Inc.
 // Copyright Contributors to the Open Cluster Management project
 
-
 // Package policy contains policies API versions.
 //
 // This file ensures Go source parsers acknowledge the policies package

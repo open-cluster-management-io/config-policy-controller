@@ -68,16 +68,13 @@ jobs:
 
     - name: Unit and Integration Tests
       run: |
-        curl -L https://go.kubebuilder.io/dl/2.3.0/"$(go env GOOS)"/"$(go env GOARCH)" | tar -xz -C /tmp/
-        sudo mv /tmp/kubebuilder_2.3.0_"$(go env GOOS)"_"$(go env GOARCH)" /usr/local/kubebuilder
-        export PATH=$PATH:/usr/local/kubebuilder/bin
+        make test-dependencies
         make test
 
     - name: E2E Tests
       run: |
         export GOPATH=$(go env GOPATH)
-        go get github.com/onsi/ginkgo/ginkgo
-        go get github.com/onsi/gomega/...
+        make e2e-dependencies
         make e2e-test
 
     - name: SonarCloud Analysis
@@ -88,11 +85,7 @@ jobs:
     - name: Debug
       if: ${{ failure() }}
       run: |
-        kubectl get all -n multicluster-endpoint
-        kubectl get all -n managed
-        kubectl get configurationpolicies.policy.open-cluster-management.io --all-namespaces
-        kubectl describe pods -n multicluster-endpoint
-        kubectl logs $(kubectl get pods -n multicluster-endpoint -o name | grep config-policy) -n multicluster-endpoint
+        make e2e-debug
 
     - name: Clean up cluster
       if: ${{ always() }}
