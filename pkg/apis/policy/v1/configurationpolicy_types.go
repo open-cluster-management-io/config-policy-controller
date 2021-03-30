@@ -77,6 +77,7 @@ type ObjectTemplate struct {
 	ComplianceType ComplianceType `json:"complianceType"`
 
 	// ObjectDefinition defines required fields for the object
+	// +kubebuilder:pruning:PreserveUnknownFields
 	ObjectDefinition runtime.RawExtension `json:"objectDefinition,omitempty"`
 }
 
