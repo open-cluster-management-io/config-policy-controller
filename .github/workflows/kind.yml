@@ -29,7 +29,7 @@ jobs:
         # KinD tags: https://hub.docker.com/r/kindest/node/tags
         kind:
           - 'v1.18.15'
-          - 'v1.19.7' # This should be latest, but needs to be fixed by #10364
+          - 'latest'
     name: KinD tests
     steps:
     - name: Checkout Config Policy Controller

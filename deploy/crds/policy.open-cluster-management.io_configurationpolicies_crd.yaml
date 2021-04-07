@@ -53,13 +53,14 @@ spec:
                 description: ObjectTemplate describes how an object should look
                 properties:
                   complianceType:
-                    description: 'ComplianceType specifies wether it is a : //musthave,
+                    description: 'ComplianceType specifies whether it is: musthave,
                       mustnothave, mustonlyhave'
                     type: string
                   objectDefinition:
                     description: ObjectDefinition defines required fields for the
                       object
                     type: object
+                    x-kubernetes-preserve-unknown-fields: true
                 required:
                 - complianceType
                 type: object
@@ -128,7 +129,6 @@ spec:
                   Policy resource.
                 properties:
                   compliant:
-                    description: Compliant or NonCompliant as determined by the policy for this resource.
                     type: string
                   object:
                     description: ObjectResource is an object identified by the policy
@@ -149,17 +149,14 @@ spec:
                           namespace:
                             description: 'Namespace of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/'
                             type: string
-                          selfLink:
-                            description: An unqualified REST API link to the referent.
-                            type: string
                         type: object
                     type: object
                   reason:
-                    description: A description of why the resource is not compliant or compliant.
                     type: string
                 type: object
               type: array
           type: object
+      type: object
   version: v1
   versions:
   - name: v1

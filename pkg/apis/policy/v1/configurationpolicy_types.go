@@ -71,9 +71,9 @@ type ConfigurationPolicySpec struct {
 	ObjectTemplates   []*ObjectTemplate `json:"object-templates,omitempty"`
 }
 
-//ObjectTemplate describes how an object should look
+// ObjectTemplate describes how an object should look
 type ObjectTemplate struct {
-	// ComplianceType specifies wether it is a : //musthave, mustnothave, mustonlyhave
+	// ComplianceType specifies whether it is: musthave, mustnothave, mustonlyhave
 	ComplianceType ComplianceType `json:"complianceType"`
 
 	// ObjectDefinition defines required fields for the object
@@ -88,17 +88,17 @@ type ConfigurationPolicyStatus struct {
 	RelatedObjects    []RelatedObject  `json:"relatedObjects,omitempty"`    // List of resources processed by the policy
 }
 
-//CompliancePerClusterStatus contains aggregate status of other policies in cluster
+// CompliancePerClusterStatus contains aggregate status of other policies in cluster
 type CompliancePerClusterStatus struct {
 	AggregatePolicyStatus map[string]*ConfigurationPolicyStatus `json:"aggregatePoliciesStatus,omitempty"`
 	ComplianceState       ComplianceState                       `json:"compliant,omitempty"`
 	ClusterName           string                                `json:"clustername,omitempty"`
 }
 
-//ComplianceMap map to hold CompliancePerClusterStatus objects
+// ComplianceMap map to hold CompliancePerClusterStatus objects
 type ComplianceMap map[string]*CompliancePerClusterStatus
 
-//ResourceState genric description of a state
+// ResourceState genric description of a state
 type ResourceState string
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
@@ -142,7 +142,7 @@ type PolicyList struct {
 	Items []Policy `json:"items"`
 }
 
-//TemplateStatus hold the status result
+// TemplateStatus hold the status result
 type TemplateStatus struct {
 	ComplianceState ComplianceState `json:"Compliant,omitempty"` // Compliant, NonCompliant, UnkownCompliancy
 	// +optional
@@ -153,13 +153,13 @@ type TemplateStatus struct {
 	Validity Validity `json:"Validity,omitempty"` // a template can be invalid if it has conflicting roles
 }
 
-//Validity describes if it is valid or not
+// Validity describes if it is valid or not
 type Validity struct {
 	Valid  *bool  `json:"valid,omitempty"`
 	Reason string `json:"reason,omitempty"`
 }
 
-//ComplianceType describe whether we must or must not have a given resource
+// ComplianceType describes whether we must or must not have a given resource
 type ComplianceType string
 
 const (
@@ -174,9 +174,9 @@ const (
 )
 
 // PolicyRuleTemplate holds information that describes a policy rule, but does not contain information
-// about who the rule applies to or which namespace the rule applies to. We added the compliance type to it for HCM
+// about who the rule applies to or which namespace the rule applies to.
 type PolicyRuleTemplate struct {
-	// ComplianceType specifies wether it is a : //musthave, mustnothave, mustonlyhave
+	// ComplianceType specifies whether it is: musthave, mustnothave, mustonlyhave
 	ComplianceType ComplianceType `json:"complianceType"`
 	// PolicyRule
 	PolicyRule rbacv1.PolicyRule `json:"policyRule"`
@@ -208,8 +208,6 @@ type ObjectMetadata struct {
 	Name string `json:"name,omitempty"`
 	// Namespace of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
 	Namespace string `json:"namespace,omitempty"`
-	// An unqualified REST API link to the referent.
-	SelfLink string `json:"selfLink,omitempty"`
 }
 
 func init() {

@@ -17,8 +17,7 @@ import (
 // details on whether the object is compliant or not compliant with the policy.  The results are updated in the
 // policy's Status information.
 func addRelatedObjects(policy *policyv1.ConfigurationPolicy, compliant bool, rsrc schema.GroupVersionResource,
-	namespace string, namespaced bool, objNames []string,
-	nameLinkMap map[string]string, reason string) (relatedObjects []policyv1.RelatedObject) {
+	namespace string, namespaced bool, objNames []string, reason string) (relatedObjects []policyv1.RelatedObject) {
 
 	for _, name := range objNames {
 		// Initialize the related object from the object handling
@@ -37,12 +36,6 @@ func addRelatedObjects(policy *policyv1.ConfigurationPolicy, compliant bool, rsr
 			metadata.Namespace = namespace
 		} else {
 			metadata.Namespace = ""
-		}
-		selfLink, ok := nameLinkMap[name]
-		if ok {
-			metadata.SelfLink = selfLink
-		} else {
-			metadata.SelfLink = ""
 		}
 		relatedObject.Object.APIVersion = rsrc.GroupVersion().String()
 		relatedObject.Object.Kind = rsrc.Resource
