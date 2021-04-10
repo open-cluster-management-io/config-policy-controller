@@ -46,8 +46,7 @@ var (
 	gvrNS                 schema.GroupVersionResource
 	gvrSCC                schema.GroupVersionResource
 
-	defaultImageRegistry       string
-	defaultImagePullSecretName string
+	defaultImageRegistry string
 )
 
 func TestE2e(t *testing.T) {
@@ -72,7 +71,6 @@ var _ = BeforeSuite(func() {
 	clientManaged = NewKubeClient("", kubeconfigManaged, "")
 	clientManagedDynamic = NewKubeClientDynamic("", kubeconfigManaged, "")
 	defaultImageRegistry = "quay.io/open-cluster-management"
-	defaultImagePullSecretName = "multiclusterhub-operator-pull-secret"
 	testNamespace = "managed"
 	defaultTimeoutSeconds = 60
 	By("Create Namespace if needed")

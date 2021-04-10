@@ -45,8 +45,9 @@ VERSION ?= $(shell cat COMPONENT_VERSION 2> /dev/null)
 IMAGE_NAME_AND_VERSION ?= $(REGISTRY)/$(IMG)
 # Handle KinD configuration
 KIND_NAME ?= test-managed
-KIND_NAMESPACE ?= multicluster-endpoint
+KIND_NAMESPACE ?= open-cluster-management-agent-addon
 KIND_VERSION ?= latest
+MANAGED_CLUSTER_NAME ?= managed
 ifneq ($(KIND_VERSION), latest)
 	KIND_ARGS = --image kindest/node:$(KIND_VERSION)
 else
@@ -174,21 +175,24 @@ ifndef DOCKER_PASS
 	$(error DOCKER_PASS is undefined)
 endif
 
-kind-deploy-controller: check-env
+kind-deploy-controller:
 	@echo installing config policy controller
-	kubectl create ns multicluster-endpoint
-	kubectl create secret -n multicluster-endpoint docker-registry multiclusterhub-operator-pull-secret --docker-server=quay.io --docker-username=${DOCKER_USER} --docker-password=${DOCKER_PASS}
-	kubectl apply -f deploy/ -n multicluster-endpoint
+	kubectl create ns $(KIND_NAMESPACE) || true
+	kubectl apply -f deploy/crds/v1/policy.open-cluster-management.io_configurationpolicies.yaml
+	kubectl apply -f deploy/ -n $(KIND_NAMESPACE)
+	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"env\":[{\"name\":\"WATCH_NAMESPACE\",\"value\":\"$(MANAGED_CLUSTER_NAME)\"}]}]}}}}"
 
 kind-deploy-controller-dev:
 	@echo Pushing image to KinD cluster
 	kind load docker-image $(REGISTRY)/$(IMG):$(TAG) --name $(KIND_NAME)
 	@echo Installing $(IMG)
 	kubectl create ns $(KIND_NAMESPACE)
+	kubectl apply -f deploy/crds/v1/policy.open-cluster-management.io_configurationpolicies.yaml
 	kubectl apply -f deploy/ -n $(KIND_NAMESPACE)
 	@echo "Patch deployment image"
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"imagePullPolicy\":\"Never\"}]}}}}"
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"image\":\"$(REGISTRY)/$(IMG):$(TAG)\"}]}}}}"
+	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"env\":[{\"name\":\"WATCH_NAMESPACE\",\"value\":\"$(MANAGED_CLUSTER_NAME)\"}]}]}}}}"
 	kubectl rollout status -n $(KIND_NAMESPACE) deployment $(IMG) --timeout=180s
 
 # Specify KIND_VERSION to indicate the version tag of the KinD image
@@ -202,14 +206,13 @@ kind-delete-cluster:
 
 install-crds:
 	@echo installing crds
-	kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies_crd.yaml
 	kubectl apply -f test/crds/clusterversions.config.openshift.io.yaml
 	kubectl apply -f test/crds/securitycontextconstraints.security.openshift.io_crd.yaml
 	kubectl apply -f test/crds/apiservers.config.openshift.io_crd.yaml
 
 install-resources:
 	@echo creating namespaces
-	kubectl create ns managed
+	kubectl create ns $(MANAGED_CLUSTER_NAME)
 
 e2e-test:
 	${GOPATH}/bin/ginkgo -v --failFast --slowSpecThreshold=10 test/e2e
@@ -220,7 +223,7 @@ e2e-dependencies:
 
 e2e-debug:
 	kubectl get all -n $(KIND_NAMESPACE)
-	kubectl get all -n managed
+	kubectl get all -n $(MANAGED_CLUSTER_NAME)
 	kubectl get configurationpolicies.policy.open-cluster-management.io --all-namespaces
 	kubectl describe pods -n $(KIND_NAMESPACE)
 	kubectl logs $$(kubectl get pods -n $(KIND_NAMESPACE) -o name | grep $(IMG)) -n $(KIND_NAMESPACE)
@@ -232,7 +235,7 @@ build-instrumented:
 	go test -covermode=atomic -coverpkg=github.com/open-cluster-management/$(IMG)... -c -tags e2e ./cmd/manager -o build/_output/bin/$(IMG)-instrumented
 
 run-instrumented:
-	WATCH_NAMESPACE="managed" ./build/_output/bin/$(IMG)-instrumented -test.run "^TestRunMain$$" -test.coverprofile=coverage_e2e.out &>/dev/null &
+	WATCH_NAMESPACE="$(MANAGED_CLUSTER_NAME)" ./build/_output/bin/$(IMG)-instrumented -test.run "^TestRunMain$$" -test.coverprofile=coverage_e2e.out &>/dev/null &
 
 stop-instrumented:
 	ps -ef | grep 'config-po' | grep -v grep | awk '{print $$2}' | xargs kill
