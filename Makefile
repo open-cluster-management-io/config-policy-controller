@@ -47,7 +47,7 @@ IMAGE_NAME_AND_VERSION ?= $(REGISTRY)/$(IMG)
 KIND_NAME ?= test-managed
 KIND_NAMESPACE ?= open-cluster-management-agent-addon
 KIND_VERSION ?= latest
-MANAGED_CLUSTER_NAME ?= managed
+WATCH_NAMESPACE ?= managed
 ifneq ($(KIND_VERSION), latest)
 	KIND_ARGS = --image kindest/node:$(KIND_VERSION)
 else
@@ -180,7 +180,7 @@ kind-deploy-controller:
 	kubectl create ns $(KIND_NAMESPACE) || true
 	kubectl apply -f deploy/crds/v1/policy.open-cluster-management.io_configurationpolicies.yaml
 	kubectl apply -f deploy/ -n $(KIND_NAMESPACE)
-	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"env\":[{\"name\":\"WATCH_NAMESPACE\",\"value\":\"$(MANAGED_CLUSTER_NAME)\"}]}]}}}}"
+	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"env\":[{\"name\":\"WATCH_NAMESPACE\",\"value\":\"$(WATCH_NAMESPACE)\"}]}]}}}}"
 
 kind-deploy-controller-dev:
 	@echo Pushing image to KinD cluster
@@ -192,7 +192,7 @@ kind-deploy-controller-dev:
 	@echo "Patch deployment image"
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"imagePullPolicy\":\"Never\"}]}}}}"
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"image\":\"$(REGISTRY)/$(IMG):$(TAG)\"}]}}}}"
-	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"env\":[{\"name\":\"WATCH_NAMESPACE\",\"value\":\"$(MANAGED_CLUSTER_NAME)\"}]}]}}}}"
+	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"env\":[{\"name\":\"WATCH_NAMESPACE\",\"value\":\"$(WATCH_NAMESPACE)\"}]}]}}}}"
 	kubectl rollout status -n $(KIND_NAMESPACE) deployment $(IMG) --timeout=180s
 
 # Specify KIND_VERSION to indicate the version tag of the KinD image
@@ -212,7 +212,7 @@ install-crds:
 
 install-resources:
 	@echo creating namespaces
-	kubectl create ns $(MANAGED_CLUSTER_NAME)
+	kubectl create ns $(WATCH_NAMESPACE)
 
 e2e-test:
 	${GOPATH}/bin/ginkgo -v --failFast --slowSpecThreshold=10 test/e2e
@@ -223,7 +223,7 @@ e2e-dependencies:
 
 e2e-debug:
 	kubectl get all -n $(KIND_NAMESPACE)
-	kubectl get all -n $(MANAGED_CLUSTER_NAME)
+	kubectl get all -n $(WATCH_NAMESPACE)
 	kubectl get configurationpolicies.policy.open-cluster-management.io --all-namespaces
 	kubectl describe pods -n $(KIND_NAMESPACE)
 	kubectl logs $$(kubectl get pods -n $(KIND_NAMESPACE) -o name | grep $(IMG)) -n $(KIND_NAMESPACE)
@@ -235,7 +235,7 @@ build-instrumented:
 	go test -covermode=atomic -coverpkg=github.com/open-cluster-management/$(IMG)... -c -tags e2e ./cmd/manager -o build/_output/bin/$(IMG)-instrumented
 
 run-instrumented:
-	WATCH_NAMESPACE="$(MANAGED_CLUSTER_NAME)" ./build/_output/bin/$(IMG)-instrumented -test.run "^TestRunMain$$" -test.coverprofile=coverage_e2e.out &>/dev/null &
+	WATCH_NAMESPACE="$(WATCH_NAMESPACE)" ./build/_output/bin/$(IMG)-instrumented -test.run "^TestRunMain$$" -test.coverprofile=coverage_e2e.out &>/dev/null &
 
 stop-instrumented:
 	ps -ef | grep 'config-po' | grep -v grep | awk '{print $$2}' | xargs kill
