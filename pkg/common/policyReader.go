@@ -4,6 +4,8 @@
 package common
 
 import (
+	"context"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/golang/glog"
@@ -17,7 +19,7 @@ func getTheObject(namespaced bool, namespace string, name string,
 	rsrc schema.GroupVersionResource, dclient dynamic.Interface) (*unstructured.Unstructured, error) {
 	if !namespaced {
 		res := dclient.Resource(rsrc)
-		instance, err := res.Get(name, metav1.GetOptions{})
+		instance, err := res.Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				glog.V(6).Infof("response to retrieve a non namespaced object `%v` from the api-server: %v", name, err)
@@ -30,7 +32,7 @@ func getTheObject(namespaced bool, namespace string, name string,
 		}
 	} else {
 		res := dclient.Resource(rsrc).Namespace(namespace)
-		instance, err := res.Get(name, metav1.GetOptions{})
+		instance, err := res.Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
 				glog.V(6).Infof("response to retrieve a namespaced object `%v` from the api-server: %v", name, err)

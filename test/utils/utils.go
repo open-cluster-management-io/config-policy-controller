@@ -4,6 +4,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"io/ioutil"
 	"os/exec"
@@ -53,7 +54,7 @@ func GetClusterLevelWithTimeout(
 	Eventually(func() error {
 		var err error
 		namespace := clientHubDynamic.Resource(gvr)
-		obj, err = namespace.Get(name, metav1.GetOptions{})
+		obj, err = namespace.Get(context.TODO(), name, metav1.GetOptions{})
 		if wantFound && err != nil {
 			return err
 		}
@@ -87,7 +88,7 @@ func GetWithTimeout(
 	Eventually(func() error {
 		var err error
 		namespace := clientHubDynamic.Resource(gvr).Namespace(namespace)
-		obj, err = namespace.Get(name, metav1.GetOptions{})
+		obj, err = namespace.Get(context.TODO(), name, metav1.GetOptions{})
 		if wantFound && err != nil {
 			return err
 		}
@@ -122,7 +123,7 @@ func ListWithTimeout(
 
 	Eventually(func() error {
 		var err error
-		list, err = clientHubDynamic.Resource(gvr).List(opts)
+		list, err = clientHubDynamic.Resource(gvr).List(context.TODO(), opts)
 		if err != nil {
 			return err
 		} else {

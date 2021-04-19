@@ -4,6 +4,7 @@
 package configurationpolicy
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"strings"
@@ -377,7 +378,7 @@ func TestHandleAddingPolicy(t *testing.T) {
 		TypeMeta:   typeMeta,
 		ObjectMeta: objMeta,
 	}
-	simpleClient.CoreV1().Namespaces().Create(&ns)
+	simpleClient.CoreV1().Namespaces().Create(context.TODO(), &ns, metav1.CreateOptions{})
 	common.Initialize(&simpleClient, nil)
 	err := handleAddingPolicy(&samplePolicy)
 	assert.Nil(t, err)

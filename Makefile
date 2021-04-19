@@ -224,6 +224,7 @@ e2e-dependencies:
 e2e-debug:
 	kubectl get all -n $(KIND_NAMESPACE)
 	kubectl get all -n $(WATCH_NAMESPACE)
+	kubectl get leases -n $(KIND_NAMESPACE)
 	kubectl get configurationpolicies.policy.open-cluster-management.io --all-namespaces
 	kubectl describe pods -n $(KIND_NAMESPACE)
 	kubectl logs $$(kubectl get pods -n $(KIND_NAMESPACE) -o name | grep $(IMG)) -n $(KIND_NAMESPACE)
