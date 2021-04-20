@@ -1302,6 +1302,14 @@ func handleSingleKey(key string, unstruct unstructured.Unstructured, existingObj
 			if oldObj == nil || !checkFieldsWithSort(mergedObj, oldObj.(map[string]interface{})) {
 				updateNeeded = true
 			}
+		case ([]map[string]interface{}):
+			if oldObj == nil || !checkListFieldsWithSort(mergedObj, oldObj.([]map[string]interface{})) {
+				updateNeeded = true
+			}
+		case ([]interface{}):
+			if oldObj == nil || !checkListsMatch(mergedObj, oldObj.([]interface{})) {
+				updateNeeded = true
+			}
 		default:
 			if !reflect.DeepEqual(nJSON, oJSON) {
 				updateNeeded = true
