@@ -1170,6 +1170,10 @@ func mergeSpecsHelper(x1, x2 interface{}, ctype string) interface{} {
 }
 
 func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []interface{}) {
+	if ctype == "mustonlyhave" {
+		return new
+	}
+
 	newCopy := append([]interface{}{}, new...)
 	indexesSkipped := map[int]bool{}
 	for i := range newCopy {

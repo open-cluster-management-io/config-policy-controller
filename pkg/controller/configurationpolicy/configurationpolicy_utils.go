@@ -159,7 +159,19 @@ func checkListFieldsWithSort(mergedObj []map[string]interface{}, oldObj []map[st
 }
 
 func checkListsMatch(oVal []interface{}, mVal []interface{}) (m bool) {
+	if (oVal == nil && mVal != nil) || (oVal != nil && mVal == nil) {
+		return false
+	}
+	sort.Slice(oVal, func(i, j int) bool {
+		return fmt.Sprintf("%v", oVal[i]) < fmt.Sprintf("%v", oVal[j])
+	})
+	sort.Slice(mVal, func(x, y int) bool {
+		return fmt.Sprintf("%v", mVal[x]) < fmt.Sprintf("%v", mVal[y])
+	})
 	match := true
+	if len(mVal) != len(oVal) {
+		return false
+	}
 	for idx, oNestedVal := range oVal {
 		if fmt.Sprint(oNestedVal) != fmt.Sprint(mVal[idx]) {
 			match = false
