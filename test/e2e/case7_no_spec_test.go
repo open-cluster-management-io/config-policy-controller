@@ -101,7 +101,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 		})
 		It("should handle change field to null", func() {
 			By("Creating " + case7ConfigPolicyNameNull + " on managed")
-			utils.Kubectl("apply", "-f", case7PolicyYamlNull, "-n", testNamespace)
+			utils.Kubectl("apply", "-f", case7PolicyYamlNull, "-n", testNamespace, "--validate=false")
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case7ConfigPolicyNameNull, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
 			Eventually(func() interface{} {
