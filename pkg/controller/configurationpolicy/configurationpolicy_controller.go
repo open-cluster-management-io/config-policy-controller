@@ -18,6 +18,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	policyv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
 	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
+	templates "github.com/open-cluster-management/config-policy-controller/pkg/common/templates"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
@@ -126,6 +127,7 @@ func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset,
 	EventOnParent = strings.ToLower(eventParent)
 	recorder, _ = common.CreateRecorder(*KubeClient, controllerName)
 	config = kubeconfig
+	templates.InitializeKubeClient(kubeClient, kubeconfig)
 }
 
 //InitializeClient helper function to initialize kubeclient
@@ -308,6 +310,12 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 	}
 	relatedObjects := []policyv1.RelatedObject{}
 	parentUpdate := false
+
+	// initialize apiresources for template processing before starting objectTemplate processing
+	// this is optional but since apiresourcelist is already available,
+	// use this rather than re-discovering the list for generic-lookup
+	templates.SetAPIResources(apiresourcelist)
+
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string]map[string]interface{}{}
 		compliantObjects := map[string]map[string]interface{}{}
@@ -326,6 +334,38 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 			glog.Error(jsonErr)
 			return
 		}
+
+		// Here appears to be a  good place to hook in template processing
+		// This is at the head of objectemplate processing
+		// ( just before the perNamespace handling of objectDefinitions)
+
+		// check here to determine if the object definition has a template
+		// and execute  template-processing only if  there is a template pattern "{{" in it
+		// to avoid unnecessary parsing when there is no template in the definition.
+
+		if templates.HasTemplate(string(ext.Raw)) {
+			resolvedblob, tplErr := templates.ResolveTemplate(blob)
+			if tplErr != nil {
+				update := createViolation(&plc, 0, "Error processing template", tplErr.Error())
+				if update {
+					recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
+					addForUpdate(&plc)
+				}
+				return
+			}
+
+			//marshal it back and set it on the objectTemplate so be used  in processed further down
+			resolveddata, jsonErr := json.Marshal(resolvedblob)
+			if jsonErr != nil {
+				glog.Error(jsonErr)
+				return
+			}
+
+			//Set the resolved data for use in further processing
+			objectT.ObjectDefinition.Raw = resolveddata
+			blob = resolvedblob
+		}
+
 		unstruct.Object = blob.(map[string]interface{})
 		if md, ok := unstruct.Object["metadata"]; ok {
 			metadata := md.(map[string]interface{})
