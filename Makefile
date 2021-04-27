@@ -123,12 +123,6 @@ test-dependencies:
 	sudo mv /tmp/kubebuilder_$(KBVERSION)_$(GOOS)_$(GOARCH) /usr/local/kubebuilder
 
 ############################################################
-# coverage section
-############################################################
-coverage:
-	@build/common/scripts/codecov.sh
-
-############################################################
 # build section
 ############################################################
 
