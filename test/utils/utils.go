@@ -166,3 +166,11 @@ func GetStatusMessage(managedPlc *unstructured.Unstructured) (result interface{}
 	}
 	return nil
 }
+
+// GetFieldFromSecret parses data field of secrets for the specified field
+func GetFieldFromSecret(secret *unstructured.Unstructured, field string) (result interface{}) {
+	if secret.Object["data"] != nil {
+		return secret.Object["data"].(map[string]interface{})[field]
+	}
+	return nil
+}

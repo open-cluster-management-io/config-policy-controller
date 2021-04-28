@@ -203,6 +203,7 @@ install-crds:
 	kubectl apply -f test/crds/clusterversions.config.openshift.io.yaml
 	kubectl apply -f test/crds/securitycontextconstraints.security.openshift.io_crd.yaml
 	kubectl apply -f test/crds/apiservers.config.openshift.io_crd.yaml
+	kubectl apply -f test/crds/clusterclaims.cluster.open-cluster-management.io.yaml
 
 install-resources:
 	@echo creating namespaces
