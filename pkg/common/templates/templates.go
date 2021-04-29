@@ -67,14 +67,14 @@ func ResolveTemplate(tmplMap interface{}) (interface{}, error) {
 
 	tmpl, err := tmpl.Parse(templateStr)
 	if err != nil {
-		glog.Errorf("error parsing the template %v", err)
+		glog.Errorf("error parsing template map %v,\n template str %v,\n error: %v", tmplMap, templateStr, err)
 		return "", err
 	}
 
 	var buf strings.Builder
 	err = tmpl.Execute(&buf, "")
 	if err != nil {
-		glog.Errorf("error executing the template %v", err)
+		glog.Errorf("error executing the template map %v,\n template str %v,\n error: %v", tmplMap, templateStr, err)
 		return "", err
 	}
 
