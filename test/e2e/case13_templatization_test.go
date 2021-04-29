@@ -30,6 +30,8 @@ const case13CfgPolVerifyPodWithConfigMapYaml string = "../resources/case13_templ
 
 const case13LookupSecret string = "tmplt-policy-secret-lookup-check"
 const case13LookupSecretYaml string = "../resources/case13_templatization/case13_lookup_secret.yaml"
+const case13LookupClusterClaim string = "policy-pod-lookup-verify"
+const case13LookupClusterClaimYaml string = "../resources/case13_templatization/case13_lookup_cc.yaml"
 
 const case13Unterminated string = "policy-pod-create-unterminated"
 const case13UnterminatedYaml string = "../resources/case13_templatization/case13_unterminated.yaml"
@@ -118,7 +120,16 @@ var _ = Describe("Test templatization", func() {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case13LookupSecret, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			//create inform policy to check clusterclaim using generic lookup
+			utils.Kubectl("apply", "-f", case13LookupClusterClaimYaml, "-n", testNamespace)
+			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case13LookupClusterClaim, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case13LookupClusterClaim, testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetStatusMessage(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("pods [testvalue] in namespace default found as specified, therefore this Object template is compliant"))
 			utils.Kubectl("delete", "configurationpolicy", case13LookupSecretYaml, "-n", testNamespace)
+			utils.Kubectl("delete", "configurationpolicy", case13LookupClusterClaim, "-n", testNamespace)
 		})
 	})
 	Describe("test invalid templates", func() {

@@ -845,17 +845,17 @@ func getDetails(unstruct unstructured.Unstructured) (name string, kind string, n
 
 		metadata := md.(map[string]interface{})
 		if objectName, ok := metadata["name"]; ok {
-			name = objectName.(string)
+			name = strings.TrimSpace(objectName.(string))
 		}
 		// override the namespace if specified in objectTemplates
 		if objectns, ok := metadata["namespace"]; ok {
 			glog.V(5).Infof("overriding the namespace as it is specified in objectTemplates...")
-			namespace = objectns.(string)
+			namespace = strings.TrimSpace(objectns.(string))
 		}
 	}
 
 	if objKind, ok := unstruct.Object["kind"]; ok {
-		kind = objKind.(string)
+		kind = strings.TrimSpace(objKind.(string))
 	}
 	return name, kind, namespace
 }
