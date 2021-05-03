@@ -1,6 +1,6 @@
 module github.com/open-cluster-management/config-policy-controller
 
-go 1.14
+go 1.16
 
 require (
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
