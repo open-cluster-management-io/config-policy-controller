@@ -98,8 +98,8 @@ func TestResolveTemplate(t *testing.T) {
 	for _, test := range testcases {
 
 		//unmarshall to Interface
-
-		val, err := ResolveTemplate(fromYAML(test.inputTmpl))
+		tmplMap, _ := fromYAML(test.inputTmpl)
+		val, err := ResolveTemplate(tmplMap)
 
 		if err != nil {
 			if test.expectedErr == nil {
@@ -109,7 +109,7 @@ func TestResolveTemplate(t *testing.T) {
 				t.Fatalf("expected err: %s got err: %s", test.expectedErr, err)
 			}
 		} else {
-			val = toYAML(val)
+			val, _ := toYAML(val)
 			if val != test.expectedResult {
 				t.Fatalf("expected : %s , got : %s", test.expectedResult, val)
 			}

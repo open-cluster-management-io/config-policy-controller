@@ -54,6 +54,7 @@ func ResolveTemplate(tmplMap interface{}) (interface{}, error) {
 		"lookup":           lookup,
 		"base64enc":        base64encode,
 		"base64dec":        base64decode,
+		"indent":           indent,
 	}
 
 	// create template processor and Initialize function map
@@ -63,9 +64,12 @@ func ResolveTemplate(tmplMap interface{}) (interface{}, error) {
 	// ext.raw is jsonMarshalled data which the template processor is not accepting
 	// so marshalling  unmarshalled(ext.raw) to yaml to string
 
-	templateStr := toYAML(tmplMap)
+	templateStr, err := toYAML(tmplMap)
+	if err != nil {
+		return "", err
+	}
 
-	tmpl, err := tmpl.Parse(templateStr)
+	tmpl, err = tmpl.Parse(templateStr)
 	if err != nil {
 		glog.Errorf("error parsing template map %v,\n template str %v,\n error: %v", tmplMap, templateStr, err)
 		return "", err
@@ -80,27 +84,40 @@ func ResolveTemplate(tmplMap interface{}) (interface{}, error) {
 
 	resolvedTemplateStr := buf.String()
 	glog.V(2).Infof("resolved template: %v ", resolvedTemplateStr)
-
 	//unmarshall before returning
-	return fromYAML(resolvedTemplateStr), nil
+
+	resolvedTemplateIntf, err := fromYAML(resolvedTemplateStr)
+	if err != nil {
+		return "", err
+	}
+
+	return resolvedTemplateIntf, nil
 }
 
 // fromYAML converts a YAML document into a map[string]interface{}.
-func fromYAML(str string) map[string]interface{} {
+func fromYAML(str string) (map[string]interface{}, error) {
 	m := map[string]interface{}{}
 
 	if err := yaml.Unmarshal([]byte(str), &m); err != nil {
-		glog.Error(err)
+		glog.Errorf("error parsing the YAML  the template str %v , \n %v ", str, err)
+		return m, err
 	}
-	return m
+	return m, nil
 }
 
 // ftoYAML converts a  map[string]interface{} to  YAML document string
-func toYAML(v interface{}) string {
+func toYAML(v interface{}) (string, error) {
 	data, err := yaml.Marshal(v)
 	if err != nil {
-		glog.Error(err)
+		glog.Errorf("error parsing the YAML the template map %v , \n %v ", v, err)
+		return "", err
 	}
 
-	return strings.TrimSuffix(string(data), "\n")
+	return strings.TrimSuffix(string(data), "\n"), nil
+}
+
+func indent(spaces int, v string) string {
+	pad := strings.Repeat(" ", spaces)
+	npad := "\n" + pad + strings.Replace(v, "\n", "\n"+pad, -1)
+	return strings.TrimSpace(npad)
 }

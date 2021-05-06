@@ -5,7 +5,7 @@ package templates
 
 import (
 	"context"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"github.com/golang/glog"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -22,22 +22,17 @@ func fromClusterClaim(claimname string) (string, error) {
 		return "", dclientErr
 	}
 
-	var lookupErr error
 	getObj, getErr := dclient.Get(context.TODO(), claimname, metav1.GetOptions{})
-	if getErr == nil {
-		result = getObj.UnstructuredContent()
+	if getErr != nil {
+		glog.Errorf("Error retrieving clusterclaim : %v, %v", claimname, getErr)
+		return "", getErr
 	}
-	lookupErr = getErr
 
-	if lookupErr != nil {
-		if apierrors.IsNotFound(lookupErr) {
-			return "", nil
-		}
-	}
+	result = getObj.UnstructuredContent()
 
 	spec := result["spec"].(map[string]interface{})
 	if _, ok := spec["value"]; ok {
-		return spec["value"].(string), lookupErr
+		return spec["value"].(string), nil
 	}
-	return "", lookupErr
+	return "", nil
 }
