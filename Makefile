@@ -141,6 +141,17 @@ build-images:
 	@docker build -t ${IMAGE_NAME_AND_VERSION} -f build/Dockerfile .
 	@docker tag ${IMAGE_NAME_AND_VERSION} $(REGISTRY)/$(IMG):$(TAG)
 
+
+# Deploy controller in the configured Kubernetes cluster in ~/.kube/config
+deploy:
+	kubectl apply -f deploy/ -n $(CONTROLLER_NAMESPACE)
+	kubectl apply -f deploy/crds/ -n $(CONTROLLER_NAMESPACE)
+	kubectl set env deployment/$(IMG) -n $(CONTROLLER_NAMESPACE) WATCH_NAMESPACE=$(WATCH_NAMESPACE)
+
+create-ns:
+	@kubectl create namespace $(CONTROLLER_NAMESPACE) || true
+	@kubectl create namespace $(WATCH_NAMESPACE) || true
+
 ############################################################
 # clean section
 ############################################################

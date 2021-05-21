@@ -1,5 +1,3 @@
-[comment]: # ( Copyright Contributors to the Open Cluster Management project )
-
 **Table of Contents**
 
 - [Contributing guidelines](#contributing-guidelines)
@@ -10,7 +8,6 @@
     - [Contributing a patch](#contributing-a-patch)
     - [Issue and pull request management](#issue-and-pull-request-management)
     - [Pre-check before submitting a PR](#pre-check-before-submitting-a-pr)
-    - [Build images](#build-images)
 
 # Contributing guidelines
 
@@ -30,7 +27,7 @@ You must sign off your commit to state that you certify the [DCO](https://github
 Signed-off-by: John Smith <john@example.com>
 ```
 
-This can be done with the `--signoff` option to `git commit`. See the [Git documentation](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt--s) for details. You can also mass sign-off a whole pull request with `git rebase --signoff main`, replacing `main` with the branch you are creating a pull request into.
+This can be done with the `--signoff` option to `git commit`. See the [Git documentation](https://git-scm.com/docs/git-commit#Documentation/git-commit.txt--s) for details.
 
 ## Code of Conduct
 
@@ -46,22 +43,11 @@ The Open Cluster Management project has adopted the CNCF Code of Conduct. Refer 
 
 Anyone can comment on issues and submit reviews for pull requests. In order to be assigned an issue or pull request, you can leave a `/assign <your Github ID>` comment on the issue or pull request (PR).
 
-## Pre-check before submitting a PR 
+## Pre-check before submitting a PR
 
-After your PR is ready to commit, please run following commands to check your code.
+Before submitting a PR, please perform the following steps:
 
 ```shell
 make check
 make test
 ```
-
-## Build images
-
-Make sure your code build passed.
-
-```shell
-export BUILD_LOCALLY=1
-make
-```
-
-Now, you can follow the [getting started guide](./README.md#getting-started) to work with the Configuration Policy Controller.
