@@ -10,6 +10,7 @@ require (
 	github.com/onsi/gomega v1.10.2
 	github.com/open-cluster-management/addon-framework v0.0.0-20210419013051-38730a847aff
 	github.com/operator-framework/operator-sdk v0.19.4
+	github.com/spf13/cast v1.3.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.6.1
 	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b

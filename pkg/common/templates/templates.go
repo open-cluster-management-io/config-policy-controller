@@ -5,10 +5,12 @@ package templates
 
 import (
 	"github.com/golang/glog"
+	"github.com/spf13/cast"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/yaml"
+	"strconv"
 	"strings"
 	"text/template"
 )
@@ -55,6 +57,8 @@ func ResolveTemplate(tmplMap interface{}) (interface{}, error) {
 		"base64enc":        base64encode,
 		"base64dec":        base64decode,
 		"indent":           indent,
+		"atoi":             atoi,
+		"toInt":            toInt,
 	}
 
 	// create template processor and Initialize function map
@@ -120,4 +124,13 @@ func indent(spaces int, v string) string {
 	pad := strings.Repeat(" ", spaces)
 	npad := "\n" + pad + strings.Replace(v, "\n", "\n"+pad, -1)
 	return strings.TrimSpace(npad)
+}
+
+func toInt(v interface{}) int {
+	return cast.ToInt(v)
+}
+
+func atoi(a string) int {
+	i, _ := strconv.Atoi(a)
+	return i
 }

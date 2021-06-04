@@ -133,3 +133,19 @@ func TestHasTemplate(t *testing.T) {
 		}
 	}
 }
+func TestAtoi(t *testing.T) {
+	testcases := []struct {
+		input  string
+		result int
+	}{
+		{"123", 123},
+	}
+
+	for _, test := range testcases {
+		val := atoi(test.input)
+		if val != test.result {
+			t.Fatalf("expected : %v , got : %v", test.result, val)
+		}
+	}
+
+}
