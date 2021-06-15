@@ -152,6 +152,10 @@ create-ns:
 	@kubectl create namespace $(CONTROLLER_NAMESPACE) || true
 	@kubectl create namespace $(WATCH_NAMESPACE) || true
 
+# Run against the current locally configured Kubernetes cluster
+run:
+	go run ./cmd/manager/main.go
+
 ############################################################
 # clean section
 ############################################################

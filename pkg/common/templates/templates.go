@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"regexp"
 	"sigs.k8s.io/yaml"
 	"strconv"
 	"strings"
@@ -59,6 +60,7 @@ func ResolveTemplate(tmplMap interface{}) (interface{}, error) {
 		"indent":           indent,
 		"atoi":             atoi,
 		"toInt":            toInt,
+		"toBool":           toBool,
 	}
 
 	// create template processor and Initialize function map
@@ -71,6 +73,12 @@ func ResolveTemplate(tmplMap interface{}) (interface{}, error) {
 	templateStr, err := toYAML(tmplMap)
 	if err != nil {
 		return "", err
+	}
+	glog.V(2).Infof("Initial template str to resolve : %v ", templateStr)
+
+	//process for int or bool
+	if strings.Contains(templateStr, "toInt") || strings.Contains(templateStr, "toBool") {
+		templateStr = processForDataTypes(templateStr)
 	}
 
 	tmpl, err = tmpl.Parse(templateStr)
@@ -87,7 +95,7 @@ func ResolveTemplate(tmplMap interface{}) (interface{}, error) {
 	}
 
 	resolvedTemplateStr := buf.String()
-	glog.V(2).Infof("resolved template: %v ", resolvedTemplateStr)
+	glog.V(2).Infof("resolved template str : %v ", resolvedTemplateStr)
 	//unmarshall before returning
 
 	resolvedTemplateIntf, err := fromYAML(resolvedTemplateStr)
@@ -120,6 +128,29 @@ func toYAML(v interface{}) (string, error) {
 	return strings.TrimSuffix(string(data), "\n"), nil
 }
 
+func processForDataTypes(str string) string {
+
+	//the idea is to remove the quotes enclosing the template if it ends in toBool ot ToInt
+	//quotes around the resolved template forces the value to be a string..
+	//so removal of these quotes allows yaml to process the datatype correctly..
+
+	// the below pattern searches for optional block scalars | or >.. followed by the quoted template ,
+	// and replaces it with just the template txt thats inside in the quotes
+	// ex-1 key : "{{ "6" | toInt }}"  .. is replaced with  key : {{ "6" | toInt }}
+	// ex-2 key : |
+	//						"{{ "true" | toBool }}" .. is replaced with key : {{ "true" | toBool }}
+	re := regexp.MustCompile(`:\s+(?:[\|>][-]?\s+)?(?:['|"]\s*)?({{.*?\s+\|\s+(?:toInt|toBool)\s*}})(?:\s*['|"])?`)
+	glog.V(2).Infof("\n Pattern: %v\n", re.String())
+
+	submatchall := re.FindAllStringSubmatch(str, -1)
+	glog.V(2).Infof("\n All Submatches:\n%v", submatchall)
+
+	processeddata := re.ReplaceAllString(str, ": $1")
+	glog.V(2).Infof("\n processed data :\n%v", processeddata)
+
+	return processeddata
+}
+
 func indent(spaces int, v string) string {
 	pad := strings.Repeat(" ", spaces)
 	npad := "\n" + pad + strings.Replace(v, "\n", "\n"+pad, -1)
@@ -133,4 +164,9 @@ func toInt(v interface{}) int {
 func atoi(a string) int {
 	i, _ := strconv.Atoi(a)
 	return i
+}
+
+func toBool(a string) bool {
+	b, _ := strconv.ParseBool(a)
+	return b
 }

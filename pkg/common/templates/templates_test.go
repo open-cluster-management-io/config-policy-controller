@@ -147,5 +147,49 @@ func TestAtoi(t *testing.T) {
 			t.Fatalf("expected : %v , got : %v", test.result, val)
 		}
 	}
+}
 
+func TestToBool(t *testing.T) {
+	testcases := []struct {
+		input  string
+		result bool
+	}{
+		{"1", true},
+		{"blah", false},
+		{"TRUE", true},
+		{"F", false},
+		{"true", true},
+		{"false", false},
+	}
+
+	for _, test := range testcases {
+		val := toBool(test.input)
+		if val != test.result {
+			t.Fatalf("expected : %v , got : %v", test.result, val)
+		}
+	}
+}
+
+func TestProcessForDataTypes(t *testing.T) {
+	testcases := []struct {
+		input          string
+		expectedResult string
+	}{
+		{`key : "{{ "1" | toBool }}"`, `key : {{ "1" | toBool }}`},
+		{`key : |
+			"{{ "6" | toInt }}"`,
+			`key : {{ "6" | toInt }}`},
+		{`key1 : "{{ "1" | toInt }}"
+		  key2 : |-
+		 		{{ "test" | toBool | toInt }}`,
+			`key1 : {{ "1" | toInt }}
+		  key2 : {{ "test" | toBool | toInt }}`},
+	}
+
+	for _, test := range testcases {
+		val := processForDataTypes(test.input)
+		if val != test.expectedResult {
+			t.Fatalf("expected : %v , got : %v", test.expectedResult, val)
+		}
+	}
 }
