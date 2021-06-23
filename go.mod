@@ -8,7 +8,7 @@ require (
 	github.com/google/go-cmp v0.5.2
 	github.com/onsi/ginkgo v1.14.1
 	github.com/onsi/gomega v1.10.2
-	github.com/open-cluster-management/addon-framework v0.0.0-20210419013051-38730a847aff
+	github.com/open-cluster-management/addon-framework v0.0.0-20210621074027-a81f712c10c2
 	github.com/operator-framework/operator-sdk v0.19.4
 	github.com/spf13/cast v1.3.1
 	github.com/spf13/pflag v1.0.5

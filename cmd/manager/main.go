@@ -52,7 +52,7 @@ func printVersion() {
 func main() {
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
-	var eventOnParent string
+	var eventOnParent, clusterName, hubConfigSecretNs, hubConfigSecretName string
 	var frequency uint
 	var enableLease bool
 	pflag.UintVar(&frequency, "update-frequency", 10,
@@ -61,6 +61,9 @@ func main() {
 		"to also send status events on parent policy. options are: yes/no/ifpresent")
 	pflag.BoolVar(&enableLease, "enable-lease", false,
 		"If enabled, the controller will start the lease controller to report its status")
+	pflag.StringVar(&clusterName, "cluster-name", "acm-managed-cluster", "Name of the cluster")
+	pflag.StringVar(&hubConfigSecretNs, "hubconfig-secret-ns", "open-cluster-management-agent-addon", "Namespace for hub config kube-secret")
+	pflag.StringVar(&hubConfigSecretName, "hubconfig-secret-name", "policy-controller-hub-kubeconfig", "Name of the hub config kube-secret")
 
 	pflag.Parse()
 
@@ -128,6 +131,7 @@ func main() {
 	}
 	var generatedClient kubernetes.Interface = kubernetes.NewForConfigOrDie(mgr.GetConfig())
 	common.Initialize(&generatedClient, cfg)
+
 	policyStatusHandler.Initialize(cfg, client, &generatedClient, mgr, namespace, eventOnParent)
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
 	go policyStatusHandler.PeriodicallyExecConfigPolicies(frequency, false)
@@ -142,12 +146,22 @@ func main() {
 				os.Exit(1)
 			}
 		} else {
+
 			log.Info("Starting lease controller to report status")
 			leaseUpdater := lease.NewLeaseUpdater(
 				generatedClient,
 				"config-policy-controller",
 				operatorNs,
 			)
+
+			//set hubCfg on lease updated if found
+			hubCfg, _ := common.LoadHubConfig(hubConfigSecretNs, hubConfigSecretName)
+			if hubCfg != nil {
+				leaseUpdater = leaseUpdater.WithHubLeaseConfig(hubCfg, clusterName)
+			} else {
+				log.Error(err, "HubConfig not found, HubLeaseConfig not set")
+			}
+
 			go leaseUpdater.Start(ctx)
 		}
 	} else {

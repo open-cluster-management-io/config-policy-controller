@@ -241,6 +241,9 @@ e2e-debug:
 	kubectl get configurationpolicies.policy.open-cluster-management.io --all-namespaces
 	kubectl describe pods -n $(KIND_NAMESPACE)
 	kubectl logs $$(kubectl get pods -n $(KIND_NAMESPACE) -o name | grep $(IMG)) -n $(KIND_NAMESPACE)
+	kubectl get namespace open-cluster-management-agent-addon
+	kubectl get namespaces
+	kubectl get secrets -n open-cluster-management-agent-addon
 
 ############################################################
 # e2e test coverage
