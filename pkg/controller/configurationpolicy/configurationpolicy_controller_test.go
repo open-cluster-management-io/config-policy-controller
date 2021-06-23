@@ -572,3 +572,95 @@ func newRuleTemplate(verbs, apiGroups, resources, nonResourceURLs string, compli
 		},
 	}
 }
+
+func TestCreateInformStatus(t *testing.T) {
+	policy := &policiesv1alpha1.ConfigurationPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "default",
+		},
+		Spec: policiesv1alpha1.ConfigurationPolicySpec{
+			Severity: "low",
+			NamespaceSelector: policiesv1alpha1.Target{
+				Include: []string{"test1", "test2"},
+			},
+			RemediationAction: "inform",
+			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
+				&policiesv1alpha1.ObjectTemplate{
+					ComplianceType:   "musthave",
+					ObjectDefinition: runtime.RawExtension{},
+				},
+			},
+		},
+	}
+	objNamespaced := true
+	objData := map[string]interface{}{
+		"indx":        0,
+		"kind":        "Secret",
+		"desiredName": "myobject",
+		"namespaced":  objNamespaced,
+	}
+	mustNotHave := false
+	numCompliant := 0
+	numNonCompliant := 1
+	var nonCompliantObjects map[string]map[string]interface{} = make(map[string]map[string]interface{})
+	var compliantObjects map[string]map[string]interface{} = make(map[string]map[string]interface{})
+	nonCompliantObjects["test1"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+
+	// Test 1 NonCompliant resource
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+
+	nonCompliantObjects["test2"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+	numNonCompliant = 2
+
+	// Test 2 NonCompliant resources
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+
+	delete(nonCompliantObjects, "test1")
+	delete(nonCompliantObjects, "test2")
+
+	// Test 0 resources
+	numNonCompliant = 0
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+
+	compliantObjects["test1"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+	numCompliant = 1
+	nonCompliantObjects["test2"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+	numNonCompliant = 1
+
+	// Test 1 compliant and 1 noncompliant resource  NOTE: This use case is the new behavior change!
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+
+	compliantObjects["test2"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+	numCompliant = 2
+	numNonCompliant = 0
+	delete(nonCompliantObjects, "test2")
+
+	// Test 2 compliant resources
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.Compliant)
+}
