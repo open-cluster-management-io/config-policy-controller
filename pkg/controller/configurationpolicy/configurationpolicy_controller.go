@@ -498,7 +498,7 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 				plc, indx, compliant)
 		} else if numNonCompliant > 0 {
 			//noncompliant; musthave and some objects do not exist
-			update = createMustHaveStatus("", kind, nonCompliantObjects, namespaced, plc, indx, compliant)
+			update = createMustHaveStatus(desiredName, kind, nonCompliantObjects, namespaced, plc, indx, compliant)
 		} else { // Found only compliant resources (numCompliant > 0 and no NonCompliant)
 			//compliant; musthave and objects exist
 			compliant = true
