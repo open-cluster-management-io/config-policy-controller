@@ -186,3 +186,7 @@ Go to the [Contributing guide](CONTRIBUTING.md) to learn how to get involved.
 
 - The `config-policy-controller` is part of the `open-cluster-management` community. For more information, visit: [open-cluster-management.io](https://open-cluster-management.io).
 - Check the [Security guide](SECURITY.md) if you need to report a security issue.
+
+<!---
+Date: 6/30/2021
+-->
