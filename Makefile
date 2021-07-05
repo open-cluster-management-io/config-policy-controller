@@ -43,9 +43,10 @@ export TESTARGS ?= $(TESTARGS_DEFAULT)
 DEST ?= $(GOPATH)/src/$(GIT_HOST)/$(BASE_DIR)
 VERSION ?= $(shell cat COMPONENT_VERSION 2> /dev/null)
 IMAGE_NAME_AND_VERSION ?= $(REGISTRY)/$(IMG)
+CONTROLLER_NAMESPACE ?= open-cluster-management-agent-addon
 # Handle KinD configuration
 KIND_NAME ?= test-managed
-KIND_NAMESPACE ?= open-cluster-management-agent-addon
+KIND_NAMESPACE ?= $(CONTROLLER_NAMESPACE)
 KIND_VERSION ?= latest
 MANAGED_CLUSTER_NAME ?= managed
 WATCH_NAMESPACE ?= $(MANAGED_CLUSTER_NAME)
