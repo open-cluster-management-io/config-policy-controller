@@ -122,7 +122,7 @@ test:
 
 test-dependencies:
 	curl -L https://go.kubebuilder.io/dl/$(KBVERSION)/$(GOOS)/$(GOARCH) | tar -xz -C /tmp/
-	sudo mv /tmp/kubebuilder_$(KBVERSION)_$(GOOS)_$(GOARCH) /usr/local/kubebuilder
+	sudo mv -n /tmp/kubebuilder_$(KBVERSION)_$(GOOS)_$(GOARCH) /usr/local/kubebuilder
 
 ############################################################
 # build section
