@@ -69,7 +69,7 @@ else
     $(error "This system's OS $(LOCAL_OS) isn't recognized/supported")
 endif
 
-.PHONY: fmt lint test coverage build build-images
+.PHONY: fmt lint test coverage build build-images deploy
 
 USE_VENDORIZED_BUILD_HARNESS ?=
 
