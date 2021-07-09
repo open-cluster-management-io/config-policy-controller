@@ -103,17 +103,6 @@ fmt:
 	go fmt ./...
 
 ############################################################
-# check section
-############################################################
-
-check: lint
-
-# All available linters: lint-dockerfiles lint-scripts lint-yaml lint-copyright-banner lint-go lint-python lint-helm lint-markdown lint-sass lint-typescript lint-protos
-# Default value will run all linters, override these make target with your requirements:
-#    eg: lint: lint-go lint-yaml
-lint: lint-all
-
-############################################################
 # test section
 ############################################################
 
@@ -146,7 +135,7 @@ build-images:
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 deploy:
 	kubectl apply -f deploy/ -n $(CONTROLLER_NAMESPACE)
-	kubectl apply -f deploy/crds/ -R -n $(CONTROLLER_NAMESPACE)
+	kubectl apply -f deploy/crds/v1/ -n $(CONTROLLER_NAMESPACE)
 	kubectl set env deployment/$(IMG) -n $(CONTROLLER_NAMESPACE) WATCH_NAMESPACE=$(WATCH_NAMESPACE)
 
 create-ns:

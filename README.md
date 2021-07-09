@@ -156,7 +156,7 @@ Go to the [Contributing guide](CONTRIBUTING.md) to learn how to get involved.
 
   - Code linting
     ```bash
-    make lint
+    make fmt
     ```
   - Unit tests
     - Install prerequisites
