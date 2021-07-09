@@ -73,6 +73,22 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 	match := true
 	for i, mVal := range mergedObj {
 		switch mVal := mVal.(type) {
+		case (map[string]interface{}):
+			oVal, ok := oldObj[i].(map[string]interface{})
+			if !ok {
+				match = false
+				break
+			} else if !checkFieldsWithSort(mVal, oVal) {
+				match = false
+			}
+		case ([]map[string]interface{}):
+			oVal, ok := oldObj[i].([]map[string]interface{})
+			if !ok {
+				match = false
+				break
+			} else if !checkListFieldsWithSort(mVal, oVal) {
+				match = false
+			}
 		case ([]interface{}):
 			oVal, ok := oldObj[i].([]interface{})
 			if !ok {
@@ -91,14 +107,6 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 				if !checkListsMatch(oVal, mVal) {
 					match = false
 				}
-			}
-		case (map[string]interface{}):
-			oVal, ok := oldObj[i].(map[string]interface{})
-			if !ok {
-				match = false
-				break
-			} else if !checkFieldsWithSort(mVal, oVal) {
-				match = false
 			}
 		default:
 			oVal := oldObj[i]

@@ -1221,15 +1221,27 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 	if ctype == "mustonlyhave" {
 		return new
 	}
-
 	newCopy := append([]interface{}{}, new...)
 	indexesSkipped := map[int]bool{}
 	for i := range newCopy {
 		indexesSkipped[i] = false
 	}
-
+	oldItemSet := map[string]map[string]interface{}{}
 	for _, val2 := range old {
-		found := false
+		if entry, ok := oldItemSet[fmt.Sprint(val2)]; ok {
+			oldItemSet[fmt.Sprint(val2)]["count"] = entry["count"].(int) + 1
+		} else {
+			oldItemSet[fmt.Sprint(val2)] = map[string]interface{}{
+				"count": 1,
+				"value": val2,
+			}
+		}
+	}
+
+	for _, data := range oldItemSet {
+		count := 0
+		reqCount := data["count"]
+		val2 := data["value"]
 		for newIdx, val1 := range newCopy {
 			matches := false
 			if ctype != "mustonlyhave" {
@@ -1241,7 +1253,7 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 					mergedObj = val1
 				}
 				if reflect.DeepEqual(mergedObj, val2) && !indexesSkipped[newIdx] {
-					found = true
+					count = count + 1
 					matches = true
 				}
 				if matches && ctype != "mustonlyhave" && !indexesSkipped[newIdx] {
@@ -1250,12 +1262,14 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 				}
 
 			} else if reflect.DeepEqual(val1, val2) && !indexesSkipped[newIdx] {
-				found = true
+				count = count + 1
 				indexesSkipped[newIdx] = true
 			}
 		}
-		if !found {
-			new = append(new, val2)
+		if count < reqCount.(int) {
+			for i := 0; i < (reqCount.(int) - count); i++ {
+				new = append(new, val2)
+			}
 		}
 	}
 	return new
