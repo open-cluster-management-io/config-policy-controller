@@ -4,7 +4,6 @@
 
 Open Cluster Management - Configuration Policy Controller
 
-[![Build](https://img.shields.io/badge/build-Prow-informational)](https://prow.ci.openshift.org/?repo=open-cluster-management-io%2Fconfig-policy-controller)
 [![KinD tests](https://github.com/open-cluster-management-io/config-policy-controller/actions/workflows/kind.yml/badge.svg?branch=main&event=push)](https://github.com/open-cluster-management-io/config-policy-controller/actions/workflows/kind.yml)
 [![License](https://img.shields.io/:license-apache-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0.html)
 
