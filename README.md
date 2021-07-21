@@ -174,10 +174,22 @@ Go to the [Contributing guide](CONTRIBUTING.md) to learn how to get involved.
        ```bash
        make kind-bootstrap-cluster-dev
        ```
-    3. Start the controller locally (see [Steps for development](#steps-for-development))
+    3. Start the controller locally
+        ```bash
+        export WATCH_NAMESPACE=managed
+        make build
+        ```
+        ```bash
+        make build-images
+        ```
+        ```bash
+        make create-ns
+        ```
+        ```bash
+        make deploy
+        ```
     4. Run E2E tests:
        ```bash
-       export WATCH_NAMESPACE=managed
        make e2e-test
        ```
 
