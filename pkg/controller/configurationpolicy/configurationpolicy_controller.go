@@ -1178,6 +1178,11 @@ func mergeSpecsHelper(x1, x2 interface{}, ctype string) interface{} {
 			}
 		}
 	case []interface{}:
+		if !isSorted(x1) {
+			sort.Slice(x1, func(i, j int) bool {
+				return fmt.Sprintf("%v", x1[i]) < fmt.Sprintf("%v", x1[j])
+			})
+		}
 		x2, ok := x2.([]interface{})
 		if !ok {
 			return x1
@@ -1217,6 +1222,17 @@ func mergeSpecsHelper(x1, x2 interface{}, ctype string) interface{} {
 	return strings.TrimSpace(x1.(string))
 }
 
+func isSorted(arr []interface{}) (result bool) {
+	arrCopy := append([]interface{}{}, arr...)
+	sort.Slice(arr, func(i, j int) bool {
+		return fmt.Sprintf("%v", arr[i]) < fmt.Sprintf("%v", arr[j])
+	})
+	if fmt.Sprint(arrCopy) != fmt.Sprint(arr) {
+		return false
+	}
+	return true
+}
+
 func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []interface{}) {
 	if ctype == "mustonlyhave" {
 		return new
@@ -1252,7 +1268,7 @@ func mergeArrays(new []interface{}, old []interface{}, ctype string) (result []i
 				default:
 					mergedObj = val1
 				}
-				if reflect.DeepEqual(mergedObj, val2) && !indexesSkipped[newIdx] {
+				if equalObjWithSort(mergedObj, val2) && !indexesSkipped[newIdx] {
 					count = count + 1
 					matches = true
 				}
@@ -1352,34 +1368,8 @@ func handleSingleKey(key string, unstruct unstructured.Unstructured, existingObj
 			oldObj = formatMetadata(oldObj.(map[string]interface{}))
 			mergedObj = formatMetadata(mergedObj.(map[string]interface{}))
 		}
-		//check if merged spec has changed
-		nJSON, err := json.Marshal(mergedObj)
-		if err != nil {
-			message := fmt.Sprintf(convertJSONError, key, err)
-			return message, false, mergedObj, false
-		}
-		oJSON, err := json.Marshal(oldObj)
-		if err != nil {
-			message := fmt.Sprintf(convertJSONError, key, err)
-			return message, false, mergedObj, false
-		}
-		switch mergedObj := mergedObj.(type) {
-		case (map[string]interface{}):
-			if oldObj == nil || !checkFieldsWithSort(mergedObj, oldObj.(map[string]interface{})) {
-				updateNeeded = true
-			}
-		case ([]map[string]interface{}):
-			if oldObj == nil || !checkListFieldsWithSort(mergedObj, oldObj.([]map[string]interface{})) {
-				updateNeeded = true
-			}
-		case ([]interface{}):
-			if oldObj == nil || !checkListsMatch(mergedObj, oldObj.([]interface{})) {
-				updateNeeded = true
-			}
-		default:
-			if !reflect.DeepEqual(nJSON, oJSON) {
-				updateNeeded = true
-			}
+		if !equalObjWithSort(mergedObj, oldObj) {
+			updateNeeded = true
 		}
 		return "", updateNeeded, mergedObj, false
 	}

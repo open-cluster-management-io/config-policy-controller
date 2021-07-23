@@ -320,7 +320,7 @@ func TestCompareLists(t *testing.T) {
 	mergedExpected = []interface{}{
 		map[string]interface{}{
 			"apiGroups": []string{
-				"extensions", "apps",
+				"apps", "extensions",
 			},
 			"resources": []string{
 				"deployments",

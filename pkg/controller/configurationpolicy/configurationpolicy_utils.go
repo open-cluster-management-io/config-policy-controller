@@ -5,6 +5,7 @@ package configurationpolicy
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -68,8 +69,29 @@ func updateRelatedObjectsStatus(list []policyv1.RelatedObject,
 	return list
 }
 
+func equalObjWithSort(mergedObj interface{}, oldObj interface{}) (areEqual bool) {
+	switch mergedObj := mergedObj.(type) {
+	case (map[string]interface{}):
+		if oldObj == nil || !checkFieldsWithSort(mergedObj, oldObj.(map[string]interface{})) {
+			return false
+		}
+	case ([]interface{}):
+		if oldObj == nil || !checkListsMatch(mergedObj, oldObj.([]interface{})) {
+			return false
+		}
+	default:
+		if !reflect.DeepEqual(fmt.Sprint(mergedObj), fmt.Sprint(oldObj)) {
+			return false
+		}
+	}
+	return true
+}
+
 func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]interface{}) (matches bool) {
 	//needed to compare lists, since merge messes up the order
+	if len(mergedObj) < len(oldObj) {
+		return false
+	}
 	match := true
 	for i, mVal := range mergedObj {
 		switch mVal := mVal.(type) {
@@ -183,8 +205,15 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 		return false
 	}
 	for idx, oNestedVal := range oVal {
-		if fmt.Sprint(oNestedVal) != fmt.Sprint(mVal[idx]) {
-			match = false
+		switch oNestedVal := oNestedVal.(type) {
+		case (map[string]interface{}):
+			if !checkFieldsWithSort(mVal[idx].(map[string]interface{}), oNestedVal) {
+				match = false
+			}
+		default:
+			if fmt.Sprint(oNestedVal) != fmt.Sprint(mVal[idx]) {
+				match = false
+			}
 		}
 	}
 	return match

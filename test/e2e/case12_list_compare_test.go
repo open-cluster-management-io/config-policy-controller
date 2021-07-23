@@ -26,6 +26,13 @@ const case12RolePatchEnforceYaml string = "../resources/case12_list_compare/case
 const case12RolePatchInform string = "patch-role-configpolicy-inform"
 const case12RolePatchInformYaml string = "../resources/case12_list_compare/case12_role_patch_inform.yaml"
 
+const case12OauthCreate string = "policy-idp-create"
+const case12OauthPatch string = "policy-idp-patch"
+const case12OauthVerify string = "policy-idp-verify"
+const case12OauthCreateYaml string = "../resources/case12_list_compare/case12_oauth_create.yaml"
+const case12OauthPatchYaml string = "../resources/case12_list_compare/case12_oauth_patch.yaml"
+const case12OauthVerifyYaml string = "../resources/case12_list_compare/case12_oauth_verify.yaml"
+
 var _ = Describe("Test list handling for musthave", func() {
 	Describe("Create a policy with a nested list on managed cluster in ns:"+testNamespace, func() {
 		It("should be created properly on the managed cluster", func() {
@@ -87,6 +94,34 @@ var _ = Describe("Test list handling for musthave", func() {
 			Expect(plc).NotTo(BeNil())
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case12RolePatchInform, testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+		})
+	})
+	Describe("Create and patch an oauth object on managed cluster in ns:"+testNamespace, func() {
+		It("should be created properly on the managed cluster", func() {
+			By("Creating " + case12OauthCreate + " and " + case12OauthPatch + " on managed")
+			utils.Kubectl("apply", "-f", case12OauthCreateYaml, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case12OauthCreate, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case12OauthCreate, testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.Kubectl("delete", "-f", case12OauthCreateYaml, "-n", testNamespace)
+
+			utils.Kubectl("apply", "-f", case12OauthPatchYaml, "-n", testNamespace)
+			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case12OauthPatch, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case12OauthPatch, testNamespace, true, defaultTimeoutSeconds)
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.Kubectl("apply", "-f", case12OauthVerifyYaml, "-n", testNamespace)
+			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case12OauthVerify, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case12OauthVerify, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
