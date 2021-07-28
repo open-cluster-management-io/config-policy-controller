@@ -17,7 +17,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	policyv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
 	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
-	templates "github.com/open-cluster-management/config-policy-controller/pkg/common/templates"
+	templates "github.com/open-cluster-management/go-template-utils/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"

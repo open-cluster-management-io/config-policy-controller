@@ -9,17 +9,16 @@ require (
 	github.com/onsi/ginkgo v1.14.1
 	github.com/onsi/gomega v1.10.2
 	github.com/open-cluster-management/addon-framework v0.0.0-20210621074027-a81f712c10c2
+	github.com/open-cluster-management/go-template-utils v0.0.0-20210727143025-1d10434a6eb7
 	github.com/operator-framework/operator-sdk v0.19.4
-	github.com/spf13/cast v1.3.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stretchr/testify v1.6.1
-	golang.org/x/net v0.0.0-20201110031124-69a78807bb2b
+	golang.org/x/net v0.0.0-20210405180319-a5a99cb37ef4
 	k8s.io/api v0.20.5
 	k8s.io/apimachinery v0.20.5
 	k8s.io/client-go v12.0.0+incompatible
 	k8s.io/klog v1.0.0
 	sigs.k8s.io/controller-runtime v0.6.2
-	sigs.k8s.io/yaml v1.2.0
 )
 
 replace (
