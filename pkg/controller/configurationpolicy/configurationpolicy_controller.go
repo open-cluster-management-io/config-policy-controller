@@ -1231,8 +1231,8 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interf
 			return templateVal
 		}
 		if len(existingVal) > 0 {
-			//if there are more values in the existing object than the template and our complianceType is musthave,
-			//we need to merge in the extra data in the existing object to do a proper compare
+			//if both values are non-empty lists, we need to merge in the extra data in the existing
+			//object to do a proper compare
 			return mergeArrays(templateVal, existingVal, ctype)
 		}
 	case nil:
