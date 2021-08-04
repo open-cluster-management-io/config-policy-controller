@@ -49,6 +49,7 @@ var (
 	gvrSecret             schema.GroupVersionResource
 	gvrClusterClaim       schema.GroupVersionResource
 	gvrConfigMap          schema.GroupVersionResource
+	gvrDeployment         schema.GroupVersionResource
 
 	defaultImageRegistry string
 )
@@ -75,6 +76,7 @@ var _ = BeforeSuite(func() {
 	gvrSCC = schema.GroupVersionResource{Group: "security.openshift.io", Version: "v1", Resource: "securitycontextconstraints"}
 	gvrSecret = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
 	gvrClusterClaim = schema.GroupVersionResource{Group: "cluster.open-cluster-management.io", Version: "v1alpha1", Resource: "clusterclaims"}
+	gvrDeployment = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	clientManaged = NewKubeClient("", kubeconfigManaged, "")
 	clientManagedDynamic = NewKubeClientDynamic("", kubeconfigManaged, "")
 	defaultImageRegistry = "quay.io/open-cluster-management"

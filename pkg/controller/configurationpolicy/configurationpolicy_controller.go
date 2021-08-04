@@ -1246,8 +1246,7 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interf
 	if !ok {
 		return templateVal
 	}
-	//if value is a string, trim whitespace on it to avoid issues with compare
-	return strings.TrimSpace(templateVal.(string))
+	return templateVal.(string)
 }
 
 // isSorted is a helper function that checks whether an array is sorted
