@@ -308,11 +308,6 @@ func createResourceNameStr(names []string, namespace string, namespaced bool) (n
 //createMustHaveStatus generates a status for a musthave/mustonlyhave policy
 func createMustHaveStatus(desiredName string, kind string, complianceObjects map[string]map[string]interface{},
 	namespaced bool, plc *policyv1.ConfigurationPolicy, indx int, compliant bool) (update bool) {
-	// Noncompliant with no resources -- return violation immediately
-	if !compliant && desiredName == "" {
-		message := fmt.Sprintf("No instances of `%v` found as specified", kind)
-		return createViolation(plc, indx, "K8s does not have a `must have` object", message)
-	}
 	// Parse discovered resources
 	nameList := []string{}
 	sortedNamespaces := []string{}
@@ -320,6 +315,17 @@ func createMustHaveStatus(desiredName string, kind string, complianceObjects map
 		sortedNamespaces = append(sortedNamespaces, n)
 	}
 	sort.Strings(sortedNamespaces)
+
+	// Noncompliant with no resources -- return violation immediately
+	if !compliant && desiredName == "" {
+		message := fmt.Sprintf("No instances of `%v` found as specified", kind)
+		if len(sortedNamespaces) > 0 {
+			message = fmt.Sprintf("No instances of `%v` found as specified in namespaces: %v",
+				kind, strings.Join(sortedNamespaces, ", "))
+		}
+		return createViolation(plc, indx, "K8s does not have a `must have` object", message)
+	}
+
 	for i := range sortedNamespaces {
 		ns := sortedNamespaces[i]
 		names := complianceObjects[ns]["names"].([]string)

@@ -81,17 +81,20 @@ var _ = BeforeSuite(func() {
 	clientManagedDynamic = NewKubeClientDynamic("", kubeconfigManaged, "")
 	defaultImageRegistry = "quay.io/open-cluster-management"
 	testNamespace = "managed"
+	testNamespaces := []string{testNamespace, "range1", "range2"}
 	defaultTimeoutSeconds = 60
-	By("Create Namespace if needed")
+	By("Create Namespaces if needed")
 	namespaces := clientManaged.CoreV1().Namespaces()
-	if _, err := namespaces.Get(context.TODO(), testNamespace, metav1.GetOptions{}); err != nil && errors.IsNotFound(err) {
-		Expect(namespaces.Create(context.TODO(), &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: testNamespace,
-			},
-		}, metav1.CreateOptions{})).NotTo(BeNil())
+	for _, ns := range testNamespaces {
+		if _, err := namespaces.Get(context.TODO(), ns, metav1.GetOptions{}); err != nil && errors.IsNotFound(err) {
+			Expect(namespaces.Create(context.TODO(), &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: ns,
+				},
+			}, metav1.CreateOptions{})).NotTo(BeNil())
+		}
+		Expect(namespaces.Get(context.TODO(), ns, metav1.GetOptions{})).NotTo(BeNil())
 	}
-	Expect(namespaces.Get(context.TODO(), testNamespace, metav1.GetOptions{})).NotTo(BeNil())
 })
 
 func NewKubeClient(url, kubeconfig, context string) kubernetes.Interface {

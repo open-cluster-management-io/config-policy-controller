@@ -1,0 +1,32 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-unnamed-limitrange
+spec:
+  namespaceSelector:
+    exclude:
+      - open-cluster-management*
+      - kube-*
+      - openshift*
+      - hive
+      - default
+      - local-cluster
+      - acm*
+      - e2e*
+      - stackrox*
+    include:
+      - 'range*'
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: LimitRange
+        spec:
+          limits:
+            - default:
+                ephemeral-storage: '0'
+              defaultRequest:
+                ephemeral-storage: '0'
+              type: Container
+  remediationAction: inform
+  severity: high

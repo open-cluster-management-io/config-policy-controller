@@ -352,7 +352,11 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 			} else {
 				enforce = false
 				if !compliant {
-					numNonCompliant += len(names)
+					if len(names) == 0 {
+						numNonCompliant += 1
+					} else {
+						numNonCompliant += len(names)
+					}
 					nonCompliantObjects[ns] = map[string]interface{}{
 						"names":  names,
 						"reason": reason,
