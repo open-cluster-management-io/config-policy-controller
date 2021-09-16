@@ -232,15 +232,21 @@ func TestCompareSpecs(t *testing.T) {
 	}
 	assert.Equal(t, reflect.DeepEqual(merged, mergedExpected), true)
 	spec1 = map[string]interface{}{
-		"containers": map[string]string{
+		"containers": map[string]interface{}{
 			"image": "nginx1.7.9",
 			"test":  "1111",
+			"timestamp": map[string]int64{
+				"seconds": 1631796491,
+			},
 		},
 	}
 	spec2 = map[string]interface{}{
-		"containers": map[string]string{
+		"containers": map[string]interface{}{
 			"image": "nginx1.7.9",
 			"name":  "nginx",
+			"timestamp": map[string]int64{
+				"seconds": 1631796491,
+			},
 		},
 	}
 	merged, err = compareSpecs(spec1, spec2, "musthave")
@@ -248,10 +254,16 @@ func TestCompareSpecs(t *testing.T) {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
 	mergedExpected = map[string]interface{}{
-		"containers": map[string]string{
+		"containers": map[string]interface{}{
 			"image": "nginx1.7.9",
 			"name":  "nginx",
 			"test":  "1111",
+			// This verifies that the type of the number has not changed as part of compare specs.
+			// With standard JSON marshaling and unmarshaling, it will cause an int64 to be
+			// converted to a float64. This ensures this does not happen.
+			"timestamp": map[string]int64{
+				"seconds": 1631796491,
+			},
 		},
 	}
 	assert.Equal(t, reflect.DeepEqual(fmt.Sprint(merged), fmt.Sprint(mergedExpected)), true)
