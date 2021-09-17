@@ -297,6 +297,28 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		// and execute  template-processing only if  there is a template pattern "{{" in it
 		// to avoid unnecessary parsing when there is no template in the definition.
 
+		//first check to make sure there are no hub-templates with delimiter - {{hub
+		//if they exists, it means the template resolution on the hub did not succeed.
+		if templates.HasTemplate(objectT.ObjectDefinition.Raw, "{{hub") {
+			glog.Error("Configuration Policy has hub-templates. Error occured while processing hub-templates on the Hub Cluster.")
+
+			//check to see there is an annotation set to the hub error msg,
+			//if not ,set a generic msg
+			annotations := plc.GetAnnotations()
+			hubTemplatesErrMsg, ok := annotations["policy.open-cluster-management.io/hub-templates-error"]
+			if !ok || hubTemplatesErrMsg == "" {
+				//set a generic msg
+				hubTemplatesErrMsg = "Error occured while processing hub-templates, check the policy events for more details."
+			}
+
+			update := createViolation(&plc, 0, "Error processing hub templates", hubTemplatesErrMsg)
+			if update {
+				recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
+				addForUpdate(&plc)
+			}
+			return
+		}
+
 		if templates.HasTemplate(objectT.ObjectDefinition.Raw, "") {
 			resolvedTemplate, tplErr := tmplResolver.ResolveTemplate(objectT.ObjectDefinition.Raw, nil)
 			if tplErr != nil {
