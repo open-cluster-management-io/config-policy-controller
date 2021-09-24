@@ -701,8 +701,8 @@ github.com/open-cluster-management/addon-framework v0.0.0-20210621074027-a81f712
 github.com/open-cluster-management/addon-framework v0.0.0-20210621074027-a81f712c10c2/go.mod h1:mcpd6pc0j/L+WLFwV2MXHVMr+86ri2iUdTK2M8RHJ7U=
 github.com/open-cluster-management/api v0.0.0-20210409125704-06f2aec1a73f h1:s6z3k0jV0ccoYDPJWMSqVNevO1UoQLYb8f7dYFALSNk=
 github.com/open-cluster-management/api v0.0.0-20210409125704-06f2aec1a73f/go.mod h1:ot+A1DWq+v1IV+e1S7nhIteYAmNByFgtazvzpoeAfRQ=
-github.com/open-cluster-management/go-template-utils v1.2.2 h1:I0tYSJTJQFf2jDOnT9mexIRa1u2MEu7rF6rc6xJjR6M=
-github.com/open-cluster-management/go-template-utils v1.2.2/go.mod h1:+D8buOYN/VMVuTEd8WnnJQn+Z1oU4sT2OXbYZE+mIDk=
+github.com/open-cluster-management/go-template-utils v1.2.3 h1:eeSayCDXV0IJAJjr083yuIY95NSQmQSIgTqeJ44GO2g=
+github.com/open-cluster-management/go-template-utils v1.2.3/go.mod h1:+D8buOYN/VMVuTEd8WnnJQn+Z1oU4sT2OXbYZE+mIDk=
 github.com/opencontainers/go-digest v0.0.0-20170106003457-a6d0ee40d420/go.mod h1:cMLVZDEM3+U2I4VmLI6N8jQYUd2OVphdqWwCJHrFt2s=
 github.com/opencontainers/go-digest v0.0.0-20180430190053-c9281466c8b2/go.mod h1:cMLVZDEM3+U2I4VmLI6N8jQYUd2OVphdqWwCJHrFt2s=
 github.com/opencontainers/go-digest v1.0.0-rc1/go.mod h1:cMLVZDEM3+U2I4VmLI6N8jQYUd2OVphdqWwCJHrFt2s=
