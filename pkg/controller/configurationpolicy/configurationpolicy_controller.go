@@ -220,6 +220,11 @@ func PeriodicallyExecConfigPolicies(freq uint, test bool) {
 			//flattenedpolicylist only contains 1 of each policy instance
 			for _, policy := range flattenedPolicyList {
 				Mx.Lock()
+				// Deep copy the policy since even though handleObjectTemplates accepts a copy
+				// (i.e. not a pointer) of the policy, policy.Spec.ObjectTemplates is a slice of
+				// pointers, so any modifications to the objects in that slice will be reflected in
+				// the PolicyMap cache, which can have unintended side effects.
+				policy = (*policy).DeepCopy()
 				//handle each template in each policy
 				handleObjectTemplates(*policy, apiresourcelist, apigroups)
 				Mx.Unlock()

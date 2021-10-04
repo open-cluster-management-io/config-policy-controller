@@ -4,9 +4,14 @@
 package e2e
 
 import (
+	"context"
+	"time"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/open-cluster-management/config-policy-controller/test/utils"
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const case13Secret string = "e2esecret"
@@ -37,6 +42,9 @@ const case13Unterminated string = "policy-pod-create-unterminated"
 const case13UnterminatedYaml string = "../resources/case13_templatization/case13_unterminated.yaml"
 const case13WrongArgs string = "policy-pod-create-wrong-args"
 const case13WrongArgsYaml string = "../resources/case13_templatization/case13_wrong_args.yaml"
+
+const case13UpdateRefObject = "policy-update-referenced-object"
+const case13UpdateRefObjectYaml = "../resources/case13_templatization/case13_update_referenced_object.yaml"
 
 var _ = Describe("Test templatization", func() {
 	Describe("Create a secret and pull data from it into a configurationPolicy", func() {
@@ -151,6 +159,81 @@ var _ = Describe("Test templatization", func() {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case13WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+		})
+	})
+	// Though the Bugzilla bug #2007575 references a different incorrect behavior, it's the same
+	// underlying bug and this behavior is easier to test.
+	Describe("RHBZ#2007575: Test that the template updates when a referenced resource object is updated", func() {
+		const configMapName = "configmap-update-referenced-object"
+		const configMapReplName = configMapName + "-repl"
+		It("Should have the expected ConfigMap created", func() {
+			By("Creating the ConfigMap to reference")
+			configMap := corev1.ConfigMap{
+				ObjectMeta: v1.ObjectMeta{
+					Name: configMapName,
+				},
+				Data: map[string]string{"message": "Hello Raleigh!"},
+			}
+			_, err := clientManaged.CoreV1().ConfigMaps("default").Create(
+				context.TODO(), &configMap, v1.CreateOptions{},
+			)
+			Expect(err).To(BeNil())
+			By("Creating the configuration policy that references the ConfigMap")
+			utils.Kubectl("apply", "-f", case13UpdateRefObjectYaml, "-n", testNamespace)
+
+			By("By verifying that the policy is compliant")
+			Eventually(
+				func() interface{} {
+					managedPlc := utils.GetWithTimeout(
+						clientManagedDynamic,
+						gvrConfigPolicy,
+						case13UpdateRefObject,
+						testNamespace,
+						true,
+						defaultTimeoutSeconds,
+					)
+					return utils.GetComplianceState(managedPlc)
+				},
+				defaultTimeoutSeconds,
+				1,
+			).Should(Equal("Compliant"))
+
+			By("By verifying that the replicated ConfigMap has the expected data")
+			replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
+				context.TODO(), configMapReplName, v1.GetOptions{},
+			)
+			Expect(err).To(BeNil())
+			Expect(replConfigMap.Data["message"]).To(Equal("Hello Raleigh!\n"))
+
+			By("Sleeping 30 seconds to ensure PeriodicallyExecConfigPolicies has rerun twice")
+			time.Sleep(30 * time.Second)
+
+			By("Updating the referenced ConfigMap")
+			configMap.Data["message"] = "Hello world!"
+			_, err = clientManaged.CoreV1().ConfigMaps("default").Update(
+				context.TODO(), &configMap, v1.UpdateOptions{},
+			)
+			Expect(err).To(BeNil())
+
+			By("Verifying that the replicated ConfigMap has the updated data")
+			Eventually(
+				func() interface{} {
+					replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
+						context.TODO(), configMapReplName, v1.GetOptions{},
+					)
+					if err != nil {
+						return ""
+					}
+					return replConfigMap.Data["message"]
+				},
+				defaultTimeoutSeconds,
+				1,
+			).Should(Equal("Hello world!\n"))
+		})
+		It("Should clean up", func() {
+			utils.Kubectl("delete", "configurationpolicy", case13UpdateRefObject, "-n", testNamespace)
+			utils.Kubectl("delete", "configmap", configMapName, "-n", "default")
+			utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default")
 		})
 	})
 })
