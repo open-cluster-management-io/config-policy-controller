@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -302,32 +303,35 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		// and execute  template-processing only if  there is a template pattern "{{" in it
 		// to avoid unnecessary parsing when there is no template in the definition.
 
-		//first check to make sure there are no hub-templates with delimiter - {{hub
-		//if they exists, it means the template resolution on the hub did not succeed.
-		if templates.HasTemplate(objectT.ObjectDefinition.Raw, "{{hub") {
-			glog.Error("Configuration Policy has hub-templates. Error occured while processing hub-templates on the Hub Cluster.")
+		//if disable-templates annotations exists and is true, then do not process templates
+		annotations := plc.GetAnnotations()
+		disableTemplates := false
+		if disableAnnotation, ok := annotations["policy.open-cluster-management.io/disable-templates"]; ok {
+			glog.Infof("Found disable-templates Annotation : %s", disableAnnotation)
+			bool_disableAnnotation, err := strconv.ParseBool(disableAnnotation)
+			if err != nil {
+				glog.Errorf("Error parsing value for annotation: disable-templates %v", err)
+			} else {
+				disableTemplates = bool_disableAnnotation
+			} //
+		} //
+		if !disableTemplates {
 
-			//check to see there is an annotation set to the hub error msg,
-			//if not ,set a generic msg
-			annotations := plc.GetAnnotations()
-			hubTemplatesErrMsg, ok := annotations["policy.open-cluster-management.io/hub-templates-error"]
-			if !ok || hubTemplatesErrMsg == "" {
-				//set a generic msg
-				hubTemplatesErrMsg = "Error occured while processing hub-templates, check the policy events for more details."
-			}
+			//first check to make sure there are no hub-templates with delimiter - {{hub
+			//if they exists, it means the template resolution on the hub did not succeed.
+			if templates.HasTemplate(objectT.ObjectDefinition.Raw, "{{hub") {
+				glog.Error("Configuration Policy has hub-templates. Error occured while processing hub-templates on the Hub Cluster.")
 
-			update := createViolation(&plc, 0, "Error processing hub templates", hubTemplatesErrMsg)
-			if update {
-				recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
-				addForUpdate(&plc)
-			}
-			return
-		}
+				//check to see there is an annotation set to the hub error msg,
+				//if not ,set a generic msg
 
-		if templates.HasTemplate(objectT.ObjectDefinition.Raw, "") {
-			resolvedTemplate, tplErr := tmplResolver.ResolveTemplate(objectT.ObjectDefinition.Raw, nil)
-			if tplErr != nil {
-				update := createViolation(&plc, 0, "Error processing template", tplErr.Error())
+				hubTemplatesErrMsg, ok := annotations["policy.open-cluster-management.io/hub-templates-error"]
+				if !ok || hubTemplatesErrMsg == "" {
+					//set a generic msg
+					hubTemplatesErrMsg = "Error occured while processing hub-templates, check the policy events for more details."
+				}
+
+				update := createViolation(&plc, 0, "Error processing hub templates", hubTemplatesErrMsg)
 				if update {
 					recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
 					addForUpdate(&plc)
@@ -335,8 +339,21 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 				return
 			}
 
-			// Set the resolved data for use in further processing
-			objectT.ObjectDefinition.Raw = []byte(resolvedTemplate)
+			if templates.HasTemplate(objectT.ObjectDefinition.Raw, "") {
+				resolvedTemplate, tplErr := tmplResolver.ResolveTemplate(objectT.ObjectDefinition.Raw, nil)
+				if tplErr != nil {
+					update := createViolation(&plc, 0, "Error processing template", tplErr.Error()) //
+					if update {
+						recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
+						addForUpdate(&plc)
+					}
+					return
+				}
+
+				// Set the resolved data for use in further processing
+				objectT.ObjectDefinition.Raw = []byte(resolvedTemplate)
+			}
+
 		}
 
 		var blob interface{}
