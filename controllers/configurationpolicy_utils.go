@@ -1,7 +1,7 @@
 // Copyright (c) 2021 Red Hat, Inc.
 // Copyright Contributors to the Open Cluster Management project
 
-package configurationpolicy
+package controllers
 
 import (
 	"fmt"
@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	policyv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
+	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )

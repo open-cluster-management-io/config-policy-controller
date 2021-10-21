@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/golang/glog"
-	policyv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
+	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
 )
 
 // IfMatch check matches

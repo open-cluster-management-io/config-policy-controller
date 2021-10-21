@@ -1,4 +1,4 @@
-// Copyright (c) 2020 Red Hat, Inc.
+// Copyright (c) 2021 Red Hat, Inc.
 // Copyright Contributors to the Open Cluster Management project
 
 package v1
@@ -62,7 +62,6 @@ type Target struct {
 }
 
 // ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
-// +k8s:openapi-gen=true
 type ConfigurationPolicySpec struct {
 	Severity          Severity          `json:"severity,omitempty"`          //low, medium, high
 	RemediationAction RemediationAction `json:"remediationAction,omitempty"` //enforce, inform
@@ -81,7 +80,7 @@ type ObjectTemplate struct {
 	ObjectDefinition runtime.RawExtension `json:"objectDefinition,omitempty"`
 }
 
-// ConfigurationPolicyStatus is the status for a Policy resource
+// ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
 type ConfigurationPolicyStatus struct {
 	ComplianceState   ComplianceState  `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnkownCompliancy
 	CompliancyDetails []TemplateStatus `json:"compliancyDetails,omitempty"` // reason for non-compliancy
@@ -101,12 +100,10 @@ type ComplianceMap map[string]*CompliancePerClusterStatus
 // ResourceState genric description of a state
 type ResourceState string
 
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+//+kubebuilder:object:root=true
+//+kubebuilder:subresource:status
 
 // ConfigurationPolicy is the Schema for the configurationpolicies API
-// +k8s:openapi-gen=true
-// +kubebuilder:subresource:status
-// +kubebuilder:resource:path=configurationpolicies,scope=Namespaced
 type ConfigurationPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -115,7 +112,7 @@ type ConfigurationPolicy struct {
 	Status ConfigurationPolicyStatus `json:"status,omitempty"`
 }
 
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+//+kubebuilder:object:root=true
 
 // ConfigurationPolicyList contains a list of ConfigurationPolicy
 type ConfigurationPolicyList struct {
@@ -124,17 +121,17 @@ type ConfigurationPolicyList struct {
 	Items           []ConfigurationPolicy `json:"items"`
 }
 
+//+kubebuilder:object:root=true
+
 // Policy is a specification for a Policy resource
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +genclient
 type Policy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata"`
 }
 
+//+kubebuilder:object:root=true
+
 // PolicyList is a list of Policy resources
-// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
-// +k8s:lister-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type PolicyList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata"`

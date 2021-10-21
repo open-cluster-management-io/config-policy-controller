@@ -53,6 +53,11 @@ jobs:
         make fmt
         git diff --exit-code
 
+    - name: Verify deploy/operator.yaml
+      run: |
+        make generate-operator-yaml
+        git diff --exit-code
+
     - name: Create K8s KinD Cluster - ${{ matrix.kind }}
       env:
         KIND_VERSION: ${{ matrix.kind }}

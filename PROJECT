@@ -1,0 +1,19 @@
+domain: open-cluster-management.io
+layout:
+- go.kubebuilder.io/v3
+plugins:
+  manifests.sdk.operatorframework.io/v2: {}
+  scorecard.sdk.operatorframework.io/v2: {}
+projectName: config-policy-controller
+repo: github.com/open-cluster-management/config-policy-controller
+resources:
+- api:
+    crdVersion: v1
+    namespaced: true
+  controller: true
+  domain: open-cluster-management.io
+  group: policy
+  kind: ConfigurationPolicy
+  path: github.com/open-cluster-management/config-policy-controller/api/v1
+  version: v1
+version: "3"

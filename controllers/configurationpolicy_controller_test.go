@@ -1,7 +1,7 @@
 // Copyright (c) 2020 Red Hat, Inc.
 // Copyright Contributors to the Open Cluster Management project
 
-package configurationpolicy
+package controllers
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
+	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/api/v1"
 	"github.com/open-cluster-management/config-policy-controller/pkg/common"
 	"github.com/stretchr/testify/assert"
 	coretypes "k8s.io/api/core/v1"
@@ -59,12 +59,12 @@ func TestReconcile(t *testing.T) {
 	objs := []runtime.Object{instance}
 	// Register operator types with the runtime scheme.
 	s := scheme.Scheme
-	s.AddKnownTypes(policiesv1alpha1.SchemeGroupVersion, instance)
+	s.AddKnownTypes(policiesv1alpha1.GroupVersion, instance)
 
 	// Create a fake client to mock API calls.
 	cl := fake.NewFakeClient(objs...)
 	// Create a ReconcileConfigurationPolicy object with the scheme and fake client
-	r := &ReconcileConfigurationPolicy{client: cl, scheme: s, recorder: nil}
+	r := &ConfigurationPolicyReconciler{Client: cl, Scheme: s, Recorder: nil}
 
 	// Mock request to simulate Reconcile() being called on an event for a
 	// watched resource .
@@ -76,7 +76,7 @@ func TestReconcile(t *testing.T) {
 	}
 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 	common.Initialize(&simpleClient, nil)
-	res, err := r.Reconcile(req)
+	res, err := r.Reconcile(context.TODO(), req)
 	if err != nil {
 		t.Fatalf("reconcile: (%v)", err)
 	}
@@ -124,7 +124,7 @@ func TestReconcile(t *testing.T) {
 // 	}
 // 	// Register operator types with the runtime scheme.
 // 	s := scheme.Scheme
-// 	s.AddKnownTypes(policiesv1alpha1.SchemeGroupVersion, instance)
+// 	s.AddKnownTypes(policiesv1alpha1.GroupVersion, instance)
 
 // 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
 // 	simpleClient.CoreV1().Namespaces().Create(&ns)
@@ -184,7 +184,7 @@ func TestReconcile(t *testing.T) {
 // 	objs := []runtime.Object{instance}
 // 	// Register operator types with the runtime scheme.
 // 	s := scheme.Scheme
-// 	s.AddKnownTypes(policiesv1alpha1.SchemeGroupVersion, instance)
+// 	s.AddKnownTypes(policiesv1alpha1.GroupVersion, instance)
 
 // 	// Create a fake client to mock API calls.
 // 	cl := fake.NewFakeClient(objs...)

@@ -90,3 +90,6 @@ test/crds/test-policy.yaml
 kubeconfig_managed
 kind_kubeconfig.yaml
 report.json
+
+.go/
+bin/

@@ -1,7 +1,7 @@
 // Copyright (c) 2020 Red Hat, Inc.
 // Copyright Contributors to the Open Cluster Management project
 
-package configurationpolicy
+package controllers
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 
 	"github.com/golang/glog"
 	gocmp "github.com/google/go-cmp/cmp"
-	policyv1 "github.com/open-cluster-management/config-policy-controller/pkg/apis/policy/v1"
+	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
 	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
 	templates "github.com/open-cluster-management/go-template-utils/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
@@ -30,20 +30,18 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/record"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/controller"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	"k8s.io/client-go/restmapper"
 )
 
-const controllerName string = "configuration-policy-controller"
+const ControllerName string = "configuration-policy-controller"
 
-var log = logf.Log.WithName(controllerName)
+var log = logf.Log.WithName(ControllerName)
 
 // availablePolicies is a cach all all available polices
 var availablePolicies common.SyncedPolicyMap
@@ -80,7 +78,7 @@ var MxUpdateMap sync.RWMutex
 // KubeClient a k8s client used for k8s native resources
 var KubeClient *kubernetes.Interface
 
-var reconcilingAgent *ReconcileConfigurationPolicy
+var reconcilingAgent *ConfigurationPolicyReconciler
 
 // NamespaceWatched defines which namespace we can watch for the GRC policies and ignore others
 var NamespaceWatched string
@@ -88,32 +86,12 @@ var NamespaceWatched string
 // EventOnParent specifies if we also want to send events to the parent policy. Available options are yes/no/ifpresent
 var EventOnParent string
 
-// Add creates a new ConfigurationPolicy Controller and adds it to the Manager.
-// and Start it when the Manager is Started.
-func Add(mgr manager.Manager) error {
-	return add(mgr, newReconciler(mgr))
-}
-
-// newReconciler returns a new reconcile.Reconciler
-func newReconciler(mgr manager.Manager) reconcile.Reconciler {
-	return &ReconcileConfigurationPolicy{client: mgr.GetClient(), scheme: mgr.GetScheme(),
-		recorder: mgr.GetEventRecorderFor("configurationpolicy-controller")}
-}
-
-// add adds a new Controller to mgr with r as the reconcile.Reconciler
-func add(mgr manager.Manager, r reconcile.Reconciler) error {
-	// Create a new controller
-	c, err := controller.New(controllerName, mgr, controller.Options{Reconciler: r})
-	if err != nil {
-		return err
-	}
-
-	// Watch for changes to primary resource ConfigurationPolicy
-	err = c.Watch(&source.Kind{Type: &policyv1.ConfigurationPolicy{}}, &handler.EnqueueRequestForObject{})
-	if err != nil {
-		return err
-	}
-	return nil
+// SetupWithManager sets up the controller with the Manager.
+func (r *ConfigurationPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	return ctrl.NewControllerManagedBy(mgr).
+		Named(ControllerName).
+		For(&policyv1.ConfigurationPolicy{}).
+		Complete(r)
 }
 
 // Initialize to initialize some controller variables
@@ -124,7 +102,7 @@ func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset,
 	NamespaceWatched = namespace
 	clientSet = clientset
 	EventOnParent = strings.ToLower(eventParent)
-	recorder, _ = common.CreateRecorder(*KubeClient, controllerName)
+	recorder, _ = common.CreateRecorder(*KubeClient, ControllerName)
 	config = kubeconfig
 }
 
@@ -133,24 +111,26 @@ func InitializeClient(kubeClient *kubernetes.Interface) {
 	KubeClient = kubeClient
 }
 
-// blank assignment to verify that ReconcileConfigurationPolicy implements reconcile.Reconciler
-var _ reconcile.Reconciler = &ReconcileConfigurationPolicy{}
+// blank assignment to verify that ConfigurationPolicyReconciler implements reconcile.Reconciler
+var _ reconcile.Reconciler = &ConfigurationPolicyReconciler{}
 
-// ReconcileConfigurationPolicy reconciles a ConfigurationPolicy object
-type ReconcileConfigurationPolicy struct {
+// ConfigurationPolicyReconciler reconciles a ConfigurationPolicy object
+type ConfigurationPolicyReconciler struct {
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
-	client   client.Client
-	scheme   *runtime.Scheme
-	recorder record.EventRecorder
+	client.Client
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 }
+
+//+kubebuilder:rbac:groups=*,resources=*,verbs=*
 
 // Reconcile reads that state of the cluster for a ConfigurationPolicy object and makes changes based on the state read
 // and what is in the ConfigurationPolicy.Spec
 // Note:
 // The Controller will requeue the Request to be processed again if the returned error is non-nil or
 // Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
-func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (reconcile.Result, error) {
+func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
 	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
 	reqLogger.Info("Reconciling ConfigurationPolicy")
 
@@ -159,7 +139,7 @@ func (r *ReconcileConfigurationPolicy) Reconcile(request reconcile.Request) (rec
 	if reconcilingAgent == nil {
 		reconcilingAgent = r
 	}
-	err := r.client.Get(context.TODO(), request.NamespacedName, instance)
+	err := r.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
@@ -1611,15 +1591,15 @@ func addForUpdate(policy *policyv1.ConfigurationPolicy) {
 //on the parent policy with the complaince decision
 func updatePolicyStatus(policies map[string]*policyv1.ConfigurationPolicy) (*policyv1.ConfigurationPolicy, error) {
 	for _, instance := range policies { // policies is a map where: key = plc.Name, value = pointer to plc
-		err := reconcilingAgent.client.Status().Update(context.TODO(), instance)
+		err := reconcilingAgent.Status().Update(context.TODO(), instance)
 		if err != nil {
 			return instance, err
 		}
 		if EventOnParent != "no" && instance.Status.ComplianceState != "Undetermined" {
 			createParentPolicyEvent(instance)
 		}
-		if reconcilingAgent.recorder != nil {
-			reconcilingAgent.recorder.Event(instance, "Normal", "Policy updated", fmt.Sprintf("Policy status is: %v",
+		if reconcilingAgent.Recorder != nil {
+			reconcilingAgent.Recorder.Event(instance, "Normal", "Policy updated", fmt.Sprintf("Policy status is: %v",
 				instance.Status.ComplianceState))
 		}
 	}
@@ -1721,12 +1701,12 @@ func createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
 
 	parentPlc := createParentPolicy(instance)
 
-	if reconcilingAgent.recorder != nil {
+	if reconcilingAgent.Recorder != nil {
 		eventType := "Normal"
 		if instance.Status.ComplianceState == policyv1.NonCompliant {
 			eventType = "Warning"
 		}
-		reconcilingAgent.recorder.Event(&parentPlc,
+		reconcilingAgent.Recorder.Event(&parentPlc,
 			eventType,
 			fmt.Sprintf(eventFmtStr, instance.Namespace, instance.Name),
 			convertPolicyStatusToString(instance))
