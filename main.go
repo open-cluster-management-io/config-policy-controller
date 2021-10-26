@@ -125,8 +125,9 @@ func main() {
 	}
 
 	if err = (&controllers.ConfigurationPolicyReconciler{
-		Client: mgr.GetClient(),
-		Scheme: mgr.GetScheme(),
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor(controllers.ControllerName),
 	}).SetupWithManager(mgr); err != nil {
 		log.Error(err, "unable to create controller", "controller", "ConfigurationPolicy")
 		os.Exit(1)
