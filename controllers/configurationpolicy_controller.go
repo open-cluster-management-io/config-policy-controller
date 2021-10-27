@@ -556,17 +556,6 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 			update = createMustHaveStatus("", kind, compliantObjects, namespaced, plc, indx, compliant)
 		}
 	}
-
-	if update {
-		//update parent policy with violation
-		eventType := eventNormal
-		if !compliant {
-			eventType = eventWarning
-		}
-		if recorder != nil {
-			recorder.Event(plc, eventType, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(plc))
-		}
-	}
 	return update
 }
 
@@ -1582,7 +1571,11 @@ func addForUpdate(policy *policyv1.ConfigurationPolicy) {
 	_, err := updatePolicyStatus(map[string]*policyv1.ConfigurationPolicy{
 		(*policy).GetName(): policy,
 	})
-	if err != nil {
+	modifiedErr := "the object has been modified; please apply your changes to the latest version and try again"
+	if err != nil && strings.Contains(err.Error(), modifiedErr) {
+		fmt.Println("Tried to re-update status before previous update could be applied, retrying next loop...")
+	}
+	if err != nil && !strings.Contains(err.Error(), modifiedErr) {
 		log.Error(err, err.Error())
 	}
 }
@@ -1591,6 +1584,7 @@ func addForUpdate(policy *policyv1.ConfigurationPolicy) {
 //on the parent policy with the complaince decision
 func updatePolicyStatus(policies map[string]*policyv1.ConfigurationPolicy) (*policyv1.ConfigurationPolicy, error) {
 	for _, instance := range policies { // policies is a map where: key = plc.Name, value = pointer to plc
+		fmt.Println(fmt.Sprintf("Updating configurationPolicy status: %v", instance.Status.ComplianceState))
 		err := reconcilingAgent.Status().Update(context.TODO(), instance)
 		if err != nil {
 			return instance, err
@@ -1706,6 +1700,7 @@ func createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
 		if instance.Status.ComplianceState == policyv1.NonCompliant {
 			eventType = "Warning"
 		}
+		fmt.Println("Creating parent policy event: " + convertPolicyStatusToString(instance))
 		reconcilingAgent.Recorder.Event(&parentPlc,
 			eventType,
 			fmt.Sprintf(eventFmtStr, instance.Namespace, instance.Name),
