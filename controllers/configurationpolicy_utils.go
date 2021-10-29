@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
+	apiRes "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -131,6 +132,26 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 					match = false
 				}
 			}
+		case string:
+			//extra check to see if value is a byte value
+			mQty, err := apiRes.ParseQuantity(mVal)
+			if err != nil {
+				//if the value is a regular string, check equality normally
+				oVal := oldObj[i]
+				if fmt.Sprint(oVal) != fmt.Sprint(mVal) {
+					match = false
+				}
+			} else {
+				//if the value is a quantity of bytes, convert original
+				oQty, err := apiRes.ParseQuantity(mVal)
+				if err != nil {
+					match = false
+				} else {
+					if !oQty.Equal(mQty) {
+						match = false
+					}
+				}
+			}
 		default:
 			//if field is not an object, just do a basic compare to check for a match
 			oVal := oldObj[i]
@@ -176,6 +197,26 @@ func checkListFieldsWithSort(mergedObj []map[string]interface{}, oldObj []map[st
 				//if a map in the list contains another map, check fields for equality
 				if !checkFieldsWithSort(mVal, oldItem[i].(map[string]interface{})) {
 					match = false
+				}
+			case string:
+				//extra check to see if value is a byte value
+				mQty, err := apiRes.ParseQuantity(mVal)
+				if err != nil {
+					//if the value is a regular string, check equality normally
+					oVal := oldItem[i]
+					if fmt.Sprint(oVal) != fmt.Sprint(mVal) {
+						match = false
+					}
+				} else {
+					//if the value is a quantity of bytes, convert original
+					oQty, err := apiRes.ParseQuantity(mVal)
+					if err != nil {
+						match = false
+					} else {
+						if !oQty.Equal(mQty) {
+							match = false
+						}
+					}
 				}
 			default:
 				//if the field in the map is not an object, just do a generic check
