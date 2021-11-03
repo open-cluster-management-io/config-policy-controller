@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: mh-pod-nevercompliant
+  ownerReferences:
+    - apiVersion: policy.open-cluster-management.io/v1
+      kind: Policy
+      name: parent-nevercompliant
+      uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
+spec:
+  remediationAction: inform
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: case15-nevercompliant

@@ -27,7 +27,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case4ConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			utils.Kubectl("delete", case4ConfigPolicyName, "-n", testNamespace)
+			utils.Kubectl("delete", "configurationpolicy", case4ConfigPolicyName, "-n", testNamespace)
 		})
 		It("should be patched properly on the managed cluster", func() {
 			By("Creating " + case4ConfigPolicyNamePatch + " on managed")

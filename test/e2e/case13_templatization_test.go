@@ -114,7 +114,6 @@ var _ = Describe("Test templatization", func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreatePod, "-n", testNamespace)
 			utils.Kubectl("delete", "configurationpolicy", case13CfgPolVerifyPod, "-n", testNamespace)
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
 		})
 	})
 	Describe("Use the generic lookup template to get the same resources from the previous tests", func() {
@@ -136,7 +135,7 @@ var _ = Describe("Test templatization", func() {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy, case13LookupClusterClaim, testNamespace, true, defaultTimeoutSeconds)
 				return utils.GetStatusMessage(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("pods [testvalue] in namespace default found as specified, therefore this Object template is compliant"))
-			utils.Kubectl("delete", "configurationpolicy", case13LookupSecretYaml, "-n", testNamespace)
+			utils.Kubectl("delete", "configurationpolicy", case13LookupSecret, "-n", testNamespace)
 			utils.Kubectl("delete", "configurationpolicy", case13LookupClusterClaim, "-n", testNamespace)
 		})
 	})

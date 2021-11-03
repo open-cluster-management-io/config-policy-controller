@@ -17,8 +17,7 @@ if ! which kind > /dev/null; then
     sudo mv ./kind /usr/local/bin/kind
 fi
 echo "Installing ginkgo ..."
-go get github.com/onsi/ginkgo/ginkgo
-go get github.com/onsi/gomega/...
+make e2e-dependencies
 
 make kind-create-cluster 
 
@@ -27,8 +26,8 @@ make install-crds
 make kind-deploy-controller 
 
 echo "patch image"
-kubectl patch deployment config-policy-ctrl -n open-cluster-management-agent-addon -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"config-policy-ctrl\",\"image\":\"${DOCKER_IMAGE_AND_TAG}\"}]}}}}"
-kubectl rollout status -n open-cluster-management-agent-addon deployment config-policy-ctrl --timeout=90s
+kubectl patch deployment config-policy-controller -n open-cluster-management-agent-addon -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"config-policy-controller\",\"image\":\"${DOCKER_IMAGE_AND_TAG}\"}]}}}}"
+kubectl rollout status -n open-cluster-management-agent-addon deployment config-policy-controller --timeout=90s
 sleep 10
 
 make install-resources
