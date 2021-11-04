@@ -93,13 +93,9 @@ spec:
               severity:
                 description: 'Severity : low, medium, high, or critical'
                 enum:
-                - Low
                 - low
-                - Medium
                 - medium
-                - High
                 - high
-                - Critical
                 - critical
                 type: string
             type: object
