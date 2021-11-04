@@ -24,8 +24,8 @@ var samplePolicy = policiesv1alpha1.ConfigurationPolicy{
 	Spec: policiesv1alpha1.ConfigurationPolicySpec{
 		Severity: "low",
 		NamespaceSelector: policiesv1alpha1.Target{
-			Include: []string{"default", "kube-*"},
-			Exclude: []string{"kube-system"},
+			Include: []policiesv1alpha1.NonEmptyString{"default", "kube-*"},
+			Exclude: []policiesv1alpha1.NonEmptyString{"kube-system"},
 		},
 		RemediationAction: "inform",
 		ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{

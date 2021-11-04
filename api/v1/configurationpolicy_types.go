@@ -5,15 +5,22 @@ package v1
 
 import (
 	corev1 "k8s.io/api/core/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 )
 
+// A custom type is required since there is no way to have a kubebuilder marker
+// apply to the items of a slice.
+
+// +kubebuilder:validation:MinLength=1
+type NonEmptyString string
+
 // RemediationAction : enforce or inform
+// +kubebuilder:validation:Enum=Inform;inform;Enforce;enforce
 type RemediationAction string
 
-// Severity : low, medium or high
+// Severity : low, medium, high, or critical
+// +kubebuilder:validation:Enum=Low;low;Medium;medium;High;high;Critical;critical
 type Severity string
 
 const (
@@ -57,8 +64,8 @@ type Condition struct {
 
 // Target defines the list of namespaces to include/exclude
 type Target struct {
-	Include []string `json:"include,omitempty"`
-	Exclude []string `json:"exclude,omitempty"`
+	Include []NonEmptyString `json:"include,omitempty"`
+	Exclude []NonEmptyString `json:"exclude,omitempty"`
 }
 
 // ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
@@ -82,7 +89,7 @@ type ObjectTemplate struct {
 
 // ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
 type ConfigurationPolicyStatus struct {
-	ComplianceState   ComplianceState  `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnkownCompliancy
+	ComplianceState   ComplianceState  `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnknownCompliancy
 	CompliancyDetails []TemplateStatus `json:"compliancyDetails,omitempty"` // reason for non-compliancy
 	RelatedObjects    []RelatedObject  `json:"relatedObjects,omitempty"`    // List of resources processed by the policy
 }
@@ -157,6 +164,7 @@ type Validity struct {
 }
 
 // ComplianceType describes whether we must or must not have a given resource
+// +kubebuilder:validation:Enum=MustHave;Musthave;musthave;MustOnlyHave;Mustonlyhave;mustonlyhave;MustNotHave;Mustnothave;mustnothave
 type ComplianceType string
 
 const (
@@ -169,15 +177,6 @@ const (
 	// MustOnlyHave is an enforcement state to exclusively include a resource
 	MustOnlyHave ComplianceType = "Mustonlyhave"
 )
-
-// PolicyRuleTemplate holds information that describes a policy rule, but does not contain information
-// about who the rule applies to or which namespace the rule applies to.
-type PolicyRuleTemplate struct {
-	// ComplianceType specifies whether it is: musthave, mustnothave, mustonlyhave
-	ComplianceType ComplianceType `json:"complianceType"`
-	// PolicyRule
-	PolicyRule rbacv1.PolicyRule `json:"policyRule"`
-}
 
 // RelatedObject is the list of objects matched by this Policy resource.
 type RelatedObject struct {

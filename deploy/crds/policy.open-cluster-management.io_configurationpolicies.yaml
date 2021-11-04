@@ -46,10 +46,12 @@ spec:
                 properties:
                   exclude:
                     items:
+                      minLength: 1
                       type: string
                     type: array
                   include:
                     items:
+                      minLength: 1
                       type: string
                     type: array
                 type: object
@@ -60,6 +62,16 @@ spec:
                     complianceType:
                       description: 'ComplianceType specifies whether it is: musthave,
                         mustnothave, mustonlyhave'
+                      enum:
+                      - MustHave
+                      - Musthave
+                      - musthave
+                      - MustOnlyHave
+                      - Mustonlyhave
+                      - mustonlyhave
+                      - MustNotHave
+                      - Mustnothave
+                      - mustnothave
                       type: string
                     objectDefinition:
                       description: ObjectDefinition defines required fields for the
@@ -72,9 +84,23 @@ spec:
                 type: array
               remediationAction:
                 description: 'RemediationAction : enforce or inform'
+                enum:
+                - Inform
+                - inform
+                - Enforce
+                - enforce
                 type: string
               severity:
-                description: 'Severity : low, medium or high'
+                description: 'Severity : low, medium, high, or critical'
+                enum:
+                - Low
+                - low
+                - Medium
+                - medium
+                - High
+                - high
+                - Critical
+                - critical
                 type: string
             type: object
           status:

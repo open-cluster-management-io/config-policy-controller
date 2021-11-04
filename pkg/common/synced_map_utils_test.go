@@ -32,8 +32,8 @@ var plc = &policiesv1.ConfigurationPolicy{
 	Spec: policiesv1.ConfigurationPolicySpec{
 		RemediationAction: policiesv1.Enforce,
 		NamespaceSelector: policiesv1.Target{
-			Include: []string{"default"},
-			Exclude: []string{"kube*"},
+			Include: []policiesv1.NonEmptyString{"default"},
+			Exclude: []policiesv1.NonEmptyString{"kube*"},
 		},
 	},
 }

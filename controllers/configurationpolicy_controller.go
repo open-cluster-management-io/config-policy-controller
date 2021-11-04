@@ -1029,7 +1029,7 @@ func getPolicyNamespaces(policy policyv1.ConfigurationPolicy) []string {
 	includedNamespaces := []string{}
 	included := policy.Spec.NamespaceSelector.Include
 	for _, value := range included {
-		found := common.FindPattern(value, allNamespaces)
+		found := common.FindPattern(string(value), allNamespaces)
 		if found != nil {
 			includedNamespaces = append(includedNamespaces, found...)
 		}
@@ -1039,7 +1039,7 @@ func getPolicyNamespaces(policy policyv1.ConfigurationPolicy) []string {
 	excludedNamespaces := []string{}
 	excluded := policy.Spec.NamespaceSelector.Exclude
 	for _, value := range excluded {
-		found := common.FindPattern(value, allNamespaces)
+		found := common.FindPattern(string(value), allNamespaces)
 		if found != nil {
 			excludedNamespaces = append(excludedNamespaces, found...)
 		}
@@ -1627,8 +1627,16 @@ func handleAddingPolicy(plc *policyv1.ConfigurationPolicy) error {
 			}
 		}
 	}
-	selectedNamespaces := common.GetSelectedNamespaces(plc.Spec.NamespaceSelector.Include,
-		plc.Spec.NamespaceSelector.Exclude, allNamespaces)
+	//build namespace lists
+	exclude := []string{}
+	for _, ns := range plc.Spec.NamespaceSelector.Exclude {
+		exclude = append(exclude, string(ns))
+	}
+	include := []string{}
+	for _, ns := range plc.Spec.NamespaceSelector.Include {
+		include = append(include, string(ns))
+	}
+	selectedNamespaces := common.GetSelectedNamespaces(include, exclude, allNamespaces)
 	for _, ns := range selectedNamespaces {
 		key := fmt.Sprintf("%s/%s", ns, plc.Name)
 		availablePolicies.AddObject(key, plc)

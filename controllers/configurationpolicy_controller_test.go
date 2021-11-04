@@ -42,8 +42,8 @@ func TestReconcile(t *testing.T) {
 		Spec: policiesv1alpha1.ConfigurationPolicySpec{
 			Severity: "low",
 			NamespaceSelector: policiesv1alpha1.Target{
-				Include: []string{"default", "kube-*"},
-				Exclude: []string{"kube-system"},
+				Include: []policiesv1alpha1.NonEmptyString{"default", "kube-*"},
+				Exclude: []policiesv1alpha1.NonEmptyString{"kube-system"},
 			},
 			RemediationAction: "inform",
 			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
@@ -467,8 +467,8 @@ func TestAddRelatedObject(t *testing.T) {
 		Spec: policiesv1alpha1.ConfigurationPolicySpec{
 			Severity: "low",
 			NamespaceSelector: policiesv1alpha1.Target{
-				Include: []string{"default", "kube-*"},
-				Exclude: []string{"kube-system"},
+				Include: []policiesv1alpha1.NonEmptyString{"default", "kube-*"},
+				Exclude: []policiesv1alpha1.NonEmptyString{"kube-system"},
 			},
 			RemediationAction: "inform",
 			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
@@ -521,8 +521,8 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 		Spec: policiesv1alpha1.ConfigurationPolicySpec{
 			Severity: "low",
 			NamespaceSelector: policiesv1alpha1.Target{
-				Include: []string{"default", "kube-*"},
-				Exclude: []string{"kube-system"},
+				Include: []policiesv1alpha1.NonEmptyString{"default", "kube-*"},
+				Exclude: []policiesv1alpha1.NonEmptyString{"kube-system"},
 			},
 			RemediationAction: "inform",
 			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
@@ -573,18 +573,6 @@ func newRole(name, namespace string, rules ...rbacv1.PolicyRule) *rbacv1.Role {
 	return &rbacv1.Role{ObjectMeta: metav1.ObjectMeta{Namespace: namespace, Name: name}, Rules: rules}
 }
 
-func newRuleTemplate(verbs, apiGroups, resources, nonResourceURLs string, complianceT policiesv1alpha1.ComplianceType) policiesv1alpha1.PolicyRuleTemplate {
-	return policiesv1alpha1.PolicyRuleTemplate{
-		ComplianceType: complianceT,
-		PolicyRule: rbacv1.PolicyRule{
-			Verbs:           strings.Split(verbs, ","),
-			APIGroups:       strings.Split(apiGroups, ","),
-			Resources:       strings.Split(resources, ","),
-			NonResourceURLs: strings.Split(nonResourceURLs, ","),
-		},
-	}
-}
-
 func TestCreateInformStatus(t *testing.T) {
 	policy := &policiesv1alpha1.ConfigurationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -594,7 +582,7 @@ func TestCreateInformStatus(t *testing.T) {
 		Spec: policiesv1alpha1.ConfigurationPolicySpec{
 			Severity: "low",
 			NamespaceSelector: policiesv1alpha1.Target{
-				Include: []string{"test1", "test2"},
+				Include: []policiesv1alpha1.NonEmptyString{"test1", "test2"},
 			},
 			RemediationAction: "inform",
 			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
