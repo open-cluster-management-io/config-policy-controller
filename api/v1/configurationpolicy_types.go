@@ -128,24 +128,6 @@ type ConfigurationPolicyList struct {
 	Items           []ConfigurationPolicy `json:"items"`
 }
 
-//+kubebuilder:object:root=true
-
-// Policy is a specification for a Policy resource
-type Policy struct {
-	metav1.TypeMeta   `json:",inline"`
-	metav1.ObjectMeta `json:"metadata"`
-}
-
-//+kubebuilder:object:root=true
-
-// PolicyList is a list of Policy resources
-type PolicyList struct {
-	metav1.TypeMeta `json:",inline"`
-	metav1.ListMeta `json:"metadata"`
-
-	Items []Policy `json:"items"`
-}
-
 // TemplateStatus hold the status result
 type TemplateStatus struct {
 	ComplianceState ComplianceState `json:"Compliant,omitempty"` // Compliant, NonCompliant, UnkownCompliancy

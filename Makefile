@@ -262,7 +262,7 @@ install-crds:
 	kubectl apply -f test/crds/apiservers.config.openshift.io_crd.yaml
 	kubectl apply -f test/crds/clusterclaims.cluster.open-cluster-management.io.yaml
 	kubectl apply -f test/crds/oauths.config.openshift.io_crd.yaml
-	kubectl apply -f deploy/crds/policy.open-cluster-management.io_policies.yaml
+	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_policies.yaml
 
 install-resources:
 	@echo creating namespaces

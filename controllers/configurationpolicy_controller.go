@@ -18,6 +18,7 @@ import (
 	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
 	common "github.com/open-cluster-management/config-policy-controller/pkg/common"
 	templates "github.com/open-cluster-management/go-template-utils/pkg/templates"
+	extpoliciesv1 "github.com/open-cluster-management/governance-policy-propagator/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
@@ -1716,12 +1717,12 @@ func createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
 	}
 }
 
-func createParentPolicy(instance *policyv1.ConfigurationPolicy) policyv1.Policy {
+func createParentPolicy(instance *policyv1.ConfigurationPolicy) extpoliciesv1.Policy {
 	ns := common.ExtractNamespaceLabel(instance)
 	if ns == "" {
 		ns = NamespaceWatched
 	}
-	plc := policyv1.Policy{
+	plc := extpoliciesv1.Policy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      instance.OwnerReferences[0].Name,
 			Namespace: ns, // we are making an assumption here that the parent policy is in the watched-namespace passed as flag
