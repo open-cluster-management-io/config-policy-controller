@@ -150,7 +150,7 @@ func main() {
 			log.Info("Starting lease controller to report status")
 			leaseUpdater := lease.NewLeaseUpdater(
 				generatedClient,
-				"policy-controller",
+				"config-policy-controller",
 				operatorNs,
 			)
 
