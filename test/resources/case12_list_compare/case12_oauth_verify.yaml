@@ -1,0 +1,43 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-idp-verify
+spec:
+  object-templates:
+  #Set up Identity Providers
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: config.openshift.io/v1
+        kind: OAuth
+        metadata:
+          name: cluster
+          annotations:
+            include.release.openshift.io/self-managed-high-availability: 'true'
+            include.release.openshift.io/single-node-developer: 'true'
+            release.openshift.io/create-only: 'true'
+        spec:
+          identityProviders:
+            - name: ping
+              mappingMethod: add
+              openID:
+                claims:
+                  name:
+                    - name
+                  email:
+                    - email
+                  preferredUsername:
+                    - preferred_username
+                clientID: REDACTED
+                clientSecret:
+                  name: ping-client-secret
+                extraScopes: []
+                issuer: https://localhost:3000
+              type: OpenID
+            - name: htpasswd
+              htpasswd:
+                fileData:
+                  name: htpasswd-platform-team-secret
+              mappingMethod: claim
+              type: HTPasswd
+  remediationAction: inform
+  severity: high

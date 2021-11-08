@@ -1,0 +1,34 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-pod-whitespace-env
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: envvar-whitespace
+          labels:
+            test: envvar-whitespace
+        spec:
+          replicas: 0
+          selector:
+            matchLabels:
+              test: envvar-whitespace
+          template:
+            metadata:
+              labels:
+                test: envvar-whitespace
+            spec:
+              containers:
+                - image: nginx:1.7.9
+                  name: nginx
+                  env:
+                    - name: DEMO_GREETING
+                      value: " \t hello with tricky whitespace \n "

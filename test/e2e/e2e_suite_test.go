@@ -49,6 +49,7 @@ var (
 	gvrSecret             schema.GroupVersionResource
 	gvrClusterClaim       schema.GroupVersionResource
 	gvrConfigMap          schema.GroupVersionResource
+	gvrDeployment         schema.GroupVersionResource
 
 	defaultImageRegistry string
 )
@@ -75,21 +76,25 @@ var _ = BeforeSuite(func() {
 	gvrSCC = schema.GroupVersionResource{Group: "security.openshift.io", Version: "v1", Resource: "securitycontextconstraints"}
 	gvrSecret = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "secrets"}
 	gvrClusterClaim = schema.GroupVersionResource{Group: "cluster.open-cluster-management.io", Version: "v1alpha1", Resource: "clusterclaims"}
+	gvrDeployment = schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
 	clientManaged = NewKubeClient("", kubeconfigManaged, "")
 	clientManagedDynamic = NewKubeClientDynamic("", kubeconfigManaged, "")
 	defaultImageRegistry = "quay.io/open-cluster-management"
 	testNamespace = "managed"
+	testNamespaces := []string{testNamespace, "range1", "range2"}
 	defaultTimeoutSeconds = 60
-	By("Create Namespace if needed")
+	By("Create Namespaces if needed")
 	namespaces := clientManaged.CoreV1().Namespaces()
-	if _, err := namespaces.Get(context.TODO(), testNamespace, metav1.GetOptions{}); err != nil && errors.IsNotFound(err) {
-		Expect(namespaces.Create(context.TODO(), &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name: testNamespace,
-			},
-		}, metav1.CreateOptions{})).NotTo(BeNil())
+	for _, ns := range testNamespaces {
+		if _, err := namespaces.Get(context.TODO(), ns, metav1.GetOptions{}); err != nil && errors.IsNotFound(err) {
+			Expect(namespaces.Create(context.TODO(), &corev1.Namespace{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: ns,
+				},
+			}, metav1.CreateOptions{})).NotTo(BeNil())
+		}
+		Expect(namespaces.Get(context.TODO(), ns, metav1.GetOptions{})).NotTo(BeNil())
 	}
-	Expect(namespaces.Get(context.TODO(), testNamespace, metav1.GetOptions{})).NotTo(BeNil())
 })
 
 func NewKubeClient(url, kubeconfig, context string) kubernetes.Interface {

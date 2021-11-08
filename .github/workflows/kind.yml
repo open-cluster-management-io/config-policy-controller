@@ -4,11 +4,11 @@ on:
   push:
     branches:
       - main
-      - release-2.3
+      - release-2.[3-9]
   pull_request:
     branches:
       - main
-      - release-2.3
+      - release-2.[3-9]
 
 defaults:
   run:
