@@ -1,0 +1,43 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: patch-role-configpolicy-inform
+spec:
+  remediationAction: inform
+  object-templates:
+    - complianceType: mustonlyhave
+      objectDefinition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: Role
+        metadata:
+          name: topatch
+          namespace: default
+        rules:
+        - apiGroups:
+          - ""
+          resources:
+          - pods
+          verbs:
+          - create
+          - delete
+          - deletecollection
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - persistentvolumeclaims
+          - persistentvolumeclaims/status
+          - persistentvolumes
+          - persistentvolumes/status
+          verbs:
+          - create
+          - get
+          - list
+          - delete
+          - watch
+          - patch
+          - update

@@ -232,15 +232,21 @@ func TestCompareSpecs(t *testing.T) {
 	}
 	assert.Equal(t, reflect.DeepEqual(merged, mergedExpected), true)
 	spec1 = map[string]interface{}{
-		"containers": map[string]string{
+		"containers": map[string]interface{}{
 			"image": "nginx1.7.9",
 			"test":  "1111",
+			"timestamp": map[string]int64{
+				"seconds": 1631796491,
+			},
 		},
 	}
 	spec2 = map[string]interface{}{
-		"containers": map[string]string{
+		"containers": map[string]interface{}{
 			"image": "nginx1.7.9",
 			"name":  "nginx",
+			"timestamp": map[string]int64{
+				"seconds": 1631796491,
+			},
 		},
 	}
 	merged, err = compareSpecs(spec1, spec2, "musthave")
@@ -248,10 +254,16 @@ func TestCompareSpecs(t *testing.T) {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
 	mergedExpected = map[string]interface{}{
-		"containers": map[string]string{
+		"containers": map[string]interface{}{
 			"image": "nginx1.7.9",
 			"name":  "nginx",
 			"test":  "1111",
+			// This verifies that the type of the number has not changed as part of compare specs.
+			// With standard JSON marshaling and unmarshaling, it will cause an int64 to be
+			// converted to a float64. This ensures this does not happen.
+			"timestamp": map[string]int64{
+				"seconds": 1631796491,
+			},
 		},
 	}
 	assert.Equal(t, reflect.DeepEqual(fmt.Sprint(merged), fmt.Sprint(mergedExpected)), true)
@@ -320,7 +332,7 @@ func TestCompareLists(t *testing.T) {
 	mergedExpected = []interface{}{
 		map[string]interface{}{
 			"apiGroups": []string{
-				"extensions", "apps",
+				"apps", "extensions",
 			},
 			"resources": []string{
 				"deployments",
@@ -571,4 +583,96 @@ func newRuleTemplate(verbs, apiGroups, resources, nonResourceURLs string, compli
 			NonResourceURLs: strings.Split(nonResourceURLs, ","),
 		},
 	}
+}
+
+func TestCreateInformStatus(t *testing.T) {
+	policy := &policiesv1alpha1.ConfigurationPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "default",
+		},
+		Spec: policiesv1alpha1.ConfigurationPolicySpec{
+			Severity: "low",
+			NamespaceSelector: policiesv1alpha1.Target{
+				Include: []string{"test1", "test2"},
+			},
+			RemediationAction: "inform",
+			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
+				&policiesv1alpha1.ObjectTemplate{
+					ComplianceType:   "musthave",
+					ObjectDefinition: runtime.RawExtension{},
+				},
+			},
+		},
+	}
+	objNamespaced := true
+	objData := map[string]interface{}{
+		"indx":        0,
+		"kind":        "Secret",
+		"desiredName": "myobject",
+		"namespaced":  objNamespaced,
+	}
+	mustNotHave := false
+	numCompliant := 0
+	numNonCompliant := 1
+	var nonCompliantObjects map[string]map[string]interface{} = make(map[string]map[string]interface{})
+	var compliantObjects map[string]map[string]interface{} = make(map[string]map[string]interface{})
+	nonCompliantObjects["test1"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+
+	// Test 1 NonCompliant resource
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+
+	nonCompliantObjects["test2"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+	numNonCompliant = 2
+
+	// Test 2 NonCompliant resources
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+
+	delete(nonCompliantObjects, "test1")
+	delete(nonCompliantObjects, "test2")
+
+	// Test 0 resources
+	numNonCompliant = 0
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+
+	compliantObjects["test1"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+	numCompliant = 1
+	nonCompliantObjects["test2"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+	numNonCompliant = 1
+
+	// Test 1 compliant and 1 noncompliant resource  NOTE: This use case is the new behavior change!
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+
+	compliantObjects["test2"] = map[string]interface{}{
+		"names":  []string{"myobject"},
+		"reason": "my reason",
+	}
+	numCompliant = 2
+	numNonCompliant = 0
+	delete(nonCompliantObjects, "test2")
+
+	// Test 2 compliant resources
+	createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+		compliantObjects, nonCompliantObjects, policy, objData)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.Compliant)
 }
