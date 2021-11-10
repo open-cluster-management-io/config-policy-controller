@@ -2,3 +2,30 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
 metadata:
   name: parent-becomescompliant
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: mh-pod-becomescompliant
+        spec:
+          remediationAction: inform
+          namespaceSelector:
+            exclude: ["kube-*"]
+            include: ["default"]
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: case15-becomescompliant
+                spec:
+                  containers:
+                    - image: nginx:1.7.9
+                      name: nginx
+                      ports:
+                        - containerPort: 80

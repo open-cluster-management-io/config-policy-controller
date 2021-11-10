@@ -2,3 +2,24 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
 metadata:
   name: parent-becomesnoncompliant
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: mnh-pod-becomesnoncompliant
+        spec:
+          remediationAction: inform
+          namespaceSelector:
+            exclude: ["kube-*"]
+            include: ["default"]
+          object-templates:
+            - complianceType: mustnothave
+              objectDefinition:
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: case15-becomesnoncompliant
