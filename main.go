@@ -75,12 +75,14 @@ func main() {
 	pflag.StringVar(&hubConfigSecretNs, "hubconfig-secret-ns", "open-cluster-management-agent-addon", "Namespace for hub config kube-secret")
 	pflag.StringVar(&hubConfigSecretName, "hubconfig-secret-name", "policy-controller-hub-kubeconfig", "Name of the hub config kube-secret")
 
-	var enableLeaderElection bool
+	var enableLeaderElection, legacyLeaderElection bool
 	var probeAddr string
 	pflag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	pflag.BoolVar(&enableLeaderElection, "leader-elect", true,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
+	pflag.BoolVar(&legacyLeaderElection, "legacy-leader-elect", false,
+		"Use a legacy leader election method for controller manager instead of the lease API.")
 
 	pflag.Parse()
 
@@ -115,6 +117,12 @@ func main() {
 	if strings.Contains(namespace, ",") {
 		options.Namespace = ""
 		options.NewCache = cache.MultiNamespacedCacheBuilder(strings.Split(namespace, ","))
+	}
+
+	if legacyLeaderElection {
+		// If legacyLeaderElection is enabled, then that means the lease API is not available.
+		// In this case, use the legacy leader election method of a ConfigMap.
+		options.LeaderElectionResourceLock = "configmaps"
 	}
 
 	// Create a new manager to provide shared dependencies and start components
