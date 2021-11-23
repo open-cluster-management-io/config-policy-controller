@@ -34,7 +34,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	"k8s.io/client-go/restmapper"
@@ -49,8 +48,6 @@ var availablePolicies common.SyncedPolicyMap
 
 // PlcChan a channel used to pass policies ready for update
 var PlcChan chan *policyv1.ConfigurationPolicy
-
-var recorder record.EventRecorder
 
 var clientSet *kubernetes.Clientset
 
@@ -76,11 +73,6 @@ var Mx sync.RWMutex
 //MxUpdateMap for making the map thread safe
 var MxUpdateMap sync.RWMutex
 
-// KubeClient a k8s client used for k8s native resources
-var KubeClient *kubernetes.Interface
-
-var reconcilingAgent *ConfigurationPolicyReconciler
-
 // NamespaceWatched defines which namespace we can watch for the GRC policies and ignore others
 var NamespaceWatched string
 
@@ -96,20 +88,11 @@ func (r *ConfigurationPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error
 }
 
 // Initialize to initialize some controller variables
-func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset,
-	kubeClient *kubernetes.Interface, mgr manager.Manager, namespace, eventParent string) {
-	InitializeClient(kubeClient)
-	PlcChan = make(chan *policyv1.ConfigurationPolicy, 100) //buffering up to 100 policies for update
-	NamespaceWatched = namespace
-	clientSet = clientset
-	EventOnParent = strings.ToLower(eventParent)
-	recorder, _ = common.CreateRecorder(*KubeClient, ControllerName)
+func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset, namespace, eventParent string) {
 	config = kubeconfig
-}
-
-//InitializeClient helper function to initialize kubeclient
-func InitializeClient(kubeClient *kubernetes.Interface) {
-	KubeClient = kubeClient
+	clientSet = clientset
+	NamespaceWatched = namespace
+	EventOnParent = strings.ToLower(eventParent)
 }
 
 // blank assignment to verify that ConfigurationPolicyReconciler implements reconcile.Reconciler
@@ -137,9 +120,6 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 
 	// Fetch the ConfigurationPolicy instance
 	instance := &policyv1.ConfigurationPolicy{}
-	if reconcilingAgent == nil {
-		reconcilingAgent = r
-	}
 	err := r.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
 		if errors.IsNotFound(err) {
@@ -167,7 +147,7 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 
 // PeriodicallyExecConfigPolicies loops through all configurationpolicies in the target namespace and triggers
 // template handling for each one. This function drives all the work the configuration policy controller does.
-func PeriodicallyExecConfigPolicies(freq uint, test bool) {
+func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint, test bool) {
 	cachedApiResourceList := []*metav1.APIResourceList{}
 	cachedApiGroupsList := []*restmapper.APIGroupResources{}
 	for {
@@ -221,7 +201,7 @@ func PeriodicallyExecConfigPolicies(freq uint, test bool) {
 				// the PolicyMap cache, which can have unintended side effects.
 				policy = (*policy).DeepCopy()
 				//handle each template in each policy
-				handleObjectTemplates(*policy, apiresourcelist, apigroups)
+				r.handleObjectTemplates(*policy, apiresourcelist, apigroups)
 				Mx.Unlock()
 			}
 		}
@@ -233,9 +213,6 @@ func PeriodicallyExecConfigPolicies(freq uint, test bool) {
 			remainingSleep := float64(freq) - float64(elapsed)
 			time.Sleep(time.Duration(remainingSleep) * time.Second)
 		}
-		if KubeClient == nil {
-			return
-		}
 		if test == true {
 			return
 		}
@@ -243,7 +220,7 @@ func PeriodicallyExecConfigPolicies(freq uint, test bool) {
 }
 
 //handleObjectTemplates iterates through all policy templates in a given policy and processes them
-func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*metav1.APIResourceList,
+func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*metav1.APIResourceList,
 	apigroups []*restmapper.APIGroupResources) {
 	fmt.Println(fmt.Sprintf("processing object templates for policy %s...", plc.GetName()))
 	//error if no remediationAction is specified
@@ -252,8 +229,8 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		message := "Policy does not have a RemediationAction specified"
 		update := createViolation(&plc, 0, "No RemediationAction", message)
 		if update {
-			recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
-			addForUpdate(&plc)
+			r.Recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
+			r.addForUpdate(&plc)
 		}
 		return
 	}
@@ -269,7 +246,8 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 	// this is optional but since apiresourcelist is already available,
 	// use this rather than re-discovering the list for generic-lookup
 	tmplResolverCfg := templates.Config{KubeAPIResourceList: apiresourcelist}
-	tmplResolver, err := templates.NewResolver(KubeClient, config, tmplResolverCfg)
+	kubeclient := kubernetes.Interface(clientSet)
+	tmplResolver, err := templates.NewResolver(&kubeclient, config, tmplResolverCfg)
 	if err != nil {
 		// Panic here since this error is unrecoverable
 		glog.Errorf("Failed to create a template resolver: %v", err)
@@ -327,8 +305,8 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 
 				update := createViolation(&plc, 0, "Error processing hub templates", hubTemplatesErrMsg)
 				if update {
-					recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
-					checkRelatedAndUpdate(update, plc, relatedObjects, oldRelated)
+					r.Recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
+					r.checkRelatedAndUpdate(update, plc, relatedObjects, oldRelated)
 				}
 				return
 			}
@@ -338,8 +316,8 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 				if tplErr != nil {
 					update := createViolation(&plc, 0, "Error processing template", tplErr.Error()) //
 					if update {
-						recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
-						checkRelatedAndUpdate(update, plc, relatedObjects, oldRelated)
+						r.Recorder.Event(&plc, eventWarning, fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
+						r.checkRelatedAndUpdate(update, plc, relatedObjects, oldRelated)
 					}
 					return
 				}
@@ -373,8 +351,8 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 		objNamespaced := false
 		//iterate through all namespaces the configurationpolicy is set on
 		for _, ns := range relevantNamespaces {
-			names, compliant, reason, objKind, related, update, namespaced := handleObjects(objectT, ns, indx, &plc, config,
-				recorder, apiresourcelist, apigroups)
+			names, compliant, reason, objKind, related, update, namespaced := r.handleObjects(objectT, ns, indx, &plc, config,
+				apiresourcelist, apigroups)
 			if update {
 				parentUpdate = true
 			}
@@ -429,15 +407,15 @@ func handleObjectTemplates(plc policyv1.ConfigurationPolicy, apiresourcelist []*
 			}
 		}
 	}
-	checkRelatedAndUpdate(parentUpdate, plc, relatedObjects, oldRelated)
+	r.checkRelatedAndUpdate(parentUpdate, plc, relatedObjects, oldRelated)
 }
 
 //checks related objects field and triggers an update on the configurationpolicy if it has changed
-func checkRelatedAndUpdate(update bool, plc policyv1.ConfigurationPolicy, related,
+func (r *ConfigurationPolicyReconciler) checkRelatedAndUpdate(update bool, plc policyv1.ConfigurationPolicy, related,
 	oldRelated []policyv1.RelatedObject) {
 	sortUpdate := sortRelatedObjectsAndUpdate(&plc, related, oldRelated)
 	if update || sortUpdate {
-		addForUpdate(&plc)
+		r.addForUpdate(&plc)
 	}
 }
 
@@ -561,8 +539,8 @@ func createInformStatus(mustNotHave bool, numCompliant int, numNonCompliant int,
 }
 
 //handleObjects controls the processing of each individual object template within a configurationpolicy
-func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int, policy *policyv1.ConfigurationPolicy,
-	config *rest.Config, recorder record.EventRecorder, apiresourcelist []*metav1.APIResourceList,
+func (r *ConfigurationPolicyReconciler) handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int, policy *policyv1.ConfigurationPolicy,
+	config *rest.Config, apiresourcelist []*metav1.APIResourceList,
 	apigroups []*restmapper.APIGroupResources) (objNameList []string, compliant bool, reason string,
 	rsrcKind string, relatedObjects []policyv1.RelatedObject, pUpdate bool, isNamespaced bool) {
 	if namespace != "" {
@@ -574,7 +552,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 	needUpdate := false
 	ext := objectT.ObjectDefinition
 	//map raw object to a resource, generate a violation if resource cannot be found
-	mapping, mappingUpdate := getMapping(apigroups, ext, policy, index)
+	mapping, mappingUpdate := r.getMapping(apigroups, ext, policy, index)
 	if mapping == nil {
 		return nil, false, "", "", nil, (needUpdate || mappingUpdate), namespaced
 	}
@@ -603,7 +581,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 				policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
 				eventType = eventWarning
 			}
-			recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
+			r.Recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
 				convertPolicyStatusToString(policy))
 			needUpdate = true
 		}
@@ -629,7 +607,7 @@ func handleObjects(objectT *policyv1.ObjectTemplate, namespace string, index int
 	complianceCalculated := false
 	if len(objNames) == 1 {
 		name = objNames[0]
-		objNames, compliant, rsrcKind, needUpdate = handleSingleObj(policy, remediation, exists, objShouldExist, rsrc,
+		objNames, compliant, rsrcKind, needUpdate = r.handleSingleObj(policy, remediation, exists, objShouldExist, rsrc,
 			dclient, objectT, map[string]interface{}{
 				"name":       name,
 				"namespace":  namespace,
@@ -690,7 +668,7 @@ func generateSingleObjReason(objShouldExist bool, compliant bool, exists bool) (
 
 // handleSingleObj takes in an object template (for a named object) and its data and determines whether the object on the cluster
 // is compliant or not
-func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.RemediationAction, exists bool,
+func (r *ConfigurationPolicyReconciler) handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.RemediationAction, exists bool,
 	objShouldExist bool, rsrc schema.GroupVersionResource, dclient dynamic.Interface, objectT *policyv1.ObjectTemplate,
 	data map[string]interface{}) (objNameList []string, compliance bool, rsrcKind string, shouldUpdate bool) {
 	var err error
@@ -772,7 +750,7 @@ func handleSingleObj(policy *policyv1.ConfigurationPolicy, remediation policyv1.
 			eventType = eventWarning
 			compliant = false
 		}
-		recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
+		r.Recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
 			convertPolicyStatusToString(policy))
 		return nil, compliant, "", updateNeeded
 	}
@@ -820,7 +798,7 @@ func getResourceAndDynamicClient(mapping *meta.RESTMapping, apiresourcelist []*m
 }
 
 // getMapping takes in a raw object, decodes it, and maps it to an existing group/kind
-func getMapping(apigroups []*restmapper.APIGroupResources, ext runtime.RawExtension,
+func (r *ConfigurationPolicyReconciler) getMapping(apigroups []*restmapper.APIGroupResources, ext runtime.RawExtension,
 	policy *policyv1.ConfigurationPolicy, index int) (mapping *meta.RESTMapping, update bool) {
 	updateNeeded := false
 	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
@@ -895,7 +873,7 @@ func getMapping(apigroups []*restmapper.APIGroupResources, ext runtime.RawExtens
 		}
 		if updateNeeded {
 			//generate an event on the configurationpolicy if a violation is created
-			recorder.Event(policy, eventWarning, fmt.Sprintf(plcFmtStr, policy.GetName()), errMsg)
+			r.Recorder.Event(policy, eventWarning, fmt.Sprintf(plcFmtStr, policy.GetName()), errMsg)
 		}
 		return nil, updateNeeded
 	}
@@ -1058,7 +1036,7 @@ func getPolicyNamespaces(policy policyv1.ConfigurationPolicy) []string {
 func getAllNamespaces() (list []string) {
 	listOpt := &metav1.ListOptions{}
 
-	nsList, err := (*KubeClient).CoreV1().Namespaces().List(context.TODO(), *listOpt)
+	nsList, err := clientSet.CoreV1().Namespaces().List(context.TODO(), *listOpt)
 	if err != nil {
 		glog.Errorf("Error fetching namespaces from the API server: %v", err)
 	}
@@ -1552,7 +1530,7 @@ func IsSimilarToLastCondition(oldCond policyv1.Condition, newCond policyv1.Condi
 }
 
 //addForUpdate calculates the compliance status of a configurationPolicy and updates its status field if needed
-func addForUpdate(policy *policyv1.ConfigurationPolicy) {
+func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.ConfigurationPolicy) {
 	compliant := true
 	for index := range policy.Spec.ObjectTemplates {
 		if index < len(policy.Status.CompliancyDetails) {
@@ -1568,7 +1546,7 @@ func addForUpdate(policy *policyv1.ConfigurationPolicy) {
 	} else {
 		policy.Status.ComplianceState = policyv1.NonCompliant
 	}
-	_, err := updatePolicyStatus(map[string]*policyv1.ConfigurationPolicy{
+	_, err := r.updatePolicyStatus(map[string]*policyv1.ConfigurationPolicy{
 		(*policy).GetName(): policy,
 	})
 	modifiedErr := "the object has been modified; please apply your changes to the latest version and try again"
@@ -1582,20 +1560,17 @@ func addForUpdate(policy *policyv1.ConfigurationPolicy) {
 
 //updatePolicyStatus updates the status of the configurationPolicy if new conditions are added and generates an event
 //on the parent policy with the complaince decision
-func updatePolicyStatus(policies map[string]*policyv1.ConfigurationPolicy) (*policyv1.ConfigurationPolicy, error) {
+func (r *ConfigurationPolicyReconciler) updatePolicyStatus(policies map[string]*policyv1.ConfigurationPolicy) (*policyv1.ConfigurationPolicy, error) {
 	for _, instance := range policies { // policies is a map where: key = plc.Name, value = pointer to plc
 		fmt.Println(fmt.Sprintf("Updating configurationPolicy status: %v", instance.Status.ComplianceState))
-		err := reconcilingAgent.Status().Update(context.TODO(), instance)
+		err := r.Status().Update(context.TODO(), instance)
 		if err != nil {
 			return instance, err
 		}
 		if EventOnParent != "no" && instance.Status.ComplianceState != "Undetermined" {
-			createParentPolicyEvent(instance)
+			r.createParentPolicyEvent(instance)
 		}
-		if reconcilingAgent.Recorder != nil {
-			reconcilingAgent.Recorder.Event(instance, "Normal", "Policy updated", fmt.Sprintf("Policy status is: %v",
-				instance.Status.ComplianceState))
-		}
+		r.Recorder.Event(instance, "Normal", "Policy updated", fmt.Sprintf("Policy status is: %v", instance.Status.ComplianceState))
 	}
 	return nil, nil
 }
@@ -1692,7 +1667,7 @@ func printMap(myMap map[string]*policyv1.ConfigurationPolicy) {
 	}
 }
 
-func createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
+func (r *ConfigurationPolicyReconciler) createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
 	if len(instance.OwnerReferences) == 0 {
 		return //there is nothing to do, since no owner is set
 	}
@@ -1703,17 +1678,15 @@ func createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
 
 	parentPlc := createParentPolicy(instance)
 
-	if reconcilingAgent.Recorder != nil {
-		eventType := "Normal"
-		if instance.Status.ComplianceState == policyv1.NonCompliant {
-			eventType = "Warning"
-		}
-		fmt.Println("Creating parent policy event: " + convertPolicyStatusToString(instance))
-		reconcilingAgent.Recorder.Event(&parentPlc,
-			eventType,
-			fmt.Sprintf(eventFmtStr, instance.Namespace, instance.Name),
-			convertPolicyStatusToString(instance))
+	eventType := "Normal"
+	if instance.Status.ComplianceState == policyv1.NonCompliant {
+		eventType = "Warning"
 	}
+	fmt.Println("Creating parent policy event: " + convertPolicyStatusToString(instance))
+	r.Recorder.Event(&parentPlc,
+		eventType,
+		fmt.Sprintf(eventFmtStr, instance.Namespace, instance.Name),
+		convertPolicyStatusToString(instance))
 }
 
 func createParentPolicy(instance *policyv1.ConfigurationPolicy) extpoliciesv1.Policy {

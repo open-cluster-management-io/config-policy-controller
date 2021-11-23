@@ -132,11 +132,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err = (&controllers.ConfigurationPolicyReconciler{
+	reconciler := controllers.ConfigurationPolicyReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor(controllers.ControllerName),
-	}).SetupWithManager(mgr); err != nil {
+	}
+	if err = reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "unable to create controller", "controller", "ConfigurationPolicy")
 		os.Exit(1)
 	}
@@ -152,16 +153,12 @@ func main() {
 	}
 
 	// Initialize some variables
-	client, err := kubernetes.NewForConfig(cfg)
-	if err != nil {
-		log.Info("cannot create kube client sucessfully: %v", err)
-	}
-	var generatedClient kubernetes.Interface = kubernetes.NewForConfigOrDie(mgr.GetConfig())
-	common.Initialize(&generatedClient, cfg)
+	clientset := kubernetes.NewForConfigOrDie(cfg)
+	common.Initialize(clientset, cfg)
+	controllers.Initialize(cfg, clientset, namespace, eventOnParent)
 
-	controllers.Initialize(cfg, client, &generatedClient, mgr, namespace, eventOnParent)
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
-	go controllers.PeriodicallyExecConfigPolicies(frequency, false)
+	go reconciler.PeriodicallyExecConfigPolicies(frequency, false)
 
 	// This lease is not related to leader election. This is to report the status of the controller
 	// to the addon framework. This can be seen in the "status" section of the ManagedClusterAddOn
@@ -179,7 +176,7 @@ func main() {
 
 			log.Info("Starting lease controller to report status")
 			leaseUpdater := lease.NewLeaseUpdater(
-				generatedClient,
+				clientset,
 				"config-policy-controller",
 				operatorNs,
 			)

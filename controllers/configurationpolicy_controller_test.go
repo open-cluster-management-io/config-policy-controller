@@ -75,7 +75,7 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 	var simpleClient kubernetes.Interface = testclient.NewSimpleClientset()
-	common.Initialize(&simpleClient, nil)
+	common.Initialize(simpleClient, nil)
 	res, err := r.Reconcile(context.TODO(), req)
 	if err != nil {
 		t.Fatalf("reconcile: (%v)", err)
@@ -345,19 +345,6 @@ func TestCompareLists(t *testing.T) {
 	assert.Equal(t, reflect.DeepEqual(fmt.Sprint(merged), fmt.Sprint(mergedExpected)), true)
 }
 
-func TestCreateParentPolicy(t *testing.T) {
-	var ownerReference = metav1.OwnerReference{
-		Name: "foo",
-	}
-	var ownerReferences = []metav1.OwnerReference{}
-	ownerReferences = append(ownerReferences, ownerReference)
-	samplePolicy.OwnerReferences = ownerReferences
-
-	policy := createParentPolicy(&samplePolicy)
-	assert.NotNil(t, policy)
-	createParentPolicyEvent(&samplePolicy)
-}
-
 func TestConvertPolicyStatusToString(t *testing.T) {
 	var compliantDetail = policiesv1alpha1.TemplateStatus{
 		ComplianceState: policiesv1alpha1.NonCompliant,
@@ -391,7 +378,7 @@ func TestHandleAddingPolicy(t *testing.T) {
 		ObjectMeta: objMeta,
 	}
 	simpleClient.CoreV1().Namespaces().Create(context.TODO(), &ns, metav1.CreateOptions{})
-	common.Initialize(&simpleClient, nil)
+	common.Initialize(simpleClient, nil)
 	err := handleAddingPolicy(&samplePolicy)
 	assert.Nil(t, err)
 	handleRemovingPolicy(samplePolicy.GetName())
