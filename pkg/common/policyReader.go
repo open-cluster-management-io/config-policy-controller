@@ -8,7 +8,6 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/golang/glog"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -22,12 +21,9 @@ func getTheObject(namespaced bool, namespace string, name string,
 		instance, err := res.Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
-				glog.V(6).Infof("response to retrieve a non namespaced object `%v` from the api-server: %v", name, err)
 				return nil, nil
 			}
-			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
 		} else {
-			glog.V(6).Infof("object `%v` retrieved from the api server\n", name)
 			return instance, err
 		}
 	} else {
@@ -35,12 +31,9 @@ func getTheObject(namespaced bool, namespace string, name string,
 		instance, err := res.Get(context.TODO(), name, metav1.GetOptions{})
 		if err != nil {
 			if errors.IsNotFound(err) {
-				glog.V(6).Infof("response to retrieve a namespaced object `%v` from the api-server: %v", name, err)
 				return instance, err
 			}
-			glog.Errorf("object `%v` cannot be retrieved from the api server\n", name)
 		} else {
-			glog.V(3).Infof("object `%v` retrieved from the api server\n", name)
 			return instance, err
 		}
 	}

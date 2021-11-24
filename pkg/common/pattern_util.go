@@ -7,7 +7,6 @@ import (
 	"math"
 	"strings"
 
-	"github.com/golang/glog"
 	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
 )
 
@@ -19,24 +18,20 @@ func IfMatch(name string, included, excluded []string) bool {
 
 // MatchNames matches names
 func MatchNames(all, included, excluded []string) []string {
-	glog.V(6).Infof("MatchNames all = %v, included = %v, excluded = %v", all, included, excluded)
 	//list of included
 	includedNames := []string{}
 	for _, value := range included {
 		found := FindPattern(value, all)
 		includedNames = append(includedNames, found...)
 	}
-	glog.V(6).Infof("MatchNames all = %v includedNames = %v", all, includedNames)
 	//then get the list of excluded
 	excludedNames := []string{}
 	for _, value := range excluded {
 		found := FindPattern(value, all)
 		excludedNames = append(excludedNames, found...)
 	}
-	glog.V(6).Infof("MatchNames all = %v excludedNames = %v", all, excludedNames)
 	//then get the list of deduplicated
 	finalList := DeduplicateItems(includedNames, excludedNames)
-	glog.V(6).Infof("MatchNames all = %v return  = %v", all, finalList)
 	return finalList
 }
 

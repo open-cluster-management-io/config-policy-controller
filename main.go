@@ -23,7 +23,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
@@ -42,13 +41,12 @@ var (
 	metricsHost       = "0.0.0.0"
 	metricsPort int32 = 8383
 	scheme            = k8sruntime.NewScheme()
-	log               = logf.Log.WithName("setup")
+	log               = ctrl.Log.WithName("setup")
 )
 
 func printVersion() {
-	log.Info(fmt.Sprintf("Operator Version: %s", version.Version))
-	log.Info(fmt.Sprintf("Go Version: %s", runtime.Version()))
-	log.Info(fmt.Sprintf("Go OS/Arch: %s/%s", runtime.GOOS, runtime.GOARCH))
+	log.Info("Using", "OperatorVersion", version.Version, "GoVersion", runtime.Version(),
+		"GOOS", runtime.GOOS, "GOARCH", runtime.GOARCH)
 }
 
 func init() {
@@ -60,6 +58,8 @@ func init() {
 }
 
 func main() {
+	opts := zap.Options{}
+	opts.BindFlags(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
 	var eventOnParent, clusterName, hubConfigSecretNs, hubConfigSecretName string
@@ -86,7 +86,7 @@ func main() {
 
 	pflag.Parse()
 
-	logf.SetLogger(zap.New())
+	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
 
 	printVersion()
 
@@ -99,7 +99,7 @@ func main() {
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
-		log.Error(err, "")
+		log.Error(err, "Failed to get config")
 		os.Exit(1)
 	}
 
@@ -128,7 +128,7 @@ func main() {
 	// Create a new manager to provide shared dependencies and start components
 	mgr, err := manager.New(cfg, options)
 	if err != nil {
-		log.Error(err, "unable to start manager")
+		log.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
 
@@ -138,17 +138,17 @@ func main() {
 		Recorder: mgr.GetEventRecorderFor(controllers.ControllerName),
 	}
 	if err = reconciler.SetupWithManager(mgr); err != nil {
-		log.Error(err, "unable to create controller", "controller", "ConfigurationPolicy")
+		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		log.Error(err, "unable to set up health check")
+		log.Error(err, "Unable to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		log.Error(err, "unable to set up ready check")
+		log.Error(err, "Unable to set up ready check")
 		os.Exit(1)
 	}
 
@@ -165,9 +165,10 @@ func main() {
 	// resource objects.
 	if enableLease {
 		operatorNs, err := common.GetOperatorNamespace()
+		log.V(2).Info("Got operator namespace", "Namespace", operatorNs)
 		if err != nil {
 			if err == common.ErrNoNamespace || err == common.ErrRunLocal {
-				log.Info("Skipping lease; not running in a cluster.")
+				log.Info("Skipping lease; not running in a cluster")
 			} else {
 				log.Error(err, "Failed to get operator namespace")
 				os.Exit(1)
@@ -182,22 +183,22 @@ func main() {
 			)
 
 			//set hubCfg on lease updated if found
-			hubCfg, _ := common.LoadHubConfig(hubConfigSecretNs, hubConfigSecretName)
-			if hubCfg != nil {
-				leaseUpdater = leaseUpdater.WithHubLeaseConfig(hubCfg, clusterName)
+			hubCfg, err := common.LoadHubConfig(hubConfigSecretNs, hubConfigSecretName)
+			if err != nil {
+				log.Error(err, "Could not load hub config, lease updater not set with config")
 			} else {
-				log.Error(err, "HubConfig not found, HubLeaseConfig not set")
+				leaseUpdater = leaseUpdater.WithHubLeaseConfig(hubCfg, clusterName)
 			}
 
 			go leaseUpdater.Start(context.TODO())
 		}
 	} else {
-		log.Info("Status reporting is not enabled")
+		log.Info("Addon status reporting is not enabled")
 	}
 
-	log.Info("starting manager")
+	log.Info("Starting manager")
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		log.Error(err, "problem running manager")
+		log.Error(err, "Problem running manager")
 		os.Exit(1)
 	}
 }

@@ -11,8 +11,6 @@ import (
 	"io/ioutil"
 	"os"
 	"strings"
-
-	"github.com/golang/glog"
 )
 
 type RunModeType string
@@ -61,6 +59,5 @@ func GetOperatorNamespace() (string, error) {
 		return "", err
 	}
 	ns := strings.TrimSpace(string(nsBytes))
-	glog.Info("Found namespace", "Namespace", ns)
 	return ns, nil
 }
