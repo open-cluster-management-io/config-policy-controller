@@ -70,8 +70,8 @@ type Target struct {
 
 // ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
 type ConfigurationPolicySpec struct {
-	Severity          Severity          `json:"severity,omitempty"`          //low, medium, high
-	RemediationAction RemediationAction `json:"remediationAction,omitempty"` //enforce, inform
+	Severity          Severity          `json:"severity,omitempty"`          // low, medium, high
+	RemediationAction RemediationAction `json:"remediationAction,omitempty"` // enforce, inform
 	NamespaceSelector Target            `json:"namespaceSelector,omitempty"`
 	LabelSelector     map[string]string `json:"labelSelector,omitempty"`
 	ObjectTemplates   []*ObjectTemplate `json:"object-templates,omitempty"`
@@ -89,7 +89,7 @@ type ObjectTemplate struct {
 
 // ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
 type ConfigurationPolicyStatus struct {
-	ComplianceState   ComplianceState  `json:"compliant,omitempty"`         // Compliant, NonCompliant, UnknownCompliancy
+	ComplianceState   ComplianceState  `json:"compliant,omitempty"`         // Compliant/NonCompliant/UnknownCompliancy
 	CompliancyDetails []TemplateStatus `json:"compliancyDetails,omitempty"` // reason for non-compliancy
 	RelatedObjects    []RelatedObject  `json:"relatedObjects,omitempty"`    // List of resources processed by the policy
 }
@@ -172,7 +172,8 @@ type RelatedObject struct {
 
 // ObjectResource is an object identified by the policy as a resource that needs to be validated.
 type ObjectResource struct {
-	// Kind of the referent. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+	// Kind of the referent. More info:
+	// https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
 	Kind string `json:"kind,omitempty"`
 	// API version of the referent.
 	APIVersion string `json:"apiVersion,omitempty"`
@@ -182,9 +183,11 @@ type ObjectResource struct {
 
 // ObjectMetadata contains the resource metadata for an object being processed by the policy
 type ObjectMetadata struct {
-	// Name of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+	// Name of the referent. More info:
+	// https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
 	Name string `json:"name,omitempty"`
-	// Namespace of the referent. More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+	// Namespace of the referent. More info:
+	// https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
 	Namespace string `json:"namespace,omitempty"`
 }
 

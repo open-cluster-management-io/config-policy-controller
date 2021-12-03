@@ -52,6 +52,7 @@ jobs:
       run: |
         make fmt
         git diff --exit-code
+        make lint
 
     - name: Verify deploy/operator.yaml
       run: |

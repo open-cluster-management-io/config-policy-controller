@@ -43,6 +43,7 @@ func GetWatchNamespace() (string, error) {
 	if !found {
 		return "", fmt.Errorf("%s must be set", watchNamespaceEnvVar)
 	}
+
 	return ns, nil
 }
 
@@ -51,13 +52,15 @@ func GetOperatorNamespace() (string, error) {
 	if isRunModeLocal() {
 		return "", ErrRunLocal
 	}
+
 	nsBytes, err := ioutil.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", ErrNoNamespace
 		}
+
 		return "", err
 	}
-	ns := strings.TrimSpace(string(nsBytes))
-	return ns, nil
+
+	return strings.TrimSpace(string(nsBytes)), nil
 }

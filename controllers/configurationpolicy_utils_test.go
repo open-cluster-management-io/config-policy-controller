@@ -8,6 +8,7 @@ import (
 
 func TestFormatTemplateAnnotation(t *testing.T) {
 	t.Parallel()
+
 	policyTemplate := map[string]interface{}{
 		"annotations": map[string]interface{}{
 			"annotation1": "one!",
@@ -25,6 +26,7 @@ func TestFormatTemplateAnnotation(t *testing.T) {
 
 func TestFormatTemplateNullAnnotation(t *testing.T) {
 	t.Parallel()
+
 	policyTemplate := map[string]interface{}{
 		"annotations": nil,
 		"labels": map[string]string{
@@ -39,6 +41,7 @@ func TestFormatTemplateNullAnnotation(t *testing.T) {
 
 func TestFormatTemplateStringAnnotation(t *testing.T) {
 	t.Parallel()
+
 	policyTemplate := map[string]interface{}{
 		"annotations": "not-an-annotation",
 		"labels": map[string]string{

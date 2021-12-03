@@ -7,8 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	policiesv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	policiesv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
 )
 
 /*
@@ -42,7 +43,7 @@ var sm = SyncedPolicyMap{
 	PolicyMap: make(map[string]*policiesv1.ConfigurationPolicy),
 }
 
-//TestGetObject testing get object in map
+// TestGetObject testing get object in map
 func TestGetObject(t *testing.T) {
 	_, found := sm.GetObject("void")
 	if found {
@@ -55,6 +56,7 @@ func TestGetObject(t *testing.T) {
 	if !found {
 		t.Fatalf("expecting found = true, however found = %v", found)
 	}
+
 	if !reflect.DeepEqual(plc.Name, "testPolicy") {
 		t.Fatalf("expecting plcName = testPolicy, however plcName = %v", plc.Name)
 	}
@@ -62,14 +64,17 @@ func TestGetObject(t *testing.T) {
 
 func TestAddObject(t *testing.T) {
 	sm.AddObject("default", plc)
+
 	plcName, found1 := sm.GetObject("ServiceInstance")
 	if found1 {
 		t.Fatalf("expecting found = false, however found = %v", found1)
 	}
+
 	_, found2 := sm.GetObject("void")
-	if found1 {
+	if found2 {
 		t.Fatalf("expecting found = false, however found = %v", found2)
 	}
+
 	if !reflect.DeepEqual(plc.Name, "testPolicy") {
 		t.Fatalf("expecting plcName = testPolicy, however plcName = %v", plcName)
 	}
@@ -77,13 +82,16 @@ func TestAddObject(t *testing.T) {
 
 func TestRemoveDataObject(t *testing.T) {
 	sm.RemoveObject("void")
+
 	_, found := sm.GetObject("void")
 	if found {
 		t.Fatalf("expecting found = false, however found = %v", found)
 	}
-	//remove after adding
+
+	// remove after adding
 	sm.AddObject("default", plc)
 	sm.RemoveObject("default")
+
 	_, found = sm.GetObject("default")
 	if found {
 		t.Fatalf("expecting found = false, however found = %v", found)

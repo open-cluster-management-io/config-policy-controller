@@ -22,7 +22,7 @@ var KubeConfig *rest.Config
 
 var HubConfig *rest.Config
 
-// Initialize to initialize some controller varaibles
+// Initialize to initialize some controller variables
 func Initialize(kClient kubernetes.Interface, cfg *rest.Config) {
 	KubeClient = kClient
 	KubeConfig = cfg
@@ -30,10 +30,9 @@ func Initialize(kClient kubernetes.Interface, cfg *rest.Config) {
 
 func LoadHubConfig(namespace string, secretname string) (*rest.Config, error) {
 	if HubConfig == nil {
-
 		secretsClient := KubeClient.CoreV1().Secrets(namespace)
-		hubSecret, err := secretsClient.Get(context.TODO(), secretname, metav1.GetOptions{})
 
+		hubSecret, err := secretsClient.Get(context.TODO(), secretname, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
@@ -52,7 +51,7 @@ func LoadHubConfig(namespace string, secretname string) (*rest.Config, error) {
 		if err != nil {
 			return nil, err
 		}
-
 	}
+
 	return HubConfig, nil
 }

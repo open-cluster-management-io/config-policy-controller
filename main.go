@@ -5,20 +5,22 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"runtime"
 	"strings"
 
-	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
-	// to ensure that exec-entrypoint and run can make use of them.
-	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
+	"github.com/open-cluster-management/addon-framework/pkg/lease"
+	"github.com/spf13/pflag"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+
+	// to ensure that exec-entrypoint and run can make use of them.
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -26,14 +28,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/open-cluster-management/addon-framework/pkg/lease"
-	"github.com/spf13/pflag"
-
 	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
 	"github.com/open-cluster-management/config-policy-controller/controllers"
 	"github.com/open-cluster-management/config-policy-controller/pkg/common"
 	"github.com/open-cluster-management/config-policy-controller/version"
-	//+kubebuilder:scaffold:imports
 )
 
 // Change below variables to serve metrics on different host or port.
@@ -51,10 +49,8 @@ func printVersion() {
 
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-
-	utilruntime.Must(policyv1.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
-
+	utilruntime.Must(policyv1.AddToScheme(scheme))
 }
 
 func main() {
@@ -62,9 +58,10 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
-	var eventOnParent, clusterName, hubConfigSecretNs, hubConfigSecretName string
+	var eventOnParent, clusterName, hubConfigSecretNs, hubConfigSecretName, probeAddr string
 	var frequency uint
-	var enableLease bool
+	var enableLease, enableLeaderElection, legacyLeaderElection bool
+
 	pflag.UintVar(&frequency, "update-frequency", 10,
 		"The status update frequency (in seconds) of a mutation policy")
 	pflag.StringVar(&eventOnParent, "parent-event", "ifpresent",
@@ -72,11 +69,10 @@ func main() {
 	pflag.BoolVar(&enableLease, "enable-lease", false,
 		"If enabled, the controller will start the lease controller to report its status")
 	pflag.StringVar(&clusterName, "cluster-name", "acm-managed-cluster", "Name of the cluster")
-	pflag.StringVar(&hubConfigSecretNs, "hubconfig-secret-ns", "open-cluster-management-agent-addon", "Namespace for hub config kube-secret")
-	pflag.StringVar(&hubConfigSecretName, "hubconfig-secret-name", "policy-controller-hub-kubeconfig", "Name of the hub config kube-secret")
-
-	var enableLeaderElection, legacyLeaderElection bool
-	var probeAddr string
+	pflag.StringVar(&hubConfigSecretNs, "hubconfig-secret-ns", "open-cluster-management-agent-addon",
+		"Namespace for hub config kube-secret")
+	pflag.StringVar(&hubConfigSecretName, "hubconfig-secret-name", "policy-controller-hub-kubeconfig",
+		"Name of the hub config kube-secret")
 	pflag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	pflag.BoolVar(&enableLeaderElection, "leader-elect", true,
 		"Enable leader election for controller manager. "+
@@ -147,6 +143,7 @@ func main() {
 		log.Error(err, "Unable to set up health check")
 		os.Exit(1)
 	}
+
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
 		log.Error(err, "Unable to set up ready check")
 		os.Exit(1)
@@ -165,24 +162,24 @@ func main() {
 	// resource objects.
 	if enableLease {
 		operatorNs, err := common.GetOperatorNamespace()
-		log.V(2).Info("Got operator namespace", "Namespace", operatorNs)
 		if err != nil {
-			if err == common.ErrNoNamespace || err == common.ErrRunLocal {
+			if errors.Is(err, common.ErrNoNamespace) || errors.Is(err, common.ErrRunLocal) {
 				log.Info("Skipping lease; not running in a cluster")
 			} else {
 				log.Error(err, "Failed to get operator namespace")
 				os.Exit(1)
 			}
 		} else {
-
+			log.V(2).Info("Got operator namespace", "Namespace", operatorNs)
 			log.Info("Starting lease controller to report status")
+
 			leaseUpdater := lease.NewLeaseUpdater(
 				clientset,
 				"config-policy-controller",
 				operatorNs,
 			)
 
-			//set hubCfg on lease updated if found
+			// set hubCfg on lease updated if found
 			hubCfg, err := common.LoadHubConfig(hubConfigSecretNs, hubConfigSecretName)
 			if err != nil {
 				log.Error(err, "Could not load hub config, lease updater not set with config")
@@ -197,6 +194,7 @@ func main() {
 	}
 
 	log.Info("Starting manager")
+
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
 		log.Error(err, "Problem running manager")
 		os.Exit(1)
