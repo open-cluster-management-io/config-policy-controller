@@ -699,14 +699,17 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 	if len(objNames) == 1 {
 		name = objNames[0]
-		objNames, compliant, rsrcKind, needUpdate = r.handleSingleObj(policy, remediation, exists,
-			objShouldExist, rsrc, dclient, objectT, map[string]interface{}{
-				"name":       name,
-				"namespace":  namespace,
-				"namespaced": namespaced,
-				"index":      index,
-				"unstruct":   unstruct,
-			})
+		singObj := singleObject{
+			policy:      policy,
+			gvr:         rsrc,
+			name:        name,
+			namespace:   namespace,
+			namespaced:  namespaced,
+			shouldExist: objShouldExist,
+			index:       index,
+			unstruct:    unstruct,
+		}
+		objNames, compliant, rsrcKind, needUpdate = r.handleSingleObj(singObj, remediation, exists, dclient, objectT)
 		complianceCalculated = true
 	}
 
@@ -761,97 +764,105 @@ func generateSingleObjReason(objShouldExist bool, compliant bool, exists bool) (
 	return reason
 }
 
+type singleObject struct {
+	policy      *policyv1.ConfigurationPolicy
+	gvr         schema.GroupVersionResource
+	name        string
+	namespace   string
+	namespaced  bool
+	shouldExist bool
+	index       int
+	unstruct    unstructured.Unstructured
+}
+
 // handleSingleObj takes in an object template (for a named object) and its data and determines whether
 // the object on the cluster is compliant or not
 func (r *ConfigurationPolicyReconciler) handleSingleObj(
-	policy *policyv1.ConfigurationPolicy,
+	obj singleObject,
 	remediation policyv1.RemediationAction,
-	exists,
-	objShouldExist bool,
-	rsrc schema.GroupVersionResource,
+	exists bool,
 	dclient dynamic.Interface,
 	objectT *policyv1.ObjectTemplate,
-	data map[string]interface{},
 ) (objNameList []string, compliance bool, rsrcKind string, shouldUpdate bool) {
+	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name)
+
 	var err error
 	var compliant bool
 
 	updateNeeded := false
 
-	//nolint:forcetypeassert
-	name := data["name"].(string)
-	//nolint:forcetypeassert
-	namespace := data["namespace"].(string)
-	//nolint:forcetypeassert
-	idx := data["index"].(int)
-	//nolint:forcetypeassert
-	namespaced := data["namespaced"].(bool)
-	//nolint:forcetypeassert
-	unstruct := data["unstruct"].(unstructured.Unstructured)
-
 	compliantObject := map[string]map[string]interface{}{
-		namespace: {
-			"names": []string{name},
+		obj.namespace: {
+			"names": []string{obj.name},
 		},
 	}
 
-	if !exists && objShouldExist {
+	if !exists && obj.shouldExist {
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			updateNeeded, err = handleEnforce(policy, rsrc, dclient, name, namespace, idx, namespaced, unstruct, true)
+			updateNeeded, err = handleEnforce(obj, dclient)
 			if err != nil {
 				// violation created for handling error
-				log.Error(err, "Could not handle missing musthave object", "object", name, "policy", policy.Name)
+				objLog.Error(err, "Could not handle missing musthave object")
 			}
 		} else { // inform
 			compliant = false
 		}
 	}
 
-	if exists && !objShouldExist {
+	if exists && !obj.shouldExist {
 		// it is a mustnothave but it exist, so it must be deleted
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			updateNeeded, err = handleEnforce(policy, rsrc, dclient, name, namespace, idx, namespaced, unstruct, false)
+			updateNeeded, err = handleEnforce(obj, dclient)
 			if err != nil {
-				log.Error(err, "Could not handle existing mustnothave object", "object", name, "policy", policy.Name)
+				objLog.Error(err, "Could not handle existing mustnothave object")
 			}
 		} else { // inform
 			compliant = false
 		}
 	}
 
-	if !exists && !objShouldExist {
+	if !exists && !obj.shouldExist {
 		// it is a must not have and it does not exist, so it is compliant
 		compliant = true
 
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 			log.V(2).Info("Entering `does not exist` and `must not have`")
 
-			updateNeeded = createStatus("", rsrc.Resource, compliantObject, namespaced, policy, idx, compliant, false)
+			updateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
+				obj.index, compliant, false)
 		}
 	}
 
 	processingErr := false
 	specViolation := false
 
+	data := map[string]interface{}{
+		"name":       obj.name,
+		"namespace":  obj.namespace,
+		"namespaced": obj.namespaced,
+		"index":      obj.index,
+		"unstruct":   obj.unstruct,
+	}
+
 	// object exists and the template requires it, so we need to check specific fields to see if we have a match
 	if exists {
 		updated, throwSpecViolation, msg, pErr := checkAndUpdateResource(
 			strings.ToLower(string(objectT.ComplianceType)),
-			data, remediation, rsrc, dclient, unstruct.Object["kind"].(string))
+			data, remediation, obj.gvr, dclient, obj.unstruct.Object["kind"].(string))
 		if !updated && throwSpecViolation {
 			specViolation = throwSpecViolation
 			compliant = false
 		} else if !updated && msg != "" {
-			updateNeeded = addConditionToStatus(policy, idx, false, "K8s update template error", msg)
-		} else if objShouldExist {
+			updateNeeded = addConditionToStatus(obj.policy, obj.index, false, "K8s update template error", msg)
+		} else if obj.shouldExist {
 			// it is a must have and it does exist, so it is compliant
 			compliant = true
 			if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 				log.V(2).Info("Entering `exists` & `must have`")
 
-				updateNeeded = createStatus("", rsrc.Resource, compliantObject, namespaced,
-					policy, idx, compliant, true)
+				updateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
+					obj.index, compliant, true)
 			}
 		}
 
@@ -860,14 +871,14 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 	if updateNeeded {
 		eventType := eventNormal
-		if idx < len(policy.Status.CompliancyDetails) &&
-			policy.Status.CompliancyDetails[idx].ComplianceState == policyv1.NonCompliant {
+		if obj.index < len(obj.policy.Status.CompliancyDetails) &&
+			obj.policy.Status.CompliancyDetails[obj.index].ComplianceState == policyv1.NonCompliant {
 			eventType = eventWarning
 			compliant = false
 		}
 
-		r.Recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
-			convertPolicyStatusToString(policy))
+		r.Recorder.Event(obj.policy, eventType, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name),
+			convertPolicyStatusToString(obj.policy))
 
 		return nil, compliant, "", updateNeeded
 	}
@@ -877,7 +888,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	}
 
 	if strings.EqualFold(string(remediation), string(policyv1.Inform)) || specViolation {
-		return []string{name}, compliant, rsrc.Resource, updateNeeded
+		return []string{obj.name}, compliant, obj.gvr.Resource, updateNeeded
 	}
 
 	return nil, compliant, "", false
@@ -1112,52 +1123,42 @@ func getNamesOfKind(
 	return buildNameList(unstruct, complianceType, resList)
 }
 
-func handleEnforce(
-	plc *policyv1.ConfigurationPolicy,
-	rsrc schema.GroupVersionResource,
-	dclient dynamic.Interface,
-	name string,
-	namespace string,
-	index int,
-	namespaced bool,
-	unstruct unstructured.Unstructured,
-	objShouldExist bool,
-) (result bool, erro error) {
-	log.V(2).Info("Entering enforce", "objShouldExist", objShouldExist)
+func handleEnforce(obj singleObject, dclient dynamic.Interface) (result bool, erro error) {
+	log.V(2).Info("Entering enforce", "objShouldExist", obj.shouldExist)
 
-	nameStr := createResourceNameStr([]string{name}, namespace, namespaced)
+	nameStr := createResourceNameStr([]string{obj.name}, obj.namespace, obj.namespaced)
 
 	var res dynamic.ResourceInterface
-	if namespaced {
-		res = dclient.Resource(rsrc).Namespace(namespace)
+	if obj.namespaced {
+		res = dclient.Resource(obj.gvr).Namespace(obj.namespace)
 	} else {
-		res = dclient.Resource(rsrc)
+		res = dclient.Resource(obj.gvr)
 	}
 
 	var completed bool
 	var reason, msg string
 	var err error
 
-	if objShouldExist {
-		if completed, err = createObject(res, unstruct); !completed {
+	if obj.shouldExist {
+		if completed, err = createObject(res, obj.unstruct); !completed {
 			reason = "K8s creation error"
-			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", rsrc.Resource, nameStr, err)
+			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", obj.gvr.Resource, nameStr, err)
 		} else {
-			log.V(2).Info("Created missing must have object", "resource", rsrc.Resource, "name", name)
+			log.V(2).Info("Created missing must have object", "resource", obj.gvr.Resource, "name", obj.name)
 			reason = "K8s creation success"
-			msg = fmt.Sprintf("%v %v was missing, and was created successfully", rsrc.Resource, nameStr)
+			msg = fmt.Sprintf("%v %v was missing, and was created successfully", obj.gvr.Resource, nameStr)
 		}
 	} else {
-		if completed, err = deleteObject(res, name); completed {
+		if completed, err = deleteObject(res, obj.name); completed {
 			reason = "K8s deletion error"
-			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", rsrc.Resource, nameStr, err)
+			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", obj.gvr.Resource, nameStr, err)
 		} else {
 			reason = "K8s deletion success"
-			msg = fmt.Sprintf("%v %v existed, and was deleted successfully", rsrc.Resource, nameStr)
+			msg = fmt.Sprintf("%v %v existed, and was deleted successfully", obj.gvr.Resource, nameStr)
 		}
 	}
 
-	return addConditionToStatus(plc, index, completed, reason, msg), err
+	return addConditionToStatus(obj.policy, obj.index, completed, reason, msg), err
 }
 
 func getPolicyNamespaces(policy policyv1.ConfigurationPolicy) []string {
