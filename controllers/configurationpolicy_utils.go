@@ -435,7 +435,7 @@ func createMustHaveStatus(
 				kind, strings.Join(sortedNamespaces, ", "))
 		}
 
-		return createViolation(plc, indx, "K8s does not have a `must have` object", message)
+		return addConditionToStatus(plc, indx, false, "K8s does not have a `must have` object", message)
 	}
 
 	for i := range sortedNamespaces {
@@ -466,13 +466,13 @@ func createMustHaveStatus(
 	if compliant {
 		message := fmt.Sprintf("%v %v as specified, therefore this Object template is compliant", kind, names)
 
-		return createNotification(plc, indx, "K8s `must have` object already exists", message)
+		return addConditionToStatus(plc, indx, true, "K8s `must have` object already exists", message)
 	}
 
 	// Noncompliant -- return violation
 	message := fmt.Sprintf("%v not found: %v", kind, names)
 
-	return createViolation(plc, indx, "K8s does not have a `must have` object", message)
+	return addConditionToStatus(plc, indx, false, "K8s does not have a `must have` object", message)
 }
 
 // createMustNotHaveStatus generates a status for a mustnothave policy
@@ -511,11 +511,11 @@ func createMustNotHaveStatus(
 	if compliant {
 		message := fmt.Sprintf("%v %v missing as expected, therefore this Object template is compliant", kind, names)
 
-		return createNotification(plc, indx, "K8s `must not have` object already missing", message)
+		return addConditionToStatus(plc, indx, true, "K8s `must not have` object already missing", message)
 	}
 
 	// Noncompliant -- return violation
 	message := fmt.Sprintf("%v found: %v", kind, names)
 
-	return createViolation(plc, indx, "K8s has a `must not have` object", message)
+	return addConditionToStatus(plc, indx, false, "K8s has a `must not have` object", message)
 }
