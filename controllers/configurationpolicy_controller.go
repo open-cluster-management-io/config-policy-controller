@@ -1127,12 +1127,19 @@ func handleEnforce(
 
 	nameStr := createResourceNameStr([]string{name}, namespace, namespaced)
 
+	var res dynamic.ResourceInterface
+	if namespaced {
+		res = dclient.Resource(rsrc).Namespace(namespace)
+	} else {
+		res = dclient.Resource(rsrc)
+	}
+
 	var completed bool
 	var reason, msg string
 	var err error
 
 	if objShouldExist {
-		if completed, err = createObject(namespaced, namespace, name, rsrc, unstruct, dclient); !completed {
+		if completed, err = createObject(res, unstruct); !completed {
 			reason = "K8s creation error"
 			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", rsrc.Resource, nameStr, err)
 		} else {
@@ -1141,7 +1148,7 @@ func handleEnforce(
 			msg = fmt.Sprintf("%v %v was missing, and was created successfully", rsrc.Resource, nameStr)
 		}
 	} else {
-		if completed, err = deleteObject(namespaced, namespace, name, rsrc, dclient); completed {
+		if completed, err = deleteObject(res, name); completed {
 			reason = "K8s deletion error"
 			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", rsrc.Resource, nameStr, err)
 		} else {
@@ -1256,23 +1263,9 @@ func objectExists(
 	return true
 }
 
-func createObject(
-	namespaced bool,
-	namespace string,
-	name string,
-	rsrc schema.GroupVersionResource,
-	unstruct unstructured.Unstructured,
-	dclient dynamic.Interface,
-) (created bool, err error) {
-	objLog := log.WithValues("name", name, "namespaced", namespaced, "namespace", namespace)
+func createObject(res dynamic.ResourceInterface, unstruct unstructured.Unstructured) (created bool, err error) {
+	objLog := log.WithValues("name", unstruct.GetName())
 	objLog.V(2).Info("Entered createObject", "unstruct", unstruct)
-
-	var res dynamic.ResourceInterface
-	if namespaced {
-		res = dclient.Resource(rsrc).Namespace(namespace)
-	} else {
-		res = dclient.Resource(rsrc)
-	}
 
 	_, err = res.Create(context.TODO(), &unstruct, metav1.CreateOptions{})
 	if err != nil {
@@ -1292,18 +1285,9 @@ func createObject(
 	return true, nil
 }
 
-func deleteObject(
-	namespaced bool, namespace, name string, rsrc schema.GroupVersionResource, dclient dynamic.Interface,
-) (deleted bool, err error) {
-	objLog := log.WithValues("name", name, "namespaced", namespaced, "namespace", namespace)
+func deleteObject(res dynamic.ResourceInterface, name string) (deleted bool, err error) {
+	objLog := log.WithValues("name", name)
 	objLog.V(2).Info("Entered deleteObject")
-
-	var res dynamic.ResourceInterface
-	if namespaced {
-		res = dclient.Resource(rsrc).Namespace(namespace)
-	} else {
-		res = dclient.Resource(rsrc)
-	}
 
 	err = res.Delete(context.TODO(), name, metav1.DeleteOptions{})
 	if err != nil {
