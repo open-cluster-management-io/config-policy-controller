@@ -579,24 +579,23 @@ func createInformStatus(
 	if mustNotHave {
 		if numNonCompliant > 0 { // We want no resources, but some were found
 			// noncompliant; mustnothave and objects exist
-			update = createMustNotHaveStatus(kind, nonCompliantObjects, namespaced, plc, indx, compliant)
+			update = createStatus("", kind, nonCompliantObjects, namespaced, plc, indx, compliant, false)
 		} else if numNonCompliant == 0 {
 			// compliant; mustnothave and no objects exist
 			compliant = true
-			update = createMustNotHaveStatus(kind, compliantObjects, namespaced, plc, indx, compliant)
+			update = createStatus("", kind, compliantObjects, namespaced, plc, indx, compliant, false)
 		}
 	} else { // !mustNotHave (musthave)
 		if numCompliant == 0 && numNonCompliant == 0 { // Special case: No resources found is NonCompliant
 			// noncompliant; musthave and objects do not exist
-			update = createMustHaveStatus(desiredName, kind, nonCompliantObjects, namespaced,
-				plc, indx, compliant)
+			update = createStatus(desiredName, kind, nonCompliantObjects, namespaced, plc, indx, compliant, true)
 		} else if numNonCompliant > 0 {
 			// noncompliant; musthave and some objects do not exist
-			update = createMustHaveStatus(desiredName, kind, nonCompliantObjects, namespaced, plc, indx, compliant)
+			update = createStatus(desiredName, kind, nonCompliantObjects, namespaced, plc, indx, compliant, true)
 		} else { // Found only compliant resources (numCompliant > 0 and no NonCompliant)
 			// compliant; musthave and objects exist
 			compliant = true
-			update = createMustHaveStatus("", kind, compliantObjects, namespaced, plc, indx, compliant)
+			update = createStatus("", kind, compliantObjects, namespaced, plc, indx, compliant, true)
 		}
 	}
 
@@ -828,7 +827,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 			log.V(2).Info("Entering `does not exist` and `must not have`")
 
-			updateNeeded = createMustNotHaveStatus(rsrc.Resource, compliantObject, namespaced, policy, index, compliant)
+			updateNeeded = createStatus("", rsrc.Resource, compliantObject, namespaced, policy, index, compliant, false)
 		}
 	}
 
@@ -851,8 +850,8 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 				log.V(2).Info("Entering `exists` & `must have`")
 
-				updateNeeded = createMustHaveStatus("", rsrc.Resource, compliantObject, namespaced,
-					policy, index, compliant)
+				updateNeeded = createStatus("", rsrc.Resource, compliantObject, namespaced,
+					policy, index, compliant, true)
 			}
 		}
 

@@ -407,8 +407,7 @@ func createResourceNameStr(names []string, namespace string, namespaced bool) (n
 	return nameStr
 }
 
-// createMustHaveStatus generates a status for a musthave/mustonlyhave policy
-func createMustHaveStatus(
+func createStatus(
 	desiredName string,
 	kind string,
 	complianceObjects map[string]map[string]interface{},
@@ -416,6 +415,7 @@ func createMustHaveStatus(
 	plc *policyv1.ConfigurationPolicy,
 	indx int,
 	compliant bool,
+	objShouldExist bool,
 ) (update bool) {
 	// Parse discovered resources
 	nameList := []string{}
@@ -428,11 +428,10 @@ func createMustHaveStatus(
 	sort.Strings(sortedNamespaces)
 
 	// Noncompliant with no resources -- return violation immediately
-	if !compliant && desiredName == "" {
+	if objShouldExist && !compliant && desiredName == "" {
 		message := fmt.Sprintf("No instances of `%v` found as specified", kind)
 		if len(sortedNamespaces) > 0 {
-			message = fmt.Sprintf("No instances of `%v` found as specified in namespaces: %v",
-				kind, strings.Join(sortedNamespaces, ", "))
+			message += fmt.Sprintf(" in namespaces: %v", strings.Join(sortedNamespaces, ", "))
 		}
 
 		return addConditionToStatus(plc, indx, false, "K8s does not have a `must have` object", message)
@@ -445,11 +444,11 @@ func createMustHaveStatus(
 		names, _ := complianceObjects[ns]["names"].([]string)
 		nameStr := createResourceNameStr(names, ns, namespaced)
 
-		if compliant {
-			nameStr += " found"
-		} else {
-			if complianceObjects[ns]["reason"] == reasonWantFoundNoMatch {
-				nameStr += " found but not as specified"
+		if objShouldExist {
+			if compliant {
+				nameStr += " found"
+			} else if complianceObjects[ns]["reason"] == reasonWantFoundNoMatch {
+				nameStr += "found but not as specified"
 			} else {
 				nameStr += " missing"
 			}
@@ -462,60 +461,25 @@ func createMustHaveStatus(
 
 	names := strings.Join(nameList, "; ")
 
-	// Compliant -- return notification
-	if compliant {
-		message := fmt.Sprintf("%v %v as specified, therefore this Object template is compliant", kind, names)
+	var reason, msg string
 
-		return addConditionToStatus(plc, indx, true, "K8s `must have` object already exists", message)
-	}
-
-	// Noncompliant -- return violation
-	message := fmt.Sprintf("%v not found: %v", kind, names)
-
-	return addConditionToStatus(plc, indx, false, "K8s does not have a `must have` object", message)
-}
-
-// createMustNotHaveStatus generates a status for a mustnothave policy
-func createMustNotHaveStatus(
-	kind string,
-	complianceObjects map[string]map[string]interface{},
-	namespaced bool,
-	plc *policyv1.ConfigurationPolicy,
-	indx int,
-	compliant bool,
-) (update bool) {
-	nameList := []string{}
-	sortedNamespaces := []string{}
-
-	for n := range complianceObjects {
-		sortedNamespaces = append(sortedNamespaces, n)
-	}
-
-	sort.Strings(sortedNamespaces)
-
-	for i := range sortedNamespaces {
-		ns := sortedNamespaces[i]
-
-		// if the assertion fails, `names` will effectively be an empty list, which is fine.
-		names, _ := complianceObjects[ns]["names"].([]string)
-		nameStr := createResourceNameStr(names, ns, namespaced)
-
-		if !stringInSlice(nameStr, nameList) {
-			nameList = append(nameList, nameStr)
+	if objShouldExist {
+		if compliant {
+			reason = "K8s `must have` object already exists"
+			msg = fmt.Sprintf("%v %v as specified, therefore this Object template is compliant", kind, names)
+		} else {
+			reason = "K8s does not have a `must have` object"
+			msg = fmt.Sprintf("%v not found: %v", kind, names)
+		}
+	} else {
+		if compliant {
+			reason = "K8s `must not have` object already missing"
+			msg = fmt.Sprintf("%v %v missing as expected, therefore this Object template is compliant", kind, names)
+		} else {
+			reason = "K8s has a `must not have` object"
+			msg = fmt.Sprintf("%v found: %v", kind, names)
 		}
 	}
 
-	names := strings.Join(nameList, "; ")
-
-	// Compliant -- return notification
-	if compliant {
-		message := fmt.Sprintf("%v %v missing as expected, therefore this Object template is compliant", kind, names)
-
-		return addConditionToStatus(plc, indx, true, "K8s `must not have` object already missing", message)
-	}
-
-	// Noncompliant -- return violation
-	message := fmt.Sprintf("%v found: %v", kind, names)
-
-	return addConditionToStatus(plc, indx, false, "K8s has a `must not have` object", message)
+	return addConditionToStatus(plc, indx, compliant, reason, msg)
 }
