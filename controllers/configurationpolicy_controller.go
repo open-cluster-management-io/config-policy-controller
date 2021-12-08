@@ -291,7 +291,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 		relevantNamespaces := plcNamespaces
 		kind := ""
 		desiredName := ""
-		mustNotHave := strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
+		objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
 
 		// override policy namespaces if one is present in object template
 		var unstruct unstructured.Unstructured
@@ -448,7 +448,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 				"namespaced":  objNamespaced,
 			}
 
-			statusUpdate := createInformStatus(mustNotHave, numCompliant, numNonCompliant,
+			statusUpdate := createInformStatus(objShouldExist, numCompliant, numNonCompliant,
 				compliantObjects, nonCompliantObjects, &plc, objData)
 			if statusUpdate {
 				parentUpdate = true
@@ -552,7 +552,7 @@ func addConditionToStatus(
 // createInformStatus updates the status field for a configurationpolicy with remediationAction=inform
 // based on how many compliant/noncompliant objects are found when processing the templates in the configurationpolicy
 func createInformStatus(
-	mustNotHave bool,
+	objShouldExist bool,
 	numCompliant,
 	numNonCompliant int,
 	compliantObjects,
@@ -560,9 +560,6 @@ func createInformStatus(
 	plc *policyv1.ConfigurationPolicy,
 	objData map[string]interface{},
 ) (updateNeeded bool) {
-	update := false
-	compliant := false
-
 	//nolint:forcetypeassert
 	desiredName := objData["desiredName"].(string)
 	//nolint:forcetypeassert
@@ -573,33 +570,25 @@ func createInformStatus(
 	namespaced := objData["namespaced"].(bool)
 
 	if kind == "" {
-		return
+		return false
 	}
 
-	if mustNotHave {
-		if numNonCompliant > 0 { // We want no resources, but some were found
-			// noncompliant; mustnothave and objects exist
-			update = createStatus("", kind, nonCompliantObjects, namespaced, plc, indx, compliant, false)
-		} else if numNonCompliant == 0 {
-			// compliant; mustnothave and no objects exist
-			compliant = true
-			update = createStatus("", kind, compliantObjects, namespaced, plc, indx, compliant, false)
-		}
-	} else { // !mustNotHave (musthave)
-		if numCompliant == 0 && numNonCompliant == 0 { // Special case: No resources found is NonCompliant
-			// noncompliant; musthave and objects do not exist
-			update = createStatus(desiredName, kind, nonCompliantObjects, namespaced, plc, indx, compliant, true)
-		} else if numNonCompliant > 0 {
-			// noncompliant; musthave and some objects do not exist
-			update = createStatus(desiredName, kind, nonCompliantObjects, namespaced, plc, indx, compliant, true)
-		} else { // Found only compliant resources (numCompliant > 0 and no NonCompliant)
-			// compliant; musthave and objects exist
-			compliant = true
-			update = createStatus("", kind, compliantObjects, namespaced, plc, indx, compliant, true)
-		}
+	var compObjs map[string]map[string]interface{}
+	var compliant bool
+
+	if numNonCompliant > 0 {
+		compliant = false
+		compObjs = nonCompliantObjects
+	} else if objShouldExist && numCompliant == 0 {
+		// Special case: No resources found is NonCompliant
+		compliant = false
+		compObjs = nonCompliantObjects
+	} else {
+		compliant = true
+		compObjs = compliantObjects
 	}
 
-	return update
+	return createStatus(desiredName, kind, compObjs, namespaced, plc, indx, compliant, objShouldExist)
 }
 
 // handleObjects controls the processing of each individual object template within a configurationpolicy
