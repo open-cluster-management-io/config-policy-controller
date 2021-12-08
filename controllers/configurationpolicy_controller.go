@@ -826,19 +826,11 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	processingErr := false
 	specViolation := false
 
-	data := map[string]interface{}{
-		"name":       obj.name,
-		"namespace":  obj.namespace,
-		"namespaced": obj.namespaced,
-		"index":      obj.index,
-		"unstruct":   obj.unstruct,
-	}
-
 	// object exists and the template requires it, so we need to check specific fields to see if we have a match
 	if exists {
-		updated, throwSpecViolation, msg, pErr := checkAndUpdateResource(
-			strings.ToLower(string(objectT.ComplianceType)),
-			data, remediation, obj.gvr, dclient, obj.unstruct.Object["kind"].(string))
+		compType := strings.ToLower(string(objectT.ComplianceType))
+		updated, throwSpecViolation, msg, pErr := checkAndUpdateResource(obj, compType, remediation, dclient)
+
 		if !updated && throwSpecViolation {
 			specViolation = throwSpecViolation
 			compliant = false
@@ -1650,34 +1642,25 @@ func handleKeys(
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
 // matches the template and update it if the remediationAction is enforce
 func checkAndUpdateResource(
+	obj singleObject,
 	complianceType string,
-	metadata map[string]interface{},
 	remediation policyv1.RemediationAction,
-	rsrc schema.GroupVersionResource,
 	dclient dynamic.Interface,
-	typeStr string,
 ) (success bool, throwSpecViolation bool, message string, processingErr bool) {
-	//nolint:forcetypeassert
-	name := metadata["name"].(string)
-	//nolint:forcetypeassert
-	namespace := metadata["namespace"].(string)
-	//nolint:forcetypeassert
-	namespaced := metadata["namespaced"].(bool)
-	//nolint:forcetypeassert
-	unstruct := metadata["unstruct"].(unstructured.Unstructured)
+	typeStr := obj.unstruct.GetKind()
 
 	var res dynamic.ResourceInterface
-	if namespaced {
-		res = dclient.Resource(rsrc).Namespace(namespace)
+	if obj.namespaced {
+		res = dclient.Resource(obj.gvr).Namespace(obj.namespace)
 	} else {
-		res = dclient.Resource(rsrc)
+		res = dclient.Resource(obj.gvr)
 	}
 
-	existingObj, err := res.Get(context.TODO(), name, metav1.GetOptions{})
+	existingObj, err := res.Get(context.TODO(), obj.name, metav1.GetOptions{})
 	if err != nil {
-		log.Error(err, "Could not retrieve object from the API server", "name", name, "namespace", namespace)
+		log.Error(err, "Could not retrieve object from the API server", "name", obj.name, "namespace", obj.namespace)
 	} else {
-		return handleKeys(unstruct, existingObj, remediation, complianceType, typeStr, name, res)
+		return handleKeys(obj.unstruct, existingObj, remediation, complianceType, typeStr, obj.name, res)
 	}
 
 	return false, false, "", false
