@@ -1,7 +1,7 @@
 # Copyright Contributors to the Open Cluster Management project
 
 # Stage 1: Use image builder to build the target binaries
-FROM golang:1.16 AS builder
+FROM golang:1.17 AS builder
 
 ENV COMPONENT=config-policy-controller
 ENV REPO_PATH=/go/src/github.com/open-cluster-management/${COMPONENT}
