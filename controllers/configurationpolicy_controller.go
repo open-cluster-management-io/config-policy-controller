@@ -262,11 +262,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 	}
 
 	// initialize the RelatedObjects for this Configuration Policy
-	oldRelated := []policyv1.RelatedObject{}
-
-	for i := range plc.Status.RelatedObjects {
-		oldRelated = append(oldRelated, plc.Status.RelatedObjects[i])
-	}
+	oldRelated := append([]policyv1.RelatedObject{}, plc.Status.RelatedObjects...)
 
 	relatedObjects := []policyv1.RelatedObject{}
 	parentUpdate := false
