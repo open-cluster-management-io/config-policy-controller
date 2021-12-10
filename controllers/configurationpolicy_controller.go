@@ -785,7 +785,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if !exists && obj.shouldExist {
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			updateNeeded, err = handleEnforce(obj, dclient)
+			updateNeeded, err = enforceByCreatingOrDeleting(obj, dclient)
 			if err != nil {
 				// violation created for handling error
 				objLog.Error(err, "Could not handle missing musthave object")
@@ -798,7 +798,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if exists && !obj.shouldExist {
 		// it is a mustnothave but it exist, so it must be deleted
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			updateNeeded, err = handleEnforce(obj, dclient)
+			updateNeeded, err = enforceByCreatingOrDeleting(obj, dclient)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
 			}
@@ -1100,7 +1100,11 @@ func getNamesOfKind(
 	return buildNameList(unstruct, complianceType, resList)
 }
 
-func handleEnforce(obj singleObject, dclient dynamic.Interface) (result bool, erro error) {
+// enforceByCreatingOrDeleting can handle the situation where a musthave or mustonlyhave object is
+// completely missing (as opposed to existing, but not matching the desired state), or where a
+// mustnothave object does exist. Eg, it does not handle the case where a targeted update would need
+// to be made to an object.
+func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (result bool, erro error) {
 	log.V(2).Info("Entering enforce", "objShouldExist", obj.shouldExist)
 
 	idStr := identifierStr([]string{obj.name}, obj.namespace, obj.namespaced)
@@ -1126,7 +1130,7 @@ func handleEnforce(obj singleObject, dclient dynamic.Interface) (result bool, er
 			msg = fmt.Sprintf("%v %v was missing, and was created successfully", obj.gvr.Resource, idStr)
 		}
 	} else {
-		if completed, err = deleteObject(res, obj.name); completed {
+		if completed, err = deleteObject(res, obj.name, obj.namespace); completed {
 			reason = "K8s deletion error"
 			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
@@ -1242,7 +1246,7 @@ func objectExists(
 }
 
 func createObject(res dynamic.ResourceInterface, unstruct unstructured.Unstructured) (created bool, err error) {
-	objLog := log.WithValues("name", unstruct.GetName())
+	objLog := log.WithValues("name", unstruct.GetName(), "namespace", unstruct.GetNamespace())
 	objLog.V(2).Info("Entered createObject", "unstruct", unstruct)
 
 	_, err = res.Create(context.TODO(), &unstruct, metav1.CreateOptions{})
@@ -1263,8 +1267,8 @@ func createObject(res dynamic.ResourceInterface, unstruct unstructured.Unstructu
 	return true, nil
 }
 
-func deleteObject(res dynamic.ResourceInterface, name string) (deleted bool, err error) {
-	objLog := log.WithValues("name", name)
+func deleteObject(res dynamic.ResourceInterface, name, namespace string) (deleted bool, err error) {
+	objLog := log.WithValues("name", name, "namespace", namespace)
 	objLog.V(2).Info("Entered deleteObject")
 
 	err = res.Delete(context.TODO(), name, metav1.DeleteOptions{})
