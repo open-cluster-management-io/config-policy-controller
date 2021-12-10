@@ -259,16 +259,6 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 	return true
 }
 
-func stringInSlice(a string, list []string) bool {
-	for _, b := range list {
-		if b == a {
-			return true
-		}
-	}
-
-	return false
-}
-
 func isDenylisted(key string) (result bool) {
 	denylist := []string{"apiVersion", "kind"}
 	for _, val := range denylist {
@@ -418,7 +408,7 @@ func createStatus(
 	objShouldExist bool,
 ) (update bool) {
 	// Parse discovered resources
-	nameList := []string{}
+	foundIdentifiers := make(map[string]bool)
 	sortedNamespaces := []string{}
 
 	for n := range complianceObjects {
@@ -454,32 +444,44 @@ func createStatus(
 			}
 		}
 
-		if !stringInSlice(idStr, nameList) {
-			nameList = append(nameList, idStr)
-		}
+		foundIdentifiers[idStr] = true
 	}
 
-	names := strings.Join(nameList, "; ")
+	niceNames := sortAndJoinKeys(foundIdentifiers, "; ")
 
 	var reason, msg string
 
 	if objShouldExist {
 		if compliant {
 			reason = "K8s `must have` object already exists"
-			msg = fmt.Sprintf("%v %v as specified, therefore this Object template is compliant", kind, names)
+			msg = fmt.Sprintf("%v %v as specified, therefore this Object template is compliant", kind, niceNames)
 		} else {
 			reason = "K8s does not have a `must have` object"
-			msg = fmt.Sprintf("%v not found: %v", kind, names)
+			msg = fmt.Sprintf("%v not found: %v", kind, niceNames)
 		}
 	} else {
 		if compliant {
 			reason = "K8s `must not have` object already missing"
-			msg = fmt.Sprintf("%v %v missing as expected, therefore this Object template is compliant", kind, names)
+			msg = fmt.Sprintf("%v %v missing as expected, therefore this Object template is compliant", kind, niceNames)
 		} else {
 			reason = "K8s has a `must not have` object"
-			msg = fmt.Sprintf("%v found: %v", kind, names)
+			msg = fmt.Sprintf("%v found: %v", kind, niceNames)
 		}
 	}
 
 	return addConditionToStatus(plc, indx, compliant, reason, msg)
+}
+
+func sortAndJoinKeys(m map[string]bool, sep string) string {
+	keys := make([]string, len(m))
+	i := 0
+
+	for key := range m {
+		keys[i] = key
+		i++
+	}
+
+	sort.Strings(keys)
+
+	return strings.Join(keys, sep)
 }
