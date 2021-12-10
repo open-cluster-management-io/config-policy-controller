@@ -375,7 +375,7 @@ func fmtMetadataForCompare(
 }
 
 // Format name of resource with its namespace (if it has one)
-func createResourceNameStr(names []string, namespace string, namespaced bool) (nameStr string) {
+func identifierStr(names []string, namespace string, namespaced bool) (nameStr string) {
 	sort.Strings(names)
 
 	nameStr = "["
@@ -442,20 +442,20 @@ func createStatus(
 
 		// if the assertion fails, `names` will effectively be an empty list, which is fine.
 		names, _ := complianceObjects[ns]["names"].([]string)
-		nameStr := createResourceNameStr(names, ns, namespaced)
+		idStr := identifierStr(names, ns, namespaced)
 
 		if objShouldExist {
 			if compliant {
-				nameStr += " found"
+				idStr += " found"
 			} else if complianceObjects[ns]["reason"] == reasonWantFoundNoMatch {
-				nameStr += "found but not as specified"
+				idStr += " found but not as specified"
 			} else {
-				nameStr += " missing"
+				idStr += " missing"
 			}
 		}
 
-		if !stringInSlice(nameStr, nameList) {
-			nameList = append(nameList, nameStr)
+		if !stringInSlice(idStr, nameList) {
+			nameList = append(nameList, idStr)
 		}
 	}
 

@@ -1107,7 +1107,7 @@ func getNamesOfKind(
 func handleEnforce(obj singleObject, dclient dynamic.Interface) (result bool, erro error) {
 	log.V(2).Info("Entering enforce", "objShouldExist", obj.shouldExist)
 
-	nameStr := createResourceNameStr([]string{obj.name}, obj.namespace, obj.namespaced)
+	idStr := identifierStr([]string{obj.name}, obj.namespace, obj.namespaced)
 
 	var res dynamic.ResourceInterface
 	if obj.namespaced {
@@ -1123,19 +1123,19 @@ func handleEnforce(obj singleObject, dclient dynamic.Interface) (result bool, er
 	if obj.shouldExist {
 		if completed, err = createObject(res, obj.unstruct); !completed {
 			reason = "K8s creation error"
-			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", obj.gvr.Resource, nameStr, err)
+			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
 			log.V(2).Info("Created missing must have object", "resource", obj.gvr.Resource, "name", obj.name)
 			reason = "K8s creation success"
-			msg = fmt.Sprintf("%v %v was missing, and was created successfully", obj.gvr.Resource, nameStr)
+			msg = fmt.Sprintf("%v %v was missing, and was created successfully", obj.gvr.Resource, idStr)
 		}
 	} else {
 		if completed, err = deleteObject(res, obj.name); completed {
 			reason = "K8s deletion error"
-			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", obj.gvr.Resource, nameStr, err)
+			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
 			reason = "K8s deletion success"
-			msg = fmt.Sprintf("%v %v existed, and was deleted successfully", obj.gvr.Resource, nameStr)
+			msg = fmt.Sprintf("%v %v existed, and was deleted successfully", obj.gvr.Resource, idStr)
 		}
 	}
 
