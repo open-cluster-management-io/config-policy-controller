@@ -48,6 +48,13 @@ Anyone can comment on issues and submit reviews for pull requests. In order to b
 Before submitting a PR, please perform the following steps:
 
 ```shell
-make check
+make fmt
+make lint
 make test
 ```
+
+## Post-submit FOSSA License and Security Scan
+
+After the Pull Request is submitted, a [FOSSA](https://fossa.com/) scan is run through a GitHub
+action. The scan will verify that the code and its dependencies comply with open source licensing
+and is free of security vulnerabilities.
