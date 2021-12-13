@@ -1,0 +1,20 @@
+name: FOSSA
+
+on:
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  fossa-scan:
+    name: License and Security Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v2
+
+      - name: Run FOSSA Scan
+        uses: fossas/fossa-action@v1
+        with:
+          api-key: ${{ secrets.FOSSA_API_KEY }}
+          run-tests: false
