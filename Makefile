@@ -30,6 +30,7 @@ GIT_HOST ?= github.com/open-cluster-management
 
 PWD := $(shell pwd)
 BASE_DIR := $(shell basename $(PWD))
+export PATH=$(shell echo $$PATH):$(PWD)/bin
 
 # Keep an existing GOPATH, make a private one if it is undefined
 GOPATH_DEFAULT := $(PWD)/.go
@@ -102,8 +103,15 @@ work: $(GOBIN)
 # format section
 ############################################################
 
-fmt:
-	go fmt ./...
+.PHONY: fmt-dependencies
+fmt-dependencies:
+	$(call go-get-tool,$(PWD)/bin/gci,github.com/daixiang0/gci@v0.2.9)
+	$(call go-get-tool,$(PWD)/bin/gofumpt,mvdan.cc/gofumpt@v0.2.0)
+
+fmt: fmt-dependencies
+	find . -not \( -path "./.go" -prune \) -name "*.go" | xargs gofmt -s -w
+	find . -not \( -path "./.go" -prune \) -name "*.go" | xargs gci -w -local "$(shell cat go.mod | head -1 | cut -d " " -f 2)"
+	find . -not \( -path "./.go" -prune \) -name "*.go" | xargs gofumpt -l -w
 
 ############################################################
 # test section
@@ -121,7 +129,7 @@ test-dependencies:
 ############################################################
 
 build:
-	@build/common/scripts/gobuild.sh build/_output/bin/$(IMG) ./cmd/manager
+	@build/common/scripts/gobuild.sh build/_output/bin/$(IMG) ./
 
 local:
 	@GOOS=darwin build/common/scripts/gobuild.sh build/_output/bin/$(IMG) ./cmd/manager
@@ -162,6 +170,45 @@ copyright-check:
 	./build/copyright-check.sh $(TRAVIS_BRANCH)
 
 ############################################################
+# Generate manifests
+############################################################
+CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
+KUSTOMIZE = $(shell pwd)/bin/kustomize
+CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
+
+.PHONY: manifests
+manifests: controller-gen
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=config-policy-controller paths="./..." output:crd:artifacts:config=deploy/crds output:rbac:artifacts:config=deploy/rbac
+
+.PHONY: generate
+generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
+	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
+
+.PHONY: generate-operator-yaml
+generate-operator-yaml: kustomize manifests
+	$(KUSTOMIZE) build deploy/manager > deploy/operator.yaml
+
+.PHONY: controller-gen
+controller-gen: ## Download controller-gen locally if necessary.
+	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.1)
+
+.PHONY: kustomize
+kustomize: ## Download kustomize locally if necessary.
+	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v3@v3.8.7)
+
+define go-get-tool
+@[ -f $(1) ] || { \
+set -e ;\
+TMP_DIR=$$(mktemp -d) ;\
+cd $$TMP_DIR ;\
+go mod init tmp ;\
+echo "Downloading $(2)" ;\
+GOBIN=$(PWD)/bin go get $(2) ;\
+rm -rf $$TMP_DIR ;\
+}
+endef
+
+############################################################
 # e2e test section
 ############################################################
 .PHONY: kind-bootstrap-cluster
@@ -178,22 +225,22 @@ ifndef DOCKER_PASS
 	$(error DOCKER_PASS is undefined)
 endif
 
-kind-deploy-controller:
+kind-deploy-controller: generate-operator-yaml
 	@echo installing config policy controller
 	kubectl create ns $(KIND_NAMESPACE) || true
-	kubectl apply -f deploy/crds/v1/policy.open-cluster-management.io_configurationpolicies.yaml
-	kubectl apply -f deploy/ -n $(KIND_NAMESPACE)
+	kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
+	kubectl apply -f deploy/operator.yaml -n $(KIND_NAMESPACE)
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"env\":[{\"name\":\"WATCH_NAMESPACE\",\"value\":\"$(WATCH_NAMESPACE)\"}]}]}}}}"
 
 deploy-controller: kind-deploy-controller
 
-kind-deploy-controller-dev:
+kind-deploy-controller-dev: generate-operator-yaml
 	@echo Pushing image to KinD cluster
 	kind load docker-image $(REGISTRY)/$(IMG):$(TAG) --name $(KIND_NAME)
 	@echo Installing $(IMG)
 	kubectl create ns $(KIND_NAMESPACE)
-	kubectl apply -f deploy/crds/v1/policy.open-cluster-management.io_configurationpolicies.yaml
-	kubectl apply -f deploy/ -n $(KIND_NAMESPACE)
+	kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
+	kubectl apply -f deploy/operator.yaml -n $(KIND_NAMESPACE)
 	@echo "Patch deployment image"
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"imagePullPolicy\":\"Never\"}]}}}}"
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"image\":\"$(REGISTRY)/$(IMG):$(TAG)\"}]}}}}"
@@ -216,6 +263,7 @@ install-crds:
 	kubectl apply -f test/crds/apiservers.config.openshift.io_crd.yaml
 	kubectl apply -f test/crds/clusterclaims.cluster.open-cluster-management.io.yaml
 	kubectl apply -f test/crds/oauths.config.openshift.io_crd.yaml
+	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_policies.yaml
 
 install-resources:
 	@echo creating namespaces
@@ -225,8 +273,8 @@ e2e-test:
 	${GOPATH}/bin/ginkgo -v --failFast --slowSpecThreshold=10 test/e2e
 
 e2e-dependencies:
-	go get github.com/onsi/ginkgo/ginkgo@v1.14.1
-	go get github.com/onsi/gomega/...@v1.10.2
+	go get github.com/onsi/ginkgo/ginkgo@v1.16.4
+	go get github.com/onsi/gomega/...@v1.13.0
 
 e2e-debug:
 	kubectl get all -n $(KIND_NAMESPACE)
