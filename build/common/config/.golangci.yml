@@ -27,18 +27,32 @@ run:
 linters:
   enable-all: true
   disable:
+    - bodyclose
+    - cyclop
     - depguard
     - dupl
+    - funlen
+    - exhaustivestruct
     - gochecknoglobals
     - gochecknoinits
+    - gocognit
     - goconst
     - gocyclo
+    - godot
+    - goerr113
+    - gomnd
+    - gomoddirectives
     - gosec
+    - ifshort
+    - interfacer
+    - maligned
     - nakedret
+    - nestif
+    - paralleltest
     - prealloc
     - scopelint
-    - funlen
-    - bodyclose
+    - testpackage
+    - wrapcheck
   fast: false
 
 linters-settings:
@@ -53,6 +67,8 @@ linters-settings:
   govet:
     # report about shadowed variables
     check-shadowing: false
+  gci:
+    local-prefixes: github.com/open-cluster-management/config-policy-controller
   golint:
     # minimal confidence for issues, default is 0.8
     min-confidence: 0.0
@@ -72,9 +88,9 @@ linters-settings:
   lll:
     # max line length, lines longer will be reported. Default is 120.
     # '\t' is counted as 1 character by default, and can be changed with the tab-width option
-    line-length: 160
+    line-length: 120
     # tab width in spaces. Default to 1.
-    tab-width: 1
+    tab-width: 4
   unused:
     # treat code as a program (not a library) and report unused exported identifiers; default is false.
     # XXX: if you enable this setting, unused will report a lot of false-positives in text editors:
@@ -164,13 +180,38 @@ issues:
   # excluded by default patterns execute `golangci-lint run --help`
   exclude:
     - composite literal uses unkeyed fields
+    - return statements should not be cuddled if block has more than two lines
+    - declarations should never be cuddled
+    - don't use leading k in Go names
 
   exclude-rules:
-    # Exclude some linters from running on test files.
-    - path: _test\.go$|^tests/|^samples/
+    # Allow dot imports in the tests.
+    - path: _test\.go$|^test/
       linters:
-        - errcheck
-        - maligned
+        - gci
+        - golint
+        - revive
+        - stylecheck
+      source: \. "github\.com/onsi/(gomega|ginkgo)"
+    # Allow printing in the tests.
+    - path: _test\.go$|^test/
+      linters:
+        - forbidgo
+      source: fmt\.Print
+    # Add exceptions to API level tagliatelle violations. Can't use nolint comments since
+    # that affects the CRD descriptions of the fields.
+    - path: ^api/
+      linters:
+        - tagliatelle
+      source: json:"object-templates|json:"Validity|json:"Compliant
+    # Don't enforce max line length for kubebuilder markers
+    - linters:
+        - lll
+      source: \/\/ ?\+kubebuilder
+    # Don't enforce max line length on comments that start with a URL
+    - linters:
+        - lll
+      source: \/\/ ?https?:\/\/
 
   # Independently from option `exclude` we use default exclude patterns,
   # it can be disabled by this option. To list all
