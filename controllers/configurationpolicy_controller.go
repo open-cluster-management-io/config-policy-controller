@@ -825,12 +825,12 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	// object exists and the template requires it, so we need to check specific fields to see if we have a match
 	if exists {
 		compType := strings.ToLower(string(objectT.ComplianceType))
-		updated, throwSpecViolation, msg, pErr := checkAndUpdateResource(obj, compType, remediation, dclient)
+		throwSpecViolation, msg, pErr := checkAndUpdateResource(obj, compType, remediation, dclient)
 
-		if !updated && throwSpecViolation {
+		if throwSpecViolation {
 			specViolation = throwSpecViolation
 			compliant = false
-		} else if !updated && msg != "" {
+		} else if msg != "" {
 			updateNeeded = addConditionToStatus(obj.policy, obj.index, false, "K8s update template error", msg)
 		} else if obj.shouldExist {
 			// it is a must have and it does exist, so it is compliant
@@ -1580,7 +1580,7 @@ func handleKeys(
 	complianceType string,
 	name string,
 	res dynamic.ResourceInterface,
-) (success bool, throwSpecViolation bool, message string, processingErr bool) {
+) (throwSpecViolation bool, message string, processingErr bool) {
 	var err error
 
 	for key := range unstruct.Object {
@@ -1589,7 +1589,7 @@ func handleKeys(
 		// check key for mismatch
 		errorMsg, updateNeeded, mergedObj, skipped := handleSingleKey(key, unstruct, existingObj, complianceType)
 		if errorMsg != "" {
-			return false, false, errorMsg, true
+			return false, errorMsg, true
 		}
 
 		if mergedObj == nil && skipped {
@@ -1612,7 +1612,7 @@ func handleKeys(
 
 		if updateNeeded {
 			if strings.EqualFold(string(remediation), string(policyv1.Inform)) || isStatus {
-				return false, true, "", false
+				return true, "", false
 			}
 
 			// update resource if template is enforce
@@ -1622,20 +1622,20 @@ func handleKeys(
 			if errors.IsNotFound(err) {
 				message := fmt.Sprintf("`%v` is not present and must be created", existingObj.GetKind())
 
-				return false, false, message, true
+				return false, message, true
 			}
 
 			if err != nil {
 				message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
 
-				return false, false, message, true
+				return false, message, true
 			}
 
 			log.V(2).Info("Resource updated", "name", name)
 		}
 	}
 
-	return false, false, "", false
+	return false, "", false
 }
 
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
@@ -1645,7 +1645,7 @@ func checkAndUpdateResource(
 	complianceType string,
 	remediation policyv1.RemediationAction,
 	dclient dynamic.Interface,
-) (success bool, throwSpecViolation bool, message string, processingErr bool) {
+) (throwSpecViolation bool, message string, processingErr bool) {
 	var res dynamic.ResourceInterface
 	if obj.namespaced {
 		res = dclient.Resource(obj.gvr).Namespace(obj.namespace)
@@ -1660,7 +1660,7 @@ func checkAndUpdateResource(
 		return handleKeys(obj.unstruct, existingObj, remediation, complianceType, obj.name, res)
 	}
 
-	return false, false, "", false
+	return false, "", false
 }
 
 // AppendCondition check and appends conditions to the policy status
