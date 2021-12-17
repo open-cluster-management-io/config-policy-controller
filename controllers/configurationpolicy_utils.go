@@ -292,6 +292,9 @@ func formatTemplate(unstruct unstructured.Unstructured, key string) (obj interfa
 	return unstruct.Object[key]
 }
 
+// formatMetadata takes the input object metadata and returns a slimmed down version which just includes the "labels"
+// and "annotations" values. Deny listed annotations are excluded. This allows the controller to compare only the
+// metadata fields it supports.
 func formatMetadata(metadata map[string]interface{}) (formatted map[string]interface{}) {
 	md := map[string]interface{}{}
 
