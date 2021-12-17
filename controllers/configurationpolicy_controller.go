@@ -1578,7 +1578,6 @@ func handleKeys(
 	existingObj *unstructured.Unstructured,
 	remediation policyv1.RemediationAction,
 	complianceType string,
-	typeStr string,
 	name string,
 	res dynamic.ResourceInterface,
 ) (success bool, throwSpecViolation bool, message string, processingErr bool) {
@@ -1617,11 +1616,11 @@ func handleKeys(
 			}
 
 			// update resource if template is enforce
-			log.V(2).Info("Updating template", "typeStr", typeStr, "name", name)
+			log.V(2).Info("Updating template", "typeStr", existingObj.GetKind(), "name", name)
 
 			_, err = res.Update(context.TODO(), existingObj, metav1.UpdateOptions{})
 			if errors.IsNotFound(err) {
-				message := fmt.Sprintf("`%v` is not present and must be created", typeStr)
+				message := fmt.Sprintf("`%v` is not present and must be created", existingObj.GetKind())
 
 				return false, false, message, true
 			}
@@ -1647,8 +1646,6 @@ func checkAndUpdateResource(
 	remediation policyv1.RemediationAction,
 	dclient dynamic.Interface,
 ) (success bool, throwSpecViolation bool, message string, processingErr bool) {
-	typeStr := obj.unstruct.GetKind()
-
 	var res dynamic.ResourceInterface
 	if obj.namespaced {
 		res = dclient.Resource(obj.gvr).Namespace(obj.namespace)
@@ -1658,9 +1655,9 @@ func checkAndUpdateResource(
 
 	existingObj, err := res.Get(context.TODO(), obj.name, metav1.GetOptions{})
 	if err != nil {
-		log.Error(err, "Could not retrieve object from the API server", "name", obj.name, "namespace", obj.namespace)
+		log.Error(err, "Could not retrieve object from the API server")
 	} else {
-		return handleKeys(obj.unstruct, existingObj, remediation, complianceType, typeStr, obj.name, res)
+		return handleKeys(obj.unstruct, existingObj, remediation, complianceType, obj.name, res)
 	}
 
 	return false, false, "", false
