@@ -611,13 +611,13 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	}
 
 	namespaced := true
-	needUpdate := false
+	statusUpdateNeeded := false
 	ext := objectT.ObjectDefinition
 
 	// map raw object to a resource, generate a violation if resource cannot be found
 	mapping, mappingUpdate := r.getMapping(apigroups, ext, policy, index)
 	if mapping == nil {
-		return nil, false, "", "", nil, (needUpdate || mappingUpdate), namespaced
+		return nil, false, "", "", nil, (statusUpdateNeeded || mappingUpdate), namespaced
 	}
 
 	var unstruct unstructured.Unstructured
@@ -655,10 +655,10 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			r.Recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
 				convertPolicyStatusToString(policy))
 
-			needUpdate = true
+			statusUpdateNeeded = true
 		}
 
-		return nil, false, "", "", nil, needUpdate, namespaced
+		return nil, false, "", "", nil, statusUpdateNeeded, namespaced
 	}
 
 	if name != "" { // named object, so checking just for the existence of the specific object
@@ -694,7 +694,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			index:       index,
 			unstruct:    unstruct,
 		}
-		objNames, compliant, rsrcKind, needUpdate = r.handleSingleObj(singObj, remediation, exists, dclient, objectT)
+		objNames, compliant, rsrcKind, statusUpdateNeeded = r.handleSingleObj(
+			singObj, remediation, exists, dclient, objectT,
+		)
 		complianceCalculated = true
 	}
 
@@ -727,7 +729,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, namespaced, objNames, reason)
 	}
 
-	return objNames, compliant, reason, rsrcKind, relatedObjects, needUpdate, namespaced
+	return objNames, compliant, reason, rsrcKind, relatedObjects, statusUpdateNeeded, namespaced
 }
 
 // generateSingleObjReason is a helper function to create a compliant/noncompliant message for a named object
@@ -768,13 +770,11 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	exists bool,
 	dclient dynamic.Interface,
 	objectT *policyv1.ObjectTemplate,
-) (objNameList []string, compliance bool, rsrcKind string, shouldUpdate bool) {
+) (objNameList []string, compliance bool, rsrcKind string, statusUpdateNeeded bool) {
 	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name)
 
 	var err error
 	var compliant bool
-
-	updateNeeded := false
 
 	compliantObject := map[string]map[string]interface{}{
 		obj.namespace: {
@@ -785,7 +785,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if !exists && obj.shouldExist {
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			updateNeeded, err = enforceByCreatingOrDeleting(obj, dclient)
+			statusUpdateNeeded, err = enforceByCreatingOrDeleting(obj, dclient)
 			if err != nil {
 				// violation created for handling error
 				objLog.Error(err, "Could not handle missing musthave object")
@@ -798,7 +798,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if exists && !obj.shouldExist {
 		// it is a mustnothave but it exist, so it must be deleted
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			updateNeeded, err = enforceByCreatingOrDeleting(obj, dclient)
+			statusUpdateNeeded, err = enforceByCreatingOrDeleting(obj, dclient)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
 			}
@@ -814,7 +814,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 			log.V(2).Info("Entering `does not exist` and `must not have`")
 
-			updateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
+			statusUpdateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
 				obj.index, compliant, false)
 		}
 	}
@@ -831,14 +831,12 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			specViolation = throwSpecViolation
 			compliant = false
 		} else if msg != "" {
-			updateNeeded = addConditionToStatus(obj.policy, obj.index, false, "K8s update template error", msg)
+			statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, false, "K8s update template error", msg)
 		} else if obj.shouldExist {
 			// it is a must have and it does exist, so it is compliant
 			compliant = true
 			if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-				log.V(2).Info("Entering `exists` & `must have`")
-
-				updateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
+				statusUpdateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
 					obj.index, compliant, true)
 			}
 		}
@@ -846,7 +844,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		processingErr = pErr
 	}
 
-	if updateNeeded {
+	if statusUpdateNeeded {
 		eventType := eventNormal
 		if obj.index < len(obj.policy.Status.CompliancyDetails) &&
 			obj.policy.Status.CompliancyDetails[obj.index].ComplianceState == policyv1.NonCompliant {
@@ -857,15 +855,15 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		r.Recorder.Event(obj.policy, eventType, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name),
 			convertPolicyStatusToString(obj.policy))
 
-		return nil, compliant, "", updateNeeded
+		return nil, compliant, "", statusUpdateNeeded
 	}
 
 	if processingErr {
-		return nil, false, "", updateNeeded
+		return nil, false, "", false
 	}
 
 	if strings.EqualFold(string(remediation), string(policyv1.Inform)) || specViolation {
-		return []string{obj.name}, compliant, obj.gvr.Resource, updateNeeded
+		return []string{obj.name}, compliant, obj.gvr.Resource, false
 	}
 
 	return nil, compliant, "", false
