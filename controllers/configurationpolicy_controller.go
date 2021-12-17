@@ -611,13 +611,12 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	}
 
 	namespaced := true
-	statusUpdateNeeded := false
 	ext := objectT.ObjectDefinition
 
 	// map raw object to a resource, generate a violation if resource cannot be found
 	mapping, mappingUpdate := r.getMapping(apigroups, ext, policy, index)
 	if mapping == nil {
-		return nil, false, "", "", nil, (statusUpdateNeeded || mappingUpdate), namespaced
+		return nil, false, "", "", nil, mappingUpdate, namespaced
 	}
 
 	var unstruct unstructured.Unstructured
@@ -639,6 +638,8 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	if metaNamespace != "" {
 		namespace = metaNamespace
 	}
+
+	statusUpdateNeeded := false
 
 	dclient, rsrc, namespaced := getResourceAndDynamicClient(mapping, apiresourcelist)
 	if namespaced && namespace == "" {
@@ -678,10 +679,6 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	rsrcKind = ""
 	reason = ""
 
-	// if the compliance is calculated by the handleSingleObj function, do not override the setting
-	// we do this because the message string for single objects is different than for multiple
-	complianceCalculated := false
-
 	if len(objNames) == 1 {
 		name = objNames[0]
 		singObj := singleObject{
@@ -697,11 +694,10 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		objNames, compliant, rsrcKind, statusUpdateNeeded = r.handleSingleObj(
 			singObj, remediation, exists, dclient, objectT,
 		)
-		complianceCalculated = true
-	}
-
-	if complianceCalculated {
+		// The message string for single objects is different than for multiple
 		reason = generateSingleObjReason(objShouldExist, compliant, exists)
+		// Enforce could clear the objNames array so use name instead
+		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, namespaced, []string{name}, reason)
 	} else {
 		if !exists && objShouldExist {
 			compliant = false
@@ -720,12 +716,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			rsrcKind = rsrc.Resource
 			reason = reasonWantFoundExists
 		}
-	}
 
-	if complianceCalculated {
-		// enforce could clear the objNames array so use name instead
-		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, namespaced, []string{name}, reason)
-	} else {
 		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, namespaced, objNames, reason)
 	}
 
