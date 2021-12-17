@@ -676,8 +676,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	}
 
 	objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
-	rsrcKind = ""
-	reason = ""
+	rsrcKind = rsrc.Resource
 
 	if len(objNames) == 1 {
 		name = objNames[0]
@@ -699,22 +698,22 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		// Enforce could clear the objNames array so use name instead
 		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, namespaced, []string{name}, reason)
 	} else {
-		if !exists && objShouldExist {
-			compliant = false
-			rsrcKind = rsrc.Resource
-			reason = reasonWantFoundDNE
-		} else if exists && !objShouldExist {
-			compliant = false
-			rsrcKind = rsrc.Resource
-			reason = reasonWantNotFoundExists
-		} else if !exists && !objShouldExist {
-			compliant = true
-			rsrcKind = rsrc.Resource
-			reason = reasonWantNotFoundDNE
-		} else if exists && objShouldExist {
-			compliant = true
-			rsrcKind = rsrc.Resource
-			reason = reasonWantFoundExists
+		if objShouldExist {
+			if exists {
+				compliant = true
+				reason = reasonWantFoundExists
+			} else {
+				compliant = false
+				reason = reasonWantFoundDNE
+			}
+		} else {
+			if exists {
+				compliant = false
+				reason = reasonWantNotFoundExists
+			} else {
+				compliant = true
+				reason = reasonWantNotFoundDNE
+			}
 		}
 
 		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, namespaced, objNames, reason)
