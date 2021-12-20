@@ -14,7 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/api/v1"
+	policiesv1alpha1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
 var samplePolicy = policiesv1alpha1.ConfigurationPolicy{

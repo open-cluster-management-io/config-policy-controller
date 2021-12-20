@@ -10,7 +10,7 @@ import (
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/open-cluster-management/config-policy-controller/test/utils"
+	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
 const (

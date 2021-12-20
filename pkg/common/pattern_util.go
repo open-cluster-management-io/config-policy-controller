@@ -7,7 +7,7 @@ import (
 	"math"
 	"strings"
 
-	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
 // IfMatch check matches

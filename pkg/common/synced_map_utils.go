@@ -6,7 +6,7 @@ package common
 import (
 	"sync"
 
-	policiesv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
+	policiesv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
 // SyncedPolicyMap a thread safe map

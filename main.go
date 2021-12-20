@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/open-cluster-management/addon-framework/pkg/lease"
 	"github.com/spf13/pflag"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -21,6 +20,7 @@ import (
 
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"open-cluster-management.io/addon-framework/pkg/lease"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -28,10 +28,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
-	"github.com/open-cluster-management/config-policy-controller/controllers"
-	"github.com/open-cluster-management/config-policy-controller/pkg/common"
-	"github.com/open-cluster-management/config-policy-controller/version"
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
+	"open-cluster-management.io/config-policy-controller/controllers"
+	"open-cluster-management.io/config-policy-controller/pkg/common"
+	"open-cluster-management.io/config-policy-controller/version"
 )
 
 // Change below variables to serve metrics on different host or port.

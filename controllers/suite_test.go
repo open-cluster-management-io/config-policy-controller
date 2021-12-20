@@ -17,7 +17,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	policyv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
 // These tests use Ginkgo (BDD-style Go testing framework). Refer to
