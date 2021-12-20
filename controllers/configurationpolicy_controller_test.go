@@ -19,8 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	policiesv1alpha1 "github.com/open-cluster-management/config-policy-controller/api/v1"
-	"github.com/open-cluster-management/config-policy-controller/pkg/common"
+	policiesv1alpha1 "open-cluster-management.io/config-policy-controller/api/v1"
+	"open-cluster-management.io/config-policy-controller/pkg/common"
 )
 
 func TestReconcile(t *testing.T) {

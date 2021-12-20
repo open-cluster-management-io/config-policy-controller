@@ -9,7 +9,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	policiesv1 "github.com/open-cluster-management/config-policy-controller/api/v1"
+	policiesv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
 /*

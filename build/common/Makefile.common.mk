@@ -58,6 +58,6 @@ lint-markdown:
 lint-all: lint-yaml lint-go
 
 format-go:
-	@${FINDFILES} -name '*.go' \( ! \( -name '*.gen.go' -o -name '*.pb.go' \) \) -print0 | ${XARGS} goimports -w -local "github.com/open-cluster-management"
+	@${FINDFILES} -name '*.go' \( ! \( -name '*.gen.go' -o -name '*.pb.go' \) \) -print0 | ${XARGS} goimports -w -local "open-cluster-management.io"
 
 .PHONY: lint-dockerfiles lint-scripts lint-yaml lint-copyright-banner lint-go lint-markdown lint-all format-go config-docker

@@ -12,7 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/open-cluster-management/config-policy-controller/test/utils"
+	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
 const (
