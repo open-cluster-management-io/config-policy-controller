@@ -1652,6 +1652,7 @@ func handleKeys(
 		"name", existingObj.GetName(), "namespace", existingObj.GetNamespace(), "kind", existingObj.GetKind(),
 	)
 	var err error
+	var updateNeeded bool
 
 	for key := range unstruct.Object {
 		isStatus := key == "status"
@@ -1663,7 +1664,7 @@ func handleKeys(
 		}
 
 		// check key for mismatch
-		errorMsg, updateNeeded, mergedObj, skipped := handleSingleKey(key, unstruct, existingObj, keyComplianceType)
+		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(key, unstruct, existingObj, keyComplianceType)
 		if errorMsg != "" {
 			log.Info(errorMsg)
 
@@ -1688,28 +1689,34 @@ func handleKeys(
 		}
 		mapMtx.Unlock()
 
-		if updateNeeded {
+		if keyUpdateNeeded {
+			updateNeeded = keyUpdateNeeded
+
 			if strings.EqualFold(string(remediation), string(policyv1.Inform)) || isStatus {
 				return true, "", false
 			}
 
-			log.Info("Updating the object due to a value mismatch", "key", key)
-
-			_, err = res.Update(context.TODO(), existingObj, metav1.UpdateOptions{})
-			if errors.IsNotFound(err) {
-				message := fmt.Sprintf("`%v` is not present and must be created", existingObj.GetKind())
-
-				return false, message, true
-			}
-
-			if err != nil {
-				message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
-
-				return false, message, true
-			}
-
-			log.V(2).Info("Updated the object", "key", key)
+			log.Info("Queuing an update for the object due to a value mismatch", "key", key)
 		}
+	}
+
+	if updateNeeded {
+		log.V(2).Info("Updating the object based on the template definition")
+
+		_, err = res.Update(context.TODO(), existingObj, metav1.UpdateOptions{})
+		if errors.IsNotFound(err) {
+			message := fmt.Sprintf("`%v` is not present and must be created", existingObj.GetKind())
+
+			return false, message, true
+		}
+
+		if err != nil {
+			message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
+
+			return false, message, true
+		}
+
+		log.Info("Updated the object based on the template definition")
 	}
 
 	return false, "", false
