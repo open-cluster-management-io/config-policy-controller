@@ -279,6 +279,20 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 	tmplResolverCfg := templates.Config{KubeAPIResourceList: apiresourcelist}
 	kubeclient := kubernetes.Interface(clientSet)
 
+	annotations := plc.GetAnnotations()
+	disableTemplates := false
+
+	if disableAnnotation, ok := annotations["policy.open-cluster-management.io/disable-templates"]; ok {
+		log.V(2).Info("Found disable-templates annotation", "value", disableAnnotation)
+
+		parsedDisable, err := strconv.ParseBool(disableAnnotation)
+		if err != nil {
+			log.Error(err, "Could not parse value for disable-templates annotation", "value", disableAnnotation)
+		} else {
+			disableTemplates = parsedDisable
+		}
+	}
+
 	tmplResolver, err := templates.NewResolver(&kubeclient, config, tmplResolverCfg)
 	if err != nil {
 		// Panic here since this error is unrecoverable
@@ -308,21 +322,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 		// check here to determine if the object definition has a template
 		// and execute  template-processing only if  there is a template pattern "{{" in it
 		// to avoid unnecessary parsing when there is no template in the definition.
-
-		// if disable-templates annotations exists and is true, then do not process templates
-		annotations := plc.GetAnnotations()
-		disableTemplates := false
-
-		if disableAnnotation, ok := annotations["policy.open-cluster-management.io/disable-templates"]; ok {
-			log.Info("Found disable-templates annotation", "value", disableAnnotation)
-
-			parsedDisable, err := strconv.ParseBool(disableAnnotation)
-			if err != nil {
-				log.Error(err, "Could not parse value for disable-templates annotation", "value", disableAnnotation)
-			} else {
-				disableTemplates = parsedDisable
-			}
-		}
 
 		if !disableTemplates {
 			// first check to make sure there are no hub-templates with delimiter - {{hub
