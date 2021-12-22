@@ -815,7 +815,8 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	// object exists and the template requires it, so we need to check specific fields to see if we have a match
 	if exists {
 		compType := strings.ToLower(string(objectT.ComplianceType))
-		throwSpecViolation, msg, pErr := checkAndUpdateResource(obj, compType, remediation, dclient)
+		mdCompType := strings.ToLower(string(objectT.MetadataComplianceType))
+		throwSpecViolation, msg, pErr := checkAndUpdateResource(obj, compType, mdCompType, remediation, dclient)
 
 		if throwSpecViolation {
 			specViolation = throwSpecViolation
@@ -1566,6 +1567,7 @@ func handleKeys(
 	existingObj *unstructured.Unstructured,
 	remediation policyv1.RemediationAction,
 	complianceType string,
+	mdComplianceType string,
 	name string,
 	res dynamic.ResourceInterface,
 ) (throwSpecViolation bool, message string, processingErr bool) {
@@ -1574,8 +1576,14 @@ func handleKeys(
 	for key := range unstruct.Object {
 		isStatus := key == "status"
 
+		// use metadatacompliancetype to evaluate metadata if it is set
+		keyComplianceType := complianceType
+		if key == "metadata" && mdComplianceType != "" {
+			keyComplianceType = mdComplianceType
+		}
+
 		// check key for mismatch
-		errorMsg, updateNeeded, mergedObj, skipped := handleSingleKey(key, unstruct, existingObj, complianceType)
+		errorMsg, updateNeeded, mergedObj, skipped := handleSingleKey(key, unstruct, existingObj, keyComplianceType)
 		if errorMsg != "" {
 			return false, errorMsg, true
 		}
@@ -1631,6 +1639,7 @@ func handleKeys(
 func checkAndUpdateResource(
 	obj singleObject,
 	complianceType string,
+	mdComplianceType string,
 	remediation policyv1.RemediationAction,
 	dclient dynamic.Interface,
 ) (throwSpecViolation bool, message string, processingErr bool) {
@@ -1645,7 +1654,7 @@ func checkAndUpdateResource(
 	if err != nil {
 		log.Error(err, "Could not retrieve object from the API server")
 	} else {
-		return handleKeys(obj.unstruct, existingObj, remediation, complianceType, obj.name, res)
+		return handleKeys(obj.unstruct, existingObj, remediation, complianceType, mdComplianceType, obj.name, res)
 	}
 
 	return false, "", false

@@ -82,6 +82,8 @@ type ObjectTemplate struct {
 	// ComplianceType specifies whether it is: musthave, mustnothave, mustonlyhave
 	ComplianceType ComplianceType `json:"complianceType"`
 
+	MetadataComplianceType MetadataComplianceType `json:"metadataComplianceType,omitempty"`
+
 	// ObjectDefinition defines required fields for the object
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ObjectDefinition runtime.RawExtension `json:"objectDefinition,omitempty"`
@@ -159,6 +161,10 @@ const (
 	// MustOnlyHave is an enforcement state to exclusively include a resource
 	MustOnlyHave ComplianceType = "Mustonlyhave"
 )
+
+// MetadataComplianceType describes how to check compliance for the labels/annotations of a given object
+// +kubebuilder:validation:Enum=MustHave;Musthave;musthave;MustOnlyHave;Mustonlyhave;mustonlyhave
+type MetadataComplianceType string
 
 // RelatedObject is the list of objects matched by this Policy resource.
 type RelatedObject struct {

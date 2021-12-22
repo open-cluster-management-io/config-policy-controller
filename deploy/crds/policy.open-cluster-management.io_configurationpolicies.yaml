@@ -73,6 +73,17 @@ spec:
                       - Mustnothave
                       - mustnothave
                       type: string
+                    metadataComplianceType:
+                      description: MetadataComplianceType describes how to check compliance
+                        for the labels/annotations of a given object
+                      enum:
+                      - MustHave
+                      - Musthave
+                      - musthave
+                      - MustOnlyHave
+                      - Mustonlyhave
+                      - mustonlyhave
+                      type: string
                     objectDefinition:
                       description: ObjectDefinition defines required fields for the
                         object

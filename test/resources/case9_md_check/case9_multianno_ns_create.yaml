@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-create-ns-multiple-annotations
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    exclude:
+      - kube-*
+    include:
+      - default
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        kind: Namespace
+        apiVersion: v1
+        metadata:
+          name: case9-test-multi-annotation
+          annotations:
+            test: e2e
+            missing: notintemplate

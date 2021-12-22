@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-check-ns-mdcomptype-moh
+spec:
+  remediationAction: inform
+  namespaceSelector:
+    exclude:
+      - kube-*
+    include:
+      - default
+  object-templates:
+    - complianceType: musthave
+      metadataComplianceType: mustonlyhave
+      objectDefinition:
+        kind: Namespace
+        apiVersion: v1
+        metadata:
+          name: case9-test-multi-annotation
+          annotations:
+            test: e2e
