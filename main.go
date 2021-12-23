@@ -92,6 +92,8 @@ func main() {
 		os.Exit(1)
 	}
 
+	log.V(2).Info("Configured the watch namespace", "namespace", namespace)
+
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
@@ -118,6 +120,8 @@ func main() {
 	if legacyLeaderElection {
 		// If legacyLeaderElection is enabled, then that means the lease API is not available.
 		// In this case, use the legacy leader election method of a ConfigMap.
+		log.Info("Using the legacy leader election of configmaps")
+
 		options.LeaderElectionResourceLock = "configmaps"
 	}
 
@@ -155,6 +159,8 @@ func main() {
 	controllers.Initialize(cfg, clientset, namespace, eventOnParent)
 
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
+	log.V(1).Info("Perodically processing Configuration Policies", "frequency", frequency)
+
 	go reconciler.PeriodicallyExecConfigPolicies(frequency, false)
 
 	// This lease is not related to leader election. This is to report the status of the controller

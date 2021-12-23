@@ -209,6 +209,7 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 		}
 
 		if !skipLoop {
+			log.Info("Processing the policies", "count", len(flattenedPolicyList))
 			// flattenedpolicylist only contains 1 of each policy instance
 			for _, policy := range flattenedPolicyList {
 				Mx.Lock()
@@ -228,7 +229,9 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 		elapsed := time.Since(start) / 1000000000 // convert to seconds
 		if float64(freq) > float64(elapsed) {
 			remainingSleep := float64(freq) - float64(elapsed)
-			time.Sleep(time.Duration(remainingSleep) * time.Second)
+			sleepTime := time.Duration(remainingSleep) * time.Second
+			log.V(2).Info("Sleeping before reprocessing the configuration polices", "seconds", sleepTime)
+			time.Sleep(sleepTime)
 		}
 
 		if test {
@@ -243,13 +246,16 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 	apiresourcelist []*metav1.APIResourceList,
 	apigroups []*restmapper.APIGroupResources,
 ) {
-	log.V(1).Info("Processing object templates", "policy", plc.GetName())
+	log := log.WithValues("policy", plc.GetName())
+	log.V(1).Info("Processing object templates")
 
 	// error if no remediationAction is specified
 	plcNamespaces := getPolicyNamespaces(plc)
+	log.V(2).Info("Determined the applicable namespaces", "count", len(plcNamespaces))
 
 	if plc.Spec.RemediationAction == "" {
 		message := "Policy does not have a RemediationAction specified"
+		log.Info(message)
 		update := addConditionToStatus(&plc, 0, false, "No RemediationAction", message)
 
 		if update {
@@ -280,16 +286,18 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 		panic(err)
 	}
 
+	log.V(2).Info("Processing the object templates", "count", len(plc.Spec.ObjectTemplates))
+
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string]map[string]interface{}{}
 		compliantObjects := map[string]map[string]interface{}{}
 		enforce := strings.EqualFold(string(plc.Spec.RemediationAction), string(policyv1.Enforce))
+		// This will be overridden if a namespace is present in the object template
 		relevantNamespaces := plcNamespaces
 		kind := ""
 		desiredName := ""
 		objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
 
-		// override policy namespaces if one is present in object template
 		var unstruct unstructured.Unstructured
 		unstruct.Object = make(map[string]interface{})
 
@@ -306,7 +314,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 		disableTemplates := false
 
 		if disableAnnotation, ok := annotations["policy.open-cluster-management.io/disable-templates"]; ok {
-			log.V(2).Info("Found disable-templates annotation", "value", disableAnnotation)
+			log.Info("Found disable-templates annotation", "value", disableAnnotation)
 
 			parsedDisable, err := strconv.ParseBool(disableAnnotation)
 			if err != nil {
@@ -320,18 +328,19 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 			// first check to make sure there are no hub-templates with delimiter - {{hub
 			// if one exists, it means the template resolution on the hub did not succeed.
 			if templates.HasTemplate(objectT.ObjectDefinition.Raw, "{{hub") {
-				tmplErr := fmt.Errorf("configurationPolicy has hub-templates")
-				log.Error(tmplErr, "An error might have occurred while processing hub-templates on the Hub Cluster")
-
 				// check to see there is an annotation set to the hub error msg,
 				// if not ,set a generic msg
-
 				hubTemplatesErrMsg, ok := annotations["policy.open-cluster-management.io/hub-templates-error"]
 				if !ok || hubTemplatesErrMsg == "" {
 					// set a generic msg
 					hubTemplatesErrMsg = "Error occurred while processing hub-templates, " +
 						"check the policy events for more details."
 				}
+
+				log.Info(
+					"An error occurred while processing hub-templates on the Hub cluster. Cannot process the policy.",
+					"message", hubTemplatesErrMsg,
+				)
 
 				update := addConditionToStatus(&plc, 0, false, "Error processing hub templates", hubTemplatesErrMsg)
 				if update {
@@ -344,8 +353,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 			}
 
 			if templates.HasTemplate(objectT.ObjectDefinition.Raw, "") {
+				log.V(1).Info("Processing policy templates")
+
 				resolvedTemplate, tplErr := tmplResolver.ResolveTemplate(objectT.ObjectDefinition.Raw, nil)
 				if tplErr != nil {
+					log.Error(tplErr, "Failed to process the policy templates")
+
 					update := addConditionToStatus(&plc, 0, false, "Error processing template", tplErr.Error())
 					if update {
 						r.Recorder.Event(&plc, eventWarning,
@@ -377,11 +390,20 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 
 			if objectns, ok := metadata["namespace"]; ok {
 				relevantNamespaces = []string{objectns.(string)}
+				log.V(2).Info(
+					"The applicable namespace is limited to what is defined in the object template",
+					"namespace", relevantNamespaces[0],
+					"index", indx,
+				)
+			} else {
+				log.V(2).Info("metadata.namespace is not set in the object template", "index", indx)
 			}
 
 			if objectname, ok := metadata["name"]; ok {
 				//nolint:forcetypeassert
 				desiredName = objectname.(string)
+			} else {
+				log.V(2).Info("metadata.name is not set in the object template", "index", indx)
 			}
 		}
 
@@ -392,6 +414,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 
 		// iterate through all namespaces the configurationpolicy is set on
 		for _, ns := range relevantNamespaces {
+			log.Info(
+				"Handling the object template for the relevant namespace",
+				"namespace", ns,
+				"desiredName", desiredName,
+				"index", indx,
+			)
+
 			names, compliant, reason, objKind, related, update, namespaced := r.handleObjects(
 				objectT, ns, indx, &plc, apiresourcelist, apigroups)
 			if update {
@@ -542,6 +571,10 @@ func addConditionToStatus(
 		update = true
 	}
 
+	if update {
+		log.Info("Will update the policy status", "policy", plc.GetName(), "complianceState", complianceState)
+	}
+
 	return update
 }
 
@@ -604,10 +637,12 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	pUpdate bool,
 	isNamespaced bool,
 ) {
+	log := log.WithValues("policy", policy.GetName(), "index", index, "objectNamespace", namespace)
+
 	if namespace != "" {
-		log.V(2).Info("Handling object template", "index", index, "namespace", namespace)
+		log.V(2).Info("Handling object template")
 	} else {
-		log.V(2).Info("Handling object template, no namespace specified", "index", index)
+		log.V(2).Info("Handling object template, no namespace specified")
 	}
 
 	namespaced := true
@@ -637,12 +672,16 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	name, kind, metaNamespace := getDetails(unstruct)
 	if metaNamespace != "" {
 		namespace = metaNamespace
+		log = log.WithValues("namespace", metaNamespace)
+
+		log.V(2).Info("Overridding the namespace with what is defined in the object template")
 	}
 
 	statusUpdateNeeded := false
 
 	dclient, rsrc, namespaced := getResourceAndDynamicClient(mapping, apiresourcelist)
 	if namespaced && namespace == "" {
+		log.Info("The object template is namespaced but no namespace is specified. Cannot process.")
 		// namespaced but none specified, generate violation
 		updateStatus := addConditionToStatus(policy, index, false, "K8s missing namespace",
 			"namespaced object has no namespace specified")
@@ -666,10 +705,21 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		exists = objectExists(namespaced, namespace, name, rsrc, dclient)
 		objNames = append(objNames, name)
 	} else if kind != "" { // no name, so we are checking for the existence of any object of this kind
+		log.V(1).Info(
+			"The object template does not specify a name. Will search for matching objects in the namespace.",
+		)
 		objNames = append(objNames, getNamesOfKind(unstruct, rsrc, namespaced,
 			namespace, dclient, strings.ToLower(string(objectT.ComplianceType)))...)
+
 		// we do not support enforce on unnamed templates
+		if !strings.EqualFold(string(remediation), "inform") {
+			log.Info(
+				"The object template does not specify a name. Setting the remediation action to inform.",
+				"oldRemediationAction", remediation,
+			)
+		}
 		remediation = "inform"
+
 		if len(objNames) == 0 {
 			exists = false
 		}
@@ -690,6 +740,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			index:       index,
 			unstruct:    unstruct,
 		}
+
+		log.V(2).Info("Handling a single object template")
+
 		objNames, compliant, rsrcKind, statusUpdateNeeded = r.handleSingleObj(
 			singObj, remediation, exists, dclient, objectT,
 		)
@@ -697,7 +750,11 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		reason = generateSingleObjReason(objShouldExist, compliant, exists)
 		// Enforce could clear the objNames array so use name instead
 		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, namespaced, []string{name}, reason)
-	} else {
+
+		if !statusUpdateNeeded {
+			log.V(2).Info("The status did not change for this object template")
+		}
+	} else { // This case only occurs when the desired object is not named
 		if objShouldExist {
 			if exists {
 				compliant = true
@@ -761,7 +818,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	dclient dynamic.Interface,
 	objectT *policyv1.ObjectTemplate,
 ) (objNameList []string, compliance bool, rsrcKind string, statusUpdateNeeded bool) {
-	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name)
+	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name, "index", obj.index)
 
 	var err error
 	var compliant bool
@@ -798,6 +855,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	}
 
 	if !exists && !obj.shouldExist {
+		log.V(1).Info("The object does not exist and is compliant with the mustnothave compliance type")
 		// it is a must not have and it does not exist, so it is compliant
 		compliant = true
 
@@ -814,6 +872,8 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 	// object exists and the template requires it, so we need to check specific fields to see if we have a match
 	if exists {
+		log.V(2).Info("The object already exists. Verifying the object fields match what is desired.")
+
 		compType := strings.ToLower(string(objectT.ComplianceType))
 		mdCompType := strings.ToLower(string(objectT.MetadataComplianceType))
 		throwSpecViolation, msg, pErr := checkAndUpdateResource(obj, compType, mdCompType, remediation, dclient)
@@ -843,8 +903,9 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			compliant = false
 		}
 
-		r.Recorder.Event(obj.policy, eventType, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name),
-			convertPolicyStatusToString(obj.policy))
+		statusStr := convertPolicyStatusToString(obj.policy)
+		log.V(1).Info("Sending an update policy status event", "policy", obj.policy.Name, "status", statusStr)
+		r.Recorder.Event(obj.policy, eventType, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name), statusStr)
 
 		return nil, compliant, "", statusUpdateNeeded
 	}
@@ -903,8 +964,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	policy *policyv1.ConfigurationPolicy,
 	index int,
 ) (mapping *meta.RESTMapping, update bool) {
-	log.V(2).Info("Got raw object", "ext.Raw", string(ext.Raw))
-
+	log := log.WithValues("policy", policy.GetName(), "index", index)
 	updateNeeded := false
 	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
 
@@ -915,7 +975,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 			" Aborting handling the object template at index [%v] in policy `%v` with error = `%v`",
 			index, policy.Name, err)
 
-		log.Error(err, "Could not decode object", "policy", policy.Name, "index", index)
+		log.Error(err, "Could not decode object")
 
 		if len(policy.Status.CompliancyDetails) <= index {
 			policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1.TemplateStatus{
@@ -996,6 +1056,13 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 
 		return nil, updateNeeded
 	}
+
+	log.V(2).Info(
+		"Found the API mapping for the object template",
+		"group", gvk.Group,
+		"version", gvk.Version,
+		"kind", gvk.Kind,
+	)
 
 	return mapping, updateNeeded
 }
@@ -1094,8 +1161,12 @@ func getNamesOfKind(
 // mustnothave object does exist. Eg, it does not handle the case where a targeted update would need
 // to be made to an object.
 func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (result bool, erro error) {
-	log.V(2).Info("Entering enforce", "objShouldExist", obj.shouldExist)
-
+	log := log.WithValues(
+		"object", obj.name,
+		"policy", obj.policy.Name,
+		"objectNamespace", obj.namespace,
+		"objectTemplateIndex", obj.index,
+	)
 	idStr := identifierStr([]string{obj.name}, obj.namespace, obj.namespaced)
 
 	var res dynamic.ResourceInterface
@@ -1110,6 +1181,8 @@ func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (r
 	var err error
 
 	if obj.shouldExist {
+		log.Info("Enforcing the policy by creating the object")
+
 		if completed, err = createObject(res, obj.unstruct); !completed {
 			reason = "K8s creation error"
 			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", obj.gvr.Resource, idStr, err)
@@ -1119,6 +1192,8 @@ func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (r
 			msg = fmt.Sprintf("%v %v was missing, and was created successfully", obj.gvr.Resource, idStr)
 		}
 	} else {
+		log.Info("Enforcing the policy by deleting the object")
+
 		if completed, err = deleteObject(res, obj.name, obj.namespace); completed {
 			reason = "K8s deletion error"
 			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", obj.gvr.Resource, idStr, err)
@@ -1209,7 +1284,7 @@ func objectExists(
 	dclient dynamic.Interface,
 ) (result bool) {
 	objLog := log.WithValues("name", name, "namespaced", namespaced, "namespace", namespace)
-	objLog.V(2).Info("Entered objectExists")
+	objLog.V(2).Info("Checking if the object exists")
 
 	var res dynamic.ResourceInterface
 	if namespaced {
@@ -1490,11 +1565,14 @@ func compareSpecs(
 func handleSingleKey(
 	key string, desiredObj unstructured.Unstructured, existingObj *unstructured.Unstructured, complianceType string,
 ) (errormsg string, update bool, merged interface{}, skip bool) {
+	log := log.WithValues("name", existingObj.GetName(), "namespace", existingObj.GetNamespace())
 	var err error
 
 	updateNeeded := false
 
 	if isDenylisted(key) {
+		log.V(2).Info("Ignoring the key since it is deny listed", "key", key)
+
 		return "", false, nil, true
 	}
 
@@ -1531,7 +1609,7 @@ func handleSingleKey(
 				"Error merging changes into key \"%s\": object type of template and existing do not match",
 				key)
 		}
-	default: // if field is not an object, just do a basic compare
+	default: // If the field is not an object or slice, just do a basic compare
 		mergedValue = desiredValue
 	}
 
@@ -1571,6 +1649,9 @@ func handleKeys(
 	name string,
 	res dynamic.ResourceInterface,
 ) (throwSpecViolation bool, message string, processingErr bool) {
+	log := log.WithValues(
+		"name", existingObj.GetName(), "namespace", existingObj.GetNamespace(), "kind", existingObj.GetKind(),
+	)
 	var err error
 
 	for key := range unstruct.Object {
@@ -1585,6 +1666,8 @@ func handleKeys(
 		// check key for mismatch
 		errorMsg, updateNeeded, mergedObj, skipped := handleSingleKey(key, unstruct, existingObj, keyComplianceType)
 		if errorMsg != "" {
+			log.Info(errorMsg)
+
 			return false, errorMsg, true
 		}
 
@@ -1611,8 +1694,7 @@ func handleKeys(
 				return true, "", false
 			}
 
-			// update resource if template is enforce
-			log.V(2).Info("Updating template", "typeStr", existingObj.GetKind(), "name", name)
+			log.Info("Updating the object due to a value mismatch", "key", key)
 
 			_, err = res.Update(context.TODO(), existingObj, metav1.UpdateOptions{})
 			if errors.IsNotFound(err) {
@@ -1627,7 +1709,7 @@ func handleKeys(
 				return false, message, true
 			}
 
-			log.V(2).Info("Resource updated", "name", name)
+			log.V(2).Info("Updated the object", "key", key)
 		}
 	}
 
@@ -1643,6 +1725,10 @@ func checkAndUpdateResource(
 	remediation policyv1.RemediationAction,
 	dclient dynamic.Interface,
 ) (throwSpecViolation bool, message string, processingErr bool) {
+	log := log.WithValues(
+		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
+	)
+
 	var res dynamic.ResourceInterface
 	if obj.namespaced {
 		res = dclient.Resource(obj.gvr).Namespace(obj.namespace)
@@ -1734,8 +1820,10 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	policies map[string]*policyv1.ConfigurationPolicy,
 ) (*policyv1.ConfigurationPolicy, error) {
-	for _, instance := range policies { // policies is a map where: key = plc.Name, value = pointer to plc
-		log.V(2).Info("Updating configurationPolicy status", "status", instance.Status.ComplianceState)
+	for plcName, instance := range policies { // policies is a map where: key = plc.Name, value = pointer to plc
+		log.V(2).Info(
+			"Updating configurationPolicy status", "status", instance.Status.ComplianceState, "policy", plcName,
+		)
 
 		err := r.Status().Update(context.TODO(), instance)
 		if err != nil {
