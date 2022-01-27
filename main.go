@@ -59,7 +59,7 @@ func main() {
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
 	var eventOnParent, clusterName, hubConfigSecretNs, hubConfigSecretName, probeAddr string
-	var frequency uint
+	var frequency, decryptionConcurrency uint
 	var enableLease, enableLeaderElection, legacyLeaderElection bool
 
 	pflag.UintVar(&frequency, "update-frequency", 10,
@@ -79,6 +79,12 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	pflag.BoolVar(&legacyLeaderElection, "legacy-leader-elect", false,
 		"Use a legacy leader election method for controller manager instead of the lease API.")
+	pflag.UintVar(
+		&decryptionConcurrency,
+		"decryption-concurrency",
+		5,
+		"The max number of concurrent policy template decryptions",
+	)
 
 	pflag.Parse()
 
@@ -133,9 +139,10 @@ func main() {
 	}
 
 	reconciler := controllers.ConfigurationPolicyReconciler{
-		Client:   mgr.GetClient(),
-		Scheme:   mgr.GetScheme(),
-		Recorder: mgr.GetEventRecorderFor(controllers.ControllerName),
+		Client:                mgr.GetClient(),
+		DecryptionConcurrency: uint8(decryptionConcurrency),
+		Scheme:                mgr.GetScheme(),
+		Recorder:              mgr.GetEventRecorderFor(controllers.ControllerName),
 	}
 	if err = reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")

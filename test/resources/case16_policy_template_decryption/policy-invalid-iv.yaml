@@ -1,0 +1,15 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-namespace-create-invalid-iv
+  annotations:
+    policy.open-cluster-management.io/encryption-iv: bm90IHJpZ2h0Cg==
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: $ocm_encrypted:KvXvh1dkDR4DFReWYL8Jtg==

@@ -5,6 +5,7 @@ package controllers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"reflect"
@@ -15,9 +16,9 @@ import (
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
-	templates "github.com/stolostron/go-template-utils/pkg/templates"
+	templates "github.com/stolostron/go-template-utils/v2/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -98,13 +99,20 @@ func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset, namesp
 // blank assignment to verify that ConfigurationPolicyReconciler implements reconcile.Reconciler
 var _ reconcile.Reconciler = &ConfigurationPolicyReconciler{}
 
+type cachedEncryptionKey struct {
+	key         []byte
+	previousKey []byte
+}
+
 // ConfigurationPolicyReconciler reconciles a ConfigurationPolicy object
 type ConfigurationPolicyReconciler struct {
+	cachedEncryptionKey *cachedEncryptionKey
 	// This client, initialized using mgr.Client() above, is a split client
 	// that reads objects from the cache and writes to the apiserver
 	client.Client
-	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	DecryptionConcurrency uint8
+	Scheme                *runtime.Scheme
+	Recorder              record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
@@ -123,7 +131,7 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 
 	err := r.Get(context.TODO(), request.NamespacedName, instance)
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8serrors.IsNotFound(err) {
 			// Request object not found, could have been deleted after reconcile request.
 			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
 			// Return and don't requeue
@@ -240,6 +248,20 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 	}
 }
 
+// getTemplateConfigErrorMsg converts a configuration error from `NewResolver` or `SetEncryptionConfig` to a message
+// to be used as a policy noncompliant message.
+func getTemplateConfigErrorMsg(err error) string {
+	if errors.Is(err, templates.ErrInvalidAESKey) || errors.Is(err, templates.ErrAESKeyNotSet) {
+		return `The "policy-encryption-key" Secret contains an invalid AES key`
+	} else if errors.Is(err, templates.ErrInvalidIV) {
+		return fmt.Sprintf(`The "%s" annotation value is not a valid initialization vector`, IVAnnotation)
+	}
+
+	// This should never happen unless go-template-utils is updated and this doesn't account for a new error
+	// type that can happen with the input configuration.
+	return fmt.Sprintf("An unexpected error occurred when configuring the template resolver: %v", err)
+}
+
 // handleObjectTemplates iterates through all policy templates in a given policy and processes them
 func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 	plc policyv1.ConfigurationPolicy,
@@ -273,10 +295,47 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 	relatedObjects := []policyv1.RelatedObject{}
 	parentUpdate := false
 
+	addTemplateErrorViolation := func(reason, msg string) {
+		log.Info("Setting the policy to noncompliant due to a templating error", "error", msg)
+
+		if reason == "" {
+			reason = "Error processing template"
+		}
+
+		update := addConditionToStatus(&plc, 0, false, reason, msg)
+		if update {
+			r.Recorder.Event(
+				&plc,
+				eventWarning,
+				fmt.Sprintf(plcFmtStr, plc.GetName()),
+				convertPolicyStatusToString(&plc),
+			)
+
+			r.checkRelatedAndUpdate(update, plc, relatedObjects, oldRelated)
+		}
+	}
+
 	// initialize apiresources for template processing before starting objectTemplate processing
 	// this is optional but since apiresourcelist is already available,
 	// use this rather than re-discovering the list for generic-lookup
 	tmplResolverCfg := templates.Config{KubeAPIResourceList: apiresourcelist}
+	usedKeyCache := false
+
+	if usesEncryption(plc) {
+		var encryptionConfig templates.EncryptionConfig
+		var err error
+
+		encryptionConfig, usedKeyCache, err = r.getEncryptionConfig(plc, false)
+
+		if err != nil {
+			addTemplateErrorViolation("", err.Error())
+
+			return
+		}
+
+		tmplResolverCfg.EncryptionConfig = encryptionConfig
+	}
+
 	kubeclient := kubernetes.Interface(clientSet)
 
 	annotations := plc.GetAnnotations()
@@ -295,9 +354,15 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 
 	tmplResolver, err := templates.NewResolver(&kubeclient, config, tmplResolverCfg)
 	if err != nil {
-		// Panic here since this error is unrecoverable
-		log.Error(err, "Failed to create a template resolver")
-		panic(err)
+		// If the encryption key is invalid, clear the cache.
+		if errors.Is(err, templates.ErrInvalidAESKey) || errors.Is(err, templates.ErrAESKeyNotSet) {
+			r.cachedEncryptionKey = &cachedEncryptionKey{}
+		}
+
+		msg := getTemplateConfigErrorMsg(err)
+		addTemplateErrorViolation("", msg)
+
+		return
 	}
 
 	log.V(2).Info("Processing the object templates", "count", len(plc.Spec.ObjectTemplates))
@@ -326,7 +391,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 		if !disableTemplates {
 			// first check to make sure there are no hub-templates with delimiter - {{hub
 			// if one exists, it means the template resolution on the hub did not succeed.
-			if templates.HasTemplate(objectT.ObjectDefinition.Raw, "{{hub") {
+			if templates.HasTemplate(objectT.ObjectDefinition.Raw, "{{hub", false) {
 				// check to see there is an annotation set to the hub error msg,
 				// if not ,set a generic msg
 				hubTemplatesErrMsg, ok := annotations["policy.open-cluster-management.io/hub-templates-error"]
@@ -341,29 +406,53 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 					"message", hubTemplatesErrMsg,
 				)
 
-				update := addConditionToStatus(&plc, 0, false, "Error processing hub templates", hubTemplatesErrMsg)
-				if update {
-					r.Recorder.Event(&plc, eventWarning,
-						fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
-					r.checkRelatedAndUpdate(update, plc, relatedObjects, oldRelated)
-				}
+				addTemplateErrorViolation("Error processing hub templates", hubTemplatesErrMsg)
 
 				return
 			}
 
-			if templates.HasTemplate(objectT.ObjectDefinition.Raw, "") {
+			if templates.HasTemplate(objectT.ObjectDefinition.Raw, "", true) {
 				log.V(1).Info("Processing policy templates")
 
 				resolvedTemplate, tplErr := tmplResolver.ResolveTemplate(objectT.ObjectDefinition.Raw, nil)
-				if tplErr != nil {
-					log.Error(tplErr, "Failed to process the policy templates")
 
-					update := addConditionToStatus(&plc, 0, false, "Error processing template", tplErr.Error())
-					if update {
-						r.Recorder.Event(&plc, eventWarning,
-							fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
-						r.checkRelatedAndUpdate(update, plc, relatedObjects, oldRelated)
+				// If the error is because the padding is invalid, this either means the encrypted value was not
+				// generated by the "protect" template function or the AES key is incorrect. Control for a stale
+				// cached key.
+				if usedKeyCache && errors.Is(tplErr, templates.ErrInvalidPKCS7Padding) {
+					log.V(2).Info(
+						"The template decryption failed likely due to an invalid encryption key, will refresh " +
+							"the encryption key cache and try the decryption again",
+					)
+					var encryptionConfig templates.EncryptionConfig
+					encryptionConfig, usedKeyCache, err = r.getEncryptionConfig(plc, true)
+
+					if err != nil {
+						addTemplateErrorViolation("", err.Error())
+
+						return
 					}
+
+					tmplResolverCfg.EncryptionConfig = encryptionConfig
+
+					err := tmplResolver.SetEncryptionConfig(encryptionConfig)
+					if err != nil {
+						// If the encryption key is invalid, clear the cache.
+						if errors.Is(err, templates.ErrInvalidAESKey) || errors.Is(err, templates.ErrAESKeyNotSet) {
+							r.cachedEncryptionKey = &cachedEncryptionKey{}
+						}
+
+						msg := getTemplateConfigErrorMsg(err)
+						addTemplateErrorViolation("", msg)
+
+						return
+					}
+
+					resolvedTemplate, tplErr = tmplResolver.ResolveTemplate(objectT.ObjectDefinition.Raw, nil)
+				}
+
+				if tplErr != nil {
+					addTemplateErrorViolation("", tplErr.Error())
 
 					return
 				}
@@ -1294,7 +1383,7 @@ func objectExists(
 
 	_, err := res.Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8serrors.IsNotFound(err) {
 			objLog.V(2).Info("Got 'Not Found' response for object from the API server")
 		} else {
 			objLog.Error(err, "Could not retrieve object from the API server")
@@ -1314,13 +1403,13 @@ func createObject(res dynamic.ResourceInterface, unstruct unstructured.Unstructu
 
 	_, err = res.Create(context.TODO(), &unstruct, metav1.CreateOptions{})
 	if err != nil {
-		if errors.IsAlreadyExists(err) {
+		if k8serrors.IsAlreadyExists(err) {
 			objLog.V(2).Info("Got 'Already Exists' response for object")
 
 			return true, err
 		}
 
-		objLog.Error(err, "Could not create object", "reason", errors.ReasonForError(err))
+		objLog.Error(err, "Could not create object", "reason", k8serrors.ReasonForError(err))
 
 		return false, err
 	}
@@ -1336,7 +1425,7 @@ func deleteObject(res dynamic.ResourceInterface, name, namespace string) (delete
 
 	err = res.Delete(context.TODO(), name, metav1.DeleteOptions{})
 	if err != nil {
-		if errors.IsNotFound(err) {
+		if k8serrors.IsNotFound(err) {
 			objLog.V(2).Info("Got 'Not Found' response while deleting object")
 
 			return true, err
@@ -1704,7 +1793,7 @@ func handleKeys(
 		log.V(2).Info("Updating the object based on the template definition")
 
 		_, err = res.Update(context.TODO(), existingObj, metav1.UpdateOptions{})
-		if errors.IsNotFound(err) {
+		if k8serrors.IsNotFound(err) {
 			message := fmt.Sprintf("`%v` is not present and must be created", existingObj.GetKind())
 
 			return false, message, true
