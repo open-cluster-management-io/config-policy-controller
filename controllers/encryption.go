@@ -34,12 +34,22 @@ func (r *ConfigurationPolicyReconciler) getEncryptionKey(namespace string) (*cac
 		return nil, fmt.Errorf("failed to get the encryption key from Secret %s/%s: %w", namespace, secretName, err)
 	}
 
-	key := &cachedEncryptionKey{
-		key:         encryptionSecret.Data["key"],
-		previousKey: encryptionSecret.Data["previousKey"],
+	var key []byte
+	if len(encryptionSecret.Data["key"]) > 0 {
+		key = encryptionSecret.Data["key"]
 	}
 
-	return key, nil
+	var previousKey []byte
+	if len(encryptionSecret.Data["previousKey"]) > 0 {
+		previousKey = encryptionSecret.Data["previousKey"]
+	}
+
+	cachedKey := &cachedEncryptionKey{
+		key:         key,
+		previousKey: previousKey,
+	}
+
+	return cachedKey, nil
 }
 
 // getEncryptionConfig returns the encryption config for decrypting values that were encrypted using Hub templates.

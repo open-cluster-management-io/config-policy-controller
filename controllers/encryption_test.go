@@ -195,6 +195,30 @@ func TestGetEncryptionConfigForceRefresh(t *testing.T) {
 	Expect(config.AESKey).ToNot(Equal(key))
 }
 
+func TestGetEncryptionKeyEmptySecret(t *testing.T) {
+	t.Parallel()
+	RegisterFailHandler(Fail)
+
+	encryptionSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      secretName,
+			Namespace: clusterName,
+		},
+		Data: map[string][]byte{
+			"key":         {},
+			"previousKey": {},
+		},
+	}
+	client := fake.NewClientBuilder().WithObjects(encryptionSecret).Build()
+
+	r := ConfigurationPolicyReconciler{Client: client, DecryptionConcurrency: 5}
+	cachedEncryptionKey, err := r.getEncryptionKey(clusterName)
+
+	Expect(err).To(BeNil())
+	Expect(cachedEncryptionKey.key).To(BeNil())
+	Expect(cachedEncryptionKey.previousKey).To(BeNil())
+}
+
 func TestUsesEncryption(t *testing.T) {
 	t.Parallel()
 	RegisterFailHandler(Fail)
