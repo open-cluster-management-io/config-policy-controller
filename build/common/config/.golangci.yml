@@ -192,7 +192,7 @@ issues:
         - golint
         - revive
         - stylecheck
-      source: \. "github\.com/onsi/(gomega|ginkgo)"
+      source: \. "github\.com/onsi/(gomega|ginkgo/v2)"
     # Allow printing in the tests.
     - path: _test\.go$|^test/
       linters:

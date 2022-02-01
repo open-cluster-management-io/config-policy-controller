@@ -52,6 +52,9 @@ ifneq ($(KIND_VERSION), latest)
 else
 	KIND_ARGS =
 endif
+# Fetch Ginkgo/Gomega versions from go.mod
+GINKGO_VERSION := $(shell awk '/github.com\/onsi\/ginkgo\/v2/ {print $$2}' go.mod)
+GOMEGA_VERSION := $(shell awk '/github.com\/onsi\/gomega/ {print $$2}' go.mod)
 
 LOCAL_OS := $(shell uname)
 ifeq ($(LOCAL_OS),Linux)
@@ -255,8 +258,8 @@ e2e-test:
 	${GOPATH}/bin/ginkgo -v --failFast --slowSpecThreshold=10 test/e2e
 
 e2e-dependencies:
-	go get github.com/onsi/ginkgo/ginkgo@v1.16.4
-	go get github.com/onsi/gomega/...@v1.13.0
+	go get github.com/onsi/ginkgo/v2/ginkgo@$(GINKGO_VERSION)
+	go get github.com/onsi/gomega/...@$(GOMEGA_VERSION)
 
 e2e-debug:
 	kubectl get all -n $(KIND_NAMESPACE)
