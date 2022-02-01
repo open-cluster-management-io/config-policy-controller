@@ -1,1 +1,0 @@
-GIT:= $(shell which git 2> /dev/null)
