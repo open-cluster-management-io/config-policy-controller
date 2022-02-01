@@ -20,7 +20,7 @@ type NonEmptyString string
 type RemediationAction string
 
 // Severity : low, medium, high, or critical
-// +kubebuilder:validation:Enum=low;medium;high;critical
+// +kubebuilder:validation:Enum=low;Low;medium;Medium;high;High;critical;Critical
 type Severity string
 
 const (

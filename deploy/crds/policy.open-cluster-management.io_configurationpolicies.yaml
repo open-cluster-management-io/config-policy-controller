@@ -105,9 +105,13 @@ spec:
                 description: 'Severity : low, medium, high, or critical'
                 enum:
                 - low
+                - Low
                 - medium
+                - Medium
                 - high
+                - High
                 - critical
+                - Critical
                 type: string
             type: object
           status:
