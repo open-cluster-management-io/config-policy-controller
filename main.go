@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/spf13/pflag"
+	corev1 "k8s.io/api/core/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -23,6 +24,7 @@ import (
 	"open-cluster-management.io/addon-framework/pkg/lease"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -116,6 +118,9 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "config-policy-controller.open-cluster-management.io",
+		// Disable the cache for Secrets to avoid a watch getting created when the `policy-encryption-key`
+		// Secret is retrieved. Special cache handling is done by the controller.
+		ClientDisableCacheFor: []client.Object{&corev1.Secret{}},
 	}
 
 	if strings.Contains(namespace, ",") {
