@@ -426,7 +426,7 @@ func createStatus(
 	// Noncompliant with no resources -- return violation immediately
 	if objShouldExist && !compliant && desiredName == "" {
 		message := fmt.Sprintf("No instances of `%v` found as specified", kind)
-		if len(sortedNamespaces) > 0 {
+		if namespaced && len(sortedNamespaces) > 0 {
 			message += fmt.Sprintf(" in namespaces: %v", strings.Join(sortedNamespaces, ", "))
 		}
 
