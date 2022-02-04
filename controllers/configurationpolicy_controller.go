@@ -1899,13 +1899,10 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		(*policy).GetName(): policy,
 	})
 	policyLog := log.WithValues("name", policy.Name, "namespace", policy.Namespace)
-	modifiedErr := "the object has been modified; please apply your changes to the latest version and try again"
 
-	if err != nil && strings.Contains(err.Error(), modifiedErr) {
+	if k8serrors.IsConflict(err) {
 		policyLog.Error(err, "Tried to re-update status before previous update could be applied, retrying next loop")
-	}
-
-	if err != nil && !strings.Contains(err.Error(), modifiedErr) {
+	} else if err != nil {
 		policyLog.Error(err, "Could not update status")
 	}
 }
