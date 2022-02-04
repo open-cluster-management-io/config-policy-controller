@@ -60,14 +60,12 @@ func main() {
 	opts.BindFlags(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
-	var eventOnParent, clusterName, hubConfigSecretNs, hubConfigSecretName, probeAddr string
+	var clusterName, hubConfigSecretNs, hubConfigSecretName, probeAddr string
 	var frequency, decryptionConcurrency uint
 	var enableLease, enableLeaderElection, legacyLeaderElection bool
 
 	pflag.UintVar(&frequency, "update-frequency", 10,
 		"The status update frequency (in seconds) of a mutation policy")
-	pflag.StringVar(&eventOnParent, "parent-event", "ifpresent",
-		"to also send status events on parent policy. options are: yes/no/ifpresent")
 	pflag.BoolVar(&enableLease, "enable-lease", false,
 		"If enabled, the controller will start the lease controller to report its status")
 	pflag.StringVar(&clusterName, "cluster-name", "acm-managed-cluster", "Name of the cluster")
@@ -168,7 +166,7 @@ func main() {
 	// Initialize some variables
 	clientset := kubernetes.NewForConfigOrDie(cfg)
 	common.Initialize(clientset, cfg)
-	controllers.Initialize(cfg, clientset, namespace, eventOnParent)
+	controllers.Initialize(cfg, clientset, namespace)
 
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
 	log.V(1).Info("Perodically processing Configuration Policies", "frequency", frequency)

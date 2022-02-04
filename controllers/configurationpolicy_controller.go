@@ -77,9 +77,6 @@ var MxUpdateMap sync.RWMutex
 // NamespaceWatched defines which namespace we can watch for the GRC policies and ignore others
 var NamespaceWatched string
 
-// EventOnParent specifies if we also want to send events to the parent policy. Available options are yes/no/ifpresent
-var EventOnParent string
-
 // SetupWithManager sets up the controller with the Manager.
 func (r *ConfigurationPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -89,11 +86,10 @@ func (r *ConfigurationPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error
 }
 
 // Initialize to initialize some controller variables
-func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset, namespace, eventParent string) {
+func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset, namespace string) {
 	config = kubeconfig
 	clientSet = clientset
 	NamespaceWatched = namespace
-	EventOnParent = strings.ToLower(eventParent)
 }
 
 // blank assignment to verify that ConfigurationPolicyReconciler implements reconcile.Reconciler
@@ -1922,7 +1918,7 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 			return instance, err
 		}
 
-		if EventOnParent != "no" && instance.Status.ComplianceState != "Undetermined" {
+		if instance.Status.ComplianceState != "Undetermined" {
 			r.createParentPolicyEvent(instance)
 		}
 
