@@ -15,7 +15,7 @@ import (
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
-	templates "github.com/open-cluster-management/go-template-utils/pkg/templates"
+	templates "github.com/stolostron/go-template-utils/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
