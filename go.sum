@@ -829,8 +829,8 @@ github.com/spf13/viper v1.4.0/go.mod h1:PTJ7Z/lr49W6bUbkmS1V3by4uWynFiR9p7+dSq/y
 github.com/spf13/viper v1.7.0/go.mod h1:8WkrPz2fc9jxqZNCJI/76HCieCp4Q8HaLFoCha5qpdg=
 github.com/src-d/gcfg v1.4.0/go.mod h1:p/UMsR43ujA89BJY9duynAwIpvqEujIH/jFlfL7jWoI=
 github.com/stoewer/go-strcase v1.2.0/go.mod h1:IBiWB2sKIp3wVVQ3Y035++gc+knqhUQag1KpM8ahLw8=
-github.com/stolostron/go-template-utils/v2 v2.2.1 h1:RHnkRTY1qLeVDwdRdM7xDCU76+WTSh/85znutc8KEA8=
-github.com/stolostron/go-template-utils/v2 v2.2.1/go.mod h1:z4d9KZkkW5jAHns3bafVTmab+eq/jVsoFRYWbH37Qu4=
+github.com/stolostron/go-template-utils/v2 v2.2.2 h1:wGGfxzexV0xNHcT6XUlXLGj6K44pBDwRixD9wYEyhtc=
+github.com/stolostron/go-template-utils/v2 v2.2.2/go.mod h1:z4d9KZkkW5jAHns3bafVTmab+eq/jVsoFRYWbH37Qu4=
 github.com/streadway/amqp v0.0.0-20190404075320-75d898a42a94/go.mod h1:AZpEONHx3DKn8O/DFsRAY58/XVQiIPMTMB1SddzLXVw=
 github.com/streadway/amqp v0.0.0-20190827072141-edfb9018d271/go.mod h1:AZpEONHx3DKn8O/DFsRAY58/XVQiIPMTMB1SddzLXVw=
 github.com/streadway/handy v0.0.0-20190108123426-d5acb3125c2a/go.mod h1:qNTQ5P5JnDBl6z3cMAg/SywNDC5ABu5ApDIw6lUbRmI=
