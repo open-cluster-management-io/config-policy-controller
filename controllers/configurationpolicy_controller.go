@@ -1836,9 +1836,7 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		policy.Status.ComplianceState = policyv1.NonCompliant
 	}
 
-	_, err := r.updatePolicyStatus(map[string]*policyv1.ConfigurationPolicy{
-		(*policy).GetName(): policy,
-	})
+	_, err := r.updatePolicyStatus(policy)
 	policyLog := log.WithValues("name", policy.Name, "namespace", policy.Namespace)
 
 	if k8serrors.IsConflict(err) {
@@ -1851,25 +1849,23 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 // updatePolicyStatus updates the status of the configurationPolicy if new conditions are added and generates an event
 // on the parent policy with the compliance decision
 func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
-	policies map[string]*policyv1.ConfigurationPolicy,
+	policy *policyv1.ConfigurationPolicy,
 ) (*policyv1.ConfigurationPolicy, error) {
-	for plcName, instance := range policies { // policies is a map where: key = plc.Name, value = pointer to plc
-		log.V(2).Info(
-			"Updating configurationPolicy status", "status", instance.Status.ComplianceState, "policy", plcName,
-		)
+	log.V(2).Info(
+		"Updating configurationPolicy status", "status", policy.Status.ComplianceState, "policy", policy.GetName(),
+	)
 
-		err := r.Status().Update(context.TODO(), instance)
-		if err != nil {
-			return instance, err
-		}
-
-		if instance.Status.ComplianceState != "Undetermined" {
-			r.createParentPolicyEvent(instance)
-		}
-
-		r.Recorder.Event(instance, "Normal", "Policy updated",
-			fmt.Sprintf("Policy status is: %v", instance.Status.ComplianceState))
+	err := r.Status().Update(context.TODO(), policy)
+	if err != nil {
+		return policy, err
 	}
+
+	if policy.Status.ComplianceState != "Undetermined" {
+		r.createParentPolicyEvent(policy)
+	}
+
+	r.Recorder.Event(policy, "Normal", "Policy updated",
+		fmt.Sprintf("Policy status is: %v", policy.Status.ComplianceState))
 
 	return nil, nil
 }
