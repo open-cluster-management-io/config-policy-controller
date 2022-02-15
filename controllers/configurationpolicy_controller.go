@@ -578,8 +578,6 @@ func addConditionToStatus(
 		cond.Type = "violation"
 	}
 
-	var update bool
-
 	if len(plc.Status.CompliancyDetails) <= index {
 		plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1.TemplateStatus{
 			ComplianceState: complianceState,
@@ -588,7 +586,7 @@ func addConditionToStatus(
 	}
 
 	if plc.Status.CompliancyDetails[index].ComplianceState != complianceState {
-		update = true
+		updateNeeded = true
 	}
 
 	plc.Status.CompliancyDetails[index].ComplianceState = complianceState
@@ -597,14 +595,14 @@ func addConditionToStatus(
 	if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
 		conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
 		plc.Status.CompliancyDetails[index].Conditions = conditions
-		update = true
+		updateNeeded = true
 	}
 
-	if update {
+	if updateNeeded {
 		log.Info("Will update the policy status", "policy", plc.GetName(), "complianceState", complianceState)
 	}
 
-	return update
+	return updateNeeded
 }
 
 // createInformStatus updates the status field for a configurationpolicy with remediationAction=inform
