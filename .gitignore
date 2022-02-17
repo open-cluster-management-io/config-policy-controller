@@ -91,5 +91,6 @@ kubeconfig_managed
 kind_kubeconfig.yaml
 report.json
 
+vendor/
 .go/
 bin/
