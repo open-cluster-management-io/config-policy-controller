@@ -312,8 +312,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 		nonCompliantObjects := map[string]map[string]interface{}{}
 		compliantObjects := map[string]map[string]interface{}{}
 		enforce := strings.EqualFold(string(plc.Spec.RemediationAction), string(policyv1.Enforce))
-		// This will be overridden if a namespace is present in the object template
-		relevantNamespaces := plcNamespaces
 		kind := ""
 		desiredName := ""
 		objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
@@ -413,6 +411,17 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 		// pull metadata out of the object template
 		//nolint:forcetypeassert
 		unstruct.Object = blob.(map[string]interface{})
+		var relevantNamespaces []string
+
+		isNamespaced := isObjectNamespaced(&unstruct, apiresourcelist)
+
+		if isNamespaced {
+			// This will be overridden if a namespace is present in the object template
+			relevantNamespaces = plcNamespaces
+		} else {
+			relevantNamespaces = []string{""}
+		}
+
 		if md, ok := unstruct.Object["metadata"]; ok {
 			//nolint:forcetypeassert
 			metadata := md.(map[string]interface{})
@@ -439,7 +448,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 		numCompliant := 0
 		numNonCompliant := 0
 		handled := false
-		objNamespaced := false
 
 		// iterate through all namespaces the configurationpolicy is set on
 		for _, ns := range relevantNamespaces {
@@ -450,18 +458,16 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 				"index", indx,
 			)
 
-			names, compliant, reason, objKind, related, update, namespaced := r.handleObjects(
-				objectT, ns, indx, &plc, apiresourcelist, apigroups)
+			names, compliant, reason, objKind, related, update := r.handleObjects(
+				objectT, ns, isNamespaced, indx, &plc, apigroups,
+			)
+
 			if update {
 				parentUpdate = true
 			}
 
 			if objKind != "" {
 				kind = objKind
-			}
-
-			if namespaced {
-				objNamespaced = true
 			}
 
 			if names == nil {
@@ -499,7 +505,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 				"indx":        indx,
 				"kind":        kind,
 				"desiredName": desiredName,
-				"namespaced":  objNamespaced,
+				"namespaced":  isNamespaced,
 			}
 
 			statusUpdate := createInformStatus(objShouldExist, numCompliant, numNonCompliant,
@@ -651,9 +657,9 @@ func createInformStatus(
 func (r *ConfigurationPolicyReconciler) handleObjects(
 	objectT *policyv1.ObjectTemplate,
 	namespace string,
+	isNamespaced bool,
 	index int,
 	policy *policyv1.ConfigurationPolicy,
-	apiresourcelist []*metav1.APIResourceList,
 	apigroups []*restmapper.APIGroupResources,
 ) (
 	objNameList []string,
@@ -662,7 +668,6 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	rsrcKind string,
 	relatedObjects []policyv1.RelatedObject,
 	pUpdate bool,
-	isNamespaced bool,
 ) {
 	log := log.WithValues("policy", policy.GetName(), "index", index, "objectNamespace", namespace)
 
@@ -672,13 +677,12 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		log.V(2).Info("Handling object template, no namespace specified")
 	}
 
-	namespaced := true
 	ext := objectT.ObjectDefinition
 
 	// map raw object to a resource, generate a violation if resource cannot be found
 	mapping, mappingUpdate := r.getMapping(apigroups, ext, policy, index)
 	if mapping == nil {
-		return nil, false, "", "", nil, mappingUpdate, namespaced
+		return nil, false, "", "", nil, mappingUpdate
 	}
 
 	var unstruct unstructured.Unstructured
@@ -706,8 +710,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 	statusUpdateNeeded := false
 
-	dclient, rsrc, namespaced := getResourceAndDynamicClient(mapping, apiresourcelist)
-	if namespaced && namespace == "" {
+	dclient, rsrc := getResourceAndDynamicClient(mapping)
+
+	if isNamespaced && namespace == "" {
 		log.Info("The object template is namespaced but no namespace is specified. Cannot process.")
 		// namespaced but none specified, generate violation
 		updateStatus := addConditionToStatus(policy, index, false, "K8s missing namespace",
@@ -725,17 +730,17 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			statusUpdateNeeded = true
 		}
 
-		return nil, false, "", "", nil, statusUpdateNeeded, namespaced
+		return nil, false, "", "", nil, statusUpdateNeeded
 	}
 
 	if name != "" { // named object, so checking just for the existence of the specific object
-		exists = objectExists(namespaced, namespace, name, rsrc, dclient)
+		exists = objectExists(isNamespaced, namespace, name, rsrc, dclient)
 		objNames = append(objNames, name)
 	} else if kind != "" { // no name, so we are checking for the existence of any object of this kind
 		log.V(1).Info(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
-		objNames = append(objNames, getNamesOfKind(unstruct, rsrc, namespaced,
+		objNames = append(objNames, getNamesOfKind(unstruct, rsrc, isNamespaced,
 			namespace, dclient, strings.ToLower(string(objectT.ComplianceType)))...)
 
 		// we do not support enforce on unnamed templates
@@ -762,7 +767,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			gvr:         rsrc,
 			name:        name,
 			namespace:   namespace,
-			namespaced:  namespaced,
+			namespaced:  isNamespaced,
 			shouldExist: objShouldExist,
 			index:       index,
 			unstruct:    unstruct,
@@ -776,7 +781,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		// The message string for single objects is different than for multiple
 		reason = generateSingleObjReason(objShouldExist, compliant, exists)
 		// Enforce could clear the objNames array so use name instead
-		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, namespaced, []string{name}, reason)
+		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, isNamespaced, []string{name}, reason)
 
 		if !statusUpdateNeeded {
 			log.V(2).Info("The status did not change for this object template")
@@ -800,10 +805,10 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			}
 		}
 
-		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, namespaced, objNames, reason)
+		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, isNamespaced, objNames, reason)
 	}
 
-	return objNames, compliant, reason, rsrcKind, relatedObjects, statusUpdateNeeded, namespaced
+	return objNames, compliant, reason, rsrcKind, relatedObjects, statusUpdateNeeded
 }
 
 // generateSingleObjReason is a helper function to create a compliant/noncompliant message for a named object
@@ -948,13 +953,35 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	return nil, compliant, "", false
 }
 
+// isObjectNamespaced determines if the input object is a namespaced resource
+func isObjectNamespaced(object *unstructured.Unstructured, apiResourceList []*metav1.APIResourceList) bool {
+	gvk := object.GetObjectKind().GroupVersionKind()
+	gv := gvk.GroupVersion().String()
+
+	for _, apiResourceGroup := range apiResourceList {
+		if apiResourceGroup.GroupVersion == gv {
+			for _, apiResource := range apiResourceGroup.APIResources {
+				if apiResource.Kind == gvk.Kind {
+					namespaced := apiResource.Namespaced
+					log.V(2).Info("Found resource in apiResourceList", "namespaced", namespaced, "gvk", gvk.String())
+
+					return namespaced
+				}
+			}
+
+			// Return early in the event all the API resources in the matching group version have been exhausted
+			return false
+		}
+	}
+
+	return false
+}
+
 // getResourceAndDynamicClient creates a dynamic client to query resources and pulls the groupVersionResource
-// for an object from its mapping, as well as checking whether the resource is namespaced or cluster-level
-func getResourceAndDynamicClient(
-	mapping *meta.RESTMapping,
-	apiresourcelist []*metav1.APIResourceList,
-) (dclient dynamic.Interface, rsrc schema.GroupVersionResource, namespaced bool) {
-	namespaced = false
+// for an object from its mapping
+func getResourceAndDynamicClient(mapping *meta.RESTMapping) (
+	dclient dynamic.Interface, rsrc schema.GroupVersionResource,
+) {
 	restconfig := config
 	restconfig.GroupVersion = &schema.GroupVersion{
 		Group:   mapping.GroupVersionKind.Group,
@@ -970,18 +997,7 @@ func getResourceAndDynamicClient(
 	// check all resources in the list of resources on the cluster to get a match for the mapping
 	rsrc = mapping.Resource
 
-	for _, apiresourcegroup := range apiresourcelist {
-		if apiresourcegroup.GroupVersion == buildGV(mapping.GroupVersionKind.Group, mapping.GroupVersionKind.Version) {
-			for _, apiresource := range apiresourcegroup.APIResources {
-				if apiresource.Name == mapping.Resource.Resource && apiresource.Kind == mapping.GroupVersionKind.Kind {
-					namespaced = apiresource.Namespaced
-					log.V(2).Info("Found resource in apiresourcelist", "namespaced", namespaced, "resource", rsrc)
-				}
-			}
-		}
-	}
-
-	return dclient, rsrc, namespaced
+	return dclient, rsrc
 }
 
 // getMapping takes in a raw object, decodes it, and maps it to an existing group/kind
@@ -1866,16 +1882,6 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 		fmt.Sprintf("Policy status is: %v", policy.Status.ComplianceState))
 
 	return nil, nil
-}
-
-// Builds the GroupVersion string from the inputs, by combining them with a "/" in the middle.
-// If the group is empty, just returns the version string.
-func buildGV(group, version string) string {
-	if group == "" {
-		return version
-	}
-
-	return group + "/" + version
 }
 
 func (r *ConfigurationPolicyReconciler) createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
