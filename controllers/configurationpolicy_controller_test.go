@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	coretypes "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -248,30 +247,6 @@ func TestConvertPolicyStatusToString(t *testing.T) {
 	policyInString := convertPolicyStatusToString(&samplePolicy)
 
 	assert.NotNil(t, policyInString)
-}
-
-func TestHandleAddingPolicy(t *testing.T) {
-	simpleClient := testclient.NewSimpleClientset()
-	typeMeta := metav1.TypeMeta{
-		Kind: "namespace",
-	}
-	objMeta := metav1.ObjectMeta{
-		Name: "default",
-	}
-	ns := coretypes.Namespace{
-		TypeMeta:   typeMeta,
-		ObjectMeta: objMeta,
-	}
-	_, err := simpleClient.CoreV1().Namespaces().Create(context.TODO(), &ns, metav1.CreateOptions{})
-
-	assert.Nil(t, err)
-
-	common.Initialize(simpleClient, nil)
-
-	err = handleAddingPolicy(&samplePolicy)
-	assert.Nil(t, err)
-
-	handleRemovingPolicy(samplePolicy.GetName())
 }
 
 func TestMerge(t *testing.T) {

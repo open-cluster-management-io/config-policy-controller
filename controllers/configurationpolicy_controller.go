@@ -43,9 +43,6 @@ const ControllerName string = "configuration-policy-controller"
 
 var log = ctrl.Log.WithName(ControllerName)
 
-// availablePolicies is a cach all all available polices
-var availablePolicies common.SyncedPolicyMap
-
 // PlcChan a channel used to pass policies ready for update
 var PlcChan chan *policyv1.ConfigurationPolicy
 
@@ -67,12 +64,6 @@ var (
 )
 
 var config *rest.Config
-
-// Mx for making the map thread safe
-var Mx sync.RWMutex
-
-// MxUpdateMap for making the map thread safe
-var MxUpdateMap sync.RWMutex
 
 // NamespaceWatched defines which namespace we can watch for the GRC policies and ignore others
 var NamespaceWatched string
@@ -113,46 +104,9 @@ type ConfigurationPolicyReconciler struct {
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
 
-// Reconcile reads that state of the cluster for a ConfigurationPolicy object and makes changes based
-// on the state read and what is in the ConfigurationPolicy.Spec
-// Note:
-// The Controller will requeue the Request to be processed again if the returned error is non-nil or
-// Result.Requeue is true, otherwise upon completion it will remove the work from the queue.
+// Reconcile currently does nothing. It is in place to satisfy the interface requirements of controller-runtime. All
+// the logic is handled in the PeriodicallyExecConfigPolicies method.
 func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
-	reqLogger := log.WithValues("Request.Namespace", request.Namespace, "Request.Name", request.Name)
-	reqLogger.Info("Reconciling ConfigurationPolicy")
-
-	// Fetch the ConfigurationPolicy instance
-	instance := &policyv1.ConfigurationPolicy{}
-
-	err := r.Get(context.TODO(), request.NamespacedName, instance)
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			// Request object not found, could have been deleted after reconcile request.
-			// Owned objects are automatically garbage collected. For additional cleanup logic use finalizers.
-			// Return and don't requeue
-			reqLogger.Info("Configuration policy was deleted, removing it...")
-			handleRemovingPolicy(request.NamespacedName.Name)
-
-			return reconcile.Result{}, nil
-		}
-		// Error reading the object - requeue the request.
-		reqLogger.Error(err, "Failed to retrieve configuration policy")
-
-		return reconcile.Result{}, err
-	}
-
-	reqLogger.V(1).Info("Configuration policy was found, adding it...")
-
-	err = handleAddingPolicy(instance)
-	if err != nil {
-		reqLogger.Error(err, "Failed to handleAddingPolicy", "instance", instance)
-
-		return reconcile.Result{}, err
-	}
-
-	reqLogger.Info("Policy successfully added, reconcile complete")
-
 	return reconcile.Result{}, nil
 }
 
@@ -164,18 +118,6 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 
 	for {
 		start := time.Now()
-		flattenedPolicyList := map[string]*policyv1.ConfigurationPolicy{}
-
-		log.V(2).Info(sprintMap(availablePolicies.PolicyMap))
-
-		for _, policy := range availablePolicies.PolicyMap {
-			key := fmt.Sprintf("%s/%s", policy.GetName(), policy.GetResourceVersion())
-			if _, ok := flattenedPolicyList[key]; ok {
-				continue
-			} else {
-				flattenedPolicyList[key] = policy
-			}
-		}
 
 		// get resources once per cycle to avoid hanging
 		dd := clientSet.Discovery()
@@ -212,19 +154,22 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 			log.Error(apigroupsErr, "Could not get API groups list, skipping loop because cached list is empty")
 		}
 
+		policiesList := policyv1.ConfigurationPolicyList{}
+
+		// This retrieves the policies from the controller-runtime cache populated by the watch.
+		err := r.List(context.TODO(), &policiesList)
+		if err != nil {
+			log.Error(err, "Failed to list the ConfigurationPolicy objects to evaluate")
+
+			skipLoop = true
+		}
+
 		if !skipLoop {
-			log.Info("Processing the policies", "count", len(flattenedPolicyList))
+			log.Info("Processing the policies", "count", len(policiesList.Items))
 			// flattenedpolicylist only contains 1 of each policy instance
-			for _, policy := range flattenedPolicyList {
-				Mx.Lock()
-				// Deep copy the policy since even though handleObjectTemplates accepts a copy
-				// (i.e. not a pointer) of the policy, policy.Spec.ObjectTemplates is a slice of
-				// pointers, so any modifications to the objects in that slice will be reflected in
-				// the PolicyMap cache, which can have unintended side effects.
-				policy = (*policy).DeepCopy()
+			for _, policy := range policiesList.Items {
 				// handle each template in each policy
-				r.handleObjectTemplates(*policy, apiresourcelist, apigroups)
-				Mx.Unlock()
+				r.handleObjectTemplates(policy, apiresourcelist, apigroups)
 			}
 		}
 
@@ -1929,58 +1874,6 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	return nil, nil
 }
 
-// handleRemovingPolicy removes a configurationPolicy from the list of configurationPolicies that the controller is
-// processing
-func handleRemovingPolicy(name string) {
-	for k, v := range availablePolicies.PolicyMap {
-		if v.Name == name {
-			availablePolicies.RemoveObject(k)
-		}
-	}
-}
-
-// handleAddingPolicy adds a configurationPolicy to the list of configurationPolicies that the controller is processing
-func handleAddingPolicy(plc *policyv1.ConfigurationPolicy) error {
-	allNamespaces, err := common.GetAllNamespaces()
-	if err != nil {
-		return err
-	}
-
-	// clean up that policy from the existing namepsaces, in case the modification is in the namespace selector
-	for _, ns := range allNamespaces {
-		key := fmt.Sprintf("%s/%s", ns, plc.Name)
-		if policy, found := availablePolicies.GetObject(key); found {
-			if policy.Name == plc.Name {
-				availablePolicies.RemoveObject(key)
-			}
-		}
-	}
-
-	// build namespace lists
-	exclude := []string{}
-	for _, ns := range plc.Spec.NamespaceSelector.Exclude {
-		exclude = append(exclude, string(ns))
-	}
-
-	include := []string{}
-	for _, ns := range plc.Spec.NamespaceSelector.Include {
-		include = append(include, string(ns))
-	}
-
-	selectedNamespaces := common.GetSelectedNamespaces(include, exclude, allNamespaces)
-	for _, ns := range selectedNamespaces {
-		key := fmt.Sprintf("%s/%s", ns, plc.Name)
-		availablePolicies.AddObject(key, plc)
-	}
-
-	if len(selectedNamespaces) == 0 {
-		key := fmt.Sprintf("%s/%s", "NA", plc.Name)
-		availablePolicies.AddObject(key, plc)
-	}
-
-	return err
-}
-
 // Builds the GroupVersion string from the inputs, by combining them with a "/" in the middle.
 // If the group is empty, just returns the version string.
 func buildGV(group, version string) string {
@@ -1989,39 +1882,6 @@ func buildGV(group, version string) string {
 	}
 
 	return group + "/" + version
-}
-
-// Helper functions that pretty prints a map to a string
-func sprintMap(myMap map[string]*policyv1.ConfigurationPolicy) string {
-	if len(myMap) == 0 {
-		return "<Waiting for policies to be available for processing>"
-	}
-
-	var out strings.Builder
-
-	out.WriteString("Available policies in namespaces:\n")
-
-	mapToPrint := map[string][]string{}
-	for k, v := range myMap {
-		mapToPrint[v.Name] = append(mapToPrint[v.Name], strings.Split(k, "/")[0])
-	}
-
-	for k, v := range mapToPrint {
-		nsString := "["
-
-		for idx, ns := range v {
-			nsString += ns
-			if idx != len(v)-1 {
-				nsString += ", "
-			}
-		}
-
-		nsString += "]"
-
-		fmt.Fprintf(&out, "\tconfigpolicy %s in namespace(s) %s", k, nsString)
-	}
-
-	return out.String()
 }
 
 func (r *ConfigurationPolicyReconciler) createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
