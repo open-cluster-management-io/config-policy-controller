@@ -18,26 +18,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	policiesv1alpha1 "open-cluster-management.io/config-policy-controller/api/v1"
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/pkg/common"
 )
 
 func TestReconcile(t *testing.T) {
 	name := "foo"
 	namespace := "default"
-	instance := &policiesv1alpha1.ConfigurationPolicy{
+	instance := &policyv1.ConfigurationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: "default",
 		},
-		Spec: policiesv1alpha1.ConfigurationPolicySpec{
+		Spec: policyv1.ConfigurationPolicySpec{
 			Severity: "low",
-			NamespaceSelector: policiesv1alpha1.Target{
-				Include: []policiesv1alpha1.NonEmptyString{"default", "kube-*"},
-				Exclude: []policiesv1alpha1.NonEmptyString{"kube-system"},
+			NamespaceSelector: policyv1.Target{
+				Include: []policyv1.NonEmptyString{"default", "kube-*"},
+				Exclude: []policyv1.NonEmptyString{"kube-system"},
 			},
 			RemediationAction: "inform",
-			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
+			ObjectTemplates: []*policyv1.ObjectTemplate{
 				{
 					ComplianceType:   "musthave",
 					ObjectDefinition: runtime.RawExtension{},
@@ -50,7 +50,7 @@ func TestReconcile(t *testing.T) {
 	objs := []runtime.Object{instance}
 	// Register operator types with the runtime scheme.
 	s := scheme.Scheme
-	s.AddKnownTypes(policiesv1alpha1.GroupVersion, instance)
+	s.AddKnownTypes(policyv1.GroupVersion, instance)
 
 	// Create a fake client to mock API calls.
 	//nolint:staticcheck
@@ -229,17 +229,17 @@ func TestCompareLists(t *testing.T) {
 }
 
 func TestConvertPolicyStatusToString(t *testing.T) {
-	compliantDetail := policiesv1alpha1.TemplateStatus{
-		ComplianceState: policiesv1alpha1.NonCompliant,
-		Conditions:      []policiesv1alpha1.Condition{},
+	compliantDetail := policyv1.TemplateStatus{
+		ComplianceState: policyv1.NonCompliant,
+		Conditions:      []policyv1.Condition{},
 	}
-	compliantDetails := []policiesv1alpha1.TemplateStatus{}
+	compliantDetails := []policyv1.TemplateStatus{}
 
 	for i := 0; i < 3; i++ {
 		compliantDetails = append(compliantDetails, compliantDetail)
 	}
 
-	samplePolicyStatus := policiesv1alpha1.ConfigurationPolicyStatus{
+	samplePolicyStatus := policyv1.ConfigurationPolicyStatus{
 		ComplianceState:   "Compliant",
 		CompliancyDetails: compliantDetails,
 	}
@@ -317,7 +317,7 @@ func TestMerge(t *testing.T) {
 
 func TestAddRelatedObject(t *testing.T) {
 	compliant := true
-	rsrc := policiesv1alpha1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy")
+	rsrc := policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy")
 	namespace := "default"
 	namespaced := true
 	name := "foo"
@@ -326,7 +326,7 @@ func TestAddRelatedObject(t *testing.T) {
 	related := relatedList[0]
 
 	// get the related object and validate what we added is in the status
-	assert.True(t, related.Compliant == string(policiesv1alpha1.Compliant))
+	assert.True(t, related.Compliant == string(policyv1.Compliant))
 	assert.True(t, related.Reason == "reason")
 	assert.True(t, related.Object.APIVersion == rsrc.GroupVersion().String())
 	assert.True(t, related.Object.Kind == rsrc.Resource)
@@ -340,7 +340,7 @@ func TestAddRelatedObject(t *testing.T) {
 	related = relatedList[0]
 
 	assert.True(t, len(relatedList) == 1)
-	assert.True(t, related.Compliant == string(policiesv1alpha1.NonCompliant))
+	assert.True(t, related.Compliant == string(policyv1.NonCompliant))
 	assert.True(t, related.Reason == "new")
 
 	// add a new related object and make sure the entry is appended
@@ -356,19 +356,19 @@ func TestAddRelatedObject(t *testing.T) {
 }
 
 func TestSortRelatedObjectsAndUpdate(t *testing.T) {
-	policy := &policiesv1alpha1.ConfigurationPolicy{
+	policy := &policyv1.ConfigurationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: "default",
 		},
-		Spec: policiesv1alpha1.ConfigurationPolicySpec{
+		Spec: policyv1.ConfigurationPolicySpec{
 			Severity: "low",
-			NamespaceSelector: policiesv1alpha1.Target{
-				Include: []policiesv1alpha1.NonEmptyString{"default", "kube-*"},
-				Exclude: []policiesv1alpha1.NonEmptyString{"kube-system"},
+			NamespaceSelector: policyv1.Target{
+				Include: []policyv1.NonEmptyString{"default", "kube-*"},
+				Exclude: []policyv1.NonEmptyString{"kube-system"},
 			},
 			RemediationAction: "inform",
-			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
+			ObjectTemplates: []*policyv1.ObjectTemplate{
 				{
 					ComplianceType:   "musthave",
 					ObjectDefinition: runtime.RawExtension{},
@@ -376,7 +376,7 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 			},
 		},
 	}
-	rsrc := policiesv1alpha1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy")
+	rsrc := policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy")
 	name := "foo"
 	relatedList := addRelatedObjects(true, rsrc, "default", true, []string{name}, "reason")
 
@@ -384,7 +384,7 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 	name = "bar"
 	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "default", true, []string{name}, "reason")...)
 
-	empty := []policiesv1alpha1.RelatedObject{}
+	empty := []policyv1.RelatedObject{}
 
 	sortRelatedObjectsAndUpdate(policy, relatedList, empty)
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
@@ -406,18 +406,18 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 }
 
 func TestCreateInformStatus(t *testing.T) {
-	policy := &policiesv1alpha1.ConfigurationPolicy{
+	policy := &policyv1.ConfigurationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
 			Namespace: "default",
 		},
-		Spec: policiesv1alpha1.ConfigurationPolicySpec{
+		Spec: policyv1.ConfigurationPolicySpec{
 			Severity: "low",
-			NamespaceSelector: policiesv1alpha1.Target{
-				Include: []policiesv1alpha1.NonEmptyString{"test1", "test2"},
+			NamespaceSelector: policyv1.Target{
+				Include: []policyv1.NonEmptyString{"test1", "test2"},
 			},
 			RemediationAction: "inform",
-			ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
+			ObjectTemplates: []*policyv1.ObjectTemplate{
 				{
 					ComplianceType:   "musthave",
 					ObjectDefinition: runtime.RawExtension{},
@@ -445,7 +445,7 @@ func TestCreateInformStatus(t *testing.T) {
 	// Test 1 NonCompliant resource
 	createInformStatus(!mustNotHave, numCompliant, numNonCompliant,
 		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.NonCompliant)
 
 	nonCompliantObjects["test2"] = map[string]interface{}{
 		"names":  []string{"myobject"},
@@ -456,7 +456,7 @@ func TestCreateInformStatus(t *testing.T) {
 	// Test 2 NonCompliant resources
 	createInformStatus(!mustNotHave, numCompliant, numNonCompliant,
 		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.NonCompliant)
 
 	delete(nonCompliantObjects, "test1")
 	delete(nonCompliantObjects, "test2")
@@ -465,7 +465,7 @@ func TestCreateInformStatus(t *testing.T) {
 	numNonCompliant = 0
 	createInformStatus(!mustNotHave, numCompliant, numNonCompliant,
 		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.NonCompliant)
 
 	compliantObjects["test1"] = map[string]interface{}{
 		"names":  []string{"myobject"},
@@ -481,7 +481,7 @@ func TestCreateInformStatus(t *testing.T) {
 	// Test 1 compliant and 1 noncompliant resource  NOTE: This use case is the new behavior change!
 	createInformStatus(!mustNotHave, numCompliant, numNonCompliant,
 		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.NonCompliant)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.NonCompliant)
 
 	compliantObjects["test2"] = map[string]interface{}{
 		"names":  []string{"myobject"},
@@ -495,5 +495,5 @@ func TestCreateInformStatus(t *testing.T) {
 	// Test 2 compliant resources
 	createInformStatus(!mustNotHave, numCompliant, numNonCompliant,
 		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policiesv1alpha1.Compliant)
+	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.Compliant)
 }
