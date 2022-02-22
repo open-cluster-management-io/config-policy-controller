@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -496,4 +497,154 @@ func TestCreateInformStatus(t *testing.T) {
 	createInformStatus(!mustNotHave, numCompliant, numNonCompliant,
 		compliantObjects, nonCompliantObjects, policy, objData)
 	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.Compliant)
+}
+
+func TestShouldEvaluatePolicy(t *testing.T) {
+	t.Parallel()
+
+	policy := policyv1.ConfigurationPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       "policy",
+			Namespace:  "managed",
+			Generation: 2,
+		},
+	}
+
+	// Add a 60 second buffer to avoid race conditions
+	inFuture := time.Now().UTC().Add(60 * time.Second).Format(time.RFC3339)
+
+	tests := []struct {
+		testDescription         string
+		lastEvaluated           string
+		lastEvaluatedGeneration int64
+		evaluationInterval      policyv1.EvaluationInterval
+		complianceState         policyv1.ComplianceState
+		expected                bool
+	}{
+		{
+			"Just evaluated and the generation is unchanged",
+			inFuture,
+			2,
+			policyv1.EvaluationInterval{},
+			policyv1.Compliant,
+			false,
+		},
+		{
+			"The generation has changed",
+			inFuture,
+			1,
+			policyv1.EvaluationInterval{},
+			policyv1.Compliant,
+			true,
+		},
+		{
+			"lastEvaluated not set",
+			"",
+			2,
+			policyv1.EvaluationInterval{},
+			policyv1.Compliant,
+			true,
+		},
+		{
+			"Invalid lastEvaluated",
+			"Do or do not. There is no try.",
+			2,
+			policyv1.EvaluationInterval{},
+			policyv1.Compliant,
+			true,
+		},
+		{
+			"Unknown compliance state",
+			inFuture,
+			2,
+			policyv1.EvaluationInterval{},
+			policyv1.UnknownCompliancy,
+			true,
+		},
+		{
+			"Default evaluation interval with a past lastEvaluated when compliant",
+			time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339),
+			2,
+			policyv1.EvaluationInterval{},
+			policyv1.Compliant,
+			true,
+		},
+		{
+			"Default evaluation interval with a past lastEvaluated when noncompliant",
+			time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339),
+			2,
+			policyv1.EvaluationInterval{},
+			policyv1.NonCompliant,
+			true,
+		},
+		{
+			"Never evaluation interval with past lastEvaluated when compliant",
+			time.Now().UTC().Add(-12 * time.Hour).Format(time.RFC3339),
+			2,
+			policyv1.EvaluationInterval{Compliant: "never"},
+			policyv1.Compliant,
+			false,
+		},
+		{
+			"Never evaluation interval with past lastEvaluated when noncompliant",
+			time.Now().UTC().Add(-12 * time.Hour).Format(time.RFC3339),
+			2,
+			policyv1.EvaluationInterval{NonCompliant: "never"},
+			policyv1.NonCompliant,
+			false,
+		},
+		{
+			"Invalid evaluation interval when compliant",
+			inFuture,
+			2,
+			policyv1.EvaluationInterval{Compliant: "Do or do not. There is no try."},
+			policyv1.Compliant,
+			true,
+		},
+		{
+			"Invalid evaluation interval when noncompliant",
+			inFuture,
+			2,
+			policyv1.EvaluationInterval{NonCompliant: "Do or do not. There is no try."},
+			policyv1.NonCompliant,
+			true,
+		},
+		{
+			"Custom evaluation interval that hasn't past yet when compliant",
+			time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339),
+			2,
+			policyv1.EvaluationInterval{Compliant: "12h"},
+			policyv1.Compliant,
+			false,
+		},
+		{
+			"Custom evaluation interval that hasn't past yet when noncompliant",
+			time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339),
+			2,
+			policyv1.EvaluationInterval{NonCompliant: "12h"},
+			policyv1.NonCompliant,
+			false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(
+			test.testDescription,
+			func(t *testing.T) {
+				t.Parallel()
+				policy := policy.DeepCopy()
+
+				policy.Status.LastEvaluated = test.lastEvaluated
+				policy.Status.LastEvaluatedGeneration = test.lastEvaluatedGeneration
+				policy.Spec.EvaluationInterval = test.evaluationInterval
+				policy.Status.ComplianceState = test.complianceState
+
+				if actual := shouldEvaluatePolicy(policy); actual != test.expected {
+					t.Fatalf("expected %v but got %v", test.expected, actual)
+				}
+			},
+		)
+	}
 }

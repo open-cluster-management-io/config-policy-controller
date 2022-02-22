@@ -221,3 +221,24 @@ func GetFieldFromSecret(secret *unstructured.Unstructured, field string) (result
 
 	return nil
 }
+
+// GetLastEvaluated parses the configuration policy and returns the status.lastEvaluated and
+// status.lastEvaluatedGeneration fields. If they are not set, then default null values are returned.
+func GetLastEvaluated(configPolicy *unstructured.Unstructured) (string, int64) {
+	status, ok := configPolicy.Object["status"].(map[string]interface{})
+	if !ok {
+		return "", 0
+	}
+
+	lastEvaluatedGeneration, ok := status["lastEvaluatedGeneration"].(int64)
+	if !ok {
+		return "", 0
+	}
+
+	lastEvaluated, ok := status["lastEvaluated"].(string)
+	if !ok {
+		return "", lastEvaluatedGeneration
+	}
+
+	return lastEvaluated, lastEvaluatedGeneration
+}

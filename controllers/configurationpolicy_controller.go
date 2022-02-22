@@ -167,7 +167,12 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 		if !skipLoop {
 			log.Info("Processing the policies", "count", len(policiesList.Items))
 			// flattenedpolicylist only contains 1 of each policy instance
-			for _, policy := range policiesList.Items {
+			for i := range policiesList.Items {
+				policy := policiesList.Items[i]
+				if !shouldEvaluatePolicy(&policy) {
+					continue
+				}
+
 				// handle each template in each policy
 				r.handleObjectTemplates(policy, apiresourcelist, apigroups)
 			}
@@ -187,6 +192,69 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 			return
 		}
 	}
+}
+
+// shouldEvaluatePolicy will determine if the policy is ready for evaluation by examining the
+// status.lastEvaluated and status.lastEvaluatedGeneration fields. If a policy has been updated, it
+// will always be triggered for evaluation. If the spec.evaluationInterval configuration has been
+// met, then that will also trigger an evaluation.
+func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy) bool {
+	log := log.WithValues("policy", policy.GetName())
+
+	if policy.Status.LastEvaluatedGeneration != policy.Generation {
+		log.V(2).Info("The policy has been updated. Will evaluate it now.")
+
+		return true
+	}
+
+	if policy.Status.LastEvaluated == "" {
+		log.V(2).Info("The policy's status.lastEvaluated field is not set. Will evaluate it now.")
+
+		return true
+	}
+
+	lastEvaluated, err := time.Parse(time.RFC3339, policy.Status.LastEvaluated)
+	if err != nil {
+		log.Error(err, "The policy has an invalid status.lastEvaluated value. Will evaluate it now.")
+
+		return true
+	}
+
+	var interval time.Duration
+
+	if policy.Status.ComplianceState == policyv1.Compliant {
+		interval, err = policy.Spec.EvaluationInterval.GetCompliantInterval()
+	} else if policy.Status.ComplianceState == policyv1.NonCompliant {
+		interval, err = policy.Spec.EvaluationInterval.GetNonCompliantInterval()
+	} else {
+		log.V(2).Info("The policy has an unknown compliance. Will evaluate it now.")
+
+		return true
+	}
+
+	if errors.Is(err, policyv1.ErrIsNever) {
+		log.Info("Skipping the policy evaluation due to the spec.evaluationInterval value being set to never")
+
+		return false
+	} else if err != nil {
+		log.Error(
+			err,
+			"The policy has an invalid spec.evaluationInterval value. Will evaluate it now.",
+			"spec.evaluationInterval.compliant", policy.Spec.EvaluationInterval.Compliant,
+			"spec.evaluationInterval.noncompliant", policy.Spec.EvaluationInterval.NonCompliant,
+		)
+
+		return true
+	}
+
+	nextEvaluation := lastEvaluated.Add(interval)
+	if nextEvaluation.Sub(time.Now().UTC()) > 0 {
+		log.Info("Skipping the policy evaluation due to the policy not reaching the evaluation interval")
+
+		return false
+	}
+
+	return true
 }
 
 // getTemplateConfigErrorMsg converts a configuration error from `NewResolver` or `SetEncryptionConfig` to a message
@@ -219,22 +287,21 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 	if plc.Spec.RemediationAction == "" {
 		message := "Policy does not have a RemediationAction specified"
 		log.Info(message)
-		update := addConditionToStatus(&plc, 0, false, "No RemediationAction", message)
+		statusChanged := addConditionToStatus(&plc, 0, false, "No RemediationAction", message)
 
-		if update {
+		if statusChanged {
 			r.Recorder.Event(&plc, eventWarning,
 				fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
-			r.addForUpdate(&plc)
 		}
+
+		r.addForUpdate(&plc)
 
 		return
 	}
 
 	// initialize the RelatedObjects for this Configuration Policy
 	oldRelated := append([]policyv1.RelatedObject{}, plc.Status.RelatedObjects...)
-
 	relatedObjects := []policyv1.RelatedObject{}
-	parentUpdate := false
 
 	addTemplateErrorViolation := func(reason, msg string) {
 		log.Info("Setting the policy to noncompliant due to a templating error", "error", msg)
@@ -243,17 +310,17 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 			reason = "Error processing template"
 		}
 
-		update := addConditionToStatus(&plc, 0, false, reason, msg)
-		if update {
+		statusChanged := addConditionToStatus(&plc, 0, false, reason, msg)
+		if statusChanged {
 			r.Recorder.Event(
 				&plc,
 				eventWarning,
 				fmt.Sprintf(plcFmtStr, plc.GetName()),
 				convertPolicyStatusToString(&plc),
 			)
-
-			r.checkRelatedAndUpdate(update, plc, relatedObjects, oldRelated)
 		}
+
+		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated)
 	}
 
 	// initialize apiresources for template processing before starting objectTemplate processing
@@ -458,13 +525,9 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 				"index", indx,
 			)
 
-			names, compliant, reason, objKind, related, update := r.handleObjects(
+			names, compliant, reason, objKind, related := r.handleObjects(
 				objectT, ns, isNamespaced, indx, &plc, apigroups,
 			)
-
-			if update {
-				parentUpdate = true
-			}
 
 			if objKind != "" {
 				kind = objKind
@@ -508,31 +571,28 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 				"namespaced":  isNamespaced,
 			}
 
-			statusUpdate := createInformStatus(objShouldExist, numCompliant, numNonCompliant,
-				compliantObjects, nonCompliantObjects, &plc, objData)
-			if statusUpdate {
-				parentUpdate = true
-			}
+			createInformStatus(
+				objShouldExist, numCompliant, numNonCompliant, compliantObjects, nonCompliantObjects, &plc, objData,
+			)
 		}
 	}
 
-	r.checkRelatedAndUpdate(parentUpdate, plc, relatedObjects, oldRelated)
+	r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated)
 }
 
-// checks related objects field and triggers an update on the configurationpolicy if it has changed
+// checkRelatedAndUpdate checks the related objects field and triggers an update on the ConfigurationPolicy
 func (r *ConfigurationPolicyReconciler) checkRelatedAndUpdate(
-	update bool, plc policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject,
+	plc policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject,
 ) {
-	sortUpdate := sortRelatedObjectsAndUpdate(&plc, related, oldRelated)
-	if update || sortUpdate {
-		r.addForUpdate(&plc)
-	}
+	sortRelatedObjectsAndUpdate(&plc, related, oldRelated)
+	// An update always occurs to account for the lastEvaluated status field
+	r.addForUpdate(&plc)
 }
 
 // helper function to check whether related objects has changed
 func sortRelatedObjectsAndUpdate(
 	plc *policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject,
-) (updateNeeded bool) {
+) {
 	sort.SliceStable(related, func(i, j int) bool {
 		if related[i].Object.Kind != related[j].Object.Kind {
 			return related[i].Object.Kind < related[j].Object.Kind
@@ -559,8 +619,6 @@ func sortRelatedObjectsAndUpdate(
 	if update {
 		plc.Status.RelatedObjects = related
 	}
-
-	return update
 }
 
 // helper function that appends a condition (violation or compliant) to the status of a configurationpolicy
@@ -584,6 +642,19 @@ func addConditionToStatus(
 		cond.Type = "violation"
 	}
 
+	log := log.WithValues("policy", plc.GetName(), "complianceState", complianceState)
+
+	if compliant && plc.Spec.EvaluationInterval.Compliant == "never" {
+		msg := `This policy will not be evaluated again due to spec.evaluationInterval.compliant being set to "never"`
+		log.Info(msg)
+		cond.Message += fmt.Sprintf(". %s.", msg)
+	} else if !compliant && plc.Spec.EvaluationInterval.NonCompliant == "never" {
+		msg := "This policy will not be evaluated again due to spec.evaluationInterval.noncompliant " +
+			`being set to "never"`
+		log.Info(msg)
+		cond.Message += fmt.Sprintf(". %s.", msg)
+	}
+
 	if len(plc.Status.CompliancyDetails) <= index {
 		plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1.TemplateStatus{
 			ComplianceState: complianceState,
@@ -605,7 +676,7 @@ func addConditionToStatus(
 	}
 
 	if updateNeeded {
-		log.Info("Will update the policy status", "policy", plc.GetName(), "complianceState", complianceState)
+		log.Info("Will update the policy status")
 	}
 
 	return updateNeeded
@@ -621,7 +692,7 @@ func createInformStatus(
 	nonCompliantObjects map[string]map[string]interface{},
 	plc *policyv1.ConfigurationPolicy,
 	objData map[string]interface{},
-) (updateNeeded bool) {
+) {
 	//nolint:forcetypeassert
 	desiredName := objData["desiredName"].(string)
 	//nolint:forcetypeassert
@@ -632,7 +703,7 @@ func createInformStatus(
 	namespaced := objData["namespaced"].(bool)
 
 	if kind == "" {
-		return false
+		return
 	}
 
 	var compObjs map[string]map[string]interface{}
@@ -650,7 +721,7 @@ func createInformStatus(
 		compObjs = compliantObjects
 	}
 
-	return createStatus(desiredName, kind, compObjs, namespaced, plc, indx, compliant, objShouldExist)
+	createStatus(desiredName, kind, compObjs, namespaced, plc, indx, compliant, objShouldExist)
 }
 
 // handleObjects controls the processing of each individual object template within a configurationpolicy
@@ -667,7 +738,6 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	reason string,
 	rsrcKind string,
 	relatedObjects []policyv1.RelatedObject,
-	pUpdate bool,
 ) {
 	log := log.WithValues("policy", policy.GetName(), "index", index, "objectNamespace", namespace)
 
@@ -680,9 +750,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	ext := objectT.ObjectDefinition
 
 	// map raw object to a resource, generate a violation if resource cannot be found
-	mapping, mappingUpdate := r.getMapping(apigroups, ext, policy, index)
+	mapping := r.getMapping(apigroups, ext, policy, index)
 	if mapping == nil {
-		return nil, false, "", "", nil, mappingUpdate
+		return nil, false, "", "", nil
 	}
 
 	var unstruct unstructured.Unstructured
@@ -708,16 +778,14 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		log.V(2).Info("Overridding the namespace with what is defined in the object template")
 	}
 
-	statusUpdateNeeded := false
-
 	dclient, rsrc := getResourceAndDynamicClient(mapping)
 
 	if isNamespaced && namespace == "" {
 		log.Info("The object template is namespaced but no namespace is specified. Cannot process.")
 		// namespaced but none specified, generate violation
-		updateStatus := addConditionToStatus(policy, index, false, "K8s missing namespace",
+		statusChanged := addConditionToStatus(policy, index, false, "K8s missing namespace",
 			"namespaced object has no namespace specified")
-		if updateStatus {
+		if statusChanged {
 			eventType := eventNormal
 			if index < len(policy.Status.CompliancyDetails) &&
 				policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
@@ -726,11 +794,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 			r.Recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
 				convertPolicyStatusToString(policy))
-
-			statusUpdateNeeded = true
 		}
 
-		return nil, false, "", "", nil, statusUpdateNeeded
+		return nil, false, "", "", nil
 	}
 
 	if name != "" { // named object, so checking just for the existence of the specific object
@@ -775,17 +841,11 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 		log.V(2).Info("Handling a single object template")
 
-		objNames, compliant, rsrcKind, statusUpdateNeeded = r.handleSingleObj(
-			singObj, remediation, exists, dclient, objectT,
-		)
+		objNames, compliant, rsrcKind = r.handleSingleObj(singObj, remediation, exists, dclient, objectT)
 		// The message string for single objects is different than for multiple
 		reason = generateSingleObjReason(objShouldExist, compliant, exists)
 		// Enforce could clear the objNames array so use name instead
 		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, isNamespaced, []string{name}, reason)
-
-		if !statusUpdateNeeded {
-			log.V(2).Info("The status did not change for this object template")
-		}
 	} else { // This case only occurs when the desired object is not named
 		if objShouldExist {
 			if exists {
@@ -808,7 +868,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, isNamespaced, objNames, reason)
 	}
 
-	return objNames, compliant, reason, rsrcKind, relatedObjects, statusUpdateNeeded
+	return objNames, compliant, reason, rsrcKind, relatedObjects
 }
 
 // generateSingleObjReason is a helper function to create a compliant/noncompliant message for a named object
@@ -849,11 +909,12 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	exists bool,
 	dclient dynamic.Interface,
 	objectT *policyv1.ObjectTemplate,
-) (objNameList []string, compliance bool, rsrcKind string, statusUpdateNeeded bool) {
+) (objNameList []string, compliance bool, rsrcKind string) {
 	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name, "index", obj.index)
 
 	var err error
 	var compliant bool
+	var statusUpdateNeeded bool
 
 	compliantObject := map[string]map[string]interface{}{
 		obj.namespace: {
@@ -939,18 +1000,18 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		log.V(1).Info("Sending an update policy status event", "policy", obj.policy.Name, "status", statusStr)
 		r.Recorder.Event(obj.policy, eventType, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name), statusStr)
 
-		return nil, compliant, "", statusUpdateNeeded
+		return nil, compliant, ""
 	}
 
 	if processingErr {
-		return nil, false, "", false
+		return nil, false, ""
 	}
 
 	if strings.EqualFold(string(remediation), string(policyv1.Inform)) || specViolation {
-		return []string{obj.name}, compliant, obj.gvr.Resource, false
+		return []string{obj.name}, compliant, obj.gvr.Resource
 	}
 
-	return nil, compliant, "", false
+	return nil, compliant, ""
 }
 
 // isObjectNamespaced determines if the input object is a namespaced resource
@@ -1006,7 +1067,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	ext runtime.RawExtension,
 	policy *policyv1.ConfigurationPolicy,
 	index int,
-) (mapping *meta.RESTMapping, update bool) {
+) (mapping *meta.RESTMapping) {
 	log := log.WithValues("policy", policy.GetName(), "index", index)
 	updateNeeded := false
 	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
@@ -1038,7 +1099,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 			},
 		}
 
-		return nil, true
+		return nil
 	}
 
 	// initializes a mapping between Kind and APIVersion to a resource name
@@ -1097,7 +1158,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 			r.Recorder.Event(policy, eventWarning, fmt.Sprintf(plcFmtStr, policy.GetName()), errMsg)
 		}
 
-		return nil, updateNeeded
+		return nil
 	}
 
 	log.V(2).Info(
@@ -1107,7 +1168,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 		"kind", gvk.Kind,
 	)
 
-	return mapping, updateNeeded
+	return mapping
 }
 
 func getDetails(unstruct unstructured.Unstructured) (name string, kind string, namespace string) {
@@ -1830,7 +1891,7 @@ func IsSimilarToLastCondition(oldCond policyv1.Condition, newCond policyv1.Condi
 		reflect.DeepEqual(oldCond.Type, newCond.Type)
 }
 
-// addForUpdate calculates the compliance status of a configurationPolicy and updates its status field if needed
+// addForUpdate calculates the compliance status of a configurationPolicy and updates the status field
 func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.ConfigurationPolicy) {
 	compliant := true
 
@@ -1838,6 +1899,8 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		if index < len(policy.Status.CompliancyDetails) {
 			if policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
 				compliant = false
+
+				break
 			}
 		}
 	}
@@ -1849,6 +1912,9 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 	} else {
 		policy.Status.ComplianceState = policyv1.NonCompliant
 	}
+
+	policy.Status.LastEvaluated = time.Now().UTC().Format(time.RFC3339)
+	policy.Status.LastEvaluatedGeneration = policy.Generation
 
 	_, err := r.updatePolicyStatus(policy)
 	policyLog := log.WithValues("name", policy.Name, "namespace", policy.Namespace)

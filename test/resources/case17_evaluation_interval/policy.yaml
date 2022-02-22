@@ -1,0 +1,13 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-c17-create-ns
+spec:
+  remediationAction: inform
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        kind: Namespace
+        apiVersion: v1
+        metadata:
+          name: case17-test
