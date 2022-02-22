@@ -37,6 +37,23 @@ spec:
           spec:
             description: ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
             properties:
+              evaluationInterval:
+                description: Configures the minimum elapsed time before a ConfigurationPolicy
+                  is reevaluated
+                properties:
+                  compliant:
+                    description: The minimum elapsed time before a ConfigurationPolicy
+                      is reevaluated when in the compliant state. Set this to "never"
+                      to disable reevaluation when in the compliant state.
+                    pattern: ^(?:(?:(?:[0-9]+(?:.[0-9])?)(?:h|m|s|(?:ms)|(?:us)|(?:ns)))|never)+$
+                    type: string
+                  noncompliant:
+                    description: The minimum elapsed time before a ConfigurationPolicy
+                      is reevaluated when in the noncompliant state. Set this to "never"
+                      to disable reevaluation when in the noncompliant state.
+                    pattern: ^(?:(?:(?:[0-9]+(?:.[0-9])?)(?:h|m|s|(?:ms)|(?:us)|(?:ns)))|never)+$
+                    type: string
+                type: object
               labelSelector:
                 additionalProperties:
                   type: string
@@ -165,7 +182,17 @@ spec:
               compliant:
                 description: ComplianceState shows the state of enforcement
                 type: string
+              lastEvaluated:
+                description: An ISO-8601 timestamp of the last time the policy was
+                  evaluated
+                type: string
+              lastEvaluatedGeneration:
+                description: The generation of the ConfigurationPolicy object when
+                  it was last evaluated
+                format: int64
+                type: integer
               relatedObjects:
+                description: List of resources processed by the policy
                 items:
                   description: RelatedObject is the list of objects matched by this
                     Policy resource.

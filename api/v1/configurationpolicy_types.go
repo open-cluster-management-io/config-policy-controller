@@ -4,6 +4,9 @@
 package v1
 
 import (
+	"errors"
+	"time"
+
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
@@ -68,13 +71,59 @@ type Target struct {
 	Exclude []NonEmptyString `json:"exclude,omitempty"`
 }
 
+// Configures the minimum elapsed time before a ConfigurationPolicy is reevaluated
+type EvaluationInterval struct {
+	//+kubebuilder:validation:Pattern=`^(?:(?:(?:[0-9]+(?:.[0-9])?)(?:h|m|s|(?:ms)|(?:us)|(?:ns)))|never)+$`
+	// The minimum elapsed time before a ConfigurationPolicy is reevaluated when in the compliant state. Set this to
+	// "never" to disable reevaluation when in the compliant state.
+	Compliant string `json:"compliant,omitempty"`
+	//+kubebuilder:validation:Pattern=`^(?:(?:(?:[0-9]+(?:.[0-9])?)(?:h|m|s|(?:ms)|(?:us)|(?:ns)))|never)+$`
+	// The minimum elapsed time before a ConfigurationPolicy is reevaluated when in the noncompliant state. Set this to
+	// "never" to disable reevaluation when in the noncompliant state.
+	NonCompliant string `json:"noncompliant,omitempty"`
+}
+
+var ErrIsNever = errors.New("the interval is set to never")
+
+// parseInterval converts the input string to a duration. The default value is 10s. ErrIsNever is returned when the
+// string is set to "never".
+func (e EvaluationInterval) parseInterval(interval string) (time.Duration, error) {
+	if interval == "" {
+		return 10 * time.Second, nil
+	}
+
+	if interval == "never" {
+		return 0, ErrIsNever
+	}
+
+	parsedInterval, err := time.ParseDuration(interval)
+	if err != nil {
+		return 0, err
+	}
+
+	return parsedInterval, nil
+}
+
+// GetCompliantInterval converts the Compliant interval to a duration. ErrIsNever is returned when the string
+// is set to "never".
+func (e EvaluationInterval) GetCompliantInterval() (time.Duration, error) {
+	return e.parseInterval(e.Compliant)
+}
+
+// GetNonCompliantInterval converts the NonCompliant interval to a duration. ErrIsNever is returned when the string
+// is set to "never".
+func (e EvaluationInterval) GetNonCompliantInterval() (time.Duration, error) {
+	return e.parseInterval(e.NonCompliant)
+}
+
 // ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
 type ConfigurationPolicySpec struct {
-	Severity          Severity          `json:"severity,omitempty"`          // low, medium, high
-	RemediationAction RemediationAction `json:"remediationAction,omitempty"` // enforce, inform
-	NamespaceSelector Target            `json:"namespaceSelector,omitempty"`
-	LabelSelector     map[string]string `json:"labelSelector,omitempty"`
-	ObjectTemplates   []*ObjectTemplate `json:"object-templates,omitempty"`
+	Severity           Severity           `json:"severity,omitempty"`          // low, medium, high
+	RemediationAction  RemediationAction  `json:"remediationAction,omitempty"` // enforce, inform
+	NamespaceSelector  Target             `json:"namespaceSelector,omitempty"`
+	LabelSelector      map[string]string  `json:"labelSelector,omitempty"`
+	ObjectTemplates    []*ObjectTemplate  `json:"object-templates,omitempty"`
+	EvaluationInterval EvaluationInterval `json:"evaluationInterval,omitempty"`
 }
 
 // ObjectTemplate describes how an object should look
@@ -93,7 +142,12 @@ type ObjectTemplate struct {
 type ConfigurationPolicyStatus struct {
 	ComplianceState   ComplianceState  `json:"compliant,omitempty"`         // Compliant/NonCompliant/UnknownCompliancy
 	CompliancyDetails []TemplateStatus `json:"compliancyDetails,omitempty"` // reason for non-compliancy
-	RelatedObjects    []RelatedObject  `json:"relatedObjects,omitempty"`    // List of resources processed by the policy
+	// An ISO-8601 timestamp of the last time the policy was evaluated
+	LastEvaluated string `json:"lastEvaluated,omitempty"`
+	// The generation of the ConfigurationPolicy object when it was last evaluated
+	LastEvaluatedGeneration int64 `json:"lastEvaluatedGeneration,omitempty"`
+	// List of resources processed by the policy
+	RelatedObjects []RelatedObject `json:"relatedObjects,omitempty"`
 }
 
 // CompliancePerClusterStatus contains aggregate status of other policies in cluster
