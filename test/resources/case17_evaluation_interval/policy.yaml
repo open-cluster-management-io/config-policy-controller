@@ -2,6 +2,11 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
   name: policy-c17-create-ns
+  ownerReferences:
+    - apiVersion: policy.open-cluster-management.io/v1
+      kind: Policy
+      name: parent-policy-c17-create-ns
+      uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
 spec:
   remediationAction: inform
   object-templates:

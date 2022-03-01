@@ -18,28 +18,44 @@ import (
 )
 
 const (
-	case17policy               = "../resources/case17_evaluation_interval/policy.yaml"
-	case17policyName           = "policy-c17-create-ns"
-	case17policyNever          = "../resources/case17_evaluation_interval/policy-never-reevaluate.yaml"
-	case17policyNeverName      = "policy-c17-create-ns-never"
+	case17ParentPolicyName     = "parent-policy-c17-create-ns"
+	case17ParentPolicy         = "../resources/case17_evaluation_interval/parent-policy.yaml"
+	case17Policy               = "../resources/case17_evaluation_interval/policy.yaml"
+	case17PolicyName           = "policy-c17-create-ns"
+	case17PolicyNever          = "../resources/case17_evaluation_interval/policy-never-reevaluate.yaml"
+	case17PolicyNeverName      = "policy-c17-create-ns-never"
 	case17CreatedNamespaceName = "case17-test-never"
 )
 
 var _ = Describe("Test evaluation interval", func() {
 	It("Verifies that status.lastEvaluated is properly set", func() {
-		By("Creating " + case17policyName + " on the managed cluster")
-		utils.Kubectl("apply", "-f", case17policy, "-n", testNamespace)
-		plc := utils.GetWithTimeout(
-			clientManagedDynamic, gvrConfigPolicy, case17policyName, testNamespace, true, defaultTimeoutSeconds,
+		By("Creating the parent policy " + case17ParentPolicyName + " on the managed cluster")
+		utils.Kubectl("apply", "-f", case17ParentPolicy, "-n", testNamespace)
+		parent := utils.GetWithTimeout(clientManagedDynamic,
+			gvrPolicy,
+			case17ParentPolicyName,
+			testNamespace,
+			true,
+			defaultTimeoutSeconds,
 		)
-		Expect(plc).NotTo(BeNil())
+		Expect(parent).NotTo(BeNil())
+
+		By("Creating " + case17PolicyName + " on the managed cluster")
+		plcDef := utils.ParseYaml(case17Policy)
+		ownerRefs := plcDef.GetOwnerReferences()
+		ownerRefs[0].UID = parent.GetUID()
+		plcDef.SetOwnerReferences(ownerRefs)
+		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Create(
+			context.TODO(), plcDef, v1.CreateOptions{},
+		)
+		Expect(err).To(BeNil())
 
 		By("Getting status.lastEvaluated")
 		var managedPlc *unstructured.Unstructured
 
 		Eventually(func() interface{} {
 			managedPlc = utils.GetWithTimeout(
-				clientManagedDynamic, gvrConfigPolicy, case17policyName, testNamespace, true, defaultTimeoutSeconds,
+				clientManagedDynamic, gvrConfigPolicy, case17PolicyName, testNamespace, true, defaultTimeoutSeconds,
 			)
 
 			lastEvaluated, _ := utils.GetLastEvaluated(managedPlc)
@@ -56,7 +72,7 @@ var _ = Describe("Test evaluation interval", func() {
 		By("Waiting for status.lastEvaluated to refresh")
 		Eventually(func() interface{} {
 			managedPlc = utils.GetWithTimeout(
-				clientManagedDynamic, gvrConfigPolicy, case17policyName, testNamespace, true, defaultTimeoutSeconds,
+				clientManagedDynamic, gvrConfigPolicy, case17PolicyName, testNamespace, true, defaultTimeoutSeconds,
 			)
 
 			lastEvalRefreshed, _ := utils.GetLastEvaluated(managedPlc)
@@ -71,13 +87,37 @@ var _ = Describe("Test evaluation interval", func() {
 		Expect(err).To(BeNil())
 
 		Expect(lastEvaluatedParsed.Before(lastEvalRefreshedParsed)).To(BeTrue())
+
+		By("Verifying that only one event was sent for the configuration policy")
+		events := utils.GetMatchingEvents(
+			clientManaged,
+			testNamespace,
+			case17PolicyName,
+			"",
+			"Policy status is: NonCompliant",
+			defaultTimeoutSeconds,
+		)
+		Expect(len(events)).To(Equal(1))
+		Expect(events[0].Count).To(Equal(int32(1)))
+
+		By("Verifying that only one event was sent for the parent policy")
+		parentEvents := utils.GetMatchingEvents(
+			clientManaged,
+			testNamespace,
+			case17ParentPolicyName,
+			"policy: "+testNamespace+"/"+case17PolicyName,
+			"^NonCompliant;",
+			defaultTimeoutSeconds,
+		)
+		Expect(len(parentEvents)).To(Equal(1))
+		Expect(parentEvents[0].Count).To(Equal(int32(1)))
 	})
 
 	It("Verifies that a compliant policy is not reevaluated when set to never", func() {
-		By("Creating " + case17policyNeverName + " on the managed cluster")
-		utils.Kubectl("apply", "-f", case17policyNever, "-n", testNamespace)
+		By("Creating " + case17PolicyNeverName + " on the managed cluster")
+		utils.Kubectl("apply", "-f", case17PolicyNever, "-n", testNamespace)
 		plc := utils.GetWithTimeout(
-			clientManagedDynamic, gvrConfigPolicy, case17policyNeverName, testNamespace, true, defaultTimeoutSeconds,
+			clientManagedDynamic, gvrConfigPolicy, case17PolicyNeverName, testNamespace, true, defaultTimeoutSeconds,
 		)
 		Expect(plc).NotTo(BeNil())
 
@@ -88,7 +128,7 @@ var _ = Describe("Test evaluation interval", func() {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
-				case17policyNeverName,
+				case17PolicyNeverName,
 				testNamespace,
 				true,
 				defaultTimeoutSeconds,
@@ -113,20 +153,36 @@ var _ = Describe("Test evaluation interval", func() {
 		time.Sleep(15 * time.Second)
 
 		managedPlc = utils.GetWithTimeout(
-			clientManagedDynamic, gvrConfigPolicy, case17policyNeverName, testNamespace, true, defaultTimeoutSeconds,
+			clientManagedDynamic, gvrConfigPolicy, case17PolicyNeverName, testNamespace, true, defaultTimeoutSeconds,
 		)
 		lastEvalRefreshed, _ := utils.GetLastEvaluated(managedPlc)
 		Expect(lastEvalRefreshed).To(Equal(lastEvaluated))
 	})
 
 	It("Cleans up", func() {
-		utils.Kubectl("delete", "-f", case17policy, "-n", testNamespace)
-		utils.Kubectl("delete", "-f", case17policyNever, "-n", testNamespace)
+		utils.Kubectl("delete", "-f", case17ParentPolicy, "-n", testNamespace)
+		utils.Kubectl("delete", "-f", case17Policy, "-n", testNamespace, "--ignore-not-found")
+		utils.Kubectl("delete", "-f", case17PolicyNever, "-n", testNamespace)
+
 		err := clientManaged.CoreV1().Namespaces().Delete(
 			context.TODO(), case17CreatedNamespaceName, v1.DeleteOptions{},
 		)
 		if !k8serrors.IsNotFound(err) {
 			Expect(err).To(BeNil())
+		}
+
+		events, err := clientManaged.CoreV1().Events(testNamespace).List(context.TODO(), v1.ListOptions{})
+		Expect(err).To(BeNil())
+
+		for _, event := range events.Items {
+			name := event.GetName()
+
+			if strings.HasPrefix(name, case17ParentPolicyName) ||
+				strings.HasPrefix(name, case17PolicyName) ||
+				strings.HasPrefix(name, case17PolicyNeverName) {
+				err = clientManaged.CoreV1().Events(testNamespace).Delete(context.TODO(), name, v1.DeleteOptions{})
+				Expect(err).To(BeNil())
+			}
 		}
 	})
 })
