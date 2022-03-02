@@ -171,7 +171,7 @@ func main() {
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
 	log.V(1).Info("Perodically processing Configuration Policies", "frequency", frequency)
 
-	go reconciler.PeriodicallyExecConfigPolicies(frequency, false)
+	go reconciler.PeriodicallyExecConfigPolicies(frequency, mgr.Elected(), false)
 
 	// This lease is not related to leader election. This is to report the status of the controller
 	// to the addon framework. This can be seen in the "status" section of the ManagedClusterAddOn
