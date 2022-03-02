@@ -124,6 +124,8 @@ func main() {
 		// different messages if a large amount of events for that policy are sent in a short time.
 		EventBroadcaster: record.NewBroadcasterWithCorrelatorOptions(
 			record.CorrelatorOptions{
+				// This essentially disables event aggregation of the same events but with different messages.
+				MaxIntervalInSeconds: 1,
 				// This is the default spam key function except it adds the reason and message as well.
 				// https://github.com/kubernetes/client-go/blob/v0.23.3/tools/record/events_cache.go#L70-L82
 				SpamKeyFunc: func(event *corev1.Event) string {
