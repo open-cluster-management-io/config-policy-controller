@@ -91,6 +91,13 @@ type cachedEncryptionKey struct {
 	previousKey []byte
 }
 
+//nolint: structcheck
+type discoveryInfo struct {
+	apiResourceList        []*metav1.APIResourceList
+	apiGroups              []*restmapper.APIGroupResources
+	discoveryLastRefreshed time.Time
+}
+
 // ConfigurationPolicyReconciler reconciles a ConfigurationPolicy object
 type ConfigurationPolicyReconciler struct {
 	cachedEncryptionKey *cachedEncryptionKey
@@ -100,6 +107,7 @@ type ConfigurationPolicyReconciler struct {
 	DecryptionConcurrency uint8
 	Scheme                *runtime.Scheme
 	Recorder              record.EventRecorder
+	discoveryInfo
 }
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
@@ -116,54 +124,37 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 	log.Info("Waiting for leader election before periodically evaluating configuration policies")
 	<-elected
 
-	cachedAPIResourceList := []*metav1.APIResourceList{}
-	cachedAPIGroupsList := []*restmapper.APIGroupResources{}
+	const tenMinutes = 10 * time.Minute
 
 	for {
 		start := time.Now()
 
-		// get resources once per cycle to avoid hanging
-		dd := clientSet.Discovery()
-		//nolint:staticcheck,nolintlint
-		apiresourcelist, apiresourcelistErr := dd.ServerResources()
-
-		if len(apiresourcelist) > 0 {
-			cachedAPIResourceList = append([]*metav1.APIResourceList{}, apiresourcelist...)
-		}
-
-		skipLoop := false
-
-		if apiresourcelistErr != nil && len(cachedAPIResourceList) > 0 {
-			apiresourcelist = cachedAPIResourceList
-
-			log.Error(apiresourcelistErr, "Could not get API resource list, using cached list")
-		} else if apiresourcelistErr != nil {
-			skipLoop = true
-			log.Error(apiresourcelistErr, "Could not get API resource list, skipping loop because cached list is empty")
-		}
-
-		apigroups, apigroupsErr := restmapper.GetAPIGroupResources(dd)
-
-		if len(apigroups) > 0 {
-			cachedAPIGroupsList = append([]*restmapper.APIGroupResources{}, apigroups...)
-		}
-
-		if apigroupsErr != nil && len(cachedAPIGroupsList) > 0 {
-			apigroups = cachedAPIGroupsList
-
-			log.Error(apigroupsErr, "Could not get API groups list, using cached list")
-		} else if !skipLoop && apigroupsErr != nil {
-			skipLoop = true
-			log.Error(apigroupsErr, "Could not get API groups list, skipping loop because cached list is empty")
-		}
-
 		policiesList := policyv1.ConfigurationPolicyList{}
 
-		// This retrieves the policies from the controller-runtime cache populated by the watch.
-		err := r.List(context.TODO(), &policiesList)
-		if err != nil {
-			log.Error(err, "Failed to list the ConfigurationPolicy objects to evaluate")
+		var skipLoop bool
+		var discoveryErr error
 
+		if len(r.apiResourceList) == 0 || len(r.apiGroups) == 0 {
+			discoveryErr = r.refreshDiscoveryInfo()
+		}
+
+		// If it's been more than 10 minutes since the last refresh, then refresh the discovery info, but ignore
+		// any errors since the cache can still be used. If a policy encounters an API resource type not in the
+		// cache, the discovery info refresh will be handled there. This periodic refresh is to account for
+		// deleted CRDs or strange edits to the CRD (e.g. converted it from namespaced to not).
+		if time.Since(r.discoveryLastRefreshed) >= tenMinutes {
+			_ = r.refreshDiscoveryInfo()
+		}
+
+		if discoveryErr == nil {
+			// This retrieves the policies from the controller-runtime cache populated by the watch.
+			err := r.List(context.TODO(), &policiesList)
+			if err != nil {
+				log.Error(err, "Failed to list the ConfigurationPolicy objects to evaluate")
+
+				skipLoop = true
+			}
+		} else {
 			skipLoop = true
 		}
 
@@ -177,7 +168,7 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 				}
 
 				// handle each template in each policy
-				r.handleObjectTemplates(policy, apiresourcelist, apigroups)
+				r.handleObjectTemplates(policy)
 			}
 		}
 
@@ -195,6 +186,33 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 			return
 		}
 	}
+}
+
+func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
+	log.V(2).Info("Refreshing the discovery info")
+
+	dd := clientSet.Discovery()
+
+	_, apiResourceList, err := dd.ServerGroupsAndResources()
+	if err != nil {
+		log.Error(err, "Could not get the API resource list")
+
+		return err
+	}
+
+	r.apiResourceList = apiResourceList
+
+	apiGroups, err := restmapper.GetAPIGroupResources(dd)
+	if err != nil {
+		log.Error(err, "Could not get the API groups list")
+
+		return err
+	}
+
+	r.apiGroups = apiGroups
+	r.discoveryLastRefreshed = time.Now().UTC()
+
+	return nil
 }
 
 // shouldEvaluatePolicy will determine if the policy is ready for evaluation by examining the
@@ -275,11 +293,7 @@ func getTemplateConfigErrorMsg(err error) string {
 }
 
 // handleObjectTemplates iterates through all policy templates in a given policy and processes them
-func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
-	plc policyv1.ConfigurationPolicy,
-	apiresourcelist []*metav1.APIResourceList,
-	apigroups []*restmapper.APIGroupResources,
-) {
+func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 	log := log.WithValues("policy", plc.GetName())
 	log.V(1).Info("Processing object templates")
 
@@ -332,7 +346,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 	// initialize apiresources for template processing before starting objectTemplate processing
 	// this is optional but since apiresourcelist is already available,
 	// use this rather than re-discovering the list for generic-lookup
-	tmplResolverCfg := templates.Config{KubeAPIResourceList: apiresourcelist}
+	tmplResolverCfg := templates.Config{KubeAPIResourceList: r.apiResourceList}
 	usedKeyCache := false
 
 	if usesEncryption(plc) {
@@ -428,6 +442,26 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 
 				resolvedTemplate, tplErr := tmplResolver.ResolveTemplate(objectT.ObjectDefinition.Raw, nil)
 
+				if errors.Is(tplErr, templates.ErrMissingAPIResource) ||
+					errors.Is(tplErr, templates.ErrMissingAPIResourceInvalidTemplate) {
+					log.V(2).Info(
+						"A template encountered an API resource which was not in the API resource list. Refreshing " +
+							"it and trying again.",
+					)
+
+					discoveryErr := r.refreshDiscoveryInfo()
+					if discoveryErr == nil {
+						tmplResolver.SetKubeAPIResourceList(r.apiResourceList)
+						resolvedTemplate, tplErr = tmplResolver.ResolveTemplate(objectT.ObjectDefinition.Raw, nil)
+					} else {
+						log.V(2).Info(
+							"Failed to refresh the API discovery information after a template encountered an unknown " +
+								"API resource type. Continuing with the assumption that the discovery information " +
+								"was correct.",
+						)
+					}
+				}
+
 				// If the error is because the padding is invalid, this either means the encrypted value was not
 				// generated by the "protect" template function or the AES key is incorrect. Control for a stale
 				// cached key.
@@ -486,7 +520,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 		unstruct.Object = blob.(map[string]interface{})
 		var relevantNamespaces []string
 
-		isNamespaced := isObjectNamespaced(&unstruct, apiresourcelist)
+		isNamespaced := r.isObjectNamespaced(&unstruct, true)
 
 		if isNamespaced {
 			// This will be overridden if a namespace is present in the object template
@@ -532,7 +566,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(
 			)
 
 			names, compliant, reason, objKind, related, statusUpdateNeeded := r.handleObjects(
-				objectT, ns, isNamespaced, indx, &plc, apigroups,
+				objectT, ns, isNamespaced, indx, &plc,
 			)
 
 			if statusUpdateNeeded {
@@ -744,7 +778,6 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	isNamespaced bool,
 	index int,
 	policy *policyv1.ConfigurationPolicy,
-	apigroups []*restmapper.APIGroupResources,
 ) (
 	objNameList []string,
 	compliant bool,
@@ -764,7 +797,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	ext := objectT.ObjectDefinition
 
 	// map raw object to a resource, generate a violation if resource cannot be found
-	mapping, statusUpdateNeeded := r.getMapping(apigroups, ext, policy, index)
+	mapping, statusUpdateNeeded := r.getMapping(ext, policy, index)
 	if mapping == nil {
 		return nil, false, "", "", nil, statusUpdateNeeded
 	}
@@ -1033,12 +1066,15 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	return nil, compliant, "", statusUpdateNeeded
 }
 
-// isObjectNamespaced determines if the input object is a namespaced resource
-func isObjectNamespaced(object *unstructured.Unstructured, apiResourceList []*metav1.APIResourceList) bool {
+// isObjectNamespaced determines if the input object is a namespaced resource. When refreshIfNecessary
+// is true, the discovery information will be refreshed if the resource cannot be found.
+func (r *ConfigurationPolicyReconciler) isObjectNamespaced(
+	object *unstructured.Unstructured, refreshIfNecessary bool,
+) bool {
 	gvk := object.GetObjectKind().GroupVersionKind()
 	gv := gvk.GroupVersion().String()
 
-	for _, apiResourceGroup := range apiResourceList {
+	for _, apiResourceGroup := range r.apiResourceList {
 		if apiResourceGroup.GroupVersion == gv {
 			for _, apiResource := range apiResourceGroup.APIResources {
 				if apiResource.Kind == gvk.Kind {
@@ -1049,9 +1085,21 @@ func isObjectNamespaced(object *unstructured.Unstructured, apiResourceList []*me
 				}
 			}
 
-			// Return early in the event all the API resources in the matching group version have been exhausted
+			// Break early in the event all the API resources in the matching group version have been exhausted
+			break
+		}
+	}
+
+	// The API resource wasn't found. Try refreshing the cache and trying again.
+	if refreshIfNecessary {
+		log.V(2).Info("Did not find the resource in apiResourceList. Will refresh and try again.", "gvk", gvk.String())
+
+		err := r.refreshDiscoveryInfo()
+		if err != nil {
 			return false
 		}
+
+		return r.isObjectNamespaced(object, false)
 	}
 
 	return false
@@ -1082,13 +1130,11 @@ func getResourceAndDynamicClient(mapping *meta.RESTMapping) (
 
 // getMapping takes in a raw object, decodes it, and maps it to an existing group/kind
 func (r *ConfigurationPolicyReconciler) getMapping(
-	apigroups []*restmapper.APIGroupResources,
 	ext runtime.RawExtension,
 	policy *policyv1.ConfigurationPolicy,
 	index int,
 ) (mapping *meta.RESTMapping, updateNeeded bool) {
 	log := log.WithValues("policy", policy.GetName(), "index", index)
-	restmapper := restmapper.NewDiscoveryRESTMapper(apigroups)
 
 	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, nil)
 	if err != nil {
@@ -1121,7 +1167,22 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	}
 
 	// initializes a mapping between Kind and APIVersion to a resource name
-	mapping, err = restmapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	mapper := restmapper.NewDiscoveryRESTMapper(r.apiGroups)
+
+	mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	if err != nil {
+		log.V(2).Info(
+			"The REST mapping for the GVK failed. Refreshing the discovery info and trying again.",
+			"GVK", gvk.String(),
+		)
+
+		discoveryErr := r.refreshDiscoveryInfo()
+		if discoveryErr == nil {
+			mapper = restmapper.NewDiscoveryRESTMapper(r.apiGroups)
+			mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		}
+	}
+
 	mappingErrMsg := ""
 
 	if err != nil {

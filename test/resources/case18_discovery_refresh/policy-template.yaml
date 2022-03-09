@@ -1,0 +1,16 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-c18-template
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: c18-configmap
+          namespace: default
+        data:
+          topping: '{{ index (lookup "diner.example.com/v1" "PizzaSlice" "default" "mypizza").spec.toppings 0 }}'
