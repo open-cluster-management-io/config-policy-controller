@@ -1,0 +1,7 @@
+image:
+  registry: quay.io/open-cluster-management
+  tag: v0.6.0
+
+managedClusterName: managed
+
+hubCredentialSecretName: hub-kubeconfig

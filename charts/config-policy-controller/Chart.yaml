@@ -1,0 +1,6 @@
+apiVersion: v2
+name: config-policy-controller
+description: A Helm chart for Config Policy Controller.
+type: application
+version: 0.6.0
+appVersion: 1.0.0
