@@ -21,13 +21,14 @@ import (
 
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/klog/v2"
+	"k8s.io/klog/v2/klogr"
 	"open-cluster-management.io/addon-framework/pkg/lease"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
@@ -56,14 +57,14 @@ func init() {
 }
 
 func main() {
-	opts := zap.Options{}
-	opts.BindFlags(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
 	var clusterName, hubConfigSecretNs, hubConfigSecretName, probeAddr string
 	var frequency, decryptionConcurrency uint
 	var enableLease, enableLeaderElection, legacyLeaderElection bool
 
+	logger := klogr.New()
+	klog.SetOutput(os.Stdout)
 	pflag.UintVar(&frequency, "update-frequency", 10,
 		"The status update frequency (in seconds) of a mutation policy")
 	pflag.BoolVar(&enableLease, "enable-lease", false,
@@ -87,8 +88,7 @@ func main() {
 	)
 
 	pflag.Parse()
-
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctrl.SetLogger(logger)
 
 	printVersion()
 
