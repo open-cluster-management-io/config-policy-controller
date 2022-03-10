@@ -62,5 +62,14 @@ var _ = Describe("Test cluster version obj template handling", func() {
 			}, 120, 1).Should(Equal(
 				"clusterversions [version] found as specified, therefore this Object template is compliant"))
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				case4ConfigPolicyName,
+				case4ConfigPolicyNameInform,
+				case4ConfigPolicyNamePatch,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 })

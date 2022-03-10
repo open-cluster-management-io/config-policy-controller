@@ -141,6 +141,20 @@ var _ = Describe("Test pod obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				case9ConfigPolicyNamePod,
+				case9ConfigPolicyNameAnno,
+				case9ConfigPolicyNameNoAnno,
+				case9ConfigPolicyNameLabelPatch,
+				case9ConfigPolicyNameLabelCheck,
+				case9ConfigPolicyNameLabelAuto,
+				case9ConfigPolicyNameNSCreate,
+				case9ConfigPolicyNameIgnoreLabels,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 	Describe("Create a namespace policy on managed cluster in ns:"+testNamespace, func() {
 		It("should create a namespace with multiple annotations on the managed cluster", func() {
@@ -188,6 +202,15 @@ var _ = Describe("Test pod obj template handling", func() {
 		It("should clean up the created namespace", func() {
 			By("Deleting the namespace from " + case9MultiAnnoNSCreate)
 			utils.Kubectl("delete", "ns", "case9-test-multi-annotation")
+		})
+		It("Cleans up", func() {
+			policies := []string{
+				case9MultiAnnoNSCreate,
+				case9CheckNSMusthave,
+				case9CheckNSMustonlyhave,
+			}
+
+			deleteConfigPolicies(policies)
 		})
 	})
 })

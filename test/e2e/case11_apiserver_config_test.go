@@ -122,5 +122,15 @@ var _ = Describe("Test APIServer Config policy", func() {
 				return utils.GetComplianceState(informPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				etcdEncryptionEnforceName,
+				etcdEncryptionInformName,
+				tlsProfileEnforceName,
+				tlsProfileInformName,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 })

@@ -8,7 +8,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -48,7 +49,7 @@ var _ = Describe("Testing compliance event formatting", func() {
 		ownerRefs[0].UID = parent.GetUID()
 		plcDef.SetOwnerReferences(ownerRefs)
 		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-			Create(context.TODO(), plcDef, v1.CreateOptions{})
+			Create(context.TODO(), plcDef, metav1.CreateOptions{})
 		Expect(err).To(BeNil())
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -93,7 +94,7 @@ var _ = Describe("Testing compliance event formatting", func() {
 		ownerRefs[0].UID = parent.GetUID()
 		plcDef.SetOwnerReferences(ownerRefs)
 		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-			Create(context.TODO(), plcDef, v1.CreateOptions{})
+			Create(context.TODO(), plcDef, metav1.CreateOptions{})
 		Expect(err).To(BeNil())
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -138,7 +139,7 @@ var _ = Describe("Testing compliance event formatting", func() {
 		ownerRefs[0].UID = parent.GetUID()
 		plcDef.SetOwnerReferences(ownerRefs)
 		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-			Create(context.TODO(), plcDef, v1.CreateOptions{})
+			Create(context.TODO(), plcDef, metav1.CreateOptions{})
 		Expect(err).To(BeNil())
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -183,7 +184,7 @@ var _ = Describe("Testing compliance event formatting", func() {
 		ownerRefs[0].UID = parent.GetUID()
 		plcDef.SetOwnerReferences(ownerRefs)
 		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-			Create(context.TODO(), plcDef, v1.CreateOptions{})
+			Create(context.TODO(), plcDef, metav1.CreateOptions{})
 		Expect(err).To(BeNil())
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -213,5 +214,30 @@ var _ = Describe("Testing compliance event formatting", func() {
 			case15BecomesNonCompliantParentName, "policy: "+testNamespace+"/"+case15BecomesNonCompliantName,
 			"^NonCompliant;", defaultTimeoutSeconds)
 		Expect(nonCompParentEvents).NotTo(BeEmpty())
+	})
+	It("Cleans up", func() {
+		policies := []string{
+			case15AlwaysCompliantParentName,
+			case15NeverCompliantParentName,
+			case15BecomesCompliantParentName,
+			case15BecomesNonCompliantParentName,
+		}
+		for _, policyName := range policies {
+			err := clientManagedDynamic.Resource(gvrPolicy).Namespace(testNamespace).Delete(
+				context.TODO(), policyName, metav1.DeleteOptions{},
+			)
+			if !k8serrors.IsNotFound(err) {
+				Expect(err).To(BeNil())
+			}
+		}
+
+		configPolicies := []string{
+			case15AlwaysCompliantName,
+			case15NeverCompliantName,
+			case15BecomesCompliantName,
+			case15BecomesNonCompliantName,
+		}
+
+		deleteConfigPolicies(configPolicies)
 	})
 })

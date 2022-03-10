@@ -146,6 +146,7 @@ var _ = Describe("Test templatization", func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreatePod, "-n", testNamespace)
 			utils.Kubectl("delete", "configurationpolicy", case13CfgPolVerifyPod, "-n", testNamespace)
+			utils.Kubectl("delete", "configurationpolicy", case13CfgPolVerifyPodWithConfigMap, "-n", testNamespace)
 		})
 	})
 	Describe("Use the generic lookup template to get the same resources from the previous tests", func() {
@@ -204,6 +205,9 @@ var _ = Describe("Test templatization", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+		})
+		It("Cleans up", func() {
+			deleteConfigPolicies([]string{case13Unterminated, case13WrongArgs})
 		})
 	})
 	// Though the Bugzilla bug #2007575 references a different incorrect behavior, it's the same
@@ -277,8 +281,8 @@ var _ = Describe("Test templatization", func() {
 				1,
 			).Should(Equal("Hello world!\n"))
 		})
-		It("Should clean up", func() {
-			utils.Kubectl("delete", "configurationpolicy", case13UpdateRefObject, "-n", testNamespace)
+		It("Cleans up", func() {
+			deleteConfigPolicies([]string{case13UpdateRefObject})
 			utils.Kubectl("delete", "configmap", configMapName, "-n", "default")
 			utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default")
 		})

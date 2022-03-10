@@ -179,5 +179,15 @@ var _ = Describe("Test cluster version obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				case7ConfigPolicyName,
+				case7ConfigPolicyNameNull,
+				case7ConfigPolicyNameInvalid,
+				case7ConfigPolicyNameInvalidInform,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 })

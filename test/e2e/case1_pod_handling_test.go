@@ -145,5 +145,20 @@ var _ = Describe("Test pod obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				case1ConfigPolicyNameInform,
+				case1ConfigPolicyNameEnforce,
+				"policy-pod-check-emptycontainerlist",
+				"policy-pod-check-mh-list",
+				"policy-pod-check-mnh-incomplete",
+				"policy-pod-check-mnh",
+				"policy-pod-check-multiple-mh",
+				"policy-pod-check-moh",
+				"policy-pod-create-multiple",
+				"policy-pod-emptycontainerlist",
+			}
+			deleteConfigPolicies(policies)
+		})
 	})
 })

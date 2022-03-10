@@ -90,5 +90,15 @@ var _ = Describe("Test role obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				case2ConfigPolicyNameInform,
+				case2ConfigPolicyNameEnforce,
+				"policy-role-check-comp",
+				"policy-role-check-mnh",
+				"policy-role-check-moh",
+			}
+			deleteConfigPolicies(policies)
+		})
 	})
 })

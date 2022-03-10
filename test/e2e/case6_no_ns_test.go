@@ -65,5 +65,14 @@ var _ = Describe("Test multiple obj template handling", func() {
 				case6NSName2, true, defaultTimeoutSeconds)
 			Expect(ns2).NotTo(BeNil())
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				case6ConfigPolicyNameNS,
+				case6ConfigPolicyNameRole,
+				case6ConfigPolicyNameCombo,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 })
