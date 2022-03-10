@@ -77,5 +77,14 @@ var _ = Describe("Test multiple obj template handling", func() {
 				case5PodName2, "default", true, defaultTimeoutSeconds)
 			Expect(pod2).NotTo(BeNil())
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				case5ConfigPolicyNameInform,
+				case5ConfigPolicyNameEnforce,
+				case5ConfigPolicyNameCombo,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 })

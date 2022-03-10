@@ -101,6 +101,14 @@ var _ = Describe("Test list handling for musthave", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				case12ConfigPolicyNameInform,
+				case12ConfigPolicyNameEnforce,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 	Describe("Create a policy with a list field on managed cluster in ns:"+testNamespace, func() {
 		It("should be created properly on the managed cluster", func() {
@@ -126,6 +134,14 @@ var _ = Describe("Test list handling for musthave", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+		})
+		It("Cleans up", func() {
+			policies := []string{
+				case12ConfigPolicyNameRoleInform,
+				case12ConfigPolicyNameRoleEnforce,
+			}
+
+			deleteConfigPolicies(policies)
 		})
 	})
 	Describe("Create and patch a role on managed cluster in ns:"+testNamespace, func() {
@@ -161,6 +177,15 @@ var _ = Describe("Test list handling for musthave", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+		})
+		It("Cleans up", func() {
+			policies := []string{
+				case12RoleToPatch,
+				case12RolePatchEnforce,
+				case12RolePatchInform,
+			}
+
+			deleteConfigPolicies(policies)
 		})
 	})
 	Describe("Create and patch an oauth object on managed cluster in ns:"+testNamespace, func() {
@@ -269,6 +294,22 @@ var _ = Describe("Test list handling for musthave", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
+
+		It("Cleans up", func() {
+			policies := []string{
+				case12OauthCreate,
+				case12OauthPatch,
+				case12OauthVerify,
+				case12SingleItemListCreate,
+				case12SingleItemListPatch,
+				case12SingleItemListInform,
+				case12SmallerListExistingCreate,
+				case12SmallerListExistingPatch,
+				case12SmallerListExistingInform,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 	Describe("Create a deployment object with env vars on managed cluster in ns:"+testNamespace, func() {
 		It("should only add the list item with prefix and suffix whitespace once", func() {
@@ -305,6 +346,15 @@ var _ = Describe("Test list handling for musthave", func() {
 			envvars := containers[0].(map[string]interface{})["env"].([]interface{})
 			Expect(len(envvars)).To(Equal(1))
 		})
+
+		It("Cleans up", func() {
+			policies := []string{
+				case12WhitespaceListCreate,
+				case12WhitespaceListInform,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 	Describe("Create a statefulset object with a byte quantity field on managed cluster in ns:"+testNamespace, func() {
 		It("should only add the list item with the rounded byte value once", func() {
@@ -338,6 +388,15 @@ var _ = Describe("Test list handling for musthave", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+		})
+
+		It("Cleans up", func() {
+			policies := []string{
+				case12ByteCreate,
+				case12ByteInform,
+			}
+
+			deleteConfigPolicies(policies)
 		})
 	})
 })

@@ -174,3 +174,14 @@ func LoadConfig(url, kubeconfig, context string) (*rest.Config, error) {
 
 	return nil, fmt.Errorf("could not create a valid kubeconfig")
 }
+
+func deleteConfigPolicies(policyNames []string) {
+	for _, policyName := range policyNames {
+		err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Delete(
+			context.TODO(), policyName, metav1.DeleteOptions{},
+		)
+		if !errors.IsNotFound(err) {
+			Expect(err).To(BeNil())
+		}
+	}
+}

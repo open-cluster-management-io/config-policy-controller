@@ -35,6 +35,8 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+
+			deleteConfigPolicies([]string{case3ConfigPolicyNameCSV})
 		})
 		It("should check for a subscription on managed cluster", func() {
 			By("Creating " + case3ConfigPolicyNameSub + " on managed")
@@ -48,6 +50,8 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+
+			deleteConfigPolicies([]string{case3ConfigPolicyNameSub})
 		})
 		It("should be noncompliant for no CRD found (kind)", func() {
 			By("Creating " + case3ConfigPolicyNameVuln + " on managed")
@@ -67,6 +71,8 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, 20, 1).Should(Equal("NonCompliant"))
+
+			deleteConfigPolicies([]string{case3ConfigPolicyNameVuln})
 		})
 		It("should be noncompliant for no CRD found (object)", func() {
 			By("Creating " + case3ConfigPolicyNameVulnObj + " on managed")
@@ -86,6 +92,8 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, 20, 1).Should(Equal("NonCompliant"))
+
+			deleteConfigPolicies([]string{case3ConfigPolicyNameVulnObj})
 		})
 	})
 })

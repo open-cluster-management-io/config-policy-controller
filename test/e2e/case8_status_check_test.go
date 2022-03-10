@@ -75,5 +75,15 @@ var _ = Describe("Test pod obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 		})
+		It("Cleans up", func() {
+			policies := []string{
+				case8ConfigPolicyNamePod,
+				case8ConfigPolicyNameCheck,
+				case8ConfigPolicyNameCheckFail,
+				case8ConfigPolicyNameEnforceFail,
+			}
+
+			deleteConfigPolicies(policies)
+		})
 	})
 })
