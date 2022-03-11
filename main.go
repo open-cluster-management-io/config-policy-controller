@@ -22,6 +22,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/klog/v2"
 	"open-cluster-management.io/addon-framework/pkg/lease"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -89,7 +90,36 @@ func main() {
 
 	pflag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	// If the v flag is set, then configure the zap level to match
+	vFlag := flag.Lookup("v")
+	if vFlag != nil {
+		err := flag.Set("zap-log-level", vFlag.Value.String())
+		if err != nil {
+			log.Error(err, "Unable to set zap-log-level", "desiredValue", vFlag.Value.String())
+		}
+	}
+
+	logr := zap.New(zap.UseFlagOptions(&opts))
+	ctrl.SetLogger(logr)
+
+	klogFlags := flag.NewFlagSet("klog", flag.ExitOnError)
+	klog.InitFlags(klogFlags)
+
+	// Sync the glog and klog flags (without this, setting -v=x will not adjust the klog level used by dependencies)
+	flag.CommandLine.VisitAll(func(f1 *flag.Flag) {
+		f2 := klogFlags.Lookup(f1.Name)
+		if f2 != nil {
+			value := f1.Value.String()
+			if err := f2.Value.Set(value); err != nil {
+				if f1.Name != "log_backtrace_at" { // skip this one flag - klog doesn't like glog's default
+					log.Error(err, "Unable to sync klog flag", "name", f1.Name, "desiredValue", f1.Value.String())
+				}
+			}
+		}
+	})
+
+	// send klog messages through our zap logger so they look the same (console vs JSON)
+	klog.SetLogger(logr)
 
 	printVersion()
 
