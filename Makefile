@@ -25,7 +25,7 @@ GIT_HOST ?= github.com/open-cluster-management
 
 PWD := $(shell pwd)
 BASE_DIR := $(shell basename $(PWD))
-export PATH=$(shell echo $$PATH):$(PWD)/bin
+export PATH := $(PWD)/bin:$(PATH)
 
 # Keep an existing GOPATH, make a private one if it is undefined
 GOPATH_DEFAULT := $(PWD)/.go
