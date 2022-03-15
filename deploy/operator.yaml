@@ -47,6 +47,8 @@ spec:
       - args:
         - --enable-lease=true
         - --hubconfig-secret-name=hub-kubeconfig
+        - --log-level=2
+        - --v=0
         command:
         - config-policy-controller
         env:
