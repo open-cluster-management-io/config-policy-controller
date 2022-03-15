@@ -846,8 +846,14 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		return nil, false, "", "", nil, statusUpdateNeeded
 	}
 
+	var object *unstructured.Unstructured
+
 	if name != "" { // named object, so checking just for the existence of the specific object
-		exists = objectExists(isNamespaced, namespace, name, rsrc, dclient)
+		// If the object couldn't be retrieved, this will be handled later on.
+		object, _ = getObject(isNamespaced, namespace, name, rsrc, dclient)
+
+		exists = object != nil
+
 		objNames = append(objNames, name)
 	} else if kind != "" { // no name, so we are checking for the existence of any object of this kind
 		log.V(1).Info(
@@ -878,6 +884,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		singObj := singleObject{
 			policy:      policy,
 			gvr:         rsrc,
+			object:      object,
 			name:        name,
 			namespace:   namespace,
 			namespaced:  isNamespaced,
@@ -946,6 +953,7 @@ func generateSingleObjReason(objShouldExist bool, compliant bool, exists bool) (
 type singleObject struct {
 	policy      *policyv1.ConfigurationPolicy
 	gvr         schema.GroupVersionResource
+	object      *unstructured.Unstructured
 	name        string
 	namespace   string
 	namespaced  bool
@@ -1366,7 +1374,7 @@ func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (r
 	if obj.shouldExist {
 		log.Info("Enforcing the policy by creating the object")
 
-		if completed, err = createObject(res, obj.unstruct); !completed {
+		if obj.object, err = createObject(res, obj.unstruct); obj.object == nil {
 			reason = "K8s creation error"
 			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
@@ -1383,6 +1391,7 @@ func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (r
 		} else {
 			reason = "K8s deletion success"
 			msg = fmt.Sprintf("%v %v existed, and was deleted successfully", obj.gvr.Resource, idStr)
+			obj.object = nil
 		}
 	}
 
@@ -1458,14 +1467,14 @@ func checkMessageSimilarity(conditions []policyv1.Condition, cond *policyv1.Cond
 	return same
 }
 
-// objectExists gets object with dynamic client, returns true if the object is found
-func objectExists(
+// getObject gets the object with the dynamic client and returns the object if found.
+func getObject(
 	namespaced bool,
 	namespace string,
 	name string,
 	rsrc schema.GroupVersionResource,
 	dclient dynamic.Interface,
-) (result bool) {
+) (object *unstructured.Unstructured, err error) {
 	objLog := log.WithValues("name", name, "namespaced", namespaced, "namespace", namespace)
 	objLog.V(2).Info("Checking if the object exists")
 
@@ -1476,42 +1485,46 @@ func objectExists(
 		res = dclient.Resource(rsrc)
 	}
 
-	_, err := res.Get(context.TODO(), name, metav1.GetOptions{})
+	object, err = res.Get(context.TODO(), name, metav1.GetOptions{})
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			objLog.V(2).Info("Got 'Not Found' response for object from the API server")
-		} else {
-			objLog.Error(err, "Could not retrieve object from the API server")
+
+			return nil, nil
 		}
 
-		return false
+		objLog.Error(err, "Could not retrieve object from the API server")
+
+		return nil, err
 	}
 
 	objLog.V(2).Info("Retrieved object from the API server")
 
-	return true
+	return object, nil
 }
 
-func createObject(res dynamic.ResourceInterface, unstruct unstructured.Unstructured) (created bool, err error) {
+func createObject(
+	res dynamic.ResourceInterface, unstruct unstructured.Unstructured,
+) (object *unstructured.Unstructured, err error) {
 	objLog := log.WithValues("name", unstruct.GetName(), "namespace", unstruct.GetNamespace())
 	objLog.V(2).Info("Entered createObject", "unstruct", unstruct)
 
-	_, err = res.Create(context.TODO(), &unstruct, metav1.CreateOptions{})
+	object, err = res.Create(context.TODO(), &unstruct, metav1.CreateOptions{})
 	if err != nil {
 		if k8serrors.IsAlreadyExists(err) {
 			objLog.V(2).Info("Got 'Already Exists' response for object")
 
-			return true, err
+			return object, err
 		}
 
 		objLog.Error(err, "Could not create object", "reason", k8serrors.ReasonForError(err))
 
-		return false, err
+		return nil, err
 	}
 
 	objLog.V(2).Info("Resource created")
 
-	return true, nil
+	return object, nil
 }
 
 func deleteObject(res dynamic.ResourceInterface, name, namespace string) (deleted bool, err error) {
@@ -1919,6 +1932,12 @@ func checkAndUpdateResource(
 		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
 	)
 
+	if obj.object == nil {
+		log.Info("Skipping update: Previous object retrieval from the API server failed")
+
+		return false, "", false
+	}
+
 	var res dynamic.ResourceInterface
 	if obj.namespaced {
 		res = dclient.Resource(obj.gvr).Namespace(obj.namespace)
@@ -1926,14 +1945,7 @@ func checkAndUpdateResource(
 		res = dclient.Resource(obj.gvr)
 	}
 
-	existingObj, err := res.Get(context.TODO(), obj.name, metav1.GetOptions{})
-	if err != nil {
-		log.Error(err, "Could not retrieve object from the API server")
-	} else {
-		return handleKeys(obj.unstruct, existingObj, remediation, complianceType, mdComplianceType, obj.name, res)
-	}
-
-	return false, "", false
+	return handleKeys(obj.unstruct, obj.object, remediation, complianceType, mdComplianceType, obj.name, res)
 }
 
 // AppendCondition check and appends conditions to the policy status
