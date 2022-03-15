@@ -115,7 +115,15 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 		case map[string]interface{}:
 			// if field is a map, recurse to check for a match
 			oVal, ok := oldObj[i].(map[string]interface{})
-			if !ok || !checkFieldsWithSort(mVal, oVal) {
+			if !ok {
+				if len(mVal) == 0 {
+					break
+				}
+
+				return false
+			}
+
+			if !checkFieldsWithSort(mVal, oVal) {
 				return false
 			}
 		case []map[string]interface{}:
@@ -127,7 +135,15 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 		case []interface{}:
 			// if field is a generic list, sort and iterate through them to make sure each value matches
 			oVal, ok := oldObj[i].([]interface{})
-			if !ok || len(mVal) != len(oVal) || !checkListsMatch(oVal, mVal) {
+			if !ok {
+				if len(mVal) == 0 {
+					break
+				}
+
+				return false
+			}
+
+			if len(mVal) != len(oVal) || !checkListsMatch(oVal, mVal) {
 				return false
 			}
 		case string:
