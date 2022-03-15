@@ -12,7 +12,9 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/go-logr/zapr"
 	"github.com/spf13/pflag"
+	"github.com/stolostron/go-log-utils/zaputil"
 	corev1 "k8s.io/api/core/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -29,7 +31,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
@@ -58,8 +59,12 @@ func init() {
 }
 
 func main() {
-	opts := zap.Options{}
-	opts.BindFlags(flag.CommandLine)
+	zflags := zaputil.FlagConfig{
+		LevelName:   "log-level",
+		EncoderName: "log-encoder",
+	}
+
+	zflags.Bind(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
 	var clusterName, hubConfigSecretNs, hubConfigSecretName, probeAddr string
@@ -90,36 +95,27 @@ func main() {
 
 	pflag.Parse()
 
-	// If the v flag is set, then configure the zap level to match
-	vFlag := flag.Lookup("v")
-	if vFlag != nil {
-		err := flag.Set("zap-log-level", vFlag.Value.String())
-		if err != nil {
-			log.Error(err, "Unable to set zap-log-level", "desiredValue", vFlag.Value.String())
-		}
+	ctrlZap, err := zflags.BuildForCtrl()
+	if err != nil {
+		panic(fmt.Sprintf("Failed to build zap logger for controller: %v", err))
 	}
 
-	logr := zap.New(zap.UseFlagOptions(&opts))
-	ctrl.SetLogger(logr)
+	ctrl.SetLogger(zapr.NewLogger(ctrlZap))
 
 	klogFlags := flag.NewFlagSet("klog", flag.ExitOnError)
 	klog.InitFlags(klogFlags)
 
-	// Sync the glog and klog flags (without this, setting -v=x will not adjust the klog level used by dependencies)
-	flag.CommandLine.VisitAll(func(f1 *flag.Flag) {
-		f2 := klogFlags.Lookup(f1.Name)
-		if f2 != nil {
-			value := f1.Value.String()
-			if err := f2.Value.Set(value); err != nil {
-				if f1.Name != "log_backtrace_at" { // skip this one flag - klog doesn't like glog's default
-					log.Error(err, "Unable to sync klog flag", "name", f1.Name, "desiredValue", f1.Value.String())
-				}
-			}
-		}
-	})
+	err = zaputil.SyncWithGlogFlags(klogFlags)
+	if err != nil {
+		log.Error(err, "Failed to synchronize klog and glog flags, continuing with what succeeded")
+	}
 
-	// send klog messages through our zap logger so they look the same (console vs JSON)
-	klog.SetLogger(logr)
+	klogZap, err := zaputil.BuildForKlog(zflags.GetConfig(), klogFlags)
+	if err != nil {
+		log.Error(err, "Failed to build zap logger for klog, those logs will not go through zap")
+	} else {
+		klog.SetLogger(zapr.NewLogger(klogZap).WithName("klog"))
+	}
 
 	printVersion()
 
