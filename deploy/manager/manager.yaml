@@ -22,6 +22,8 @@ spec:
           args:
             - "--enable-lease=true"
             - "--hubconfig-secret-name=hub-kubeconfig"
+            - "--log-level=2"
+            - "--v=0"
           imagePullPolicy: Always
           env:
             - name: WATCH_NAMESPACE
