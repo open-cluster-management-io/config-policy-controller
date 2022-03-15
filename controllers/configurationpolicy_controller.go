@@ -1385,7 +1385,7 @@ func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (r
 	} else {
 		log.Info("Enforcing the policy by deleting the object")
 
-		if completed, err = deleteObject(res, obj.name, obj.namespace); completed {
+		if completed, err = deleteObject(res, obj.name, obj.namespace); !completed {
 			reason = "K8s deletion error"
 			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
