@@ -1176,21 +1176,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 
 	// initializes a mapping between Kind and APIVersion to a resource name
 	mapper := restmapper.NewDiscoveryRESTMapper(r.apiGroups)
-
 	mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	if err != nil {
-		log.V(2).Info(
-			"The REST mapping for the GVK failed. Refreshing the discovery info and trying again.",
-			"GVK", gvk.String(),
-		)
-
-		discoveryErr := r.refreshDiscoveryInfo()
-		if discoveryErr == nil {
-			mapper = restmapper.NewDiscoveryRESTMapper(r.apiGroups)
-			mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-		}
-	}
-
 	mappingErrMsg := ""
 
 	if err != nil {
