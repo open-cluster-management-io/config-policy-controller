@@ -35,4 +35,4 @@ jobs:
       - name: push
         run: |
           echo ${{ secrets.DOCKER_PASSWORD }} | docker login quay.io --username ${{ secrets.DOCKER_USER }} --password-stdin
-          docker push quay.io/open-cluster-management/config-policy-controller:edge
+          docker push quay.io/open-cluster-management/config-policy-controller:latest
