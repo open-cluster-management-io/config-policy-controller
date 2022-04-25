@@ -1873,7 +1873,7 @@ func handleKeys(
 		mapMtx.Unlock()
 
 		if keyUpdateNeeded {
-			updateNeeded = keyUpdateNeeded
+			updateNeeded = true
 
 			if strings.EqualFold(string(remediation), string(policyv1.Inform)) || isStatus {
 				return true, "", false
