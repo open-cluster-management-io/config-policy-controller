@@ -19,6 +19,9 @@ const (
 	case8PolicyYamlCheck             string = "../resources/case8_status_check/case8_status_check.yaml"
 	case8PolicyYamlCheckFail         string = "../resources/case8_status_check/case8_status_check_fail.yaml"
 	case8PolicyYamlEnforceFail       string = "../resources/case8_status_check/case8_status_enforce_fail.yaml"
+	case8ConfigPolicyStatusPod       string = "policy-pod-invalid"
+	case8PolicyYamlBadPod            string = "../resources/case8_status_check/case8_pod_fail.yaml"
+	case8PolicyYamlSpecChange        string = "../resources/case8_status_check/case8_pod_change.yaml"
 )
 
 var _ = Describe("Test pod obj template handling", func() {
@@ -81,6 +84,65 @@ var _ = Describe("Test pod obj template handling", func() {
 				case8ConfigPolicyNameCheck,
 				case8ConfigPolicyNameCheckFail,
 				case8ConfigPolicyNameEnforceFail,
+			}
+
+			deleteConfigPolicies(policies)
+		})
+	})
+	Describe("Create a policy with status on managed cluster in ns:"+testNamespace, func() {
+		It("should create a policy properly on the managed cluster", func() {
+			By("Creating " + case8ConfigPolicyStatusPod + " on managed")
+			utils.Kubectl("apply", "-f", case8PolicyYamlBadPod, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			Eventually(func() interface{} {
+				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+					"nginx-badpod-e2e-8", "default", true, defaultTimeoutSeconds)
+
+				return pod.Object["status"].(map[string]interface{})["phase"]
+			}, defaultTimeoutSeconds, 1).Should(Equal("Pending"))
+		})
+		It("should be able to apply spec change and status does not interfere", func() {
+			By("Merging change to " + case8ConfigPolicyStatusPod + " on managed")
+			utils.Kubectl("apply", "-f", case8PolicyYamlSpecChange, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			Eventually(func() interface{} {
+				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+					"nginx-badpod-e2e-8", "default", true, defaultTimeoutSeconds)
+
+				return pod.Object["spec"].(map[string]interface{})["activeDeadlineSeconds"]
+			}, defaultTimeoutSeconds, 1).Should(Equal(int64(10)))
+			Eventually(func() interface{} {
+				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+					"nginx-badpod-e2e-8", "default", true, defaultTimeoutSeconds)
+
+				return pod.Object["status"].(map[string]interface{})["phase"]
+			}, defaultTimeoutSeconds, 1).Should(Equal("Failed"))
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+		})
+		It("Cleans up", func() {
+			policies := []string{
+				case8ConfigPolicyStatusPod,
 			}
 
 			deleteConfigPolicies(policies)
