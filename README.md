@@ -100,10 +100,11 @@ spec:
 
 ```
 
-
-Go to the [Contributing guide](CONTRIBUTING.md) to learn how to get involved.
-
 ## Getting started
+
+Go to the
+[Contributing guide](https://github.com/open-cluster-management-io/community/blob/main/sig-policy/contribution-guidelines.md)
+to learn how to get involved.
 
 ### Steps for development
 
