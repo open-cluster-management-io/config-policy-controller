@@ -23,6 +23,7 @@ import (
 
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"open-cluster-management.io/addon-framework/pkg/lease"
@@ -67,7 +68,7 @@ func main() {
 	zflags.Bind(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
-	var clusterName, hubConfigSecretNs, hubConfigSecretName, probeAddr string
+	var clusterName, hubConfigPath, probeAddr string
 	var frequency, decryptionConcurrency uint
 	var enableLease, enableLeaderElection, legacyLeaderElection bool
 
@@ -76,10 +77,8 @@ func main() {
 	pflag.BoolVar(&enableLease, "enable-lease", false,
 		"If enabled, the controller will start the lease controller to report its status")
 	pflag.StringVar(&clusterName, "cluster-name", "acm-managed-cluster", "Name of the cluster")
-	pflag.StringVar(&hubConfigSecretNs, "hubconfig-secret-ns", "open-cluster-management-agent-addon",
-		"Namespace for hub config kube-secret")
-	pflag.StringVar(&hubConfigSecretName, "hubconfig-secret-name", "config-policy-controller-hub-kubeconfig",
-		"Name of the hub config kube-secret")
+	pflag.StringVar(&hubConfigPath, "hub-kubeconfig-path", "/var/run/klusterlet/kubeconfig",
+		"Path to the hub kubeconfig")
 	pflag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	pflag.BoolVar(&enableLeaderElection, "leader-elect", true,
 		"Enable leader election for controller manager. "+
@@ -248,8 +247,7 @@ func main() {
 				operatorNs,
 			)
 
-			// set hubCfg on lease updated if found
-			hubCfg, err := common.LoadHubConfig(hubConfigSecretNs, hubConfigSecretName)
+			hubCfg, err := clientcmd.BuildConfigFromFlags("", hubConfigPath)
 			if err != nil {
 				log.Error(err, "Could not load hub config, lease updater not set with config")
 			} else {

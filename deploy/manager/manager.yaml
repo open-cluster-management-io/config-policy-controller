@@ -21,7 +21,6 @@ spec:
           - config-policy-controller
           args:
             - "--enable-lease=true"
-            - "--hubconfig-secret-name=hub-kubeconfig"
             - "--log-level=2"
             - "--v=0"
           imagePullPolicy: Always
