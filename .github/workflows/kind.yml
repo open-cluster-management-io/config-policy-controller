@@ -59,34 +59,31 @@ jobs:
         make generate-operator-yaml
         git diff --exit-code
 
+    - name: Unit and Integration Tests
+      run: |
+        make test
+
     - name: Create K8s KinD Cluster - ${{ matrix.kind }}
       env:
         KIND_VERSION: ${{ matrix.kind }}
       run: |
         make kind-bootstrap-cluster-dev
 
-    - name: Build and Push Image to KinD node
-      env:
-        TAG: ${{ github.sha }}
-      run: |
-        make build-images
-        make kind-deploy-controller-dev
-
-    - name: Unit and Integration Tests
-      run: |
-        make test-dependencies
-        make test
-
     - name: E2E Tests
       run: |
         export GOPATH=$(go env GOPATH)
-        make e2e-dependencies
-        make e2e-test
+        make e2e-test-coverage
 
-    - name: SonarCloud Analysis
-      if: ${{ github.event_name == 'push' }}
+    - name: Test Coverage Verification
+      if: ${{ github.event_name == 'pull_request' }}
       run: |
-        echo "SonarCloud not implemented."
+        make test-coverage
+        make coverage-verify
+
+    - name: Verify Deployment Configuration
+      run: |
+        make build-images
+        make kind-deploy-controller-dev
 
     - name: Debug
       if: ${{ failure() }}
