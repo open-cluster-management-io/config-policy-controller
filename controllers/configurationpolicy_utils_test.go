@@ -101,3 +101,20 @@ func TestAddConditionToStatusNeverEvalInterval(t *testing.T) {
 		)
 	}
 }
+
+func TestCheckFieldsWithSort(t *testing.T) {
+	t.Parallel()
+
+	oldObj := map[string]interface{}{
+		"nonResourceURLs": []string{"/version", "/healthz"},
+		"verbs":           []string{"get"},
+	}
+	mergedObj := map[string]interface{}{
+		"nonResourceURLs": []string{"/version", "/healthz"},
+		"verbs":           []string{"get"},
+		"apiGroups":       []interface{}{},
+		"resources":       []interface{}{},
+	}
+
+	assert.True(t, checkFieldsWithSort(mergedObj, oldObj))
+}
