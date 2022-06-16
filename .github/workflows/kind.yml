@@ -23,7 +23,7 @@ jobs:
     strategy:
       matrix:
         go:
-          - '1.17'
+          - '1.18'
         # Run tests on oldest and newest supported OCP Kubernetes
         # - OCP 4.5 runs Kubernetes v1.18
         # KinD tags: https://hub.docker.com/r/kindest/node/tags
