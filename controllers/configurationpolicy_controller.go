@@ -1836,6 +1836,7 @@ func handleKeys(
 	)
 	var err error
 	var updateNeeded bool
+	var statusUpdated bool
 
 	for key := range unstruct.Object {
 		isStatus := key == "status"
@@ -1873,13 +1874,15 @@ func handleKeys(
 		mapMtx.Unlock()
 
 		if keyUpdateNeeded {
-			updateNeeded = keyUpdateNeeded
-
-			if strings.EqualFold(string(remediation), string(policyv1.Inform)) || isStatus {
+			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
 				return true, "", false
+			} else if isStatus {
+				statusUpdated = true
+				log.Info("Ignoring an update to the object status", "key", key)
+			} else {
+				updateNeeded = true
+				log.Info("Queuing an update for the object due to a value mismatch", "key", key)
 			}
-
-			log.Info("Queuing an update for the object due to a value mismatch", "key", key)
 		}
 	}
 
@@ -1902,7 +1905,7 @@ func handleKeys(
 		log.Info("Updated the object based on the template definition")
 	}
 
-	return false, "", false
+	return statusUpdated, "", false
 }
 
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
