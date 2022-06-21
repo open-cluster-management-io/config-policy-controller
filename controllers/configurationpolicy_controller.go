@@ -124,7 +124,7 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 	log.Info("Waiting for leader election before periodically evaluating configuration policies")
 	<-elected
 
-	const tenMinutes = 10 * time.Minute
+	const waiting = 10 * time.Minute
 
 	for {
 		start := time.Now()
@@ -142,7 +142,7 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 		// any errors since the cache can still be used. If a policy encounters an API resource type not in the
 		// cache, the discovery info refresh will be handled there. This periodic refresh is to account for
 		// deleted CRDs or strange edits to the CRD (e.g. converted it from namespaced to not).
-		if time.Since(r.discoveryLastRefreshed) >= tenMinutes {
+		if time.Since(r.discoveryLastRefreshed) >= waiting {
 			_ = r.refreshDiscoveryInfo()
 		}
 

@@ -4,6 +4,7 @@ service:
 run:
   # timeout for analysis, e.g. 30s, 5m, default is 1m
   deadline: 20m
+  go: '1.17'
   timeout: 20m
 
   # which dirs to skip: they won't be analyzed;
@@ -32,7 +33,10 @@ linters:
     - depguard
     - dupl
     - funlen
+    - exhaustruct
     - exhaustivestruct
+    - forcetypeassert
+    - gci # disable until it's more configurable
     - gochecknoglobals
     - gochecknoinits
     - gocognit
@@ -40,18 +44,24 @@ linters:
     - gocyclo
     - godot
     - goerr113
+    - golint # replaced by revive
     - gomnd
     - gomoddirectives
     - gosec
     - ifshort
     - interfacer
+    - ireturn # New linter to consider
     - maligned
+    - maintidx # New linter to consider
     - nakedret
     - nestif
+    - nilnil # New linter to consider
+    - nonamedreturns # New linter to consider
     - paralleltest
     - prealloc
     - scopelint
     - testpackage
+    - varnamelen # New linter to consider
     - wrapcheck
   fast: false
 
@@ -68,7 +78,8 @@ linters-settings:
     # report about shadowed variables
     check-shadowing: false
   gci:
-    local-prefixes: open-cluster-management.io/config-policy-controller
+    sections:
+      - prefix(open-cluster-management.io/config-policy-controller)
   golint:
     # minimal confidence for issues, default is 0.8
     min-confidence: 0.0
