@@ -69,7 +69,8 @@ func main() {
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
 	var clusterName, hubConfigPath, probeAddr string
-	var frequency, decryptionConcurrency uint
+	var frequency uint
+	var decryptionConcurrency uint8
 	var enableLease, enableLeaderElection, legacyLeaderElection bool
 
 	pflag.UintVar(&frequency, "update-frequency", 10,
@@ -85,7 +86,7 @@ func main() {
 			"Enabling this will ensure there is only one active controller manager.")
 	pflag.BoolVar(&legacyLeaderElection, "legacy-leader-elect", false,
 		"Use a legacy leader election method for controller manager instead of the lease API.")
-	pflag.UintVar(
+	pflag.Uint8Var(
 		&decryptionConcurrency,
 		"decryption-concurrency",
 		5,
@@ -195,7 +196,7 @@ func main() {
 
 	reconciler := controllers.ConfigurationPolicyReconciler{
 		Client:                mgr.GetClient(),
-		DecryptionConcurrency: uint8(decryptionConcurrency),
+		DecryptionConcurrency: decryptionConcurrency,
 		Scheme:                mgr.GetScheme(),
 		Recorder:              mgr.GetEventRecorderFor(controllers.ControllerName),
 	}
