@@ -105,6 +105,8 @@ type ConfigurationPolicyReconciler struct {
 	// that reads objects from the cache and writes to the apiserver
 	client.Client
 	DecryptionConcurrency uint8
+	// Determines the number of Go routines that can evaluate policies concurrently.
+	EvaluationConcurrency uint8
 	Scheme                *runtime.Scheme
 	Recorder              record.EventRecorder
 	discoveryInfo
@@ -158,9 +160,20 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 			skipLoop = true
 		}
 
+		// This is done every loop cycle since the channel needs to be variable in size to account for the number of
+		// policies changing.
+		policyQueue := make(chan *policyv1.ConfigurationPolicy, len(policiesList.Items))
+		var wg sync.WaitGroup
+
 		if !skipLoop {
 			log.Info("Processing the policies", "count", len(policiesList.Items))
-			// flattenedpolicylist only contains 1 of each policy instance
+
+			for i := 0; i < int(r.EvaluationConcurrency); i++ {
+				wg.Add(1)
+
+				go r.handlePolicyWorker(policyQueue, &wg)
+			}
+
 			for i := range policiesList.Items {
 				policy := policiesList.Items[i]
 				if !shouldEvaluatePolicy(&policy) {
@@ -168,9 +181,12 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 				}
 
 				// handle each template in each policy
-				r.handleObjectTemplates(policy)
+				policyQueue <- &policy
 			}
 		}
+
+		close(policyQueue)
+		wg.Wait()
 
 		// making sure that if processing is > freq we don't sleep
 		// if freq > processing we sleep for the remaining duration
@@ -185,6 +201,17 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 		if test {
 			return
 		}
+	}
+}
+
+// handlePolicyWorker is meant to be used as a Go routine that wraps handleObjectTemplates.
+func (r *ConfigurationPolicyReconciler) handlePolicyWorker(
+	policyQueue <-chan *policyv1.ConfigurationPolicy, wg *sync.WaitGroup,
+) {
+	defer wg.Done()
+
+	for policy := range policyQueue {
+		r.handleObjectTemplates(*policy)
 	}
 }
 
