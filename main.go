@@ -70,7 +70,7 @@ func main() {
 
 	var clusterName, hubConfigPath, probeAddr string
 	var frequency uint
-	var decryptionConcurrency uint8
+	var decryptionConcurrency, evaluationConcurrency uint8
 	var enableLease, enableLeaderElection, legacyLeaderElection bool
 
 	pflag.UintVar(&frequency, "update-frequency", 10,
@@ -91,6 +91,13 @@ func main() {
 		"decryption-concurrency",
 		5,
 		"The max number of concurrent policy template decryptions",
+	)
+	pflag.Uint8Var(
+		&evaluationConcurrency,
+		"evaluation-concurrency",
+		// Set a low default to not add too much load to the Kubernetes API server in resource constrained deployments.
+		2,
+		"The max number of concurrent configuration policy evaluations",
 	)
 
 	pflag.Parse()
@@ -115,6 +122,10 @@ func main() {
 		log.Error(err, "Failed to build zap logger for klog, those logs will not go through zap")
 	} else {
 		klog.SetLogger(zapr.NewLogger(klogZap).WithName("klog"))
+	}
+
+	if evaluationConcurrency < 1 {
+		panic("The --evaluation-concurrency option cannot be less than 1")
 	}
 
 	printVersion()
@@ -197,6 +208,7 @@ func main() {
 	reconciler := controllers.ConfigurationPolicyReconciler{
 		Client:                mgr.GetClient(),
 		DecryptionConcurrency: decryptionConcurrency,
+		EvaluationConcurrency: evaluationConcurrency,
 		Scheme:                mgr.GetScheme(),
 		Recorder:              mgr.GetEventRecorderFor(controllers.ControllerName),
 	}
