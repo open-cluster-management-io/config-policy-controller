@@ -178,7 +178,7 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 		if float64(freq) > float64(elapsed) {
 			remainingSleep := float64(freq) - float64(elapsed)
 			sleepTime := time.Duration(remainingSleep) * time.Second
-			log.V(2).Info("Sleeping before reprocessing the configuration polices", "seconds", sleepTime)
+			log.V(2).Info("Sleeping before reprocessing the configuration policies", "seconds", sleepTime)
 			time.Sleep(sleepTime)
 		}
 
