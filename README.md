@@ -1,6 +1,6 @@
 [comment]: # ( Copyright Contributors to the Open Cluster Management project )
 
-# Configuration Policy Controller
+# Configuration Policy Controllers
 
 Open Cluster Management - Configuration Policy Controller
 
