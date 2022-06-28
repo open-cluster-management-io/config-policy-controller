@@ -16,6 +16,7 @@ import (
 	"time"
 
 	gocmp "github.com/google/go-cmp/cmp"
+	"github.com/prometheus/client_golang/prometheus"
 	templates "github.com/stolostron/go-template-utils/v2/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -33,6 +34,7 @@ import (
 	extpoliciesv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/metrics"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
@@ -67,6 +69,19 @@ var config *rest.Config
 
 // NamespaceWatched defines which namespace we can watch for the GRC policies and ignore others
 var NamespaceWatched string
+
+var evalLoopHistogram = prometheus.NewHistogram(
+	prometheus.HistogramOpts{
+		Name:    "config_policies_evaluation_duration_seconds",
+		Help:    "The seconds that it takes to evaluate all configuration policies on the cluster",
+		Buckets: []float64{1, 3, 9, 10.5, 15, 30, 60, 90, 120, 180, 300, 450, 600},
+	},
+)
+
+func init() {
+	// Register custom metrics with the global Prometheus registry
+	metrics.Registry.MustRegister(evalLoopHistogram)
+}
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ConfigurationPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
@@ -188,11 +203,12 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 		close(policyQueue)
 		wg.Wait()
 
+		elapsed := time.Since(start).Seconds()
+		evalLoopHistogram.Observe(elapsed)
 		// making sure that if processing is > freq we don't sleep
 		// if freq > processing we sleep for the remaining duration
-		elapsed := time.Since(start) / 1000000000 // convert to seconds
-		if float64(freq) > float64(elapsed) {
-			remainingSleep := float64(freq) - float64(elapsed)
+		if float64(freq) > elapsed {
+			remainingSleep := float64(freq) - elapsed
 			sleepTime := time.Duration(remainingSleep) * time.Second
 			log.V(2).Info("Sleeping before reprocessing the configuration policies", "seconds", sleepTime)
 			time.Sleep(sleepTime)
