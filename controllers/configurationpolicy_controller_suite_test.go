@@ -14,22 +14,22 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	policiesv1alpha1 "open-cluster-management.io/config-policy-controller/api/v1"
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
-var samplePolicy = policiesv1alpha1.ConfigurationPolicy{
+var samplePolicy = policyv1.ConfigurationPolicy{
 	ObjectMeta: metav1.ObjectMeta{
 		Name:      "foo",
 		Namespace: "default",
 	},
-	Spec: policiesv1alpha1.ConfigurationPolicySpec{
+	Spec: policyv1.ConfigurationPolicySpec{
 		Severity: "low",
-		NamespaceSelector: policiesv1alpha1.Target{
-			Include: []policiesv1alpha1.NonEmptyString{"default", "kube-*"},
-			Exclude: []policiesv1alpha1.NonEmptyString{"kube-system"},
+		NamespaceSelector: policyv1.Target{
+			Include: []policyv1.NonEmptyString{"default", "kube-*"},
+			Exclude: []policyv1.NonEmptyString{"kube-system"},
 		},
 		RemediationAction: "inform",
-		ObjectTemplates: []*policiesv1alpha1.ObjectTemplate{
+		ObjectTemplates: []*policyv1.ObjectTemplate{
 			{
 				ComplianceType:   "musthave",
 				ObjectDefinition: runtime.RawExtension{},
@@ -43,7 +43,7 @@ func TestMain(m *testing.M) {
 		CRDDirectoryPaths: []string{filepath.Join("..", "..", "..", "deploy", "crds")},
 	}
 
-	err := policiesv1alpha1.AddToScheme(scheme.Scheme)
+	err := policyv1.AddToScheme(scheme.Scheme)
 	if err != nil {
 		stdlog.Fatal(err)
 	}
