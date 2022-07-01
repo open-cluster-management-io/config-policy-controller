@@ -1,0 +1,16 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-configmap-selector-e2e
+spec:
+  namespaceSelector:
+    include:
+      - case19-1-e2e
+  remediationAction: inform
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: configmap-selector-e2e

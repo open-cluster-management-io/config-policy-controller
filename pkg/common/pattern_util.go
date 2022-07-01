@@ -4,134 +4,66 @@
 package common
 
 import (
-	"math"
-	"strings"
+	"fmt"
+	"path/filepath"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
-// IfMatch check matches
-func IfMatch(name string, included, excluded []string) bool {
-	return len(MatchNames([]string{name}, included, excluded)) > 0
-}
+// Matches filters a slice of strings, and returns ones that match the selector
+func Matches(
+	namespaces []string,
+	includeList []policyv1.NonEmptyString,
+	excludeList []policyv1.NonEmptyString,
+) ([]string, error) {
+	matchingNamespaces := make([]string, 0)
 
-// MatchNames matches names
-func MatchNames(all, included, excluded []string) []string {
-	// list of included
-	includedNames := []string{}
+	for _, namespace := range namespaces {
+		// If the includeList is empty include all namespaces for the NamespaceSelector LabelSelector
+		include := len(includeList) == 0
 
-	for _, value := range included {
-		found := FindPattern(value, all)
-		includedNames = append(includedNames, found...)
-	}
+		for _, includePattern := range includeList {
+			var err error
 
-	// then get the list of excluded
-	excludedNames := []string{}
+			include, err = filepath.Match(string(includePattern), namespace)
+			if err != nil { // The only possible returned error is ErrBadPattern, when pattern is malformed.
+				return matchingNamespaces, fmt.Errorf(
+					"error parsing 'include' pattern '%s': %w", string(includePattern), err)
+			}
 
-	for _, value := range excluded {
-		found := FindPattern(value, all)
-		excludedNames = append(excludedNames, found...)
-	}
-
-	// then get the list of deduplicated
-	finalList := DeduplicateItems(includedNames, excludedNames)
-
-	return finalList
-}
-
-// FindPattern finds patterns
-func FindPattern(pattern string, list []string) (result []string) {
-	// if pattern = "*" => all namespaces are included
-	if pattern == "*" {
-		return list
-	}
-
-	found := []string{}
-	// if the pattern has NO "*" => do an exact search
-
-	if !strings.Contains(pattern, "*") {
-		for _, value := range list {
-			if pattern == value {
-				found = append(found, value)
+			if include {
+				break
 			}
 		}
 
-		return found
-	}
+		if !include {
+			continue
+		}
 
-	// if there is a * something, we need to figure out where: it can be a leading, ending or leading and ending
-	if strings.LastIndex(pattern, "*") == 0 {
-		// check for has suffix of pattern - *
-		substring := strings.TrimPrefix(pattern, "*")
-		for _, value := range list {
-			if strings.HasSuffix(value, substring) {
-				found = append(found, value)
+		exclude := false
+
+		for _, excludePattern := range excludeList {
+			var err error
+
+			exclude, err = filepath.Match(string(excludePattern), namespace)
+			if err != nil { // The only possible returned error is ErrBadPattern, when pattern is malformed.
+				return matchingNamespaces, fmt.Errorf(
+					"error parsing 'exclude' pattern '%s': %w", string(excludePattern), err)
+			}
+
+			if exclude {
+				break
 			}
 		}
 
-		return found
-	}
-
-	if strings.Index(pattern, "*") == len(pattern)-1 {
-		// check for has prefix of pattern - *
-		substring := strings.TrimSuffix(pattern, "*")
-		for _, value := range list {
-			if strings.HasPrefix(value, substring) {
-				found = append(found, value)
-			}
+		if exclude {
+			continue
 		}
 
-		return found
+		matchingNamespaces = append(matchingNamespaces, namespace)
 	}
 
-	if strings.LastIndex(pattern, "*") == len(pattern)-1 && strings.Index(pattern, "*") == 0 {
-		substring := strings.TrimPrefix(pattern, "*")
-		substring = strings.TrimSuffix(substring, "*")
-
-		for _, value := range list {
-			if strings.Contains(value, substring) {
-				found = append(found, value)
-			}
-		}
-
-		return found
-	}
-
-	return found
-}
-
-// DeduplicateItems does the dedup
-func DeduplicateItems(included []string, excluded []string) (res []string) {
-	encountered := map[string]bool{}
-	result := []string{}
-
-	for _, inc := range included {
-		encountered[inc] = true
-	}
-
-	for _, excl := range excluded {
-		if encountered[excl] {
-			delete(encountered, excl)
-		}
-	}
-
-	for key := range encountered {
-		result = append(result, key)
-	}
-
-	return result
-}
-
-// ToFixed returns a float with a certain precision
-func ToFixed(num float64, precision int) float64 {
-	output := math.Pow(10, float64(precision))
-
-	return float64(Round(num*output)) / output
-}
-
-// Round rounds the value
-func Round(num float64) int {
-	return int(num + math.Copysign(0.5, num))
+	return matchingNamespaces, nil
 }
 
 // ExtractNamespaceLabel to find out the cluster-namespace from the label

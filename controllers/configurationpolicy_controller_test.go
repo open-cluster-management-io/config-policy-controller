@@ -54,8 +54,9 @@ func TestReconcile(t *testing.T) {
 	s.AddKnownTypes(policyv1.GroupVersion, instance)
 
 	// Create a fake client to mock API calls.
-	//nolint:staticcheck
-	cl := fake.NewFakeClient(objs...)
+	clBuilder := fake.NewClientBuilder()
+	clBuilder.WithRuntimeObjects(objs...)
+	cl := clBuilder.Build()
 	// Create a ReconcileConfigurationPolicy object with the scheme and fake client
 	r := &ConfigurationPolicyReconciler{Client: cl, Scheme: s, Recorder: nil}
 

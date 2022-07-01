@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    name: case19-1-e2e
+  name: case19-1-e2e
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    name: case19-2-e2e
+  name: case19-2-e2e
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    name: case19-3-e2e
+  name: case19-3-e2e
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    name: case19-4-e2e
+  name: case19-4-e2e
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    name: case19-5-e2e
+  name: case19-5-e2e
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    name: case19-6-e2e
+  name: case19-6-e2e
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: configmap-selector-e2e
+  namespace: case19-1-e2e

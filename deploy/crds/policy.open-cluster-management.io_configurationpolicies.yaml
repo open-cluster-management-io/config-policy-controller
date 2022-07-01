@@ -55,18 +55,65 @@ spec:
                     type: string
                 type: object
               namespaceSelector:
-                description: Target defines the list of namespaces to include/exclude
+                description: '''namespaceSelector'' defines the list of namespaces
+                  to include/exclude for objects defined in spec.objectTemplates.
+                  All selector rules are ANDed. If ''include'' is not provided but
+                  ''matchLabels'' and/or ''matchExpressions'' are, ''include'' will
+                  behave as if [''*''] were given. If ''matchExpressions'' and ''matchLabels''
+                  are both not provided, ''include'' must be provided to retrieve
+                  namespaces.'
                 properties:
                   exclude:
+                    description: '''exclude'' is an array of filepath expressions
+                      to exclude objects by name.'
                     items:
                       minLength: 1
                       type: string
                     type: array
                   include:
+                    description: '''include'' is an array of filepath expressions
+                      to include objects by name.'
                     items:
                       minLength: 1
                       type: string
                     type: array
+                  matchExpressions:
+                    description: '''matchExpressions'' is an array of label selector
+                      requirements matching objects by label.'
+                    items:
+                      description: A label selector requirement is a selector that
+                        contains values, a key, and an operator that relates the key
+                        and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: operator represents a key's relationship to
+                            a set of values. Valid operators are In, NotIn, Exists
+                            and DoesNotExist.
+                          type: string
+                        values:
+                          description: values is an array of string values. If the
+                            operator is In or NotIn, the values array must be non-empty.
+                            If the operator is Exists or DoesNotExist, the values
+                            array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: '''matchLabels'' is a map of {key,value} pairs matching
+                      objects by label.'
+                    type: object
                 type: object
               object-templates:
                 items:

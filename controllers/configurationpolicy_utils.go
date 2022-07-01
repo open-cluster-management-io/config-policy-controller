@@ -12,6 +12,7 @@ import (
 	apiRes "k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/json"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
@@ -53,6 +54,23 @@ func addRelatedObjects(
 	}
 
 	return relatedObjects
+}
+
+// unmarshalFromJSON unmarshals raw JSON data into an object
+func unmarshalFromJSON(rawData []byte) (unstructured.Unstructured, error) {
+	var unstruct unstructured.Unstructured
+	var blob interface{}
+
+	if jsonErr := json.Unmarshal(rawData, &blob); jsonErr != nil {
+		log.Error(jsonErr, "Could not unmarshal data from JSON")
+
+		return unstruct, jsonErr
+	}
+
+	unstruct.Object = make(map[string]interface{})
+	unstruct.Object = blob.(map[string]interface{})
+
+	return unstruct, nil
 }
 
 // updateRelatedObjectsStatus adds or updates the RelatedObject in the policy status.
