@@ -150,13 +150,6 @@ func (in *ConfigurationPolicyList) DeepCopyObject() runtime.Object {
 func (in *ConfigurationPolicySpec) DeepCopyInto(out *ConfigurationPolicySpec) {
 	*out = *in
 	in.NamespaceSelector.DeepCopyInto(&out.NamespaceSelector)
-	if in.LabelSelector != nil {
-		in, out := &in.LabelSelector, &out.LabelSelector
-		*out = make(map[string]string, len(*in))
-		for key, val := range *in {
-			(*out)[key] = val
-		}
-	}
 	if in.ObjectTemplates != nil {
 		in, out := &in.ObjectTemplates, &out.ObjectTemplates
 		*out = make([]*ObjectTemplate, len(*in))

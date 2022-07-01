@@ -121,7 +121,6 @@ type ConfigurationPolicySpec struct {
 	Severity           Severity           `json:"severity,omitempty"`          // low, medium, high
 	RemediationAction  RemediationAction  `json:"remediationAction,omitempty"` // enforce, inform
 	NamespaceSelector  Target             `json:"namespaceSelector,omitempty"`
-	LabelSelector      map[string]string  `json:"labelSelector,omitempty"`
 	ObjectTemplates    []*ObjectTemplate  `json:"object-templates,omitempty"`
 	EvaluationInterval EvaluationInterval `json:"evaluationInterval,omitempty"`
 }
