@@ -239,5 +239,12 @@ var _ = Describe("Testing compliance event formatting", func() {
 		}
 
 		deleteConfigPolicies(configPolicies)
+
+		utils.Kubectl("delete", "-f", case15PodForNonComplianceYaml)
+		err := clientManaged.CoreV1().Pods("default").Delete(
+			context.TODO(), "case15-becomescompliant", metav1.DeleteOptions{})
+		if !k8serrors.IsNotFound(err) {
+			Expect(err).To(BeNil())
+		}
 	})
 })
