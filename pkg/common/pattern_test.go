@@ -4,108 +4,95 @@
 package common
 
 import (
-	"reflect"
-	"sort"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
-func TestIfMatch(t *testing.T) {
-	tt := []struct {
-		name    string
-		include []string
-		exclude []string
-		result  bool
-	}{
-		{"test", []string{"*"}, []string{""}, true},
-		{"test", []string{"t*"}, []string{"sss"}, true},
-		{"test", []string{"*st"}, []string{"test2"}, true},
-		{"test", []string{"test"}, []string{"atest"}, true},
-		//{"test", []string{"t*t"}, []string{"eee"}, true},
-		{"test", []string{"test1"}, []string{""}, false},
-		{" test", []string{"test"}, []string{"test"}, false},
-		{" test", []string{"test"}, []string{"test"}, false},
-		{"test", []string{"test"}, []string{"te*"}, false},
-		{"test", []string{"test"}, []string{"*st"}, false},
-		{"test", []string{"test"}, []string{"*"}, false},
-		{"test", []string{"test1", "te*"}, []string{""}, true},
-		{"test", []string{"test1", "te*"}, []string{"tr*", "teft"}, true},
-	}
-	for _, row := range tt {
-		result := IfMatch(row.name, row.include, row.exclude)
-		if row.result != result {
-			t.Errorf("IfMach returned %t instead of %t for name = %s, indelude = %v, exclude = %v\n",
-				result, row.result, row.name, row.include, row.exclude)
-		}
-	}
-}
+func TestMatches(t *testing.T) {
+	t.Parallel()
 
-func TestFindPattern(t *testing.T) {
 	list := []string{"Hello-World", "World-Hello", "Hello-World-Hello", "nothing", "exact"}
 
-	// testing PREFIX
-	actualResult := FindPattern("Hello*", list)
-	expectedResult := []string{"Hello-World", "Hello-World-Hello"}
-
-	if !reflect.DeepEqual(actualResult, expectedResult) {
-		t.Fatalf("Expected %s but got %s", expectedResult, actualResult)
+	tests := []struct {
+		testDescription string
+		include         []policyv1.NonEmptyString
+		exclude         []policyv1.NonEmptyString
+		expected        []string
+		errMsg          string
+	}{
+		{
+			"Filter for prefix",
+			[]policyv1.NonEmptyString{"Hello*"},
+			[]policyv1.NonEmptyString{},
+			[]string{"Hello-World", "Hello-World-Hello"},
+			"",
+		},
+		{
+			"Filter for suffix",
+			[]policyv1.NonEmptyString{"*Hello"},
+			[]policyv1.NonEmptyString{},
+			[]string{"World-Hello", "Hello-World-Hello"},
+			"",
+		},
+		{
+			"Filter for containing string",
+			[]policyv1.NonEmptyString{"*Hello*"},
+			[]policyv1.NonEmptyString{},
+			[]string{"Hello-World", "World-Hello", "Hello-World-Hello"},
+			"",
+		},
+		{
+			"Filter for nonexistent containing string",
+			[]policyv1.NonEmptyString{"*xxx*"},
+			[]policyv1.NonEmptyString{},
+			[]string{},
+			"",
+		},
+		{
+			"Filter for exact string",
+			[]policyv1.NonEmptyString{"Hello-World"},
+			[]policyv1.NonEmptyString{},
+			[]string{"Hello-World"},
+			"",
+		},
+		{
+			"Filter for internal wildcards",
+			[]policyv1.NonEmptyString{"*o*rld*"},
+			[]policyv1.NonEmptyString{},
+			[]string{"Hello-World", "World-Hello", "Hello-World-Hello"},
+			"",
+		},
+		{
+			"Malformed filter",
+			[]policyv1.NonEmptyString{"*[*"},
+			[]policyv1.NonEmptyString{},
+			[]string{},
+			"error parsing 'include' pattern '*[*': syntax error in pattern",
+		},
 	}
 
-	// testing SUFFIX
-	actualResult = FindPattern("*Hello", list)
-	expectedResult = []string{"World-Hello", "Hello-World-Hello"}
+	for _, test := range tests {
+		test := test
 
-	if !reflect.DeepEqual(actualResult, expectedResult) {
-		t.Fatalf("Expected %s but got %s", expectedResult, actualResult)
-	}
+		t.Run(
+			test.testDescription,
+			func(t *testing.T) {
+				t.Parallel()
 
-	// testing if it CONTAINS the pattern
-	actualResult = FindPattern("*Hello*", list)
-	expectedResult = []string{"Hello-World", "World-Hello", "Hello-World-Hello"}
+				actual, err := Matches(list, test.include, test.exclude)
+				if err != nil {
+					if test.errMsg == "" {
+						t.Fatalf("Encountered unexpected error: %v", err)
+					} else {
+						assert.EqualError(t, err, test.errMsg)
+					}
+				}
 
-	if !reflect.DeepEqual(actualResult, expectedResult) {
-		t.Fatalf("Expected %s but got %s", expectedResult, actualResult)
-	}
-
-	// testing if it does NOT contain the pattern
-	actualResult = FindPattern("*xxx*", list)
-	expectedResult = []string{}
-
-	if !reflect.DeepEqual(actualResult, expectedResult) {
-		t.Fatalf("Expected %s but got %s", expectedResult, actualResult)
-	}
-
-	// testing if it  contains the EXACT pattern
-	actualResult = FindPattern("Hello-World", list)
-	expectedResult = []string{"Hello-World"}
-
-	if !reflect.DeepEqual(actualResult, expectedResult) {
-		t.Fatalf("Expected %s but got %s", expectedResult, actualResult)
-	}
-
-	// testing corner case
-	actualResult = FindPattern("*ku*be", list)
-	expectedResult = []string{}
-
-	if !reflect.DeepEqual(actualResult, expectedResult) {
-		t.Fatalf("Expected %s but got %s", expectedResult, actualResult)
-	}
-}
-
-func TestDeduplicateItems(t *testing.T) {
-	included := []string{"Hello-World", "World-Hello", "Hello-World-Hello", "nothing", "exact"}
-	excluded := []string{"Hello-World", "Hello-World-Hello", "exact"}
-
-	actualResult := DeduplicateItems(included, excluded)
-	expectedResult := []string{"World-Hello", "nothing"}
-
-	if len(actualResult) != len(expectedResult) {
-		t.Fatalf("Expected %s but got %s", expectedResult, actualResult)
-	} else {
-		sort.Strings(expectedResult)
-		sort.Strings(actualResult)
-
-		if !reflect.DeepEqual(actualResult, expectedResult) {
-			t.Fatalf("Expected %s but got %s", expectedResult, actualResult)
-		}
+				assert.Equal(t, actual, test.expected)
+			},
+		)
 	}
 }

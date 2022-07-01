@@ -5,6 +5,7 @@ package v1
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -65,10 +66,33 @@ type Condition struct {
 	Message string `json:"message,omitempty" protobuf:"bytes,5,opt,name=message"`
 }
 
-// Target defines the list of namespaces to include/exclude
 type Target struct {
+	// 'include' is an array of filepath expressions to include objects by name.
 	Include []NonEmptyString `json:"include,omitempty"`
+	// 'exclude' is an array of filepath expressions to exclude objects by name.
 	Exclude []NonEmptyString `json:"exclude,omitempty"`
+	// 'matchLabels' is a map of {key,value} pairs matching objects by label.
+	MatchLabels *map[string]string `json:"matchLabels,omitempty"`
+	// 'matchExpressions' is an array of label selector requirements matching objects by label.
+	MatchExpressions *[]metav1.LabelSelectorRequirement `json:"matchExpressions,omitempty"`
+}
+
+// Define String() so that the LabelSelector is dereferenced in the logs
+func (t Target) String() string {
+	fmtSelectorStr := "{include:%s,exclude:%s,matchLabels:%+v,matchExpressions:%+v}"
+	if t.MatchLabels == nil && t.MatchExpressions == nil {
+		return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, nil, nil)
+	}
+
+	if t.MatchLabels == nil {
+		return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, nil, *t.MatchExpressions)
+	}
+
+	if t.MatchExpressions == nil {
+		return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, *t.MatchLabels, nil)
+	}
+
+	return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, *t.MatchLabels, *t.MatchExpressions)
 }
 
 // Configures the minimum elapsed time before a ConfigurationPolicy is reevaluated
@@ -118,8 +142,13 @@ func (e EvaluationInterval) GetNonCompliantInterval() (time.Duration, error) {
 
 // ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
 type ConfigurationPolicySpec struct {
-	Severity           Severity           `json:"severity,omitempty"`          // low, medium, high
-	RemediationAction  RemediationAction  `json:"remediationAction,omitempty"` // enforce, inform
+	Severity          Severity          `json:"severity,omitempty"`          // low, medium, high
+	RemediationAction RemediationAction `json:"remediationAction,omitempty"` // enforce, inform
+	// 'namespaceSelector' defines the list of namespaces to include/exclude for objects defined in
+	// spec.objectTemplates. All selector rules are ANDed. If 'include' is not provided but
+	// 'matchLabels' and/or 'matchExpressions' are, 'include' will behave as if ['*'] were given. If
+	// 'matchExpressions' and 'matchLabels' are both not provided, 'include' must be provided to
+	// retrieve namespaces.
 	NamespaceSelector  Target             `json:"namespaceSelector,omitempty"`
 	ObjectTemplates    []*ObjectTemplate  `json:"object-templates,omitempty"`
 	EvaluationInterval EvaluationInterval `json:"evaluationInterval,omitempty"`
@@ -185,7 +214,7 @@ type ConfigurationPolicyList struct {
 
 // TemplateStatus hold the status result
 type TemplateStatus struct {
-	ComplianceState ComplianceState `json:"Compliant,omitempty"` // Compliant, NonCompliant, UnkownCompliancy
+	ComplianceState ComplianceState `json:"Compliant,omitempty"` // Compliant, NonCompliant, UnknownCompliancy
 	// +optional
 	// +patchMergeKey=type
 	// +patchStrategy=merge

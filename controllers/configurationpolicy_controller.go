@@ -48,7 +48,7 @@ var log = ctrl.Log.WithName(ControllerName)
 // PlcChan a channel used to pass policies ready for update
 var PlcChan chan *policyv1.ConfigurationPolicy
 
-var clientSet *kubernetes.Clientset
+var clientSet kubernetes.Interface
 
 var (
 	eventNormal  = "Normal"
@@ -92,7 +92,7 @@ func (r *ConfigurationPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error
 }
 
 // Initialize to initialize some controller variables
-func Initialize(kubeconfig *rest.Config, clientset *kubernetes.Clientset, namespace string) {
+func Initialize(kubeconfig *rest.Config, clientset kubernetes.Interface, namespace string) {
 	config = kubeconfig
 	clientSet = clientset
 	NamespaceWatched = namespace
@@ -335,15 +335,95 @@ func getTemplateConfigErrorMsg(err error) string {
 	return fmt.Sprintf("An unexpected error occurred when configuring the template resolver: %v", err)
 }
 
+type objectTemplateDetails struct {
+	kind         string
+	name         string
+	namespace    string
+	isNamespaced bool
+}
+
+// getObjectTemplateDetails retrieves values from the object templates and returns an array of
+// objects containing the retrieved values.
+// It also gathers namespaces for this policy if necessary:
+//   If a namespaceSelector is present AND objects are namespaced without a namespace specified
+func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
+	plc policyv1.ConfigurationPolicy,
+) ([]objectTemplateDetails, []string, bool, error) {
+	templateObjs := make([]objectTemplateDetails, len(plc.Spec.ObjectTemplates))
+	selectedNamespaces := []string{}
+	queryNamespaces := false
+
+	for idx, objectT := range plc.Spec.ObjectTemplates {
+		unstruct, err := unmarshalFromJSON(objectT.ObjectDefinition.Raw)
+		if err != nil {
+			return templateObjs, selectedNamespaces, false, err
+		}
+
+		templateObjs[idx].isNamespaced = r.isObjectNamespaced(&unstruct, true)
+		// strings.TrimSpace() is needed here because a multi-line value will have '\n' in it
+		templateObjs[idx].kind = strings.TrimSpace(unstruct.GetKind())
+		templateObjs[idx].name = strings.TrimSpace(unstruct.GetName())
+		templateObjs[idx].namespace = strings.TrimSpace(unstruct.GetNamespace())
+
+		if templateObjs[idx].isNamespaced && templateObjs[idx].namespace == "" {
+			queryNamespaces = true
+		}
+	}
+
+	// If required, query for namespaces specified in NamespaceSelector for objects to use
+	if queryNamespaces {
+		// Retrieve the namespaces based on filters in NamespaceSelector
+		selector := plc.Spec.NamespaceSelector
+		// If MatchLabels/MatchExpressions/Include were not provided, return no namespaces
+		if selector.MatchLabels == nil && selector.MatchExpressions == nil && len(selector.Include) == 0 {
+			log.Info("namespaceSelector is empty. Skipping namespace retrieval.")
+		} else {
+			// If an error occurred in the NamespaceSelector, update the policy status and abort
+			var err error
+			selectedNamespaces, err = common.GetSelectedNamespaces(selector)
+			if err != nil {
+				errMsg := "Error filtering namespaces with provided namespaceSelector"
+				log.Error(
+					err, errMsg,
+					"namespaceSelector", fmt.Sprintf("%+v", selector))
+
+				reason := "namespaceSelector error"
+				msg := fmt.Sprintf(
+					"%s: %s", errMsg, err.Error())
+				statusChanged := addConditionToStatus(&plc, 0, false, reason, msg)
+				if statusChanged {
+					r.Recorder.Event(
+						&plc,
+						eventWarning,
+						fmt.Sprintf(plcFmtStr, plc.GetName()),
+						convertPolicyStatusToString(&plc),
+					)
+				}
+
+				return templateObjs, selectedNamespaces, statusChanged, err
+			}
+
+			if len(selectedNamespaces) == 0 {
+				log.Info("Fetching namespaces with provided NamespaceSelector returned no namespaces.",
+					"namespaceSelector", fmt.Sprintf("%+v", selector))
+			}
+		}
+	}
+
+	return templateObjs, selectedNamespaces, false, nil
+}
+
 // handleObjectTemplates iterates through all policy templates in a given policy and processes them
 func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 	log := log.WithValues("policy", plc.GetName())
 	log.V(1).Info("Processing object templates")
 
-	// error if no remediationAction is specified
-	plcNamespaces := getPolicyNamespaces(plc)
-	log.V(2).Info("Determined the applicable namespaces", "count", len(plcNamespaces))
+	// initialize the RelatedObjects for this Configuration Policy
+	oldRelated := append([]policyv1.RelatedObject{}, plc.Status.RelatedObjects...)
+	relatedObjects := []policyv1.RelatedObject{}
+	parentStatusUpdateNeeded := false
 
+	// error if no remediationAction is specified
 	if plc.Spec.RemediationAction == "" {
 		message := "Policy does not have a RemediationAction specified"
 		log.Info(message)
@@ -354,15 +434,10 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
 		}
 
-		r.addForUpdate(&plc, statusChanged)
+		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusChanged)
 
 		return
 	}
-
-	// initialize the RelatedObjects for this Configuration Policy
-	oldRelated := append([]policyv1.RelatedObject{}, plc.Status.RelatedObjects...)
-	relatedObjects := []policyv1.RelatedObject{}
-	parentStatusUpdateNeeded := false
 
 	addTemplateErrorViolation := func(reason, msg string) {
 		log.Info("Setting the policy to noncompliant due to a templating error", "error", msg)
@@ -407,8 +482,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		tmplResolverCfg.EncryptionConfig = encryptionConfig
 	}
 
-	kubeclient := kubernetes.Interface(clientSet)
-
 	annotations := plc.GetAnnotations()
 	disableTemplates := false
 
@@ -423,7 +496,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		}
 	}
 
-	tmplResolver, err := templates.NewResolver(&kubeclient, config, tmplResolverCfg)
+	tmplResolver, err := templates.NewResolver(&clientSet, config, tmplResolverCfg)
 	if err != nil {
 		// If the encryption key is invalid, clear the cache.
 		if errors.Is(err, templates.ErrInvalidAESKey) || errors.Is(err, templates.ErrAESKeyNotSet) {
@@ -443,11 +516,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		compliantObjects := map[string]map[string]interface{}{}
 		enforce := strings.EqualFold(string(plc.Spec.RemediationAction), string(policyv1.Enforce))
 		kind := ""
-		desiredName := ""
 		objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
-
-		var unstruct unstructured.Unstructured
-		unstruct.Object = make(map[string]interface{})
 
 		// Here appears to be a  good place to hook in template processing
 		// This is at the head of objectemplate processing
@@ -551,48 +620,30 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			}
 		}
 
-		var blob interface{}
-		if jsonErr := json.Unmarshal(objectT.ObjectDefinition.Raw, &blob); jsonErr != nil {
-			log.Error(jsonErr, "Could not unmarshal data from JSON")
+		// Parse and fetch details from each object in each objectTemplate, and gather namespaces if required
+		var templateObjs []objectTemplateDetails
+		var selectedNamespaces []string
+
+		templateObjs, selectedNamespaces, parentStatusUpdateNeeded, err = r.getObjectTemplateDetails(plc)
+		if err != nil {
+			if parentStatusUpdateNeeded {
+				r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded)
+			}
 
 			return
 		}
 
-		// pull metadata out of the object template
-		//nolint:forcetypeassert
-		unstruct.Object = blob.(map[string]interface{})
+		// If the object does not have a namespace specified, use the previously retrieved namespaces
+		// from the NamespaceSelector. If no namespaces are found/specified, use the value from the
+		// object so that the objectTemplate is processed:
+		// - For clusterwide resources, an empty string will be expected
+		// - For namespaced resources, handleObjects() will update status with a no namespace message if
+		//   it's an empty string or else will use the namespace defined in the object
 		var relevantNamespaces []string
-
-		isNamespaced := r.isObjectNamespaced(&unstruct, true)
-
-		if isNamespaced {
-			// This will be overridden if a namespace is present in the object template
-			relevantNamespaces = plcNamespaces
+		if templateObjs[indx].isNamespaced && templateObjs[indx].namespace == "" && len(selectedNamespaces) != 0 {
+			relevantNamespaces = selectedNamespaces
 		} else {
-			relevantNamespaces = []string{""}
-		}
-
-		if md, ok := unstruct.Object["metadata"]; ok {
-			//nolint:forcetypeassert
-			metadata := md.(map[string]interface{})
-
-			if objectns, ok := metadata["namespace"]; ok {
-				relevantNamespaces = []string{objectns.(string)}
-				log.V(2).Info(
-					"The applicable namespace is limited to what is defined in the object template",
-					"namespace", relevantNamespaces[0],
-					"index", indx,
-				)
-			} else {
-				log.V(2).Info("metadata.namespace is not set in the object template", "index", indx)
-			}
-
-			if objectname, ok := metadata["name"]; ok {
-				//nolint:forcetypeassert
-				desiredName = objectname.(string)
-			} else {
-				log.V(2).Info("metadata.name is not set in the object template", "index", indx)
-			}
+			relevantNamespaces = []string{templateObjs[indx].namespace}
 		}
 
 		numCompliant := 0
@@ -604,12 +655,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			log.Info(
 				"Handling the object template for the relevant namespace",
 				"namespace", ns,
-				"desiredName", desiredName,
+				"desiredName", templateObjs[indx].name,
 				"index", indx,
 			)
 
 			names, compliant, reason, objKind, related, statusUpdateNeeded := r.handleObjects(
-				objectT, ns, isNamespaced, indx, &plc,
+				objectT, ns, templateObjs[indx], indx, &plc,
 			)
 
 			if statusUpdateNeeded {
@@ -654,8 +705,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			objData := map[string]interface{}{
 				"indx":        indx,
 				"kind":        kind,
-				"desiredName": desiredName,
-				"namespaced":  isNamespaced,
+				"desiredName": templateObjs[indx].name,
+				"namespaced":  templateObjs[indx].isNamespaced,
 			}
 
 			statusUpdateNeeded := createInformStatus(
@@ -818,7 +869,7 @@ func createInformStatus(
 func (r *ConfigurationPolicyReconciler) handleObjects(
 	objectT *policyv1.ObjectTemplate,
 	namespace string,
-	isNamespaced bool,
+	objDetails objectTemplateDetails,
 	index int,
 	policy *policyv1.ConfigurationPolicy,
 ) (
@@ -845,36 +896,30 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		return nil, false, "", "", nil, statusUpdateNeeded
 	}
 
-	var unstruct unstructured.Unstructured
-	unstruct.Object = make(map[string]interface{})
-
-	var blob interface{}
-	if err := json.Unmarshal(ext.Raw, &blob); err != nil {
-		log.Error(err, "Could not unmarshal data from JSON")
+	unstruct, err := unmarshalFromJSON(ext.Raw)
+	if err != nil {
 		os.Exit(1)
 	}
 
-	//nolint:forcetypeassert
-	unstruct.Object = blob.(map[string]interface{}) // set object to the content of the blob after Unmarshalling
 	exists := true
 	objNames := []string{}
 	remediation := policy.Spec.RemediationAction
 
-	name, kind, metaNamespace := getDetails(unstruct)
-	if metaNamespace != "" {
-		namespace = metaNamespace
-		log = log.WithValues("namespace", metaNamespace)
-
-		log.V(2).Info("Overridding the namespace with what is defined in the object template")
+	// If the parsed namespace doesn't match the object namespace, something in the calling function went wrong
+	if objDetails.namespace != "" && objDetails.namespace != namespace {
+		panic(fmt.Sprintf("Error: provided namespace '%s' does not match object namespace '%s'",
+			namespace, objDetails.namespace))
 	}
 
 	dclient, rsrc := getResourceAndDynamicClient(mapping)
 
-	if isNamespaced && namespace == "" {
+	if objDetails.isNamespaced && namespace == "" {
 		log.Info("The object template is namespaced but no namespace is specified. Cannot process.")
 		// namespaced but none specified, generate violation
 		statusUpdateNeeded = addConditionToStatus(policy, index, false, "K8s missing namespace",
-			"namespaced object has no namespace specified")
+			"namespaced object has no namespace specified "+
+				"from the policy namespaceSelector nor the object metadata",
+		)
 		if statusUpdateNeeded {
 			eventType := eventNormal
 			if index < len(policy.Status.CompliancyDetails) &&
@@ -882,7 +927,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 				eventType = eventWarning
 			}
 
-			r.Recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), name),
+			r.Recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), objDetails.name),
 				convertPolicyStatusToString(policy))
 		}
 
@@ -891,18 +936,18 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 	var object *unstructured.Unstructured
 
-	if name != "" { // named object, so checking just for the existence of the specific object
+	if objDetails.name != "" { // named object, so checking just for the existence of the specific object
 		// If the object couldn't be retrieved, this will be handled later on.
-		object, _ = getObject(isNamespaced, namespace, name, rsrc, dclient)
+		object, _ = getObject(objDetails.isNamespaced, namespace, objDetails.name, rsrc, dclient)
 
 		exists = object != nil
 
-		objNames = append(objNames, name)
-	} else if kind != "" { // no name, so we are checking for the existence of any object of this kind
+		objNames = append(objNames, objDetails.name)
+	} else if objDetails.kind != "" { // no name, so we are checking for the existence of any object of this kind
 		log.V(1).Info(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
-		objNames = append(objNames, getNamesOfKind(unstruct, rsrc, isNamespaced,
+		objNames = append(objNames, getNamesOfKind(unstruct, rsrc, objDetails.isNamespaced,
 			namespace, dclient, strings.ToLower(string(objectT.ComplianceType)))...)
 
 		// we do not support enforce on unnamed templates
@@ -923,14 +968,14 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	rsrcKind = rsrc.Resource
 
 	if len(objNames) == 1 {
-		name = objNames[0]
+		name := objNames[0]
 		singObj := singleObject{
 			policy:      policy,
 			gvr:         rsrc,
 			object:      object,
 			name:        name,
 			namespace:   namespace,
-			namespaced:  isNamespaced,
+			namespaced:  objDetails.isNamespaced,
 			shouldExist: objShouldExist,
 			index:       index,
 			unstruct:    unstruct,
@@ -944,7 +989,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		// The message string for single objects is different than for multiple
 		reason = generateSingleObjReason(objShouldExist, compliant, exists)
 		// Enforce could clear the objNames array so use name instead
-		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, isNamespaced, []string{name}, reason)
+		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, objDetails.isNamespaced, []string{name}, reason)
 	} else { // This case only occurs when the desired object is not named
 		if objShouldExist {
 			if exists {
@@ -964,7 +1009,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			}
 		}
 
-		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, isNamespaced, objNames, reason)
+		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, objDetails.isNamespaced, objNames, reason)
 
 		if !statusUpdateNeeded {
 			log.V(2).Info("The status did not change for this object template")
@@ -1287,33 +1332,6 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	return mapping, updateNeeded
 }
 
-func getDetails(unstruct unstructured.Unstructured) (name string, kind string, namespace string) {
-	name = ""
-	kind = ""
-	namespace = ""
-
-	if md, ok := unstruct.Object["metadata"]; ok {
-		//nolint:forcetypeassert
-		metadata := md.(map[string]interface{})
-		if objectName, ok := metadata["name"]; ok {
-			name = strings.TrimSpace(objectName.(string))
-		}
-		// override the namespace if specified in objectTemplates
-		if objectns, ok := metadata["namespace"]; ok {
-			namespace = strings.TrimSpace(objectns.(string))
-
-			log.V(2).Info("Overrode namespace since it is specified in objectTemplates",
-				"name", name, "namespace", namespace)
-		}
-	}
-
-	if objKind, ok := unstruct.Object["kind"]; ok {
-		kind = strings.TrimSpace(objKind.(string))
-	}
-
-	return name, kind, namespace
-}
-
 // buildNameList is a helper function to pull names of resources that match an objectTemplate from a list of resources
 func buildNameList(
 	unstruct unstructured.Unstructured, complianceType string, resList *unstructured.UnstructuredList,
@@ -1425,57 +1443,6 @@ func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (r
 	}
 
 	return addConditionToStatus(obj.policy, obj.index, completed, reason, msg), err
-}
-
-func getPolicyNamespaces(policy policyv1.ConfigurationPolicy) []string {
-	// get all namespaces
-	allNamespaces := getAllNamespaces()
-	// then get the list of included
-	includedNamespaces := []string{}
-	included := policy.Spec.NamespaceSelector.Include
-
-	for _, value := range included {
-		found := common.FindPattern(string(value), allNamespaces)
-		if found != nil {
-			includedNamespaces = append(includedNamespaces, found...)
-		}
-	}
-
-	// then get the list of excluded
-	excludedNamespaces := []string{}
-	excluded := policy.Spec.NamespaceSelector.Exclude
-
-	for _, value := range excluded {
-		found := common.FindPattern(string(value), allNamespaces)
-		if found != nil {
-			excludedNamespaces = append(excludedNamespaces, found...)
-		}
-	}
-
-	// then get the list of deduplicated
-	finalList := common.DeduplicateItems(includedNamespaces, excludedNamespaces)
-	if len(finalList) == 0 {
-		finalList = append(finalList, "")
-	}
-
-	return finalList
-}
-
-func getAllNamespaces() (list []string) {
-	listOpt := &metav1.ListOptions{}
-
-	nsList, err := clientSet.CoreV1().Namespaces().List(context.TODO(), *listOpt)
-	if err != nil {
-		log.Error(err, "Could not list namespaces from the API server")
-	}
-
-	namespacesNames := []string{}
-
-	for _, n := range nsList.Items {
-		namespacesNames = append(namespacesNames, n.Name)
-	}
-
-	return namespacesNames
 }
 
 // checkMessageSimilarity decides whether to append a new condition to a configurationPolicy status
