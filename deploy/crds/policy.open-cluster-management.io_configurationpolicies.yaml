@@ -153,6 +153,14 @@ spec:
                   - complianceType
                   type: object
                 type: array
+              pruneObjectBehavior:
+                description: 'PruneObjectBehavior : DeleteAll, DeleteIfCreated, or
+                  None'
+                enum:
+                - DeleteAll
+                - DeleteIfCreated
+                - None
+                type: string
               remediationAction:
                 description: 'RemediationAction : enforce or inform'
                 enum:
@@ -263,6 +271,17 @@ spec:
                                 https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/'
                               type: string
                           type: object
+                      type: object
+                    properties:
+                      properties:
+                        createdByPolicy:
+                          description: Whether the object was created by the parent
+                            policy
+                          type: boolean
+                        uid:
+                          description: Store object UID to help track object ownership
+                            for deletion
+                          type: string
                       type: object
                     reason:
                       type: string

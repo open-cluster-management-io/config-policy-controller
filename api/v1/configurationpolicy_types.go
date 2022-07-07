@@ -27,6 +27,10 @@ type RemediationAction string
 // +kubebuilder:validation:Enum=low;Low;medium;Medium;high;High;critical;Critical
 type Severity string
 
+// PruneObjectBehavior : DeleteAll, DeleteIfCreated, or None
+// +kubebuilder:validation:Enum=DeleteAll;DeleteIfCreated;None;
+type PruneObjectBehavior string
+
 const (
 	// Enforce is an remediationAction to make changes
 	Enforce RemediationAction = "Enforce"
@@ -149,9 +153,10 @@ type ConfigurationPolicySpec struct {
 	// 'matchLabels' and/or 'matchExpressions' are, 'include' will behave as if ['*'] were given. If
 	// 'matchExpressions' and 'matchLabels' are both not provided, 'include' must be provided to
 	// retrieve namespaces.
-	NamespaceSelector  Target             `json:"namespaceSelector,omitempty"`
-	ObjectTemplates    []*ObjectTemplate  `json:"object-templates,omitempty"`
-	EvaluationInterval EvaluationInterval `json:"evaluationInterval,omitempty"`
+	NamespaceSelector   Target              `json:"namespaceSelector,omitempty"`
+	ObjectTemplates     []*ObjectTemplate   `json:"object-templates,omitempty"`
+	EvaluationInterval  EvaluationInterval  `json:"evaluationInterval,omitempty"`
+	PruneObjectBehavior PruneObjectBehavior `json:"pruneObjectBehavior,omitempty"`
 }
 
 // ObjectTemplate describes how an object should look
@@ -255,7 +260,8 @@ type RelatedObject struct {
 	//
 	Compliant string `json:"compliant,omitempty"`
 	//
-	Reason string `json:"reason,omitempty"`
+	Reason     string           `json:"reason,omitempty"`
+	Properties ObjectProperties `json:"properties,omitempty"`
 }
 
 // ObjectResource is an object identified by the policy as a resource that needs to be validated.
@@ -277,6 +283,13 @@ type ObjectMetadata struct {
 	// Namespace of the referent. More info:
 	// https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
 	Namespace string `json:"namespace,omitempty"`
+}
+
+type ObjectProperties struct {
+	// Whether the object was created by the parent policy
+	CreatedByPolicy bool `json:"createdByPolicy,omitempty"`
+	// Store object UID to help track object ownership for deletion
+	UID string `json:"uid,omitempty"`
 }
 
 func init() {
