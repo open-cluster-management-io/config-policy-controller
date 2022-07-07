@@ -42,10 +42,8 @@ import (
 
 // Change below variables to serve metrics on different host or port.
 var (
-	metricsHost       = "0.0.0.0"
-	metricsPort int32 = 8383
-	scheme            = k8sruntime.NewScheme()
-	log               = ctrl.Log.WithName("setup")
+	scheme = k8sruntime.NewScheme()
+	log    = ctrl.Log.WithName("setup")
 )
 
 func printVersion() {
@@ -68,7 +66,7 @@ func main() {
 	zflags.Bind(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
-	var clusterName, hubConfigPath, probeAddr string
+	var clusterName, hubConfigPath, metricsAddr, probeAddr string
 	var frequency uint
 	var decryptionConcurrency, evaluationConcurrency uint8
 	var enableLease, enableLeaderElection, legacyLeaderElection bool
@@ -80,6 +78,9 @@ func main() {
 	pflag.StringVar(&clusterName, "cluster-name", "acm-managed-cluster", "Name of the cluster")
 	pflag.StringVar(&hubConfigPath, "hub-kubeconfig-path", "/var/run/klusterlet/kubeconfig",
 		"Path to the hub kubeconfig")
+	pflag.StringVar(
+		&metricsAddr, "metrics-bind-address", "localhost:8383", "The address the metrics endpoint binds to.",
+	)
 	pflag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
 	pflag.BoolVar(&enableLeaderElection, "leader-elect", true,
 		"Enable leader election for controller manager. "+
@@ -148,7 +149,7 @@ func main() {
 	// Set default manager options
 	options := manager.Options{
 		Namespace:              namespace,
-		MetricsBindAddress:     fmt.Sprintf("%s:%d", metricsHost, metricsPort),
+		MetricsBindAddress:     metricsAddr,
 		Scheme:                 scheme,
 		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
