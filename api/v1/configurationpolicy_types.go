@@ -153,9 +153,10 @@ type ConfigurationPolicySpec struct {
 	// 'matchLabels' and/or 'matchExpressions' are, 'include' will behave as if ['*'] were given. If
 	// 'matchExpressions' and 'matchLabels' are both not provided, 'include' must be provided to
 	// retrieve namespaces.
-	NamespaceSelector   Target              `json:"namespaceSelector,omitempty"`
-	ObjectTemplates     []*ObjectTemplate   `json:"object-templates,omitempty"`
-	EvaluationInterval  EvaluationInterval  `json:"evaluationInterval,omitempty"`
+	NamespaceSelector  Target             `json:"namespaceSelector,omitempty"`
+	ObjectTemplates    []*ObjectTemplate  `json:"object-templates,omitempty"`
+	EvaluationInterval EvaluationInterval `json:"evaluationInterval,omitempty"`
+	// +kubebuilder:default:=None
 	PruneObjectBehavior PruneObjectBehavior `json:"pruneObjectBehavior,omitempty"`
 }
 
