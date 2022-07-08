@@ -154,6 +154,7 @@ spec:
                   type: object
                 type: array
               pruneObjectBehavior:
+                default: None
                 description: 'PruneObjectBehavior : DeleteAll, DeleteIfCreated, or
                   None'
                 enum:
