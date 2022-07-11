@@ -747,6 +747,18 @@ func sortRelatedObjectsAndUpdate(
 
 	update := false
 
+	// don't set creation info if it has already been set
+	for i, newEntry := range related {
+		for _, oldEntry := range oldRelated {
+			if oldEntry.Object.Kind == newEntry.Object.Kind &&
+				oldEntry.Object.Metadata.Name == newEntry.Object.Metadata.Name &&
+				oldEntry.Object.Metadata.Namespace == newEntry.Object.Metadata.Namespace &&
+				oldEntry.Properties != nil {
+				related[i].Properties = oldEntry.Properties
+			}
+		}
+	}
+
 	if len(oldRelated) == len(related) {
 		for i, entry := range oldRelated {
 			if !gocmp.Equal(entry, related[i]) {
@@ -983,13 +995,23 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 		log.V(2).Info("Handling a single object template")
 
-		objNames, compliant, rsrcKind, statusUpdateNeeded = r.handleSingleObj(
+		var creationInfo *policyv1.ObjectProperties
+
+		objNames, compliant, rsrcKind, statusUpdateNeeded, creationInfo = r.handleSingleObj(
 			singObj, remediation, exists, dclient, objectT,
 		)
 		// The message string for single objects is different than for multiple
 		reason = generateSingleObjReason(objShouldExist, compliant, exists)
 		// Enforce could clear the objNames array so use name instead
-		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, objDetails.isNamespaced, []string{name}, reason)
+		relatedObjects = addRelatedObjects(
+			compliant,
+			rsrc,
+			namespace,
+			objDetails.isNamespaced,
+			[]string{name},
+			reason,
+			creationInfo,
+		)
 	} else { // This case only occurs when the desired object is not named
 		if objShouldExist {
 			if exists {
@@ -1009,7 +1031,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			}
 		}
 
-		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, objDetails.isNamespaced, objNames, reason)
+		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, objDetails.isNamespaced, objNames, reason, nil)
 
 		if !statusUpdateNeeded {
 			log.V(2).Info("The status did not change for this object template")
@@ -1058,7 +1080,13 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	exists bool,
 	dclient dynamic.Interface,
 	objectT *policyv1.ObjectTemplate,
-) (objNameList []string, compliance bool, rsrcKind string, statusUpdateNeeded bool) {
+) (
+	objNameList []string,
+	compliance bool,
+	rsrcKind string,
+	statusUpdateNeeded bool,
+	creationInfo *policyv1.ObjectProperties,
+) {
 	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name, "index", obj.index)
 
 	var err error
@@ -1073,10 +1101,18 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if !exists && obj.shouldExist {
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			statusUpdateNeeded, err = enforceByCreatingOrDeleting(obj, dclient)
+			var uid string
+			statusUpdateNeeded, uid, err = enforceByCreatingOrDeleting(obj, dclient)
+
 			if err != nil {
 				// violation created for handling error
 				objLog.Error(err, "Could not handle missing musthave object")
+			} else {
+				created := true
+				creationInfo = &policyv1.ObjectProperties{
+					CreatedByPolicy: &created,
+					UID:             uid,
+				}
 			}
 		} else { // inform
 			compliant = false
@@ -1086,7 +1122,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if exists && !obj.shouldExist {
 		// it is a mustnothave but it exist, so it must be deleted
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			statusUpdateNeeded, err = enforceByCreatingOrDeleting(obj, dclient)
+			statusUpdateNeeded, _, err = enforceByCreatingOrDeleting(obj, dclient)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
 			}
@@ -1130,6 +1166,11 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 				statusUpdateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
 					obj.index, compliant, true)
+				created := false
+				creationInfo = &policyv1.ObjectProperties{
+					CreatedByPolicy: &created,
+					UID:             "",
+				}
 			}
 		}
 
@@ -1148,18 +1189,18 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		log.V(1).Info("Sending an update policy status event", "policy", obj.policy.Name, "status", statusStr)
 		r.Recorder.Event(obj.policy, eventType, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name), statusStr)
 
-		return nil, compliant, "", statusUpdateNeeded
+		return nil, compliant, "", statusUpdateNeeded, creationInfo
 	}
 
 	if processingErr {
-		return nil, false, "", statusUpdateNeeded
+		return nil, false, "", statusUpdateNeeded, creationInfo
 	}
 
 	if strings.EqualFold(string(remediation), string(policyv1.Inform)) || specViolation {
-		return []string{obj.name}, compliant, obj.gvr.Resource, statusUpdateNeeded
+		return []string{obj.name}, compliant, obj.gvr.Resource, statusUpdateNeeded, creationInfo
 	}
 
-	return nil, compliant, "", statusUpdateNeeded
+	return nil, compliant, "", statusUpdateNeeded, creationInfo
 }
 
 // isObjectNamespaced determines if the input object is a namespaced resource. When refreshIfNecessary
@@ -1398,7 +1439,7 @@ func getNamesOfKind(
 // completely missing (as opposed to existing, but not matching the desired state), or where a
 // mustnothave object does exist. Eg, it does not handle the case where a targeted update would need
 // to be made to an object.
-func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (result bool, erro error) {
+func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (result bool, uid string, erro error) {
 	log := log.WithValues(
 		"object", obj.name,
 		"policy", obj.policy.Name,
@@ -1428,6 +1469,13 @@ func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (r
 			log.V(2).Info("Created missing must have object", "resource", obj.gvr.Resource, "name", obj.name)
 			reason = "K8s creation success"
 			msg = fmt.Sprintf("%v %v was missing, and was created successfully", obj.gvr.Resource, idStr)
+
+			var uidIsString bool
+			uid, uidIsString, err = unstructured.NestedString(obj.object.Object, "metadata", "uid")
+
+			if !uidIsString || err != nil {
+				log.Error(err, "Tried to set UID in status but the field is not a string")
+			}
 		}
 	} else {
 		log.Info("Enforcing the policy by deleting the object")
@@ -1442,7 +1490,7 @@ func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (r
 		}
 	}
 
-	return addConditionToStatus(obj.policy, obj.index, completed, reason, msg), err
+	return addConditionToStatus(obj.policy, obj.index, completed, reason, msg), uid, err
 }
 
 // checkMessageSimilarity decides whether to append a new condition to a configurationPolicy status

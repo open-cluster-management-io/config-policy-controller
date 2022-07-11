@@ -261,8 +261,8 @@ type RelatedObject struct {
 	//
 	Compliant string `json:"compliant,omitempty"`
 	//
-	Reason     string           `json:"reason,omitempty"`
-	Properties ObjectProperties `json:"properties,omitempty"`
+	Reason     string            `json:"reason,omitempty"`
+	Properties *ObjectProperties `json:"properties,omitempty"`
 }
 
 // ObjectResource is an object identified by the policy as a resource that needs to be validated.
@@ -288,7 +288,7 @@ type ObjectMetadata struct {
 
 type ObjectProperties struct {
 	// Whether the object was created by the parent policy
-	CreatedByPolicy bool `json:"createdByPolicy,omitempty"`
+	CreatedByPolicy *bool `json:"createdByPolicy,omitempty"`
 	// Store object UID to help track object ownership for deletion
 	UID string `json:"uid,omitempty"`
 }
