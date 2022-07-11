@@ -27,6 +27,7 @@ func addRelatedObjects(
 	namespaced bool,
 	objNames []string,
 	reason string,
+	creationInfo *policyv1.ObjectProperties,
 ) (relatedObjects []policyv1.RelatedObject) {
 	for _, name := range objNames {
 		// Initialize the related object from the object handling
@@ -35,6 +36,10 @@ func addRelatedObjects(
 			relatedObject.Compliant = string(policyv1.Compliant)
 		} else {
 			relatedObject.Compliant = string(policyv1.NonCompliant)
+		}
+
+		if creationInfo != nil {
+			relatedObject.Properties = creationInfo
 		}
 
 		relatedObject.Reason = reason
