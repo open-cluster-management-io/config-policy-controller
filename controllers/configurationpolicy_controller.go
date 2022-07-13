@@ -511,22 +511,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 	log.V(2).Info("Processing the object templates", "count", len(plc.Spec.ObjectTemplates))
 
-	for indx, objectT := range plc.Spec.ObjectTemplates {
-		nonCompliantObjects := map[string]map[string]interface{}{}
-		compliantObjects := map[string]map[string]interface{}{}
-		enforce := strings.EqualFold(string(plc.Spec.RemediationAction), string(policyv1.Enforce))
-		kind := ""
-		objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
-
-		// Here appears to be a  good place to hook in template processing
-		// This is at the head of objectemplate processing
-		// ( just before the perNamespace handling of objectDefinitions)
-
-		// check here to determine if the object definition has a template
-		// and execute  template-processing only if  there is a template pattern "{{" in it
-		// to avoid unnecessary parsing when there is no template in the definition.
-
-		if !disableTemplates {
+	if !disableTemplates {
+		for _, objectT := range plc.Spec.ObjectTemplates {
 			// first check to make sure there are no hub-templates with delimiter - {{hub
 			// if one exists, it means the template resolution on the hub did not succeed.
 			if templates.HasTemplate(objectT.ObjectDefinition.Raw, "{{hub", false) {
@@ -619,19 +605,33 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				objectT.ObjectDefinition.Raw = resolvedTemplate
 			}
 		}
+	}
 
-		// Parse and fetch details from each object in each objectTemplate, and gather namespaces if required
-		var templateObjs []objectTemplateDetails
-		var selectedNamespaces []string
+	// Parse and fetch details from each object in each objectTemplate, and gather namespaces if required
+	var templateObjs []objectTemplateDetails
+	var selectedNamespaces []string
+	var objTmplStatusChangeNeeded bool
 
-		templateObjs, selectedNamespaces, parentStatusUpdateNeeded, err = r.getObjectTemplateDetails(plc)
-		if err != nil {
-			if parentStatusUpdateNeeded {
-				r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded)
-			}
+	templateObjs, selectedNamespaces, objTmplStatusChangeNeeded, err = r.getObjectTemplateDetails(plc)
 
-			return
+	if objTmplStatusChangeNeeded {
+		parentStatusUpdateNeeded = true
+	}
+
+	if err != nil {
+		if parentStatusUpdateNeeded {
+			r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded)
 		}
+
+		return
+	}
+
+	for indx, objectT := range plc.Spec.ObjectTemplates {
+		nonCompliantObjects := map[string]map[string]interface{}{}
+		compliantObjects := map[string]map[string]interface{}{}
+		enforce := strings.EqualFold(string(plc.Spec.RemediationAction), string(policyv1.Enforce))
+		kind := ""
+		objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
 
 		// If the object does not have a namespace specified, use the previously retrieved namespaces
 		// from the NamespaceSelector. If no namespaces are found/specified, use the value from the
