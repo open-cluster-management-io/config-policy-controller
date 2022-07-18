@@ -48,8 +48,6 @@ var log = ctrl.Log.WithName(ControllerName)
 // PlcChan a channel used to pass policies ready for update
 var PlcChan chan *policyv1.ConfigurationPolicy
 
-var clientSet kubernetes.Interface
-
 var (
 	eventNormal  = "Normal"
 	eventWarning = "Warning"
@@ -64,11 +62,6 @@ var (
 	reasonWantNotFoundExists = "Resource found but should not exist"
 	reasonWantNotFoundDNE    = "Resource not found as expected"
 )
-
-var config *rest.Config
-
-// NamespaceWatched defines which namespace we can watch for the GRC policies and ignore others
-var NamespaceWatched string
 
 var evalLoopHistogram = prometheus.NewHistogram(
 	prometheus.HistogramOpts{
@@ -89,13 +82,6 @@ func (r *ConfigurationPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error
 		Named(ControllerName).
 		For(&policyv1.ConfigurationPolicy{}).
 		Complete(r)
-}
-
-// Initialize to initialize some controller variables
-func Initialize(kubeconfig *rest.Config, clientset kubernetes.Interface, namespace string) {
-	config = kubeconfig
-	clientSet = clientset
-	NamespaceWatched = namespace
 }
 
 // blank assignment to verify that ConfigurationPolicyReconciler implements reconcile.Reconciler
@@ -124,6 +110,10 @@ type ConfigurationPolicyReconciler struct {
 	EvaluationConcurrency uint8
 	Scheme                *runtime.Scheme
 	Recorder              record.EventRecorder
+	// The Kubernetes client to use when evaluating/enforcing policies. Most times, this will be the same cluster
+	// where the controller is running.
+	TargetK8sClient kubernetes.Interface
+	TargetK8sConfig *rest.Config
 	discoveryInfo
 }
 
@@ -234,7 +224,7 @@ func (r *ConfigurationPolicyReconciler) handlePolicyWorker(
 func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 	log.V(2).Info("Refreshing the discovery info")
 
-	dd := clientSet.Discovery()
+	dd := r.TargetK8sClient.Discovery()
 
 	_, apiResourceList, err := dd.ServerGroupsAndResources()
 	if err != nil {
@@ -380,7 +370,7 @@ func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
 		} else {
 			// If an error occurred in the NamespaceSelector, update the policy status and abort
 			var err error
-			selectedNamespaces, err = common.GetSelectedNamespaces(selector)
+			selectedNamespaces, err = common.GetSelectedNamespaces(r.TargetK8sClient, selector)
 			if err != nil {
 				errMsg := "Error filtering namespaces with provided namespaceSelector"
 				log.Error(
@@ -496,7 +486,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		}
 	}
 
-	tmplResolver, err := templates.NewResolver(&clientSet, config, tmplResolverCfg)
+	tmplResolver, err := templates.NewResolver(&r.TargetK8sClient, r.TargetK8sConfig, tmplResolverCfg)
 	if err != nil {
 		// If the encryption key is invalid, clear the cache.
 		if errors.Is(err, templates.ErrInvalidAESKey) || errors.Is(err, templates.ErrAESKeyNotSet) {
@@ -923,7 +913,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			namespace, objDetails.namespace))
 	}
 
-	dclient, rsrc := getResourceAndDynamicClient(mapping)
+	dclient, rsrc := r.getResourceAndDynamicClient(mapping)
 
 	if objDetails.isNamespaced && namespace == "" {
 		log.Info("The object template is namespaced but no namespace is specified. Cannot process.")
@@ -1244,10 +1234,10 @@ func (r *ConfigurationPolicyReconciler) isObjectNamespaced(
 
 // getResourceAndDynamicClient creates a dynamic client to query resources and pulls the groupVersionResource
 // for an object from its mapping
-func getResourceAndDynamicClient(mapping *meta.RESTMapping) (
+func (r *ConfigurationPolicyReconciler) getResourceAndDynamicClient(mapping *meta.RESTMapping) (
 	dclient dynamic.Interface, rsrc schema.GroupVersionResource,
 ) {
-	restconfig := config
+	restconfig := rest.CopyConfig(r.TargetK8sConfig)
 	restconfig.GroupVersion = &schema.GroupVersion{
 		Group:   mapping.GroupVersionKind.Group,
 		Version: mapping.GroupVersionKind.Version,
@@ -2124,15 +2114,11 @@ func (r *ConfigurationPolicyReconciler) createParentPolicyEvent(instance *policy
 }
 
 func createParentPolicy(instance *policyv1.ConfigurationPolicy) extpoliciesv1.Policy {
-	ns := common.ExtractNamespaceLabel(instance)
-	if ns == "" {
-		ns = NamespaceWatched
-	}
-
 	return extpoliciesv1.Policy{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      instance.OwnerReferences[0].Name,
-			Namespace: ns, // we assume that the parent policy is in the watched-namespace passed as flag
+			Name: instance.OwnerReferences[0].Name,
+			// It's assumed that the parent policy is in the same namespace as the configuration policy
+			Namespace: instance.Namespace,
 			UID:       instance.OwnerReferences[0].UID,
 		},
 		TypeMeta: metav1.TypeMeta{

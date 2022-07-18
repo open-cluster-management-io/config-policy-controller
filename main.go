@@ -23,6 +23,7 @@ import (
 
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -66,7 +67,7 @@ func main() {
 	zflags.Bind(flag.CommandLine)
 	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
 
-	var clusterName, hubConfigPath, metricsAddr, probeAddr string
+	var clusterName, hubConfigPath, targetKubeConfig, metricsAddr, probeAddr string
 	var frequency uint
 	var decryptionConcurrency, evaluationConcurrency uint8
 	var enableLease, enableLeaderElection, legacyLeaderElection bool
@@ -78,6 +79,12 @@ func main() {
 	pflag.StringVar(&clusterName, "cluster-name", "acm-managed-cluster", "Name of the cluster")
 	pflag.StringVar(&hubConfigPath, "hub-kubeconfig-path", "/var/run/klusterlet/kubeconfig",
 		"Path to the hub kubeconfig")
+	pflag.StringVar(
+		&targetKubeConfig,
+		"target-kubeconfig-path",
+		"",
+		"A path to an alternative kubeconfig for policy evaluation and enforcement.",
+	)
 	pflag.StringVar(
 		&metricsAddr, "metrics-bind-address", "localhost:8383", "The address the metrics endpoint binds to.",
 	)
@@ -206,12 +213,36 @@ func main() {
 		os.Exit(1)
 	}
 
+	var targetK8sClient kubernetes.Interface
+	var targetK8sConfig *rest.Config
+
+	if targetKubeConfig == "" {
+		targetK8sConfig = cfg
+		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
+	} else {
+		var err error
+
+		targetK8sConfig, err = clientcmd.BuildConfigFromFlags("", targetKubeConfig)
+		if err != nil {
+			log.Error(err, "Failed to load the target kubeconfig", "path", targetKubeConfig)
+			os.Exit(1)
+		}
+
+		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
+
+		log.Info(
+			"Overrode the target Kubernetes cluster for policy evaluation and enforcement", "path", targetKubeConfig,
+		)
+	}
+
 	reconciler := controllers.ConfigurationPolicyReconciler{
 		Client:                mgr.GetClient(),
 		DecryptionConcurrency: decryptionConcurrency,
 		EvaluationConcurrency: evaluationConcurrency,
 		Scheme:                mgr.GetScheme(),
 		Recorder:              mgr.GetEventRecorderFor(controllers.ControllerName),
+		TargetK8sClient:       targetK8sClient,
+		TargetK8sConfig:       targetK8sConfig,
 	}
 	if err = reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")
@@ -228,11 +259,6 @@ func main() {
 		log.Error(err, "Unable to set up ready check")
 		os.Exit(1)
 	}
-
-	// Initialize some variables
-	clientset := kubernetes.NewForConfigOrDie(cfg)
-	common.Initialize(clientset, cfg)
-	controllers.Initialize(cfg, clientset, namespace)
 
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
 	log.V(1).Info("Perodically processing Configuration Policies", "frequency", frequency)
@@ -256,9 +282,8 @@ func main() {
 			log.Info("Starting lease controller to report status")
 
 			leaseUpdater := lease.NewLeaseUpdater(
-				clientset,
-				"config-policy-controller",
-				operatorNs,
+				// Always use the cluster that is running the controller for the lease.
+				kubernetes.NewForConfigOrDie(cfg), "config-policy-controller", operatorNs,
 			)
 
 			hubCfg, err := clientcmd.BuildConfigFromFlags("", hubConfigPath)

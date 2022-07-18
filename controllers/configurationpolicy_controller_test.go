@@ -14,13 +14,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
-	testclient "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
-	"open-cluster-management.io/config-policy-controller/pkg/common"
 )
 
 func TestReconcile(t *testing.T) {
@@ -68,9 +66,6 @@ func TestReconcile(t *testing.T) {
 			Namespace: namespace,
 		},
 	}
-
-	simpleClient := testclient.NewSimpleClientset()
-	common.Initialize(simpleClient, nil)
 
 	res, err := r.Reconcile(context.TODO(), req)
 	if err != nil {
