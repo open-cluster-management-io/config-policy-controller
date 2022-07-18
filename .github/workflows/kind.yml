@@ -74,6 +74,17 @@ jobs:
         export GOPATH=$(go env GOPATH)
         make e2e-test-coverage
 
+    - name: Create K8s KinD Cluster to simulate hosted mode - ${{ matrix.kind }}
+      env:
+        KIND_VERSION: ${{ matrix.kind }}
+      run: |
+        make kind-additional-cluster
+
+    - name: E2E tests that simulate hosted mode
+      run: |
+        export GOPATH=$(go env GOPATH)
+        make e2e-test-hosted-mode-coverage
+
     - name: Test Coverage Verification
       if: ${{ github.event_name == 'pull_request' }}
       run: |
