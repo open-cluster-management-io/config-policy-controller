@@ -23,6 +23,7 @@ import (
 func addRelatedObjects(
 	compliant bool,
 	rsrc schema.GroupVersionResource,
+	kind string,
 	namespace string,
 	namespaced bool,
 	objNames []string,
@@ -53,7 +54,7 @@ func addRelatedObjects(
 		}
 
 		relatedObject.Object.APIVersion = rsrc.GroupVersion().String()
-		relatedObject.Object.Kind = rsrc.Resource
+		relatedObject.Object.Kind = kind
 		relatedObject.Object.Metadata = metadata
 		relatedObjects = updateRelatedObjectsStatus(relatedObjects, relatedObject)
 	}
@@ -527,4 +528,34 @@ func sortAndJoinKeys(m map[string]bool, sep string) string {
 	sort.Strings(keys)
 
 	return strings.Join(keys, sep)
+}
+
+func configPlcHasFinalizer(plc policyv1.ConfigurationPolicy, finalizer string) bool {
+	for _, existingFinalizer := range plc.GetFinalizers() {
+		if existingFinalizer == finalizer {
+			return true
+		}
+	}
+
+	return false
+}
+
+func addConfigPlcFinalizer(plc policyv1.ConfigurationPolicy, finalizer string) []string {
+	if configPlcHasFinalizer(plc, finalizer) {
+		return plc.GetFinalizers()
+	}
+
+	return append(plc.GetFinalizers(), finalizer)
+}
+
+func removeConfigPlcFinalizer(plc policyv1.ConfigurationPolicy, finalizer string) []string {
+	result := []string{}
+
+	for _, existingFinalizer := range plc.GetFinalizers() {
+		if existingFinalizer != finalizer {
+			result = append(result, existingFinalizer)
+		}
+	}
+
+	return result
 }

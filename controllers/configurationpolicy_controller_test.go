@@ -319,21 +319,23 @@ func TestAddRelatedObject(t *testing.T) {
 	namespaced := true
 	name := "foo"
 	reason := "reason"
-	relatedList := addRelatedObjects(compliant, rsrc, namespace, namespaced, []string{name}, reason, nil)
+	relatedList := addRelatedObjects(compliant, rsrc, "ConfigurationPolicy",
+		namespace, namespaced, []string{name}, reason, nil)
 	related := relatedList[0]
 
 	// get the related object and validate what we added is in the status
 	assert.True(t, related.Compliant == string(policyv1.Compliant))
 	assert.True(t, related.Reason == "reason")
 	assert.True(t, related.Object.APIVersion == rsrc.GroupVersion().String())
-	assert.True(t, related.Object.Kind == rsrc.Resource)
+	assert.True(t, related.Object.Kind == "ConfigurationPolicy")
 	assert.True(t, related.Object.Metadata.Name == name)
 	assert.True(t, related.Object.Metadata.Namespace == namespace)
 
 	// add the same object and make sure the existing one is overwritten
 	reason = "new"
 	compliant = false
-	relatedList = addRelatedObjects(compliant, rsrc, namespace, namespaced, []string{name}, reason, nil)
+	relatedList = addRelatedObjects(compliant, rsrc, "ConfigurationPolicy",
+		namespace, namespaced, []string{name}, reason, nil)
 	related = relatedList[0]
 
 	assert.True(t, len(relatedList) == 1)
@@ -343,7 +345,8 @@ func TestAddRelatedObject(t *testing.T) {
 	// add a new related object and make sure the entry is appended
 	name = "bar"
 	relatedList = append(relatedList,
-		addRelatedObjects(compliant, rsrc, namespace, namespaced, []string{name}, reason, nil)...)
+		addRelatedObjects(compliant, rsrc, "ConfigurationPolicy",
+			namespace, namespaced, []string{name}, reason, nil)...)
 
 	assert.True(t, len(relatedList) == 2)
 
@@ -375,11 +378,12 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 	}
 	rsrc := policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy")
 	name := "foo"
-	relatedList := addRelatedObjects(true, rsrc, "default", true, []string{name}, "reason", nil)
+	relatedList := addRelatedObjects(true, rsrc, "ConfigurationPolicy", "default", true, []string{name}, "reason", nil)
 
 	// add the same object but after sorting it should be first
 	name = "bar"
-	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "default", true, []string{name}, "reason", nil)...)
+	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "ConfigurationPolicy", "default",
+		true, []string{name}, "reason", nil)...)
 
 	empty := []policyv1.RelatedObject{}
 
@@ -387,16 +391,19 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
 
 	// append another object named bar but also with namespace bar
-	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "bar", true, []string{name}, "reason", nil)...)
+	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "ConfigurationPolicy", "bar",
+		true, []string{name}, "reason", nil)...)
 
 	sortRelatedObjectsAndUpdate(policy, relatedList, empty)
 	assert.True(t, relatedList[0].Object.Metadata.Namespace == "bar")
 
 	// clear related objects and test sorting with no namespace
 	name = "foo"
-	relatedList = addRelatedObjects(true, rsrc, "", false, []string{name}, "reason", nil)
+	relatedList = addRelatedObjects(true, rsrc, "ConfigurationPolicy", "",
+		false, []string{name}, "reason", nil)
 	name = "bar"
-	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "", false, []string{name}, "reason", nil)...)
+	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "ConfigurationPolicy", "",
+		false, []string{name}, "reason", nil)...)
 
 	sortRelatedObjectsAndUpdate(policy, relatedList, empty)
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
