@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod-e2e20
+spec:
+  containers:
+    - image: nginx:1.7.9
+      name: nginx
+      ports:
+        - containerPort: 80

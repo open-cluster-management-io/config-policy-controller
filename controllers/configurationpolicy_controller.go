@@ -403,6 +403,88 @@ func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
 	return templateObjs, selectedNamespaces, false, nil
 }
 
+func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.ConfigurationPolicy) []string {
+	deletionFailures := []string{}
+
+	for _, object := range plc.Status.RelatedObjects {
+		// set up client for object deletion
+		gvk := schema.FromAPIVersionAndKind(object.Object.APIVersion, object.Object.Kind)
+
+		log := log.WithValues("policy", plc.GetName(), "groupVersionKind", gvk.String())
+
+		mapper := restmapper.NewDiscoveryRESTMapper(r.apiGroups)
+
+		mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		if err != nil {
+			log.Error(err, "Could not get resource mapping for child object")
+
+			deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
+				object.Object.Metadata.Name, object.Object.Metadata.Namespace))
+
+			continue
+		}
+
+		dclient, gvr := r.getResourceAndDynamicClient(mapping)
+
+		namespaced := object.Object.Metadata.Namespace != ""
+
+		// determine whether object should be deleted
+		needsDelete := false
+
+		if strings.EqualFold(string(plc.Spec.RemediationAction), "enforce") {
+			if string(plc.Spec.PruneObjectBehavior) == "DeleteAll" {
+				needsDelete = true
+			} else {
+				// if prune behavior is DeleteIfCreated, we need to check whether createdByPolicy
+				// is true and the UID is not stale
+				existing, _ := getObject(
+					namespaced,
+					object.Object.Metadata.Namespace,
+					object.Object.Metadata.Name,
+					gvr,
+					dclient)
+
+				if existing == nil {
+					continue
+				}
+
+				uid, uidIsString, err := unstructured.NestedString(existing.Object, "metadata", "uid")
+
+				if !uidIsString || err != nil {
+					log.Error(err, "Tried to pull UID from existing obj but the field is not a string")
+				} else if object.Properties != nil &&
+					object.Properties.CreatedByPolicy != nil &&
+					*object.Properties.CreatedByPolicy &&
+					object.Properties.UID == uid {
+					needsDelete = true
+				}
+			}
+		}
+
+		// delete object if needed
+		if needsDelete {
+			var res dynamic.ResourceInterface
+			if namespaced {
+				res = dclient.Resource(gvr).Namespace(object.Object.Metadata.Namespace)
+			} else {
+				res = dclient.Resource(gvr)
+			}
+
+			if completed, err := deleteObject(res, object.Object.Metadata.Name,
+				object.Object.Metadata.Namespace); !completed {
+				deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
+					object.Object.Metadata.Name, object.Object.Metadata.Namespace))
+
+				log.Error(err, "Error: Failed to delete object during child object pruning")
+			} else {
+				log.Info("Object successfully deleted as part of child object pruning")
+			}
+		}
+	}
+
+	return deletionFailures
+}
+
 // handleObjectTemplates iterates through all policy templates in a given policy and processes them
 func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 	log := log.WithValues("policy", plc.GetName())
@@ -427,6 +509,68 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusChanged)
 
 		return
+	}
+
+	pruneObjectFinalizer := "policy.open-cluster-management.io/delete-related-objects"
+
+	// object handling for when configurationPolicy is deleted
+	if plc.Spec.PruneObjectBehavior == "DeleteIfCreated" || plc.Spec.PruneObjectBehavior == "DeleteAll" {
+		// set finalizer if it hasn't been set
+		if !configPlcHasFinalizer(plc, pruneObjectFinalizer) {
+			plc.SetFinalizers(addConfigPlcFinalizer(plc, pruneObjectFinalizer))
+
+			err := r.Update(context.TODO(), &plc)
+			if err != nil {
+				log.V(1).Error(err, "Error setting finalizer for configuration policy", plc)
+			}
+		}
+
+		// kick off object deletion if configurationPolicy has been deleted
+		if plc.ObjectMeta.DeletionTimestamp != nil {
+			log.V(1).Info("Config policy has been deleted, handling child objects")
+
+			failures := r.cleanUpChildObjects(plc)
+
+			if len(failures) == 0 {
+				log.V(1).Info("Objects have been successfully cleaned up, removing finalizer")
+				plc.SetFinalizers(removeConfigPlcFinalizer(plc, pruneObjectFinalizer))
+
+				err := r.Update(context.TODO(), &plc)
+				if err != nil {
+					log.V(1).Error(err, "Error unsetting finalizer for configuration policy", plc)
+				}
+			} else {
+				log.V(1).Info("Object cleanup failed, some objects have not been deleted from the cluster")
+
+				statusChanged := addConditionToStatus(
+					&plc,
+					0,
+					false,
+					"Error cleaning up child objects",
+					"Failed to delete objects: "+strings.Join(failures, ", "))
+				if statusChanged {
+					parentStatusUpdateNeeded = true
+
+					r.Recorder.Event(
+						&plc,
+						eventWarning,
+						fmt.Sprintf(plcFmtStr, plc.GetName()),
+						convertPolicyStatusToString(&plc),
+					)
+				}
+
+				r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded)
+			}
+
+			return
+		}
+	} else if configPlcHasFinalizer(plc, pruneObjectFinalizer) {
+		// if pruneObjectBehavior is none, no finalizer is needed
+		plc.SetFinalizers(removeConfigPlcFinalizer(plc, pruneObjectFinalizer))
+		err := r.Update(context.TODO(), &plc)
+		if err != nil {
+			log.V(1).Error(err, "Error unsetting finalizer for configuration policy", plc)
+		}
 	}
 
 	addTemplateErrorViolation := func(reason, msg string) {
@@ -996,6 +1140,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		relatedObjects = addRelatedObjects(
 			compliant,
 			rsrc,
+			objDetails.kind,
 			namespace,
 			objDetails.isNamespaced,
 			[]string{name},
@@ -1021,7 +1166,16 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			}
 		}
 
-		relatedObjects = addRelatedObjects(compliant, rsrc, namespace, objDetails.isNamespaced, objNames, reason, nil)
+		relatedObjects = addRelatedObjects(
+			compliant,
+			rsrc,
+			objDetails.kind,
+			namespace,
+			objDetails.isNamespaced,
+			objNames,
+			reason,
+			nil,
+		)
 
 		if !statusUpdateNeeded {
 			log.V(2).Info("The status did not change for this object template")
