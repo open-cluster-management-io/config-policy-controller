@@ -51,6 +51,9 @@ const (
 
 	// UnknownCompliancy is an ComplianceState
 	UnknownCompliancy ComplianceState = "UnknownCompliancy"
+
+	// Terminating is a ComplianceState
+	Terminating ComplianceState = "Terminating"
 )
 
 // Condition is the base struct for representing resource conditions
@@ -199,6 +202,7 @@ type ResourceState string
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+//+kubebuilder:printcolumn:name="Compliance state",type="string",JSONPath=".status.compliant"
 
 // ConfigurationPolicy is the Schema for the configurationpolicies API
 type ConfigurationPolicy struct {

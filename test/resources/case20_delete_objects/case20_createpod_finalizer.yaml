@@ -1,0 +1,25 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-pod-create-withfinalizer
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  pruneObjectBehavior: DeleteIfCreated
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-pod-cannot-delete
+          finalizers:
+          - policy.open-cluster-management.io/test-obj-finalizer
+        spec:
+          containers:
+            - image: nginx:1.7.9
+              name: nginx
+              ports:
+                - containerPort: 80

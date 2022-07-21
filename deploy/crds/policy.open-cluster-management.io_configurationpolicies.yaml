@@ -16,7 +16,11 @@ spec:
     singular: configurationpolicy
   scope: Namespaced
   versions:
-  - name: v1
+  - additionalPrinterColumns:
+    - jsonPath: .status.compliant
+      name: Compliance state
+      type: string
+    name: v1
     schema:
       openAPIV3Schema:
         description: ConfigurationPolicy is the Schema for the configurationpolicies
