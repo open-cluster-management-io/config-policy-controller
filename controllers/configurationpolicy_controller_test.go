@@ -523,6 +523,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		evaluationInterval      policyv1.EvaluationInterval
 		complianceState         policyv1.ComplianceState
 		expected                bool
+		deletionTimestamp       *metav1.Time
 	}{
 		{
 			"Just evaluated and the generation is unchanged",
@@ -531,6 +532,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{},
 			policyv1.Compliant,
 			false,
+			nil,
 		},
 		{
 			"The generation has changed",
@@ -539,6 +541,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{},
 			policyv1.Compliant,
 			true,
+			nil,
 		},
 		{
 			"lastEvaluated not set",
@@ -547,6 +550,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{},
 			policyv1.Compliant,
 			true,
+			nil,
 		},
 		{
 			"Invalid lastEvaluated",
@@ -555,6 +559,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{},
 			policyv1.Compliant,
 			true,
+			nil,
 		},
 		{
 			"Unknown compliance state",
@@ -563,6 +568,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{},
 			policyv1.UnknownCompliancy,
 			true,
+			nil,
 		},
 		{
 			"Default evaluation interval with a past lastEvaluated when compliant",
@@ -571,6 +577,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{},
 			policyv1.Compliant,
 			true,
+			nil,
 		},
 		{
 			"Default evaluation interval with a past lastEvaluated when noncompliant",
@@ -579,6 +586,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{},
 			policyv1.NonCompliant,
 			true,
+			nil,
 		},
 		{
 			"Never evaluation interval with past lastEvaluated when compliant",
@@ -587,6 +595,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{Compliant: "never"},
 			policyv1.Compliant,
 			false,
+			nil,
 		},
 		{
 			"Never evaluation interval with past lastEvaluated when noncompliant",
@@ -595,6 +604,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{NonCompliant: "never"},
 			policyv1.NonCompliant,
 			false,
+			nil,
 		},
 		{
 			"Invalid evaluation interval when compliant",
@@ -603,6 +613,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{Compliant: "Do or do not. There is no try."},
 			policyv1.Compliant,
 			true,
+			nil,
 		},
 		{
 			"Invalid evaluation interval when noncompliant",
@@ -611,6 +622,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{NonCompliant: "Do or do not. There is no try."},
 			policyv1.NonCompliant,
 			true,
+			nil,
 		},
 		{
 			"Custom evaluation interval that hasn't past yet when compliant",
@@ -619,6 +631,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{Compliant: "12h"},
 			policyv1.Compliant,
 			false,
+			nil,
 		},
 		{
 			"Custom evaluation interval that hasn't past yet when noncompliant",
@@ -627,6 +640,16 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
 			policyv1.NonCompliant,
 			false,
+			nil,
+		},
+		{
+			"Deletion timestamp is non nil",
+			time.Now().UTC().Add(-13 * time.Hour).Format(time.RFC3339),
+			2,
+			policyv1.EvaluationInterval{NonCompliant: "12h"},
+			policyv1.NonCompliant,
+			true,
+			&metav1.Time{Time: time.Now()},
 		},
 	}
 
@@ -643,6 +666,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 				policy.Status.LastEvaluatedGeneration = test.lastEvaluatedGeneration
 				policy.Spec.EvaluationInterval = test.evaluationInterval
 				policy.Status.ComplianceState = test.complianceState
+				policy.ObjectMeta.DeletionTimestamp = test.deletionTimestamp
 
 				if actual := shouldEvaluatePolicy(policy); actual != test.expected {
 					t.Fatalf("expected %v but got %v", test.expected, actual)

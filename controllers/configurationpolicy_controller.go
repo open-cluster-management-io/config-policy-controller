@@ -255,6 +255,12 @@ func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy) bool {
 	log := log.WithValues("policy", policy.GetName())
 
+	if policy.ObjectMeta.DeletionTimestamp != nil {
+		log.V(2).Info("The policy has been deleted and is waiting for object cleanup. Will evaluate it now.")
+
+		return true
+	}
+
 	if policy.Status.LastEvaluatedGeneration != policy.Generation {
 		log.V(2).Info("The policy has been updated. Will evaluate it now.")
 
