@@ -61,6 +61,7 @@ var (
 	reasonWantFoundDNE       = "Resource not found but should exist"
 	reasonWantNotFoundExists = "Resource found but should not exist"
 	reasonWantNotFoundDNE    = "Resource not found as expected"
+	reasonCleanupError       = "Error cleaning up child objects"
 )
 
 var evalLoopHistogram = prometheus.NewHistogram(
@@ -437,27 +438,28 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 		// determine whether object should be deleted
 		needsDelete := false
 
+		existing, _ := getObject(
+			namespaced,
+			object.Object.Metadata.Namespace,
+			object.Object.Metadata.Name,
+			gvr,
+			dclient)
+
+		// object does not exist, no deletion logic needed
+		if existing == nil {
+			continue
+		}
+
 		if strings.EqualFold(string(plc.Spec.RemediationAction), "enforce") {
 			if string(plc.Spec.PruneObjectBehavior) == "DeleteAll" {
 				needsDelete = true
 			} else {
 				// if prune behavior is DeleteIfCreated, we need to check whether createdByPolicy
 				// is true and the UID is not stale
-				existing, _ := getObject(
-					namespaced,
-					object.Object.Metadata.Namespace,
-					object.Object.Metadata.Name,
-					gvr,
-					dclient)
+				uid, uidFound, err := unstructured.NestedString(existing.Object, "metadata", "uid")
 
-				if existing == nil {
-					continue
-				}
-
-				uid, uidIsString, err := unstructured.NestedString(existing.Object, "metadata", "uid")
-
-				if !uidIsString || err != nil {
-					log.Error(err, "Tried to pull UID from existing obj but the field is not a string")
+				if !uidFound || err != nil {
+					log.Error(err, "Tried to pull UID from obj but the field did not exist or was not a string")
 				} else if object.Properties != nil &&
 					object.Properties.CreatedByPolicy != nil &&
 					*object.Properties.CreatedByPolicy &&
@@ -469,6 +471,17 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 
 		// delete object if needed
 		if needsDelete {
+			// if object has already been deleted and is stuck, no need to redo delete request
+			_, deletionTimeFound, _ := unstructured.NestedString(existing.Object, "metadata", "deletionTimestamp")
+			if deletionTimeFound {
+				log.Error(err, "Error: tried to delete object, but delete is hanging")
+
+				deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
+					object.Object.Metadata.Name, object.Object.Metadata.Namespace))
+
+				continue
+			}
+
 			var res dynamic.ResourceInterface
 			if namespaced {
 				res = dclient.Resource(gvr).Namespace(object.Object.Metadata.Namespace)
@@ -483,6 +496,22 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 
 				log.Error(err, "Error: Failed to delete object during child object pruning")
 			} else {
+				obj, _ := getObject(
+					namespaced,
+					object.Object.Metadata.Namespace,
+					object.Object.Metadata.Name,
+					gvr,
+					dclient)
+
+				if obj != nil {
+					log.Error(err, "Error: tried to delete object, but delete is hanging")
+
+					deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
+						object.Object.Metadata.Name, object.Object.Metadata.Namespace))
+
+					continue
+				}
+
 				log.Info("Object successfully deleted as part of child object pruning")
 			}
 		}
@@ -552,7 +581,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 					&plc,
 					0,
 					false,
-					"Error cleaning up child objects",
+					reasonCleanupError,
 					"Failed to delete objects: "+strings.Join(failures, ", "))
 				if statusChanged {
 					parentStatusUpdateNeeded = true
@@ -565,7 +594,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 					)
 				}
 
-				r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded)
+				// don't change related objects while deletion is in progress
+				r.checkRelatedAndUpdate(plc, oldRelated, oldRelated, parentStatusUpdateNeeded)
 			}
 
 			return
@@ -927,7 +957,10 @@ func addConditionToStatus(
 
 	var complianceState policyv1.ComplianceState
 
-	if compliant {
+	if reason == reasonCleanupError {
+		complianceState = policyv1.Terminating
+		cond.Type = "violation"
+	} else if compliant {
 		complianceState = policyv1.Compliant
 		cond.Type = "notification"
 	} else {
@@ -2194,7 +2227,9 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		}
 	}
 
-	if len(policy.Status.CompliancyDetails) == 0 {
+	if policy.ObjectMeta.DeletionTimestamp != nil {
+		policy.Status.ComplianceState = policyv1.Terminating
+	} else if len(policy.Status.CompliancyDetails) == 0 {
 		policy.Status.ComplianceState = "Undetermined"
 	} else if compliant {
 		policy.Status.ComplianceState = policyv1.Compliant

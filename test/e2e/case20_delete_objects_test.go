@@ -11,16 +11,19 @@ import (
 )
 
 const (
-	case20PodName                  string = "nginx-pod-e2e20"
-	case20ConfigPolicyNameCreate   string = "policy-pod-create"
-	case20ConfigPolicyNameEdit     string = "policy-pod-edit"
-	case20ConfigPolicyNameExisting string = "policy-pod-already-created"
-	case20ConfigPolicyNameInform   string = "policy-pod-inform"
-	case20PodYaml                  string = "../resources/case20_delete_objects/case20_pod.yaml"
-	case20PolicyYamlCreate         string = "../resources/case20_delete_objects/case20_create_pod.yaml"
-	case20PolicyYamlEdit           string = "../resources/case20_delete_objects/case20_edit_pod.yaml"
-	case20PolicyYamlExisting       string = "../resources/case20_delete_objects/case20_enforce_noncreated_pod.yaml"
-	case20PolicyYamlInform         string = "../resources/case20_delete_objects/case20_inform_pod.yaml"
+	case20PodName                   string = "nginx-pod-e2e20"
+	case20PodWithFinalizer          string = "nginx-pod-cannot-delete"
+	case20ConfigPolicyNameCreate    string = "policy-pod-create"
+	case20ConfigPolicyNameEdit      string = "policy-pod-edit"
+	case20ConfigPolicyNameExisting  string = "policy-pod-already-created"
+	case20ConfigPolicyNameInform    string = "policy-pod-inform"
+	case20ConfigPolicyNameFinalizer string = "policy-pod-create-withfinalizer"
+	case20PodYaml                   string = "../resources/case20_delete_objects/case20_pod.yaml"
+	case20PolicyYamlCreate          string = "../resources/case20_delete_objects/case20_create_pod.yaml"
+	case20PolicyYamlEdit            string = "../resources/case20_delete_objects/case20_edit_pod.yaml"
+	case20PolicyYamlExisting        string = "../resources/case20_delete_objects/case20_enforce_noncreated_pod.yaml"
+	case20PolicyYamlInform          string = "../resources/case20_delete_objects/case20_inform_pod.yaml"
+	case20PolicyYamlFinalizer       string = "../resources/case20_delete_objects/case20_createpod_finalizer.yaml"
 )
 
 var _ = Describe("Test status fields being set for object deletion", func() {
@@ -143,6 +146,27 @@ var _ = Describe("Test status fields being set for object deletion", func() {
 			}
 
 			deleteConfigPolicies(policies)
+
+			Consistently(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameCreate, testNamespace, false, defaultTimeoutSeconds)
+
+				return managedPlc
+			}, defaultTimeoutSeconds, 1).Should(BeNil())
+
+			Consistently(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameExisting, testNamespace, false, defaultTimeoutSeconds)
+
+				return managedPlc
+			}, defaultTimeoutSeconds, 1).Should(BeNil())
+
+			Consistently(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameEdit, testNamespace, false, defaultTimeoutSeconds)
+
+				return managedPlc
+			}, defaultTimeoutSeconds, 1).Should(BeNil())
 		})
 	})
 })
@@ -278,6 +302,63 @@ var _ = Describe("Test objects that should be deleted are actually being deleted
 					case20PodName, "default", false, defaultTimeoutSeconds)
 
 				return pod
+			}, defaultTimeoutSeconds, 1).Should(BeNil())
+		})
+		It("Should create pod with finalizer", func() {
+			// create policy to create pod
+			By("Creating " + case20ConfigPolicyNameFinalizer + " on managed")
+			utils.Kubectl("apply", "-f", case20PolicyYamlFinalizer, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case20ConfigPolicyNameFinalizer, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameFinalizer, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			Eventually(func() interface{} {
+				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+					case20PodWithFinalizer, "default", true, defaultTimeoutSeconds)
+
+				return pod
+			}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
+		})
+		It("should hang on unfinished child object delete", func() {
+			// delete policy, should delete pod
+			deleteConfigPolicies([]string{case20ConfigPolicyNameFinalizer})
+			Consistently(func() interface{} {
+				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+					case20PodWithFinalizer, "default", true, defaultTimeoutSeconds)
+
+				return pod
+			}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
+			Consistently(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameFinalizer, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Terminating"))
+		})
+		It("should finish delete when pod finalizer is removed", func() {
+			utils.Kubectl(
+				"patch",
+				"pods/nginx-pod-cannot-delete",
+				"--type",
+				"json",
+				`-p=[{"op":"remove","path":"/metadata/finalizers"}]`,
+			)
+			Eventually(func() interface{} {
+				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+					case20PodWithFinalizer, "default", false, defaultTimeoutSeconds)
+
+				return pod
+			}, defaultTimeoutSeconds, 1).Should(BeNil())
+			Consistently(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameFinalizer, testNamespace, false, defaultTimeoutSeconds)
+
+				return managedPlc
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
 		})
 	})
