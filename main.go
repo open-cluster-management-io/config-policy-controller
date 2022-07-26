@@ -204,6 +204,10 @@ func main() {
 		log.Info("Using the legacy leader election of configmaps")
 
 		options.LeaderElectionResourceLock = "configmaps"
+	} else {
+		// use the leases leader election by default for controller-runtime 0.11 instead of
+		// the default of configmapsleases (leases is the new default in 0.12)
+		options.LeaderElectionResourceLock = "leases"
 	}
 
 	// Create a new manager to provide shared dependencies and start components
