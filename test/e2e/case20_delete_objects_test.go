@@ -4,8 +4,11 @@
 package e2e
 
 import (
+	"errors"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -469,6 +472,57 @@ var _ = Describe("Test objects that should be deleted are actually being deleted
 		})
 		It("Cleans up", func() {
 			utils.Kubectl("delete", "pod", case20PodName, "-n", "default")
+		})
+	})
+	Describe("Test behavior after manually deleting object", Ordered, func() {
+		It("creates a policy to create a pod", func() {
+			By("Creating " + case20ConfigPolicyNameCreate + " on managed")
+			utils.Kubectl("apply", "-f", case20PolicyYamlCreate, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case20ConfigPolicyNameCreate, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameCreate, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			By("Verifying the pod is present")
+			Eventually(func() interface{} {
+				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+					case20PodName, "default", true, defaultTimeoutSeconds)
+
+				return pod
+			}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
+		})
+		It("automatically recreates the pod after it's deleted", func() {
+			By("Deleting the pod with kubectl")
+			utils.Kubectl("delete", "pod/"+case20PodName, "-n", "default")
+
+			By("Verifying the pod was recreated and isn't still being deleted")
+			Eventually(func() interface{} {
+				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+					case20PodName, "default", true, defaultTimeoutSeconds)
+
+				_, found, err := unstructured.NestedString(pod.Object, "metadata", "deletionTimestamp")
+				if err != nil {
+					return err
+				}
+				if found {
+					return errors.New("Pod is being deleted")
+				}
+
+				return nil
+			}, defaultTimeoutSeconds, 1).Should(BeNil())
+		})
+		It("deletes the pod after the policy is deleted", func() {
+			deleteConfigPolicies([]string{case20ConfigPolicyNameCreate})
+			Eventually(func() interface{} {
+				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+					case20PodName, "default", false, defaultTimeoutSeconds)
+
+				return pod
+			}, defaultTimeoutSeconds, 1).Should(BeNil())
 		})
 	})
 })
