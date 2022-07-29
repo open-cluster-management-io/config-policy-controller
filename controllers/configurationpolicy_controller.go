@@ -917,14 +917,17 @@ func sortRelatedObjectsAndUpdate(
 
 	update := false
 
-	// don't set creation info if it has already been set
 	for i, newEntry := range related {
 		for _, oldEntry := range oldRelated {
-			if oldEntry.Object.Kind == newEntry.Object.Kind &&
-				oldEntry.Object.Metadata.Name == newEntry.Object.Metadata.Name &&
-				oldEntry.Object.Metadata.Namespace == newEntry.Object.Metadata.Namespace &&
-				oldEntry.Properties != nil {
-				related[i].Properties = oldEntry.Properties
+			// Get matching objects
+			if gocmp.Equal(newEntry.Object, oldEntry.Object) {
+				if oldEntry.Properties != nil &&
+					newEntry.Properties != nil &&
+					newEntry.Properties.CreatedByPolicy != nil &&
+					!(*newEntry.Properties.CreatedByPolicy) {
+					// Use the old properties if they existed and this is not a newly created resource
+					related[i].Properties = oldEntry.Properties
+				}
 			}
 		}
 	}
