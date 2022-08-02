@@ -2230,6 +2230,8 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		}
 	}
 
+	previousComplianceState := policy.Status.ComplianceState
+
 	if policy.ObjectMeta.DeletionTimestamp != nil {
 		policy.Status.ComplianceState = policyv1.Terminating
 	} else if len(policy.Status.CompliancyDetails) == 0 {
@@ -2238,6 +2240,16 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		policy.Status.ComplianceState = policyv1.Compliant
 	} else {
 		policy.Status.ComplianceState = policyv1.NonCompliant
+	}
+
+	// Always send an event if the ComplianceState changed
+	if previousComplianceState != policy.Status.ComplianceState {
+		sendEvent = true
+	}
+
+	// Always try to send an event when the generation changes
+	if policy.Status.LastEvaluatedGeneration != policy.Generation {
+		sendEvent = true
 	}
 
 	policy.Status.LastEvaluated = time.Now().UTC().Format(time.RFC3339)
