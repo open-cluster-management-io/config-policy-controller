@@ -1892,11 +1892,14 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 
 	// create a set with a key for each unique item in the list
 	oldItemSet := map[string]map[string]interface{}{}
+
 	for _, val2 := range old {
-		if entry, ok := oldItemSet[fmt.Sprint(val2)]; ok {
-			oldItemSet[fmt.Sprint(val2)]["count"] = entry["count"].(int) + 1
+		key := fmt.Sprint(val2)
+
+		if entry, ok := oldItemSet[key]; ok {
+			oldItemSet[key]["count"] = entry["count"].(int) + 1
 		} else {
-			oldItemSet[fmt.Sprint(val2)] = map[string]interface{}{
+			oldItemSet[key] = map[string]interface{}{
 				"count": 1,
 				"value": val2,
 			}
