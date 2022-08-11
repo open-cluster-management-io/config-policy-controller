@@ -1,0 +1,20 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case22-pod-create
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: pod-case22
+          namespace: default
+        spec:
+          containers:
+            - image: nginx:1.7.8
+              name: nginx
+              ports:
+                - containerPort: 80

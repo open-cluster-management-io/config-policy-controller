@@ -1917,16 +1917,34 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 			}
 
 			var mergedObj interface{}
+			// Stores if val1 and val2 are maps with the same "name" key value. In the case of the containers array
+			// in a Deployment object, the value should be merged and not appended if the name is the same in both.
+			var sameNamedObjects bool
 
 			switch val2 := val2.(type) {
 			case map[string]interface{}:
+				// If the policy value and the current value are different types, use the same logic
+				// as the default case.
+				val1, ok := val1.(map[string]interface{})
+				if !ok {
+					mergedObj = val1
+
+					break
+				}
+
+				if name2, ok := val2["name"].(string); ok && name2 != "" {
+					if name1, ok := val1["name"].(string); ok && name1 == name2 {
+						sameNamedObjects = true
+					}
+				}
+
 				// use map compare helper function to check equality on lists of maps
-				mergedObj, _ = compareSpecs(val1.(map[string]interface{}), val2, ctype)
+				mergedObj, _ = compareSpecs(val1, val2, ctype)
 			default:
 				mergedObj = val1
 			}
 			// if a match is found, this field is already in the template, so we can skip it in future checks
-			if equalObjWithSort(mergedObj, val2) {
+			if sameNamedObjects || equalObjWithSort(mergedObj, val2) {
 				count++
 
 				newArr[newArrIdx] = mergedObj
