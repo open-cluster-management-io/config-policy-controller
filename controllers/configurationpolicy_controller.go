@@ -31,6 +31,9 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/kubectl/pkg/util/openapi"
+	openapivalidation "k8s.io/kubectl/pkg/util/openapi/validation"
+	"k8s.io/kubectl/pkg/validation"
 	extpoliciesv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -116,6 +119,8 @@ type ConfigurationPolicyReconciler struct {
 	TargetK8sClient kubernetes.Interface
 	TargetK8sConfig *rest.Config
 	discoveryInfo
+	// This is used to fetch and parse OpenAPI documents to perform client-side validation of object definitions.
+	openAPIParser *openapi.CachedOpenAPIParser
 	// A lock when performing actions that are not thread safe (i.e. reassigning object properties).
 	lock sync.RWMutex
 }
@@ -248,6 +253,8 @@ func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 	}
 
 	r.apiGroups = apiGroups
+	// Reset the OpenAPI cache in case the CRDs were updated since the last fetch.
+	r.openAPIParser = openapi.NewOpenAPIParser(dd)
 	r.discoveryLastRefreshed = time.Now().UTC()
 
 	return nil
@@ -1297,7 +1304,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 			var uid string
-			statusUpdateNeeded, uid, err = enforceByCreatingOrDeleting(obj, dclient)
+			statusUpdateNeeded, uid, err = r.enforceByCreatingOrDeleting(obj, dclient)
 
 			if err != nil {
 				// violation created for handling error
@@ -1317,7 +1324,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if exists && !obj.shouldExist {
 		// it is a mustnothave but it exist, so it must be deleted
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			statusUpdateNeeded, _, err = enforceByCreatingOrDeleting(obj, dclient)
+			statusUpdateNeeded, _, err = r.enforceByCreatingOrDeleting(obj, dclient)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
 			}
@@ -1348,7 +1355,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 		compType := strings.ToLower(string(objectT.ComplianceType))
 		mdCompType := strings.ToLower(string(objectT.MetadataComplianceType))
-		throwSpecViolation, msg, pErr := checkAndUpdateResource(obj, compType, mdCompType, remediation, dclient)
+		throwSpecViolation, msg, pErr := r.checkAndUpdateResource(obj, compType, mdCompType, remediation, dclient)
 
 		if throwSpecViolation {
 			specViolation = throwSpecViolation
@@ -1642,7 +1649,11 @@ func getNamesOfKind(
 // completely missing (as opposed to existing, but not matching the desired state), or where a
 // mustnothave object does exist. Eg, it does not handle the case where a targeted update would need
 // to be made to an object.
-func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (result bool, uid string, erro error) {
+func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(
+	obj singleObject, dclient dynamic.Interface,
+) (
+	result bool, uid string, erro error,
+) {
 	log := log.WithValues(
 		"object", obj.name,
 		"policy", obj.policy.Name,
@@ -1665,7 +1676,7 @@ func enforceByCreatingOrDeleting(obj singleObject, dclient dynamic.Interface) (r
 	if obj.shouldExist {
 		log.Info("Enforcing the policy by creating the object")
 
-		if obj.object, err = createObject(res, obj.unstruct); obj.object == nil {
+		if obj.object, err = r.createObject(res, obj.unstruct); obj.object == nil {
 			reason = "K8s creation error"
 			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
@@ -1750,11 +1761,15 @@ func getObject(
 	return object, nil
 }
 
-func createObject(
+func (r *ConfigurationPolicyReconciler) createObject(
 	res dynamic.ResourceInterface, unstruct unstructured.Unstructured,
 ) (object *unstructured.Unstructured, err error) {
 	objLog := log.WithValues("name", unstruct.GetName(), "namespace", unstruct.GetNamespace())
 	objLog.V(2).Info("Entered createObject", "unstruct", unstruct)
+
+	if err := r.validateObject(&unstruct); err != nil {
+		return nil, err
+	}
 
 	object, err = res.Create(context.TODO(), &unstruct, metav1.CreateOptions{})
 	if err != nil {
@@ -2101,9 +2116,34 @@ func handleSingleKey(
 	return "", updateNeeded, mergedValue, false
 }
 
+// validateObject performs client-side validation of the input object using the server's OpenAPI definitions that are
+// cached. An error is returned if the input object is invalid or the OpenAPI data could not be fetched.
+func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unstructured) error {
+	// Parse() handles caching of the OpenAPI data.
+	r.lock.RLock()
+	openAPIResources, err := r.openAPIParser.Parse()
+	r.lock.RUnlock()
+
+	if err != nil {
+		return fmt.Errorf("failed to retrieve the OpenAPI data from the Kubernetes API: %w", err)
+	}
+
+	schema := validation.ConjunctiveSchema{
+		openapivalidation.NewSchemaValidation(openAPIResources),
+		validation.NoDoubleKeySchema{},
+	}
+
+	objectJSON, err := object.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal the object to JSON: %w", err)
+	}
+
+	return schema.ValidateBytes(objectJSON)
+}
+
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
 // matches the template and update it if the remediationAction is enforce
-func checkAndUpdateResource(
+func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	obj singleObject,
 	complianceType string,
 	mdComplianceType string,
@@ -2179,6 +2219,12 @@ func checkAndUpdateResource(
 
 	if updateNeeded {
 		log.V(2).Info("Updating the object based on the template definition")
+
+		if err := r.validateObject(obj.object); err != nil {
+			message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
+
+			return false, message, true
+		}
 
 		_, err = res.Update(context.TODO(), obj.object, metav1.UpdateOptions{})
 		if k8serrors.IsNotFound(err) {
