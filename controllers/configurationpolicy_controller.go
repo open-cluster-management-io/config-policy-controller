@@ -116,6 +116,8 @@ type ConfigurationPolicyReconciler struct {
 	TargetK8sClient kubernetes.Interface
 	TargetK8sConfig *rest.Config
 	discoveryInfo
+	// A lock when performing actions that are not thread safe (i.e. reassigning object properties).
+	lock sync.RWMutex
 }
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
@@ -224,6 +226,8 @@ func (r *ConfigurationPolicyReconciler) handlePolicyWorker(
 
 func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 	log.V(2).Info("Refreshing the discovery info")
+	r.lock.Lock()
+	defer func() { r.lock.Unlock() }()
 
 	dd := r.TargetK8sClient.Discovery()
 
@@ -419,7 +423,9 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 
 		log := log.WithValues("policy", plc.GetName(), "groupVersionKind", gvk.String())
 
+		r.lock.RLock()
 		mapper := restmapper.NewDiscoveryRESTMapper(r.apiGroups)
+		r.lock.RUnlock()
 
 		mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 		if err != nil {
@@ -634,7 +640,10 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 	// initialize apiresources for template processing before starting objectTemplate processing
 	// this is optional but since apiresourcelist is already available,
 	// use this rather than re-discovering the list for generic-lookup
+	r.lock.RLock()
 	tmplResolverCfg := templates.Config{KubeAPIResourceList: r.apiResourceList}
+	r.lock.RUnlock()
+
 	usedKeyCache := false
 
 	if usesEncryption(plc) {
@@ -1397,12 +1406,15 @@ func (r *ConfigurationPolicyReconciler) isObjectNamespaced(
 	gvk := object.GetObjectKind().GroupVersionKind()
 	gv := gvk.GroupVersion().String()
 
+	r.lock.RLock()
+
 	for _, apiResourceGroup := range r.apiResourceList {
 		if apiResourceGroup.GroupVersion == gv {
 			for _, apiResource := range apiResourceGroup.APIResources {
 				if apiResource.Kind == gvk.Kind {
 					namespaced := apiResource.Namespaced
 					log.V(2).Info("Found resource in apiResourceList", "namespaced", namespaced, "gvk", gvk.String())
+					r.lock.RUnlock()
 
 					return namespaced
 				}
@@ -1412,6 +1424,8 @@ func (r *ConfigurationPolicyReconciler) isObjectNamespaced(
 			break
 		}
 	}
+
+	r.lock.RUnlock()
 
 	// The API resource wasn't found. Try refreshing the cache and trying again.
 	if refreshIfNecessary {
@@ -1490,7 +1504,10 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	}
 
 	// initializes a mapping between Kind and APIVersion to a resource name
+	r.lock.RLock()
 	mapper := restmapper.NewDiscoveryRESTMapper(r.apiGroups)
+	r.lock.RUnlock()
+
 	mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
 	mappingErrMsg := ""
 
