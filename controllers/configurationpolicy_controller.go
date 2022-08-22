@@ -2154,9 +2154,6 @@ func checkAndUpdateResource(
 			continue
 		}
 
-		mapMtx := sync.RWMutex{}
-		mapMtx.Lock()
-
 		// only look at labels and annotations for metadata - configurationPolicies do not update other metadata fields
 		if key == "metadata" {
 			mergedAnnotations := mergedObj.(map[string]interface{})["annotations"]
@@ -2166,7 +2163,6 @@ func checkAndUpdateResource(
 		} else {
 			obj.object.UnstructuredContent()[key] = mergedObj
 		}
-		mapMtx.Unlock()
 
 		if keyUpdateNeeded {
 			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
