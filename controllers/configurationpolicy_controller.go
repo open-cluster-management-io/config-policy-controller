@@ -932,6 +932,23 @@ func sortRelatedObjectsAndUpdate(
 		}
 	}
 
+	// add RelatedObject into newRelated which is in oldRelated but not in newRelated
+	for _, oldEntry := range oldRelated {
+		ifAppend := true
+
+		if oldEntry.Properties != nil && (*oldEntry.Properties.CreatedByPolicy) {
+			for _, newEntry := range related {
+				if gocmp.Equal(newEntry.Object, oldEntry.Object) {
+					ifAppend = false
+				}
+			}
+
+			if ifAppend {
+				related = append(related, oldEntry)
+			}
+		}
+	}
+
 	if len(oldRelated) == len(related) {
 		for i, entry := range oldRelated {
 			if !gocmp.Equal(entry, related[i]) {
