@@ -2084,95 +2084,6 @@ func handleSingleKey(
 	return "", updateNeeded, mergedValue, false
 }
 
-// handleKeys is a helper function that calls handleSingleKey to check if each field in the template
-// matches the object. If it finds a mismatch and the remediationAction is enforce, it will update
-// the object with the data from the template
-func handleKeys(
-	unstruct unstructured.Unstructured,
-	existingObj *unstructured.Unstructured,
-	remediation policyv1.RemediationAction,
-	complianceType string,
-	mdComplianceType string,
-	name string,
-	res dynamic.ResourceInterface,
-) (throwSpecViolation bool, message string, processingErr bool) {
-	log := log.WithValues(
-		"name", existingObj.GetName(), "namespace", existingObj.GetNamespace(), "kind", existingObj.GetKind(),
-	)
-	var err error
-	var updateNeeded bool
-	var statusUpdated bool
-
-	for key := range unstruct.Object {
-		isStatus := key == "status"
-
-		// use metadatacompliancetype to evaluate metadata if it is set
-		keyComplianceType := complianceType
-		if key == "metadata" && mdComplianceType != "" {
-			keyComplianceType = mdComplianceType
-		}
-
-		// check key for mismatch
-		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(key, unstruct, existingObj, keyComplianceType)
-		if errorMsg != "" {
-			log.Info(errorMsg)
-
-			return false, errorMsg, true
-		}
-
-		if mergedObj == nil && skipped {
-			continue
-		}
-
-		mapMtx := sync.RWMutex{}
-		mapMtx.Lock()
-
-		// only look at labels and annotations for metadata - configurationPolicies do not update other metadata fields
-		if key == "metadata" {
-			mergedAnnotations := mergedObj.(map[string]interface{})["annotations"]
-			mergedLabels := mergedObj.(map[string]interface{})["labels"]
-			existingObj.UnstructuredContent()["metadata"].(map[string]interface{})["annotations"] = mergedAnnotations
-			existingObj.UnstructuredContent()["metadata"].(map[string]interface{})["labels"] = mergedLabels
-		} else {
-			existingObj.UnstructuredContent()[key] = mergedObj
-		}
-		mapMtx.Unlock()
-
-		if keyUpdateNeeded {
-			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
-				return true, "", false
-			} else if isStatus {
-				statusUpdated = true
-				log.Info("Ignoring an update to the object status", "key", key)
-			} else {
-				updateNeeded = true
-				log.Info("Queuing an update for the object due to a value mismatch", "key", key)
-			}
-		}
-	}
-
-	if updateNeeded {
-		log.V(2).Info("Updating the object based on the template definition")
-
-		_, err = res.Update(context.TODO(), existingObj, metav1.UpdateOptions{})
-		if k8serrors.IsNotFound(err) {
-			message := fmt.Sprintf("`%v` is not present and must be created", existingObj.GetKind())
-
-			return false, message, true
-		}
-
-		if err != nil {
-			message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", name, err)
-
-			return false, message, true
-		}
-
-		log.Info("Updated the object based on the template definition")
-	}
-
-	return statusUpdated, "", false
-}
-
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
 // matches the template and update it if the remediationAction is enforce
 func checkAndUpdateResource(
@@ -2199,7 +2110,80 @@ func checkAndUpdateResource(
 		res = dclient.Resource(obj.gvr)
 	}
 
-	return handleKeys(obj.unstruct, obj.object, remediation, complianceType, mdComplianceType, obj.name, res)
+	var err error
+	var updateNeeded bool
+	var statusUpdated bool
+
+	for key := range obj.unstruct.Object {
+		isStatus := key == "status"
+
+		// use metadatacompliancetype to evaluate metadata if it is set
+		keyComplianceType := complianceType
+		if key == "metadata" && mdComplianceType != "" {
+			keyComplianceType = mdComplianceType
+		}
+
+		// check key for mismatch
+		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(
+			key, obj.unstruct, obj.object, keyComplianceType,
+		)
+		if errorMsg != "" {
+			log.Info(errorMsg)
+
+			return false, errorMsg, true
+		}
+
+		if mergedObj == nil && skipped {
+			continue
+		}
+
+		mapMtx := sync.RWMutex{}
+		mapMtx.Lock()
+
+		// only look at labels and annotations for metadata - configurationPolicies do not update other metadata fields
+		if key == "metadata" {
+			mergedAnnotations := mergedObj.(map[string]interface{})["annotations"]
+			mergedLabels := mergedObj.(map[string]interface{})["labels"]
+			obj.object.UnstructuredContent()["metadata"].(map[string]interface{})["annotations"] = mergedAnnotations
+			obj.object.UnstructuredContent()["metadata"].(map[string]interface{})["labels"] = mergedLabels
+		} else {
+			obj.object.UnstructuredContent()[key] = mergedObj
+		}
+		mapMtx.Unlock()
+
+		if keyUpdateNeeded {
+			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
+				return true, "", false
+			} else if isStatus {
+				statusUpdated = true
+				log.Info("Ignoring an update to the object status", "key", key)
+			} else {
+				updateNeeded = true
+				log.Info("Queuing an update for the object due to a value mismatch", "key", key)
+			}
+		}
+	}
+
+	if updateNeeded {
+		log.V(2).Info("Updating the object based on the template definition")
+
+		_, err = res.Update(context.TODO(), obj.object, metav1.UpdateOptions{})
+		if k8serrors.IsNotFound(err) {
+			message := fmt.Sprintf("`%v` is not present and must be created", obj.object.GetKind())
+
+			return false, message, true
+		}
+
+		if err != nil {
+			message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
+
+			return false, message, true
+		}
+
+		log.Info("Updated the object based on the template definition")
+	}
+
+	return statusUpdated, "", false
 }
 
 // AppendCondition check and appends conditions to the policy status
