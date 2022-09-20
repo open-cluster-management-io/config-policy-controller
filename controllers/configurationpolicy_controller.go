@@ -75,9 +75,29 @@ var evalLoopHistogram = prometheus.NewHistogram(
 	},
 )
 
+var policyEvalSecondsCounter = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "config_policy_evaluation_seconds_total",
+		Help: "The total seconds taken while evaluating the configuration policy. Use this alongside " +
+			"config_policy_evaluation_total.",
+	},
+	[]string{"name"},
+)
+
+var policyEvalCounter = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "config_policy_evaluation_total",
+		Help: "The total number of evaluations of the configuration policy. Use this alongside " +
+			"config_policy_evaluation_seconds_total.",
+	},
+	[]string{"name"},
+)
+
 func init() {
 	// Register custom metrics with the global Prometheus registry
 	metrics.Registry.MustRegister(evalLoopHistogram)
+	metrics.Registry.MustRegister(policyEvalSecondsCounter)
+	metrics.Registry.MustRegister(policyEvalCounter)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -127,9 +147,18 @@ type ConfigurationPolicyReconciler struct {
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
 
-// Reconcile currently does nothing. It is in place to satisfy the interface requirements of controller-runtime. All
-// the logic is handled in the PeriodicallyExecConfigPolicies method.
+// Reconcile currently does nothing except that it removes a policy's metric when the policy is deleted. All the logic
+// is handled in the PeriodicallyExecConfigPolicies method.
 func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
+	policy := &policyv1.ConfigurationPolicy{}
+
+	err := r.Get(ctx, request.NamespacedName, policy)
+	if k8serrors.IsNotFound(err) {
+		// If the metric was not deleted, that means the policy was never evaluated so it can be ignored.
+		_ = policyEvalSecondsCounter.DeleteLabelValues(request.Name)
+		_ = policyEvalCounter.DeleteLabelValues(request.Name)
+	}
+
 	return reconcile.Result{}, nil
 }
 
@@ -225,7 +254,15 @@ func (r *ConfigurationPolicyReconciler) handlePolicyWorker(
 	defer wg.Done()
 
 	for policy := range policyQueue {
+		before := time.Now().UTC()
+
 		r.handleObjectTemplates(*policy)
+
+		duration := time.Now().UTC().Sub(before)
+		seconds := float64(duration) / float64(time.Second)
+
+		policyEvalSecondsCounter.WithLabelValues(policy.Name).Add(seconds)
+		policyEvalCounter.WithLabelValues(policy.Name).Inc()
 	}
 }
 
