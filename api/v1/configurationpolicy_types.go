@@ -116,11 +116,11 @@ type EvaluationInterval struct {
 
 var ErrIsNever = errors.New("the interval is set to never")
 
-// parseInterval converts the input string to a duration. The default value is 10s. ErrIsNever is returned when the
+// parseInterval converts the input string to a duration. The default value is 0s. ErrIsNever is returned when the
 // string is set to "never".
 func (e EvaluationInterval) parseInterval(interval string) (time.Duration, error) {
 	if interval == "" {
-		return 10 * time.Second, nil
+		return 0, nil
 	}
 
 	if interval == "never" {
