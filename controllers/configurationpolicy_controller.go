@@ -93,11 +93,31 @@ var policyEvalCounter = prometheus.NewCounterVec(
 	[]string{"name"},
 )
 
+var compareObjSecondsCounter = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "compare_objects_seconds_total",
+		Help: "The total seconds taken while comparing policy objects. Use this alongside " +
+			"compare_objects_evaluation_total.",
+	},
+	[]string{"config_policy_name", "object"},
+)
+
+var compareObjEvalCounter = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "compare_objects_evaluation_total",
+		Help: "The total number of times the comparison algorithm is run on an object. " +
+			"Use this alongside compare_objects_seconds_total.",
+	},
+	[]string{"config_policy_name", "object"},
+)
+
 func init() {
 	// Register custom metrics with the global Prometheus registry
 	metrics.Registry.MustRegister(evalLoopHistogram)
 	metrics.Registry.MustRegister(policyEvalSecondsCounter)
 	metrics.Registry.MustRegister(policyEvalCounter)
+	metrics.Registry.MustRegister(compareObjSecondsCounter)
+	metrics.Registry.MustRegister(compareObjEvalCounter)
 }
 
 // SetupWithManager sets up the controller with the Manager.
@@ -157,6 +177,8 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 		// If the metric was not deleted, that means the policy was never evaluated so it can be ignored.
 		_ = policyEvalSecondsCounter.DeleteLabelValues(request.Name)
 		_ = policyEvalCounter.DeleteLabelValues(request.Name)
+		_ = compareObjEvalCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
+		_ = compareObjSecondsCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
 	}
 
 	return reconcile.Result{}, nil
@@ -1392,7 +1414,21 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 		compType := strings.ToLower(string(objectT.ComplianceType))
 		mdCompType := strings.ToLower(string(objectT.MetadataComplianceType))
+
+		before := time.Now().UTC()
+
 		throwSpecViolation, msg, pErr := r.checkAndUpdateResource(obj, compType, mdCompType, remediation, dclient)
+
+		duration := time.Now().UTC().Sub(before)
+		seconds := float64(duration) / float64(time.Second)
+		compareObjSecondsCounter.WithLabelValues(
+			obj.policy.Name,
+			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
+		).Add(seconds)
+		compareObjEvalCounter.WithLabelValues(
+			obj.policy.Name,
+			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
+		).Inc()
 
 		if throwSpecViolation {
 			specViolation = throwSpecViolation
