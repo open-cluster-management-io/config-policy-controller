@@ -100,7 +100,11 @@ var compareObjSecondsCounter = prometheus.NewCounterVec(
 		Help: "The total seconds taken while comparing policy objects. Use this alongside " +
 			"compare_objects_evaluation_total.",
 	},
+<<<<<<< HEAD
 	[]string{"config_policy_name", "namespace", "object"},
+=======
+	[]string{"config_policy_name", "object"},
+>>>>>>> 19f845c (add metrics to time the compare algorithm)
 )
 
 var compareObjEvalCounter = prometheus.NewCounterVec(
@@ -109,7 +113,11 @@ var compareObjEvalCounter = prometheus.NewCounterVec(
 		Help: "The total number of times the comparison algorithm is run on an object. " +
 			"Use this alongside compare_objects_seconds_total.",
 	},
+<<<<<<< HEAD
 	[]string{"config_policy_name", "namespace", "object"},
+=======
+	[]string{"config_policy_name", "object"},
+>>>>>>> 19f845c (add metrics to time the compare algorithm)
 )
 
 func init() {
@@ -1425,12 +1433,10 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		seconds := float64(duration) / float64(time.Second)
 		compareObjSecondsCounter.WithLabelValues(
 			obj.policy.Name,
-			obj.namespace,
 			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
 		).Add(seconds)
 		compareObjEvalCounter.WithLabelValues(
 			obj.policy.Name,
-			obj.namespace,
 			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
 		).Inc()
 
