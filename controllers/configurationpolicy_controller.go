@@ -34,7 +34,6 @@ import (
 	"k8s.io/kubectl/pkg/util/openapi"
 	openapivalidation "k8s.io/kubectl/pkg/util/openapi/validation"
 	"k8s.io/kubectl/pkg/validation"
-	extpoliciesv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
@@ -154,6 +153,7 @@ type ConfigurationPolicyReconciler struct {
 	EvaluationConcurrency uint8
 	Scheme                *runtime.Scheme
 	Recorder              record.EventRecorder
+	InstanceName          string
 	// The Kubernetes client to use when evaluating/enforcing policies. Most times, this will be the same cluster
 	// where the controller is running.
 	TargetK8sClient kubernetes.Interface
@@ -2400,7 +2400,7 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 	if k8serrors.IsConflict(err) {
 		policyLog.Error(err, "Tried to re-update status before previous update could be applied, retrying next loop")
 	} else if err != nil {
-		policyLog.Error(err, "Could not update status")
+		policyLog.Error(err, "Could not update status, retrying next loop")
 	}
 }
 
@@ -2410,6 +2410,16 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	policy *policyv1.ConfigurationPolicy,
 	sendEvent bool,
 ) (*policyv1.ConfigurationPolicy, error) {
+	if policy.Status.ComplianceState != "Undetermined" && sendEvent {
+		log.V(1).Info("Sending parent policy compliance event")
+
+		// If the compliance event can't be created, then don't update the ConfigurationPolicy
+		// status. As long as that hasn't been updated, everything will be retried next loop.
+		if err := r.sendComplianceEvent(policy); err != nil {
+			return policy, err
+		}
+	}
+
 	log.V(2).Info(
 		"Updating configurationPolicy status", "status", policy.Status.ComplianceState, "policy", policy.GetName(),
 	)
@@ -2419,62 +2429,68 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 		return policy, err
 	}
 
-	if !sendEvent {
-		return nil, nil
+	if sendEvent {
+		log.V(1).Info("Sending policy status update event")
+
+		r.Recorder.Event(policy, "Normal", "Policy updated",
+			fmt.Sprintf("Policy status is: %v", policy.Status.ComplianceState))
 	}
-
-	if policy.Status.ComplianceState != "Undetermined" {
-		r.createParentPolicyEvent(policy)
-	}
-
-	log.V(1).Info("Sending parent policy status update event")
-
-	r.Recorder.Event(policy, "Normal", "Policy updated",
-		fmt.Sprintf("Policy status is: %v", policy.Status.ComplianceState))
 
 	return nil, nil
 }
 
-func (r *ConfigurationPolicyReconciler) createParentPolicyEvent(instance *policyv1.ConfigurationPolicy) {
+func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.ConfigurationPolicy) error {
 	if len(instance.OwnerReferences) == 0 {
-		return // there is nothing to do, since no owner is set
+		return nil // there is nothing to do, since no owner is set
 	}
 
 	// we are making an assumption that the GRC policy has a single owner, or we chose the first owner in the list
-	if string(instance.OwnerReferences[0].UID) == "" {
-		return // there is nothing to do, since no owner UID is set
+	ownerRef := instance.OwnerReferences[0]
+	now := time.Now()
+	event := &corev1.Event{
+		ObjectMeta: metav1.ObjectMeta{
+			// This event name matches the convention of recorders from client-go
+			Name:      fmt.Sprintf("%v.%x", ownerRef.Name, now.UnixNano()),
+			Namespace: instance.Namespace,
+		},
+		InvolvedObject: corev1.ObjectReference{
+			Kind:       ownerRef.Kind,
+			Namespace:  instance.Namespace, // k8s ensures owners are always in the same namespace
+			Name:       ownerRef.Name,
+			UID:        ownerRef.UID,
+			APIVersion: ownerRef.APIVersion,
+		},
+		Reason:  fmt.Sprintf(eventFmtStr, instance.Namespace, instance.Name),
+		Message: convertPolicyStatusToString(instance),
+		Source: corev1.EventSource{
+			Component: ControllerName,
+			Host:      r.InstanceName,
+		},
+		FirstTimestamp: metav1.NewTime(now),
+		LastTimestamp:  metav1.NewTime(now),
+		Count:          1,
+		Type:           "Normal",
+		EventTime:      metav1.NewMicroTime(now),
+		Action:         "ComplianceStateUpdate",
+		Related: &corev1.ObjectReference{
+			Kind:       instance.Kind,
+			Namespace:  instance.Namespace,
+			Name:       instance.Name,
+			UID:        instance.UID,
+			APIVersion: instance.APIVersion,
+		},
+		ReportingController: ControllerName,
+		ReportingInstance:   r.InstanceName,
 	}
-
-	parentPlc := createParentPolicy(instance)
-	eventType := "Normal"
 
 	if instance.Status.ComplianceState == policyv1.NonCompliant {
-		eventType = "Warning"
+		event.Type = "Warning"
 	}
 
-	eventMsg := convertPolicyStatusToString(instance)
+	eventClient := r.TargetK8sClient.CoreV1().Events(instance.Namespace)
+	_, err := eventClient.Create(context.TODO(), event, metav1.CreateOptions{})
 
-	log.V(2).Info("Creating parent policy event", "eventMsg", eventMsg)
-
-	r.Recorder.Event(&parentPlc,
-		eventType,
-		fmt.Sprintf(eventFmtStr, instance.Namespace, instance.Name),
-		eventMsg)
-}
-
-func createParentPolicy(instance *policyv1.ConfigurationPolicy) extpoliciesv1.Policy {
-	return extpoliciesv1.Policy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: instance.OwnerReferences[0].Name,
-			// It's assumed that the parent policy is in the same namespace as the configuration policy
-			Namespace: instance.Namespace,
-			UID:       instance.OwnerReferences[0].UID,
-		},
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Policy",
-			APIVersion: "policy.open-cluster-management.io/v1",
-		},
-	}
+	return err
 }
 
 // convertPolicyStatusToString to be able to pass the status as event

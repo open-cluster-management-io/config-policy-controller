@@ -239,12 +239,15 @@ func main() {
 		)
 	}
 
+	instanceName, _ := os.Hostname() // on an error, instanceName will be empty, which is ok
+
 	reconciler := controllers.ConfigurationPolicyReconciler{
 		Client:                mgr.GetClient(),
 		DecryptionConcurrency: decryptionConcurrency,
 		EvaluationConcurrency: evaluationConcurrency,
 		Scheme:                mgr.GetScheme(),
 		Recorder:              mgr.GetEventRecorderFor(controllers.ControllerName),
+		InstanceName:          instanceName,
 		TargetK8sClient:       targetK8sClient,
 		TargetK8sConfig:       targetK8sConfig,
 	}
