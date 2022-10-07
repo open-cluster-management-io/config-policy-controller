@@ -6,7 +6,7 @@ package utils
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"os/exec"
 	"regexp"
 	"time"
@@ -34,7 +34,7 @@ func Pause(s uint) {
 
 // ParseYaml read given yaml file and unmarshal it to &unstructured.Unstructured{}
 func ParseYaml(file string) *unstructured.Unstructured {
-	yamlFile, err := ioutil.ReadFile(file)
+	yamlFile, err := os.ReadFile(file)
 	Expect(err).To(BeNil())
 
 	yamlPlc := &unstructured.Unstructured{}
