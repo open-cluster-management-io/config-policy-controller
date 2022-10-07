@@ -1,0 +1,23 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case23-pod-missing-status-fields
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-case23-missing-status
+          namespace: default
+        spec:
+          containers:
+            - name: nginx
+              image: nginx:1.7.9
+              ports:
+                - containerPort: 80
+        status:
+          conditions:
+            - status: "True"
