@@ -74,3 +74,36 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 		}
 	})
 })
+
+var _ = Describe("Test an objectDefinition with a missing status field that should be ignored", Ordered, func() {
+	const (
+		podName    = "nginx-case23-missing-status"
+		policyName = "case23-pod-missing-status-fields"
+		policyYAML = "../resources/case23_invalid_field/policy-ignore-status-field.yaml"
+	)
+
+	It("Still enforces when a status is provided but is missing a required field", func() {
+		By("Creating the " + policyName + " policy")
+		utils.Kubectl("apply", "-f", policyYAML, "-n", testNamespace)
+
+		By("Verifying that the " + policyName + " policy is compliant")
+		var managedPlc *unstructured.Unstructured
+
+		Eventually(func() interface{} {
+			managedPlc = utils.GetWithTimeout(
+				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
+			)
+
+			return utils.GetComplianceState(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+	})
+
+	AfterAll(func() {
+		deleteConfigPolicies([]string{policyName})
+
+		err := clientManaged.CoreV1().Pods("default").Delete(context.TODO(), podName, metav1.DeleteOptions{})
+		if !k8serrors.IsNotFound(err) {
+			Expect(err).To(BeNil())
+		}
+	})
+})

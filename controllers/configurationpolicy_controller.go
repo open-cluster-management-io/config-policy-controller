@@ -25,12 +25,14 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	apimachineryerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/record"
+	kubeopenapivalidation "k8s.io/kube-openapi/pkg/util/proto/validation"
 	"k8s.io/kubectl/pkg/util/openapi"
 	openapivalidation "k8s.io/kubectl/pkg/util/openapi/validation"
 	"k8s.io/kubectl/pkg/validation"
@@ -2213,7 +2215,29 @@ func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unst
 		return fmt.Errorf("failed to marshal the object to JSON: %w", err)
 	}
 
-	return schema.ValidateBytes(objectJSON)
+	schemaErr := schema.ValidateBytes(objectJSON)
+
+	// Filter out errors due to missing fields in the status since those are ignored when enforcing the policy. This
+	// allows a user to switch a policy between inform and enforce without having to remove the status check.
+	return apimachineryerrors.FilterOut(
+		schemaErr,
+		func(err error) bool {
+			var validationErr kubeopenapivalidation.ValidationError
+			if !errors.As(err, &validationErr) {
+				return false
+			}
+
+			// Path is in the format of Pod.status.conditions[0].
+			pathParts := strings.SplitN(validationErr.Path, ".", 3)
+			if len(pathParts) < 2 || pathParts[1] != "status" {
+				return false
+			}
+
+			var missingFieldErr kubeopenapivalidation.MissingRequiredFieldError
+
+			return errors.As(validationErr.Err, &missingFieldErr)
+		},
+	)
 }
 
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
