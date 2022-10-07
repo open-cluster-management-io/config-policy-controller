@@ -137,7 +137,7 @@ type cachedEncryptionKey struct {
 	previousKey []byte
 }
 
-//nolint: structcheck
+// nolint: structcheck
 type discoveryInfo struct {
 	apiResourceList        []*metav1.APIResourceList
 	apiGroups              []*restmapper.APIGroupResources
@@ -414,7 +414,8 @@ type objectTemplateDetails struct {
 // getObjectTemplateDetails retrieves values from the object templates and returns an array of
 // objects containing the retrieved values.
 // It also gathers namespaces for this policy if necessary:
-//   If a namespaceSelector is present AND objects are namespaced without a namespace specified
+//
+//	If a namespaceSelector is present AND objects are namespaced without a namespace specified
 func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
 	plc policyv1.ConfigurationPolicy,
 ) ([]objectTemplateDetails, []string, bool, error) {
