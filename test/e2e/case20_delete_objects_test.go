@@ -4,10 +4,12 @@
 package e2e
 
 import (
+	"context"
 	"errors"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
@@ -361,7 +363,11 @@ var _ = Describe("Test objects that should be deleted are actually being deleted
 		})
 		It("should hang on unfinished child object delete", func() {
 			// delete policy, should delete pod
-			deleteConfigPolicies([]string{case20ConfigPolicyNameFinalizer})
+			err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Delete(
+				context.TODO(), case20ConfigPolicyNameFinalizer, metav1.DeleteOptions{},
+			)
+			Expect(err).To(BeNil())
+
 			Consistently(func() interface{} {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodWithFinalizer, "default", true, defaultTimeoutSeconds)

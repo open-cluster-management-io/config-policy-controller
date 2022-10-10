@@ -23,6 +23,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/klog"
+
+	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
 var (
@@ -189,5 +191,11 @@ func deleteConfigPolicies(policyNames []string) {
 		if !errors.IsNotFound(err) {
 			Expect(err).To(BeNil())
 		}
+	}
+
+	for _, policyName := range policyNames {
+		_ = utils.GetWithTimeout(
+			clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, false, defaultTimeoutSeconds,
+		)
 	}
 }
