@@ -261,6 +261,29 @@ func checkListFieldsWithSort(mergedObj []map[string]interface{}, oldObj []map[st
 	return true
 }
 
+func genericListSort(obj interface{}) interface{} {
+	switch obj := obj.(type) {
+	case map[string]interface{}:
+		for key := range obj {
+			obj[key] = genericListSort(obj[key])
+		}
+
+		return obj
+	case []interface{}:
+		for i := range obj {
+			obj[i] = genericListSort(obj[i])
+		}
+
+		sort.Slice(obj, func(x, y int) bool {
+			return fmt.Sprintf("%v", obj[x]) < fmt.Sprintf("%v", obj[y])
+		})
+
+		return obj
+	default:
+		return obj
+	}
+}
+
 // checkListsMatch is a generic list check that uses an arbitrary sort to ensure it is comparing the right values
 func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 	oVal := append([]interface{}{}, oldVal...)
@@ -270,12 +293,8 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 		return false
 	}
 
-	sort.Slice(oVal, func(i, j int) bool {
-		return fmt.Sprintf("%v", oVal[i]) < fmt.Sprintf("%v", oVal[j])
-	})
-	sort.Slice(mVal, func(x, y int) bool {
-		return fmt.Sprintf("%v", mVal[x]) < fmt.Sprintf("%v", mVal[y])
-	})
+	oVal = genericListSort(oVal).([]interface{})
+	mVal = genericListSort(mVal).([]interface{})
 
 	if len(mVal) != len(oVal) {
 		return false

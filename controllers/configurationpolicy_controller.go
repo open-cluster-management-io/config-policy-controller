@@ -2188,6 +2188,13 @@ func handleSingleKey(
 	// sort objects before checking equality to ensure they're in the same order
 	if !equalObjWithSort(mergedValue, existingValue) {
 		updateNeeded = true
+		fmt.Println(mergedValue)
+		fmt.Println(existingValue)
+		fmt.Println("MISMATCH FOUND!")
+	} else {
+		fmt.Println(mergedValue)
+		fmt.Println(existingValue)
+		fmt.Println("MATCH FOUND!!!!! :)")
 	}
 
 	return "", updateNeeded, mergedValue, false
