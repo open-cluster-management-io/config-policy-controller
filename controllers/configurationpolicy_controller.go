@@ -100,7 +100,7 @@ var compareObjSecondsCounter = prometheus.NewCounterVec(
 		Help: "The total seconds taken while comparing policy objects. Use this alongside " +
 			"compare_objects_evaluation_total.",
 	},
-	[]string{"config_policy_name", "object"},
+	[]string{"config_policy_name", "namespace", "object"},
 )
 
 var compareObjEvalCounter = prometheus.NewCounterVec(
@@ -109,7 +109,7 @@ var compareObjEvalCounter = prometheus.NewCounterVec(
 		Help: "The total number of times the comparison algorithm is run on an object. " +
 			"Use this alongside compare_objects_seconds_total.",
 	},
-	[]string{"config_policy_name", "object"},
+	[]string{"config_policy_name", "namespace", "object"},
 )
 
 func init() {
