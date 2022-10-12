@@ -89,7 +89,7 @@ func TestCompareSpecs(t *testing.T) {
 		},
 	}
 
-	merged, err := compareSpecs(spec1, spec2, "mustonlyhave")
+	merged, err := compareSpecs(spec1, spec2, "mustonlyhave", true)
 	if err != nil {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
@@ -121,7 +121,7 @@ func TestCompareSpecs(t *testing.T) {
 		},
 	}
 
-	merged, err = compareSpecs(spec1, spec2, "musthave")
+	merged, err = compareSpecs(spec1, spec2, "musthave", true)
 	if err != nil {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
@@ -171,7 +171,7 @@ func TestCompareLists(t *testing.T) {
 		},
 	}
 
-	merged, err := compareLists(rules2, rules1, "musthave")
+	merged, err := compareLists(rules2, rules1, "musthave", true)
 	if err != nil {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
@@ -203,7 +203,7 @@ func TestCompareLists(t *testing.T) {
 
 	assert.Equal(t, reflect.DeepEqual(fmt.Sprint(merged), fmt.Sprint(mergedExpected)), true)
 
-	merged, err = compareLists(rules2, rules1, "mustonlyhave")
+	merged, err = compareLists(rules2, rules1, "mustonlyhave", true)
 	if err != nil {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
@@ -264,10 +264,10 @@ func TestMerge(t *testing.T) {
 		},
 	}
 
-	merged1 := mergeArrays(newList, oldList, "musthave")
+	merged1 := mergeArrays(newList, oldList, "musthave", true)
 	assert.Equal(t, checkListsMatch(oldList, merged1), true)
 
-	merged2 := mergeArrays(newList, oldList, "mustonlyhave")
+	merged2 := mergeArrays(newList, oldList, "mustonlyhave", true)
 	assert.Equal(t, checkListsMatch(newList, merged2), true)
 
 	newList2 := []interface{}{
@@ -295,7 +295,7 @@ func TestMerge(t *testing.T) {
 			"d": "dog",
 		},
 	}
-	merged3 := mergeArrays(newList2, oldList2, "musthave")
+	merged3 := mergeArrays(newList2, oldList2, "musthave", true)
 
 	assert.Equal(t, checkListsMatch(checkList2, merged3), true)
 
@@ -307,7 +307,7 @@ func TestMerge(t *testing.T) {
 			"c": "candy",
 		},
 	}
-	merged4 := mergeArrays(newList3, oldList2, "musthave")
+	merged4 := mergeArrays(newList3, oldList2, "musthave", true)
 
 	assert.Equal(t, checkListsMatch(checkList2, merged4), true)
 }
