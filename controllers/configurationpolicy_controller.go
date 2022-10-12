@@ -1958,9 +1958,9 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string, mergeS
 			// object to do a proper compare
 			if mergeSubLists {
 				return mergeArrays(templateVal, existingVal, ctype, mergeSubLists)
-			} else {
-				return templateVal
 			}
+
+			return templateVal
 		}
 	case nil:
 		// if template value is nil, pull data from existing, since the template does not care about it
