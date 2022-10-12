@@ -314,7 +314,6 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 			}
 		}
 	}
-
 	return true
 }
 

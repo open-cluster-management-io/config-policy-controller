@@ -1890,7 +1890,7 @@ func deleteObject(res dynamic.ResourceInterface, name, namespace string) (delete
 
 // mergeSpecs is a wrapper for the recursive function to merge 2 maps. It marshals the objects into JSON
 // to make sure they are valid objects before calling the merge function
-func mergeSpecs(templateVal, existingVal interface{}, ctype string) (interface{}, error) {
+func mergeSpecs(templateVal, existingVal interface{}, ctype string, mergeSubLists bool) (interface{}, error) {
 	data1, err := json.Marshal(templateVal)
 	if err != nil {
 		return nil, err
@@ -1913,7 +1913,7 @@ func mergeSpecs(templateVal, existingVal interface{}, ctype string) (interface{}
 		return nil, err
 	}
 
-	return mergeSpecsHelper(j1, j2, ctype), nil
+	return mergeSpecsHelper(j1, j2, ctype, mergeSubLists), nil
 }
 
 // mergeSpecsHelper is a helper function that takes an object from the existing object and merges in
@@ -1921,7 +1921,7 @@ func mergeSpecs(templateVal, existingVal interface{}, ctype string) (interface{}
 // that exists on the cluster will tell you whether the existing object is compliant with the template.
 // This function uses recursion to check mismatches in nested objects and is the basis for most
 // comparisons the controller makes.
-func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interface{} {
+func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string, mergeSubLists bool) interface{} {
 	switch templateVal := templateVal.(type) {
 	case map[string]interface{}:
 		existingVal, ok := existingVal.(map[string]interface{})
@@ -1934,7 +1934,7 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interf
 		// merge in missing values from the existing object
 		for k, v2 := range existingVal {
 			if v1, ok := templateVal[k]; ok {
-				templateVal[k] = mergeSpecsHelper(v1, v2, ctype)
+				templateVal[k] = mergeSpecsHelper(v1, v2, ctype, mergeSubLists)
 			} else {
 				templateVal[k] = v2
 			}
@@ -1956,7 +1956,11 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interf
 		if len(existingVal) > 0 {
 			// if both values are non-empty lists, we need to merge in the extra data in the existing
 			// object to do a proper compare
-			return mergeArrays(templateVal, existingVal, ctype)
+			if mergeSubLists {
+				return mergeArrays(templateVal, existingVal, ctype, mergeSubLists)
+			} else {
+				return templateVal
+			}
 		}
 	case nil:
 		// if template value is nil, pull data from existing, since the template does not care about it
@@ -1987,7 +1991,7 @@ func isSorted(arr []interface{}) (result bool) {
 // mergeArrays is a helper function that takes a list from the existing object and merges in all the data that is
 // different in the template. This way, comparing the merged object to the one that exists on the cluster will tell
 // you whether the existing object is compliant with the template
-func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result []interface{}) {
+func mergeArrays(newArr []interface{}, old []interface{}, ctype string, mergeSubLists bool) (result []interface{}) {
 	if ctype == "mustonlyhave" {
 		return newArr
 	}
@@ -2047,8 +2051,7 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 					}
 				}
 
-				// use map compare helper function to check equality on lists of maps
-				mergedObj, _ = compareSpecs(val1, val2, ctype)
+				mergedObj, _ = compareSpecs(val1, val2, ctype, mergeSubLists)
 			default:
 				mergedObj = val1
 			}
@@ -2074,9 +2077,9 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 
 // compareLists is a wrapper function that creates a merged list for musthave
 // and returns the template list for mustonlyhave
-func compareLists(newList []interface{}, oldList []interface{}, ctype string) (updatedList []interface{}, err error) {
+func compareLists(newList []interface{}, oldList []interface{}, ctype string, mergeSubLists bool) (updatedList []interface{}, err error) {
 	if ctype != "mustonlyhave" {
-		return mergeArrays(newList, oldList, ctype), nil
+		return mergeArrays(newList, oldList, ctype, mergeSubLists), nil
 	}
 
 	// mustonlyhave scenario: go through existing list and merge everything in order
@@ -2085,7 +2088,7 @@ func compareLists(newList []interface{}, oldList []interface{}, ctype string) (u
 
 	for idx, item := range newList {
 		if idx < len(oldList) {
-			newItem, err := mergeSpecs(item, oldList[idx], ctype)
+			newItem, err := mergeSpecs(item, oldList[idx], ctype, mergeSubLists)
 			if err != nil {
 				return nil, err
 			}
@@ -2102,13 +2105,13 @@ func compareLists(newList []interface{}, oldList []interface{}, ctype string) (u
 // compareSpecs is a wrapper function that creates a merged map for mustHave
 // and returns the template map for mustonlyhave
 func compareSpecs(
-	newSpec, oldSpec map[string]interface{}, ctype string,
+	newSpec, oldSpec map[string]interface{}, ctype string, mergeSubLists bool,
 ) (updatedSpec map[string]interface{}, err error) {
 	if ctype == "mustonlyhave" {
 		return newSpec, nil
 	}
 	// if compliance type is musthave, create merged object to compare on
-	merged, err := mergeSpecs(newSpec, oldSpec, ctype)
+	merged, err := mergeSpecs(newSpec, oldSpec, ctype, mergeSubLists)
 	if err != nil {
 		return merged.(map[string]interface{}), err
 	}
@@ -2132,6 +2135,14 @@ func handleSingleKey(
 		return "", false, nil, true
 	}
 
+	mergeSubLists := true
+	if key == "rules" {
+		// we want to treat lists of apiGroups, resources, or verbs in roles.rules as complete
+		// rather than merging them into lists in other rules, as that will change the behavior
+		// of the role
+		mergeSubLists = false
+	}
+
 	desiredValue := formatTemplate(desiredObj, key)
 	existingValue := existingObj.UnstructuredContent()[key]
 	typeErr := ""
@@ -2146,7 +2157,7 @@ func handleSingleKey(
 	case []interface{}:
 		switch existingValue := existingValue.(type) {
 		case []interface{}:
-			mergedValue, err = compareLists(desiredValue, existingValue, complianceType)
+			mergedValue, err = compareLists(desiredValue, existingValue, complianceType, mergeSubLists)
 		case nil:
 			mergedValue = desiredValue
 		default:
@@ -2157,7 +2168,7 @@ func handleSingleKey(
 	case map[string]interface{}:
 		switch existingValue := existingValue.(type) {
 		case map[string]interface{}:
-			mergedValue, err = compareSpecs(desiredValue, existingValue, complianceType)
+			mergedValue, err = compareSpecs(desiredValue, existingValue, complianceType, mergeSubLists)
 		case nil:
 			mergedValue = desiredValue
 		default:
@@ -2188,13 +2199,6 @@ func handleSingleKey(
 	// sort objects before checking equality to ensure they're in the same order
 	if !equalObjWithSort(mergedValue, existingValue) {
 		updateNeeded = true
-		fmt.Println(mergedValue)
-		fmt.Println(existingValue)
-		fmt.Println("MISMATCH FOUND!")
-	} else {
-		fmt.Println(mergedValue)
-		fmt.Println(existingValue)
-		fmt.Println("MATCH FOUND!!!!! :)")
 	}
 
 	return "", updateNeeded, mergedValue, false
