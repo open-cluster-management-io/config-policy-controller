@@ -2079,7 +2079,8 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string, mergeSub
 // compareLists is a wrapper function that creates a merged list for musthave
 // and returns the template list for mustonlyhave
 func compareLists(newList []interface{}, oldList []interface{}, ctype string,
-	mergeSubLists bool) (updatedList []interface{}, err error) {
+	mergeSubLists bool,
+) (updatedList []interface{}, err error) {
 	if ctype != "mustonlyhave" {
 		return mergeArrays(newList, oldList, ctype, mergeSubLists), nil
 	}
