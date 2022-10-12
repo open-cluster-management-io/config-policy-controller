@@ -1,0 +1,1088 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: developer-a
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - get
+      - list
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - apps.openshift.io
+      - ""
+    resources:
+      - deploymentconfigs/scale
+    verbs:
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: developer-b
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - get
+      - list
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: developer-c
+rules:
+  - apiGroups:
+      - apps.openshift.io
+      - ""
+    resources:
+      - deploymentconfigs/scale
+    verbs:
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: developer-d
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - get
+      - list
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+      - apps.openshift.io
+    resources:
+      - deploymentconfigs/scale
+    verbs:
+      - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: developer-f
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - get
+      - list
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - apps.openshift.io
+    resources:
+      - deploymentconfigs/scale
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - pods
+      - replicationcontrollers
+      - replicationcontrollers/scale
+      - serviceaccounts
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - bindings
+      - events
+      - limitranges
+      - namespaces/status
+      - pods/log
+      - pods/status
+      - replicationcontrollers/status
+      - resourcequotas
+      - resourcequotas/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+      - deployments
+      - deployments/scale
+      - replicasets
+      - replicasets/scale
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - daemonsets
+      - deployments
+      - deployments/scale
+      - ingresses
+      - replicasets
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets/scale
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets/scale
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets/scale
+    verbs:
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - networkpolicies
+    verbs:
+      - get
+  - apiGroups:
+      - extensions
+    resources:
+      - networkpolicies
+    verbs:
+      - list
+  - apiGroups:
+      - extensions
+    resources:
+      - networkpolicies
+    verbs:
+      - watch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - get
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - list
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - controllerrevisions
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - controllerrevisions
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - controllerrevisions
+    verbs:
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - pods
+      - replicationcontrollers
+      - serviceaccounts
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - bindings
+      - events
+      - limitranges
+      - namespaces
+      - namespaces/status
+      - pods/log
+      - pods/status
+      - replicationcontrollers/status
+      - resourcequotas
+      - resourcequotas/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+      - scheduledjobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments
+      - deployments/scale
+      - horizontalpodautoscalers
+      - jobs
+      - replicasets
+      - replicasets/scale
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - daemonsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - deployments/scale
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - build.openshift.io
+      - ""
+    resources:
+      - buildconfigs
+      - buildconfigs/webhooks
+      - builds
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - build.openshift.io
+      - ""
+    resources:
+      - builds/log
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - build.openshift.io
+    resources:
+      - jenkins
+    verbs:
+      - view
+  - apiGroups:
+      - apps.openshift.io
+    resources:
+      - deploymentconfigs
+      - deploymentconfigs/scale
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps.openshift.io
+    resources:
+      - deploymentconfigs/log
+      - deploymentconfigs/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - image.openshift.io
+    resources:
+      - imagestreamimages
+      - imagestreammappings
+      - imagestreams
+      - imagestreamtags
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - image.openshift.io
+    resources:
+      - imagestreams/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - project.openshift.io
+    resources:
+      - projects
+    verbs:
+      - get
+  - apiGroups:
+      - quota.openshift.io
+    resources:
+      - appliedclusterresourcequotas
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - route.openshift.io
+    resources:
+      - routes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - route.openshift.io
+    resources:
+      - routes/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - template.openshift.io
+    resources:
+      - processedtemplates
+      - templateconfigs
+      - templateinstances
+      - templates
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - build.openshift.io
+    resources:
+      - buildlogs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - resourcequotausages
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - servicecatalog.k8s.io
+    resources:
+      - servicebindings
+      - serviceinstances
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets/scale
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets/scale
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets/scale
+    verbs:
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - watch
+  - apiGroups:
+      - servicecatalog.k8s.io
+    resources:
+      - servicebindings
+      - serviceinstances
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: developer-original
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods/exec
+    verbs:
+      - get
+      - list
+      - update
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - apps
+    resources:
+      - deployments/scale
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - update
+  - apiGroups:
+      - apps.openshift.io
+      - ""
+    resources:
+      - deploymentconfigs/scale
+    verbs:
+      - update
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - pods
+      - replicationcontrollers
+      - replicationcontrollers/scale
+      - serviceaccounts
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - bindings
+      - events
+      - limitranges
+      - namespaces/status
+      - pods/log
+      - pods/status
+      - replicationcontrollers/status
+      - resourcequotas
+      - resourcequotas/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+      - deployments
+      - deployments/scale
+      - replicasets
+      - replicasets/scale
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - autoscaling
+    resources:
+      - horizontalpodautoscalers
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - daemonsets
+      - deployments
+      - deployments/scale
+      - ingresses
+      - replicasets
+      - replicasets/scale
+      - replicationcontrollers/scale
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - policy
+    resources:
+      - poddisruptionbudgets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets/scale
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets/scale
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - statefulsets/scale
+    verbs:
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - networkpolicies
+    verbs:
+      - get
+  - apiGroups:
+      - extensions
+    resources:
+      - networkpolicies
+    verbs:
+      - list
+  - apiGroups:
+      - extensions
+    resources:
+      - networkpolicies
+    verbs:
+      - watch
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - get
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - list
+  - apiGroups:
+      - networking.k8s.io
+    resources:
+      - networkpolicies
+    verbs:
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - controllerrevisions
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - controllerrevisions
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - controllerrevisions
+    verbs:
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+      - endpoints
+      - persistentvolumeclaims
+      - pods
+      - replicationcontrollers
+      - serviceaccounts
+      - services
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - bindings
+      - events
+      - limitranges
+      - namespaces
+      - namespaces/status
+      - pods/log
+      - pods/status
+      - replicationcontrollers/status
+      - resourcequotas
+      - resourcequotas/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - batch
+    resources:
+      - cronjobs
+      - jobs
+      - scheduledjobs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - deployments
+      - deployments/scale
+      - horizontalpodautoscalers
+      - jobs
+      - replicasets
+      - replicasets/scale
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - extensions
+    resources:
+      - daemonsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+      - deployments/scale
+      - statefulsets
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - build.openshift.io
+      - ""
+    resources:
+      - buildconfigs
+      - buildconfigs/webhooks
+      - builds
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - build.openshift.io
+      - ""
+    resources:
+      - builds/log
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - build.openshift.io
+    resources:
+      - jenkins
+    verbs:
+      - view
+  - apiGroups:
+      - apps.openshift.io
+      - ""
+    resources:
+      - deploymentconfigs
+      - deploymentconfigs/scale
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps.openshift.io
+      - ""
+    resources:
+      - deploymentconfigs/log
+      - deploymentconfigs/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - image.openshift.io
+      - ""
+    resources:
+      - imagestreamimages
+      - imagestreammappings
+      - imagestreams
+      - imagestreamtags
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - image.openshift.io
+      - ""
+    resources:
+      - imagestreams/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - project.openshift.io
+      - ""
+    resources:
+      - projects
+    verbs:
+      - get
+  - apiGroups:
+      - quota.openshift.io
+      - ""
+    resources:
+      - appliedclusterresourcequotas
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - route.openshift.io
+      - ""
+    resources:
+      - routes
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - route.openshift.io
+      - ""
+    resources:
+      - routes/status
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - template.openshift.io
+      - ""
+    resources:
+      - processedtemplates
+      - templateconfigs
+      - templateinstances
+      - templates
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - build.openshift.io
+      - ""
+    resources:
+      - buildlogs
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - ""
+    resources:
+      - resourcequotausages
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - servicecatalog.k8s.io
+    resources:
+      - servicebindings
+      - serviceinstances
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets
+    verbs:
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets/scale
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets/scale
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - replicasets/scale
+    verbs:
+      - watch
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - get
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - list
+  - apiGroups:
+      - apps
+    resources:
+      - daemonsets
+    verbs:
+      - watch
+  - apiGroups:
+      - servicecatalog.k8s.io
+    resources:
+      - servicebindings
+      - serviceinstances
+    verbs:
+      - get
+      - list
+      - watch

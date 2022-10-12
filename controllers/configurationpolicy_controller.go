@@ -1941,13 +1941,6 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interf
 			}
 		}
 	case []interface{}: // list nested in map
-		if !isSorted(templateVal) {
-			// arbitrary sort on template value for easier comparison
-			sort.Slice(templateVal, func(i, j int) bool {
-				return fmt.Sprintf("%v", templateVal[i]) < fmt.Sprintf("%v", templateVal[j])
-			})
-		}
-
 		existingVal, ok := existingVal.([]interface{})
 		if !ok {
 			// if one field is a list and the other isn't, don't bother merging
@@ -1973,16 +1966,6 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interf
 	}
 
 	return templateVal.(string)
-}
-
-// isSorted is a helper function that checks whether an array is sorted
-func isSorted(arr []interface{}) (result bool) {
-	arrCopy := append([]interface{}{}, arr...)
-	sort.Slice(arr, func(i, j int) bool {
-		return fmt.Sprintf("%v", arr[i]) < fmt.Sprintf("%v", arr[j])
-	})
-
-	return fmt.Sprint(arrCopy) == fmt.Sprint(arr)
 }
 
 // mergeArrays is a helper function that takes a list from the existing object and merges in all the data that is
@@ -2016,7 +1999,18 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 		}
 	}
 
-	for _, data := range oldItemSet {
+	seen := map[string]bool{}
+
+	// Iterate both arrays in order to favor the case when the object is already compliant.
+	for _, val2 := range old {
+		key := fmt.Sprint(val2)
+		if seen[key] {
+			continue
+		} else {
+			seen[key] = true
+		}
+
+		data := oldItemSet[key]
 		count := 0
 		reqCount := data["count"]
 		val2 := data["value"]
@@ -2059,6 +2053,12 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 
 				newArr[newArrIdx] = mergedObj
 				idxWritten[newArrIdx] = true
+			}
+
+			// If the result of merging val1 (template) into val2 (existing value) matched val2 for the required count,
+			// move on to the next existing value.
+			if count == reqCount {
+				break
 			}
 		}
 		// if an item in the existing object cannot be found in the template, we add it to the template array
