@@ -6,12 +6,12 @@ require (
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/go-logr/zapr v1.2.3
 	github.com/google/go-cmp v0.5.8
-	github.com/onsi/ginkgo/v2 v2.1.4
-	github.com/onsi/gomega v1.19.0
+	github.com/onsi/ginkgo/v2 v2.1.6
+	github.com/onsi/gomega v1.20.1
 	github.com/prometheus/client_golang v1.13.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stolostron/go-log-utils v0.1.1
-	github.com/stolostron/go-template-utils/v2 v2.5.1
+	github.com/stolostron/go-template-utils/v3 v3.0.0
 	github.com/stretchr/testify v1.7.0
 	k8s.io/api v0.23.9
 	k8s.io/apimachinery v0.23.9
@@ -49,7 +49,6 @@ require (
 	github.com/go-openapi/jsonreference v0.19.5 // indirect
 	github.com/go-openapi/swag v0.19.14 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang/glog v1.0.0 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
@@ -72,6 +71,7 @@ require (
 	github.com/prometheus/procfs v0.8.0 // indirect
 	github.com/shopspring/decimal v1.2.0 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
+	github.com/stolostron/kubernetes-dependency-watches v0.0.0-20221007134235-7551d84cf688 // indirect
 	go.uber.org/atomic v1.7.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.21.0 // indirect

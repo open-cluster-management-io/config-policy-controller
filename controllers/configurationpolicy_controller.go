@@ -17,7 +17,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
-	templates "github.com/stolostron/go-template-utils/v2/pkg/templates"
+	templates "github.com/stolostron/go-template-utils/v3/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
@@ -850,7 +850,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				}
 
 				// Set the resolved data for use in further processing
-				objectT.ObjectDefinition.Raw = resolvedTemplate
+				objectT.ObjectDefinition.Raw = resolvedTemplate.ResolvedJSON
 			}
 		}
 	}
