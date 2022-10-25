@@ -59,6 +59,8 @@ func init() {
 }
 
 func main() {
+	klog.InitFlags(nil)
+
 	zflags := zaputil.FlagConfig{
 		LevelName:   "log-level",
 		EncoderName: "log-encoder",
