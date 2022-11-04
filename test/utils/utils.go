@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/ghodss/yaml"
@@ -241,4 +242,53 @@ func GetLastEvaluated(configPolicy *unstructured.Unstructured) (string, int64) {
 	}
 
 	return lastEvaluated, lastEvaluatedGeneration
+}
+
+// GetMetrics execs into the config-policy-controller pod and curls the metrics endpoint, filters
+// the response with the given patterns, and returns the value(s) for the matching
+// metric(s).
+func GetMetrics(metricPatterns ...string) []string {
+	podCmd := exec.Command("kubectl", "get", "pod", "-n=open-cluster-management-agent-addon",
+		"-l=name=config-policy-controller", "--no-headers")
+
+	propPodInfo, err := podCmd.Output()
+	if err != nil {
+		return []string{err.Error()}
+	}
+
+	var cmd *exec.Cmd
+
+	metricFilter := " | grep " + strings.Join(metricPatterns, " | grep ")
+	metricsCmd := `curl localhost:8383/metrics` + metricFilter
+
+	// The pod name is "No" when the response is "No resources found"
+	propPodName := strings.Split(string(propPodInfo), " ")[0]
+	if propPodName == "No" || propPodName == "" {
+		// A missing pod could mean the controller is running locally
+		cmd = exec.Command("bash", "-c", metricsCmd)
+	} else {
+		cmd = exec.Command("kubectl", "exec", "-n=open-cluster-management-agent-addon", propPodName, "-c",
+			"config-policy-controller", "--", "bash", "-c", metricsCmd)
+	}
+
+	matchingMetricsRaw, err := cmd.Output()
+	if err != nil {
+		if err.Error() == "exit status 1" {
+			return []string{} // exit 1 indicates that grep couldn't find a match.
+		}
+
+		return []string{err.Error()}
+	}
+
+	matchingMetrics := strings.Split(strings.TrimSpace(string(matchingMetricsRaw)), "\n")
+	values := make([]string, len(matchingMetrics))
+
+	for i, metric := range matchingMetrics {
+		fields := strings.Fields(metric)
+		if len(fields) > 0 {
+			values[i] = fields[len(fields)-1]
+		}
+	}
+
+	return values
 }
