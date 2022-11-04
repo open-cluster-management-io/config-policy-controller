@@ -177,8 +177,8 @@ deploy: generate-operator-yaml
 
 .PHONY: create-ns
 create-ns:
-	@kubectl create namespace $(CONTROLLER_NAMESPACE) || true
-	@kubectl create namespace $(WATCH_NAMESPACE) || true
+	-@kubectl create namespace $(CONTROLLER_NAMESPACE)
+	-@kubectl create namespace $(WATCH_NAMESPACE)
 
 # Run against the current locally configured Kubernetes cluster
 .PHONY: run
@@ -239,7 +239,7 @@ kind-bootstrap-cluster-dev: kind-create-cluster install-crds install-resources
 .PHONY: kind-deploy-controller
 kind-deploy-controller: generate-operator-yaml
 	@echo Installing $(IMG)
-	kubectl create ns $(KIND_NAMESPACE) || true
+	-kubectl create ns $(KIND_NAMESPACE)
 	kubectl apply -f deploy/operator.yaml -n $(KIND_NAMESPACE)
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"env\":[{\"name\":\"WATCH_NAMESPACE\",\"value\":\"$(WATCH_NAMESPACE)\"}]}]}}}}"
 
