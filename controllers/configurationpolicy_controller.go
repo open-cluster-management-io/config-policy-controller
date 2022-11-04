@@ -1005,6 +1005,8 @@ func sortRelatedObjectsAndUpdate(
 					!(*newEntry.Properties.CreatedByPolicy) {
 					// Use the old properties if they existed and this is not a newly created resource
 					related[i].Properties = oldEntry.Properties
+
+					break
 				}
 			}
 		}
