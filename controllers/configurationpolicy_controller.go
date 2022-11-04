@@ -106,6 +106,8 @@ type ConfigurationPolicyReconciler struct {
 	// where the controller is running.
 	TargetK8sClient kubernetes.Interface
 	TargetK8sConfig *rest.Config
+	// Whether custom metrics collection is enabled
+	EnableMetrics bool
 	discoveryInfo
 	// This is used to fetch and parse OpenAPI documents to perform client-side validation of object definitions.
 	openAPIParser *openapi.CachedOpenAPIParser
@@ -127,6 +129,8 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 		_ = policyEvalCounter.DeleteLabelValues(request.Name)
 		_ = compareObjEvalCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
 		_ = compareObjSecondsCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
+		_ = policyRelatedObjectGauge.DeletePartialMatch(
+			prometheus.Labels{"policy": fmt.Sprintf("%s/%s", request.Namespace, request.Name)})
 	}
 
 	return reconcile.Result{}, nil
@@ -180,6 +184,9 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 		if !skipLoop {
 			log.Info("Processing the policies", "count", len(policiesList.Items))
 
+			// Initialize the related object map
+			policyRelatedObjectMap = sync.Map{}
+
 			for i := 0; i < int(r.EvaluationConcurrency); i++ {
 				wg.Add(1)
 
@@ -200,6 +207,11 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 		close(policyQueue)
 		wg.Wait()
 
+		// Update the related object metric after policy processing
+		if r.EnableMetrics {
+			updateRelatedObjectMetric()
+		}
+		// Update the evaluation histogram with the elapsed time
 		elapsed := time.Since(start).Seconds()
 		evalLoopHistogram.Observe(elapsed)
 		// making sure that if processing is > freq we don't sleep
@@ -919,14 +931,14 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 func (r *ConfigurationPolicyReconciler) checkRelatedAndUpdate(
 	plc policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject, sendEvent bool,
 ) {
-	sortRelatedObjectsAndUpdate(&plc, related, oldRelated)
+	sortRelatedObjectsAndUpdate(&plc, related, oldRelated, r.EnableMetrics)
 	// An update always occurs to account for the lastEvaluated status field
 	r.addForUpdate(&plc, sendEvent)
 }
 
 // helper function to check whether related objects has changed
 func sortRelatedObjectsAndUpdate(
-	plc *policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject,
+	plc *policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject, collectMetrics bool,
 ) {
 	sort.SliceStable(related, func(i, j int) bool {
 		if related[i].Object.Kind != related[j].Object.Kind {
@@ -941,7 +953,33 @@ func sortRelatedObjectsAndUpdate(
 
 	update := false
 
+	// Instantiate found objects for the related object metric
+	found := map[string]bool{}
+
+	if collectMetrics {
+		for _, obj := range oldRelated {
+			found[getObjectString(obj)] = false
+		}
+	}
+
+	// Format policy for related object metric
+	policyVal := fmt.Sprintf("%s/%s", plc.Namespace, plc.Name)
+
 	for i, newEntry := range related {
+		var objKey string
+		// Collect the policy and related object for related object metric
+		if collectMetrics {
+			objKey = getObjectString(newEntry)
+			policiesArray := []string{}
+
+			if objValue, ok := policyRelatedObjectMap.Load(objKey); ok {
+				policiesArray = append(policiesArray, objValue.([]string)...)
+			}
+
+			policiesArray = append(policiesArray, policyVal)
+			policyRelatedObjectMap.Store(objKey, policiesArray)
+		}
+
 		for _, oldEntry := range oldRelated {
 			// Get matching objects
 			if gocmp.Equal(newEntry.Object, oldEntry.Object) {
@@ -952,8 +990,22 @@ func sortRelatedObjectsAndUpdate(
 					// Use the old properties if they existed and this is not a newly created resource
 					related[i].Properties = oldEntry.Properties
 
+					if collectMetrics {
+						found[objKey] = true
+					}
+
 					break
 				}
+			}
+		}
+	}
+
+	// Clean up old related object metrics if the related object list changed
+	if collectMetrics {
+		for _, obj := range oldRelated {
+			objString := getObjectString(obj)
+			if !found[objString] {
+				_ = policyRelatedObjectGauge.DeleteLabelValues(objString, policyVal)
 			}
 		}
 	}

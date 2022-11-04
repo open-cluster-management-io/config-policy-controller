@@ -1,0 +1,37 @@
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case25-test-policy-1
+spec:
+  remediationAction: enforce
+  pruneObjectBehavior: DeleteAll
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: case25-configmap
+          namespace: default
+        data:
+          name: testvalue
+---
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case25-test-policy-2
+spec:
+  remediationAction: enforce
+  pruneObjectBehavior: DeleteAll
+  namespaceSelector:
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: case25-configmap
+        data:
+          name: testvalue

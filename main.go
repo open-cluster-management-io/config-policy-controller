@@ -72,7 +72,7 @@ func main() {
 	var clusterName, hubConfigPath, targetKubeConfig, metricsAddr, probeAddr string
 	var frequency uint
 	var decryptionConcurrency, evaluationConcurrency uint8
-	var enableLease, enableLeaderElection, legacyLeaderElection bool
+	var enableLease, enableLeaderElection, legacyLeaderElection, enableMetrics bool
 
 	pflag.UintVar(&frequency, "update-frequency", 10,
 		"The status update frequency (in seconds) of a mutation policy")
@@ -109,6 +109,7 @@ func main() {
 		2,
 		"The max number of concurrent configuration policy evaluations",
 	)
+	pflag.BoolVar(&enableMetrics, "enable-metrics", true, "Disable custom metrics collection")
 
 	pflag.Parse()
 
@@ -252,6 +253,7 @@ func main() {
 		InstanceName:          instanceName,
 		TargetK8sClient:       targetK8sClient,
 		TargetK8sConfig:       targetK8sConfig,
+		EnableMetrics:         enableMetrics,
 	}
 	if err = reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")
