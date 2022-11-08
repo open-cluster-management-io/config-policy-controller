@@ -17,25 +17,27 @@ import (
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
-var samplePolicy = policyv1.ConfigurationPolicy{
-	ObjectMeta: metav1.ObjectMeta{
-		Name:      "foo",
-		Namespace: "default",
-	},
-	Spec: policyv1.ConfigurationPolicySpec{
-		Severity: "low",
-		NamespaceSelector: policyv1.Target{
-			Include: []policyv1.NonEmptyString{"default", "kube-*"},
-			Exclude: []policyv1.NonEmptyString{"kube-system"},
+func getSamplePolicy() policyv1.ConfigurationPolicy {
+	return policyv1.ConfigurationPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "default",
 		},
-		RemediationAction: "inform",
-		ObjectTemplates: []*policyv1.ObjectTemplate{
-			{
-				ComplianceType:   "musthave",
-				ObjectDefinition: runtime.RawExtension{},
+		Spec: policyv1.ConfigurationPolicySpec{
+			Severity: "low",
+			NamespaceSelector: policyv1.Target{
+				Include: []policyv1.NonEmptyString{"default", "kube-*"},
+				Exclude: []policyv1.NonEmptyString{"kube-system"},
+			},
+			RemediationAction: "inform",
+			ObjectTemplates: []*policyv1.ObjectTemplate{
+				{
+					ComplianceType:   "musthave",
+					ObjectDefinition: runtime.RawExtension{},
+				},
 			},
 		},
-	},
+	}
 }
 
 func TestMain(m *testing.M) {

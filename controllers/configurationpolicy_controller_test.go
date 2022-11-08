@@ -236,6 +236,8 @@ func TestConvertPolicyStatusToString(t *testing.T) {
 		compliantDetails = append(compliantDetails, compliantDetail)
 	}
 
+	samplePolicy := getSamplePolicy()
+
 	samplePolicyStatus := policyv1.ConfigurationPolicyStatus{
 		ComplianceState:   "Compliant",
 		CompliancyDetails: compliantDetails,
@@ -244,6 +246,29 @@ func TestConvertPolicyStatusToString(t *testing.T) {
 	policyInString := convertPolicyStatusToString(&samplePolicy)
 
 	assert.NotNil(t, policyInString)
+}
+
+func TestConvertPolicyStatusToStringLongMsg(t *testing.T) {
+	msg := "Do. Or do not. There is no try."
+	for len([]rune(msg)) < 1024 {
+		msg += " Do. Or do not. There is no try."
+	}
+
+	samplePolicy := getSamplePolicy()
+
+	samplePolicy.Status = policyv1.ConfigurationPolicyStatus{
+		ComplianceState: "Compliant",
+		CompliancyDetails: []policyv1.TemplateStatus{
+			{
+				ComplianceState: policyv1.NonCompliant,
+				Conditions:      []policyv1.Condition{{Message: msg}},
+			},
+		},
+	}
+	statusMsg := convertPolicyStatusToString(&samplePolicy)
+
+	assert.Contains(t, statusMsg, "...")
+	assert.Len(t, []rune(statusMsg), 1024)
 }
 
 func TestMerge(t *testing.T) {

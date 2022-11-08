@@ -2540,6 +2540,12 @@ func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results str
 		}
 	}
 
+	runeResult := []rune(result)
+
+	if len(runeResult) > 1024 {
+		result = string(append(runeResult[:1021], '.', '.', '.'))
+	}
+
 	return result
 }
 
