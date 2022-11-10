@@ -159,8 +159,8 @@ spec:
                 type: array
               pruneObjectBehavior:
                 default: None
-                description: 'PruneObjectBehavior : DeleteAll, DeleteIfCreated, or
-                  None'
+                description: PruneObjectBehavior is used to remove objects that are
+                  managed by the policy upon policy deletion.
                 enum:
                 - DeleteAll
                 - DeleteIfCreated

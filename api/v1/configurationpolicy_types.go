@@ -27,7 +27,8 @@ type RemediationAction string
 // +kubebuilder:validation:Enum=low;Low;medium;Medium;high;High;critical;Critical
 type Severity string
 
-// PruneObjectBehavior : DeleteAll, DeleteIfCreated, or None
+// PruneObjectBehavior is used to remove objects that are managed by the
+// policy upon policy deletion.
 // +kubebuilder:validation:Enum=DeleteAll;DeleteIfCreated;None;
 type PruneObjectBehavior string
 
