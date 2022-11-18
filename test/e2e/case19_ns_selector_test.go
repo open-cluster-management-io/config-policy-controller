@@ -11,11 +11,13 @@ import (
 )
 
 const (
-	case19PolicyName  string = "policy-configmap-selector-e2e"
-	case19PolicyYaml  string = "../resources/case19_ns_selector/case19_cm_policy.yaml"
-	case19PrereqYaml  string = "../resources/case19_ns_selector/case19_cm_manifest.yaml"
-	case19PatchPrefix string = "[{\"op\":\"replace\",\"path\":\"/spec/namespaceSelector\",\"value\":"
-	case19PatchSuffix string = "}]"
+	case19PolicyName    string = "policy-configmap-selector-e2e"
+	case19PolicyYaml    string = "../resources/case19_ns_selector/case19_cm_policy.yaml"
+	case19TemplatesName string = "configmap-selector-e2e"
+	case19TemplatesKind string = "ConfigMap"
+	case19PrereqYaml    string = "../resources/case19_ns_selector/case19_cm_manifest.yaml"
+	case19PatchPrefix   string = "[{\"op\":\"replace\",\"path\":\"/spec/namespaceSelector\",\"value\":"
+	case19PatchSuffix   string = "}]"
 )
 
 // Test setup for namespace selection policy tests:
@@ -33,12 +35,14 @@ var _ = Describe("Test object namespace selection", Ordered, func() {
 	}{
 		"no namespaceSelector specified": {
 			"{}",
-			"namespaced object has no namespace specified" +
+			"namespaced object " + case19TemplatesName + " of kind " + case19TemplatesKind +
+				" has no namespace specified" +
 				" from the policy namespaceSelector nor the object metadata",
 		},
 		"a non-matching LabelSelector": {
 			"{\"matchLabels\":{\"name\":\"not-a-namespace\"}}",
-			"namespaced object has no namespace specified" +
+			"namespaced object " + case19TemplatesName + " of kind " + case19TemplatesKind +
+				" has no namespace specified" +
 				" from the policy namespaceSelector nor the object metadata",
 		},
 		"LabelSelector and exclude": {
