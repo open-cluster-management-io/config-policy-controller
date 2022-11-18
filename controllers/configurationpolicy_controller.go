@@ -1180,12 +1180,20 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	dclient, rsrc := r.getResourceAndDynamicClient(mapping)
 
 	if objDetails.isNamespaced && namespace == "" {
-		log.Info("The object template is namespaced but no namespace is specified. Cannot process.")
-		// namespaced but none specified, generate violation
-		statusUpdateNeeded = addConditionToStatus(policy, index, false, "K8s missing namespace",
-			"namespaced object has no namespace specified "+
-				"from the policy namespaceSelector nor the object metadata",
+		objName := objDetails.name
+		kindWithoutNS := objDetails.kind
+		log.Info(
+			"The object template is namespaced but no namespace is specified. Cannot process.",
+			"name", objName,
+			"kind", kindWithoutNS,
 		)
+		// namespaced but none specified, generate violation
+		msg := fmt.Sprintf("namespaced object %s of kind %s has no namespace specified "+
+			"from the policy namespaceSelector nor the object metadata",
+			objName, kindWithoutNS,
+		)
+		statusUpdateNeeded = addConditionToStatus(policy, index, false, "K8s missing namespace", msg)
+
 		if statusUpdateNeeded {
 			eventType := eventNormal
 			if index < len(policy.Status.CompliancyDetails) &&
