@@ -35,6 +35,22 @@ var (
 		},
 		[]string{"name"},
 	)
+	plcTempsProcessSecondsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "config_policy_templates_process_seconds_total",
+			Help: "The total seconds taken while processing the configuration policy templates. Use this alongside " +
+				"config_policy_templates_process_total.",
+		},
+		[]string{"name"},
+	)
+	plcTempsProcessCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "config_policy_templates_process_total",
+			Help: "The total number of processes of the configuration policy templates. Use this alongside " +
+				"config_policy_templates_process_seconds_total.",
+		},
+		[]string{"name"},
+	)
 	compareObjSecondsCounter = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "compare_objects_seconds_total",
@@ -94,6 +110,8 @@ func init() {
 	metrics.Registry.MustRegister(evalLoopHistogram)
 	metrics.Registry.MustRegister(policyEvalSecondsCounter)
 	metrics.Registry.MustRegister(policyEvalCounter)
+	metrics.Registry.MustRegister(plcTempsProcessSecondsCounter)
+	metrics.Registry.MustRegister(plcTempsProcessCounter)
 	metrics.Registry.MustRegister(compareObjSecondsCounter)
 	metrics.Registry.MustRegister(compareObjEvalCounter)
 	metrics.Registry.MustRegister(policyRelatedObjectGauge)

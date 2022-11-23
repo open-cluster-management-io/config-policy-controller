@@ -5,6 +5,8 @@ package e2e
 
 import (
 	"context"
+	"fmt"
+	"strconv"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -257,6 +259,41 @@ var _ = Describe("Test templatization", func() {
 
 			By("Sleeping 30 seconds to ensure PeriodicallyExecConfigPolicies has rerun twice")
 			time.Sleep(30 * time.Second)
+
+			By("Checking metric endpoint for policy template counter for policy " + case13UpdateRefObject)
+			Eventually(func() interface{} {
+				return utils.GetMetrics(
+					"config_policy_templates_process_total",
+					fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
+				)
+			}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
+			templatesTotalCounter := utils.GetMetrics(
+				"config_policy_templates_process_total",
+				fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
+			)
+			totalCounter, err := strconv.Atoi(templatesTotalCounter[0])
+			Expect(err).To(BeNil())
+			if err == nil {
+				Expect(totalCounter > 0).To(BeTrue())
+			}
+			By("Policy " + case13UpdateRefObject + " total template process counter : " + templatesTotalCounter[0])
+
+			Eventually(func() interface{} {
+				return utils.GetMetrics(
+					"config_policy_templates_process_seconds_total",
+					fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
+				)
+			}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
+			templatesTotalSeconds := utils.GetMetrics(
+				"config_policy_templates_process_seconds_total",
+				fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
+			)
+			templatesSeconds, err := strconv.ParseFloat(templatesTotalSeconds[0], 32)
+			Expect(err).To(BeNil())
+			if err == nil {
+				Expect(templatesSeconds > 0).To(BeTrue())
+			}
+			By("Policy " + case13UpdateRefObject + " total template process seconds : " + templatesTotalSeconds[0])
 
 			By("Updating the referenced ConfigMap")
 			configMap.Data["message"] = "Hello world!"
