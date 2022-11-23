@@ -127,6 +127,8 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 		// If the metric was not deleted, that means the policy was never evaluated so it can be ignored.
 		_ = policyEvalSecondsCounter.DeleteLabelValues(request.Name)
 		_ = policyEvalCounter.DeleteLabelValues(request.Name)
+		_ = plcTempsProcessSecondsCounter.DeleteLabelValues(request.Name)
+		_ = plcTempsProcessCounter.DeleteLabelValues(request.Name)
 		_ = compareObjEvalCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
 		_ = compareObjSecondsCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
 		_ = policyRelatedObjectGauge.DeletePartialMatch(
@@ -734,6 +736,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 	log.V(2).Info("Processing the object templates", "count", len(plc.Spec.ObjectTemplates))
 
 	if !disableTemplates {
+		startTime := time.Now().UTC()
+
 		for _, objectT := range plc.Spec.ObjectTemplates {
 			// first check to make sure there are no hub-templates with delimiter - {{hub
 			// if one exists, it means the template resolution on the hub did not succeed.
@@ -826,6 +830,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				// Set the resolved data for use in further processing
 				objectT.ObjectDefinition.Raw = resolvedTemplate.ResolvedJSON
 			}
+		}
+
+		if r.EnableMetrics {
+			durationSeconds := time.Since(startTime).Seconds()
+			plcTempsProcessSecondsCounter.WithLabelValues(plc.GetName()).Add(durationSeconds)
+			plcTempsProcessCounter.WithLabelValues(plc.GetName()).Inc()
 		}
 	}
 
