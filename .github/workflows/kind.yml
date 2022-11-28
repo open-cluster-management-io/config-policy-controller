@@ -31,7 +31,7 @@ jobs:
     name: KinD tests
     steps:
     - name: Checkout Config Policy Controller
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         path: config-policy-controller
         fetch-depth: 0 # Fetch all history for all tags and branches
