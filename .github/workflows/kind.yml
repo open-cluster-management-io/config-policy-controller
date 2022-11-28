@@ -22,11 +22,11 @@ jobs:
       REGISTRY: localhost:5000
     strategy:
       matrix:
-        # Run tests on oldest and newest supported OCP Kubernetes
-        # - OCP 4.5 runs Kubernetes v1.18
+        # Run tests on minimum and newest supported OCP Kubernetes
+        # The "minimum" tag is set in the Makefile
         # KinD tags: https://hub.docker.com/r/kindest/node/tags
         kind:
-          - 'v1.18.15'
+          - 'minimum'
           - 'latest'
     name: KinD tests
     steps:

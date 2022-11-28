@@ -34,7 +34,10 @@ KIND_NAMESPACE ?= open-cluster-management-agent-addon
 KIND_VERSION ?= latest
 MANAGED_CLUSTER_NAME ?= managed
 WATCH_NAMESPACE ?= $(MANAGED_CLUSTER_NAME)
-ifneq ($(KIND_VERSION), latest)
+# Set the Kind version tag
+ifeq ($(KIND_VERSION), minimum)
+	KIND_ARGS = --image kindest/node:v1.19.16
+else ifneq ($(KIND_VERSION), latest)
 	KIND_ARGS = --image kindest/node:$(KIND_VERSION)
 else
 	KIND_ARGS =
