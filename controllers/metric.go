@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -64,6 +65,28 @@ var (
 			"policy",
 		},
 	)
+	policyUserErrorsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "policy_user_errors_total",
+			Help: "The number of user errors encountered while processing policies",
+		},
+		[]string{
+			"policy",
+			"template",
+			"type",
+		},
+	)
+	policySystemErrorsCounter = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "policy_system_errors_total",
+			Help: "The number of system errors encountered while processing policies",
+		},
+		[]string{
+			"policy",
+			"template",
+			"type",
+		},
+	)
 )
 
 func init() {
@@ -74,6 +97,18 @@ func init() {
 	metrics.Registry.MustRegister(compareObjSecondsCounter)
 	metrics.Registry.MustRegister(compareObjEvalCounter)
 	metrics.Registry.MustRegister(policyRelatedObjectGauge)
+	// Error metrics may already be registered by template sync
+	alreadyReg := &prometheus.AlreadyRegisteredError{}
+
+	regErr := metrics.Registry.Register(policySystemErrorsCounter)
+	if regErr != nil && !errors.As(regErr, alreadyReg) {
+		panic(regErr)
+	}
+
+	regErr = metrics.Registry.Register(policyUserErrorsCounter)
+	if regErr != nil && !errors.As(regErr, alreadyReg) {
+		panic(regErr)
+	}
 }
 
 // updateRelatedObjectMetric iterates through the collected related object map, deletes any metrics
