@@ -2520,10 +2520,7 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 		event.Type = "Warning"
 	}
 
-	eventClient := r.TargetK8sClient.CoreV1().Events(instance.Namespace)
-	_, err := eventClient.Create(context.TODO(), event, metav1.CreateOptions{})
-
-	return err
+	return r.Create(context.TODO(), event)
 }
 
 // convertPolicyStatusToString to be able to pass the status as event

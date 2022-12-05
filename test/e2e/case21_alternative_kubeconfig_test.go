@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -18,10 +19,12 @@ import (
 
 var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered, Label("hosted-mode"), func() {
 	const (
-		envName       = "TARGET_KUBECONFIG_PATH"
-		namespaceName = "e2e-test-ns"
-		policyName    = "create-ns"
-		policyYAML    = "../resources/case21_alternative_kubeconfig/policy.yaml"
+		envName          = "TARGET_KUBECONFIG_PATH"
+		namespaceName    = "e2e-test-ns"
+		policyName       = "create-ns"
+		policyYAML       = "../resources/case21_alternative_kubeconfig/policy.yaml"
+		parentPolicyName = "parent-create-ns"
+		parentPolicyYAML = "../resources/case21_alternative_kubeconfig/parent-policy.yaml"
 	)
 
 	var targetK8sClient *kubernetes.Clientset
@@ -41,15 +44,34 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 	AfterAll(func() {
 		deleteConfigPolicies([]string{policyName})
 
-		err := targetK8sClient.CoreV1().Namespaces().Delete(context.TODO(), namespaceName, metav1.DeleteOptions{})
+		err := clientManagedDynamic.Resource(gvrPolicy).Namespace(testNamespace).Delete(
+			context.TODO(), parentPolicyName, metav1.DeleteOptions{},
+		)
+		if !errors.IsNotFound(err) {
+			Expect(err).To(BeNil())
+		}
+
+		err = targetK8sClient.CoreV1().Namespaces().Delete(context.TODO(), namespaceName, metav1.DeleteOptions{})
 		if !errors.IsNotFound(err) {
 			Expect(err).To(BeNil())
 		}
 	})
 
 	It("should create the namespace using the alternative kubeconfig", func() {
+		By("Creating parent policy " + parentPolicyName + " on " + testNamespace)
+		utils.Kubectl("apply", "-f", parentPolicyYAML, "-n", testNamespace)
+		parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
+			parentPolicyName, testNamespace, true, defaultTimeoutSeconds)
+		Expect(parent).NotTo(BeNil())
+
 		By("Creating the " + policyName + " policy")
-		utils.Kubectl("apply", "-f", policyYAML, "-n", testNamespace)
+		plcDef := utils.ParseYaml(policyYAML)
+		ownerRefs := plcDef.GetOwnerReferences()
+		ownerRefs[0].UID = parent.GetUID()
+		plcDef.SetOwnerReferences(ownerRefs)
+		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
+			Create(context.TODO(), plcDef, metav1.CreateOptions{})
+		Expect(err).To(BeNil())
 
 		By("Verifying that the " + policyName + " policy is compliant")
 		Eventually(func() interface{} {
@@ -61,7 +83,12 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 
 		By("Verifying that the " + policyName + " was created using the alternative kubeconfig")
-		_, err := targetK8sClient.CoreV1().Namespaces().Get(context.TODO(), namespaceName, metav1.GetOptions{})
+		_, err = targetK8sClient.CoreV1().Namespaces().Get(context.TODO(), namespaceName, metav1.GetOptions{})
 		Expect(err).To(BeNil())
+
+		By("Verifying that a compliance event was created on the parent policy")
+		compParentEvents := utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
+			fmt.Sprintf("policy: %v/%v", testNamespace, policyName), "^Compliant;", defaultTimeoutSeconds)
+		Expect(compParentEvents).NotTo(BeEmpty())
 	})
 })
