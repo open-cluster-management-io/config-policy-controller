@@ -131,6 +131,8 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 		_ = compareObjSecondsCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
 		_ = policyRelatedObjectGauge.DeletePartialMatch(
 			prometheus.Labels{"policy": fmt.Sprintf("%s/%s", request.Namespace, request.Name)})
+		_ = policyUserErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
+		_ = policySystemErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
 	}
 
 	return reconcile.Result{}, nil
@@ -313,9 +315,9 @@ func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy) bool {
 
 	var interval time.Duration
 
-	if policy.Status.ComplianceState == policyv1.Compliant {
+	if policy.Status.ComplianceState == policyv1.Compliant && policy.Spec != nil {
 		interval, err = policy.Spec.EvaluationInterval.GetCompliantInterval()
-	} else if policy.Status.ComplianceState == policyv1.NonCompliant {
+	} else if policy.Status.ComplianceState == policyv1.NonCompliant && policy.Spec != nil {
 		interval, err = policy.Spec.EvaluationInterval.GetNonCompliantInterval()
 	} else {
 		log.V(2).Info("The policy has an unknown compliance. Will evaluate it now.")
@@ -563,11 +565,18 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 	relatedObjects := []policyv1.RelatedObject{}
 	parentStatusUpdateNeeded := false
 
-	// error if no remediationAction is specified
-	if plc.Spec.RemediationAction == "" {
-		message := "Policy does not have a RemediationAction specified"
+	validationErr := ""
+	if plc.Spec == nil {
+		validationErr = "Policy does not have a Spec specified"
+	} else if plc.Spec.RemediationAction == "" {
+		validationErr = "Policy does not have a RemediationAction specified"
+	}
+
+	// error if no spec or remediationAction is specified
+	if validationErr != "" {
+		message := validationErr
 		log.Info(message)
-		statusChanged := addConditionToStatus(&plc, 0, false, "No RemediationAction", message)
+		statusChanged := addConditionToStatus(&plc, 0, false, "Invalid spec", message)
 
 		if statusChanged {
 			r.Recorder.Event(&plc, eventWarning,
@@ -575,6 +584,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		}
 
 		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusChanged)
+
+		parent := ""
+		if len(plc.OwnerReferences) > 0 {
+			parent = plc.OwnerReferences[0].Name
+		}
+
+		policyUserErrorsCounter.WithLabelValues(parent, plc.GetName(), "invalid-template").Add(1)
 
 		return
 	}
@@ -1051,11 +1067,11 @@ func addConditionToStatus(
 
 	log := log.WithValues("policy", plc.GetName(), "complianceState", complianceState)
 
-	if compliant && plc.Spec.EvaluationInterval.Compliant == "never" {
+	if compliant && plc.Spec != nil && plc.Spec.EvaluationInterval.Compliant == "never" {
 		msg := `This policy will not be evaluated again due to spec.evaluationInterval.compliant being set to "never"`
 		log.Info(msg)
 		cond.Message += fmt.Sprintf(". %s.", msg)
-	} else if !compliant && plc.Spec.EvaluationInterval.NonCompliant == "never" {
+	} else if !compliant && plc.Spec != nil && plc.Spec.EvaluationInterval.NonCompliant == "never" {
 		msg := "This policy will not be evaluated again due to spec.evaluationInterval.noncompliant " +
 			`being set to "never"`
 		log.Info(msg)
@@ -1616,7 +1632,15 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 			kind := afterPrefix[0:(strings.Index(afterPrefix, "\" "))]
 			mappingErrMsg = "couldn't find mapping resource with kind " + kind +
 				", please check if you have CRD deployed"
+
 			log.Error(err, "Could not map resource, do you have the CRD deployed?", "kind", kind)
+
+			parent := ""
+			if len(policy.OwnerReferences) > 0 {
+				parent = policy.OwnerReferences[0].Name
+			}
+
+			policyUserErrorsCounter.WithLabelValues(parent, policy.GetName(), "no-object-CRD").Add(1)
 		}
 
 		errMsg := err.Error()
@@ -2392,12 +2416,16 @@ func IsSimilarToLastCondition(oldCond policyv1.Condition, newCond policyv1.Condi
 func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.ConfigurationPolicy, sendEvent bool) {
 	compliant := true
 
-	for index := range policy.Spec.ObjectTemplates {
-		if index < len(policy.Status.CompliancyDetails) {
-			if policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
-				compliant = false
+	if policy.Spec == nil {
+		compliant = false
+	} else {
+		for index := range policy.Spec.ObjectTemplates {
+			if index < len(policy.Status.CompliancyDetails) {
+				if policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
+					compliant = false
 
-				break
+					break
+				}
 			}
 		}
 	}
@@ -2434,6 +2462,13 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		policyLog.Error(err, "Tried to re-update status before previous update could be applied, retrying next loop")
 	} else if err != nil {
 		policyLog.Error(err, "Could not update status, retrying next loop")
+
+		parent := ""
+		if len(policy.OwnerReferences) > 0 {
+			parent = policy.OwnerReferences[0].Name
+		}
+
+		policySystemErrorsCounter.WithLabelValues(parent, policy.GetName(), "status-update-failed").Add(1)
 	}
 }
 

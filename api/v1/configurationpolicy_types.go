@@ -210,7 +210,7 @@ type ConfigurationPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   ConfigurationPolicySpec   `json:"spec,omitempty"`
+	Spec   *ConfigurationPolicySpec  `json:"spec,omitempty"`
 	Status ConfigurationPolicyStatus `json:"status,omitempty"`
 }
 

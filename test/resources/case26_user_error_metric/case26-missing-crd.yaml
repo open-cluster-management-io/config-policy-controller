@@ -1,0 +1,17 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case26-test-policy-1
+spec:
+  remediationAction: enforce
+  pruneObjectBehavior: DeleteAll
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: CrdDoesNotExist
+        metadata:
+          name: case26-configmap
+          namespace: default
+        data:
+          name: testvalue
