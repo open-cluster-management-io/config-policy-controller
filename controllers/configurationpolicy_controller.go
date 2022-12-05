@@ -2407,7 +2407,7 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 	if policy.ObjectMeta.DeletionTimestamp != nil {
 		policy.Status.ComplianceState = policyv1.Terminating
 	} else if len(policy.Status.CompliancyDetails) == 0 {
-		policy.Status.ComplianceState = "Undetermined"
+		policy.Status.ComplianceState = policyv1.UnknownCompliancy
 	} else if compliant {
 		policy.Status.ComplianceState = policyv1.Compliant
 	} else {
@@ -2443,7 +2443,7 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	policy *policyv1.ConfigurationPolicy,
 	sendEvent bool,
 ) (*policyv1.ConfigurationPolicy, error) {
-	if policy.Status.ComplianceState != "Undetermined" && sendEvent {
+	if sendEvent {
 		log.V(1).Info("Sending parent policy compliance event")
 
 		// If the compliance event can't be created, then don't update the ConfigurationPolicy
@@ -2516,7 +2516,7 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 		ReportingInstance:   r.InstanceName,
 	}
 
-	if instance.Status.ComplianceState == policyv1.NonCompliant {
+	if instance.Status.ComplianceState != policyv1.Compliant {
 		event.Type = "Warning"
 	}
 
@@ -2525,8 +2525,8 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 
 // convertPolicyStatusToString to be able to pass the status as event
 func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results string) {
-	if plc.Status.ComplianceState == "" {
-		return "ComplianceState is still undetermined"
+	if plc.Status.ComplianceState == "" || plc.Status.ComplianceState == policyv1.UnknownCompliancy {
+		return "ComplianceState is still unknown"
 	}
 
 	result := string(plc.Status.ComplianceState)
