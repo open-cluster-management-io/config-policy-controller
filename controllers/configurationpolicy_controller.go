@@ -19,12 +19,15 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	templates "github.com/stolostron/go-template-utils/v3/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
+	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	apimachineryerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/dynamic"
@@ -557,6 +560,32 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 	return deletionFailures
 }
 
+func (r *ConfigurationPolicyReconciler) definitionIsDeleting() (bool, error) {
+	key := types.NamespacedName{Name: "configurationpolicies.policy.open-cluster-management.io"}
+	v1def := extensionsv1.CustomResourceDefinition{}
+
+	v1err := r.Get(context.TODO(), key, &v1def)
+	if v1err == nil {
+		return (v1def.ObjectMeta.DeletionTimestamp != nil), nil
+	}
+
+	v1beta1def := extensionsv1beta1.CustomResourceDefinition{}
+
+	v1beta1err := r.Get(context.TODO(), key, &v1beta1def)
+	if v1beta1err == nil {
+		return (v1beta1def.DeletionTimestamp != nil), nil
+	}
+
+	// It might not be possible to get a not-found on the CRD while reconciling the CR...
+	// But in that case, it seems reasonable to still consider it "deleting"
+	if k8serrors.IsNotFound(v1err) || k8serrors.IsNotFound(v1beta1err) {
+		return true, nil
+	}
+
+	// Both had unexpected errors, return them and retry later
+	return false, fmt.Errorf("v1: %v, v1beta1: %v", v1err, v1beta1err) //nolint:errorlint
+}
+
 // handleObjectTemplates iterates through all policy templates in a given policy and processes them
 func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
 	log := log.WithValues("policy", plc.GetName())
@@ -613,6 +642,25 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		// kick off object deletion if configurationPolicy has been deleted
 		if plc.ObjectMeta.DeletionTimestamp != nil {
+			// If the CRD is deleting, don't prune objects
+			crdDeleting, err := r.definitionIsDeleting()
+			if err != nil {
+				log.Error(err, "Error getting configurationpolicies CRD, requeueing policy")
+
+				return
+			} else if crdDeleting {
+				log.V(1).Info("The configuraionpolicy CRD is being deleted, ignoring and removing " +
+					"the delete-related-objects finalizer")
+
+				plc.SetFinalizers(removeConfigPlcFinalizer(plc, pruneObjectFinalizer))
+				err := r.Update(context.TODO(), &plc)
+				if err != nil {
+					log.V(1).Error(err, "Error unsetting finalizer for configuration policy", plc)
+				}
+
+				return
+			} // else: CRD is not being deleted
+
 			log.V(1).Info("Config policy has been deleted, handling child objects")
 
 			failures := r.cleanUpChildObjects(plc)

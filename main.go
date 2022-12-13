@@ -16,12 +16,14 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stolostron/go-log-utils/zaputil"
 	corev1 "k8s.io/api/core/v1"
+
+	// to ensure that exec-entrypoint and run can make use of them.
+	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-
-	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -56,6 +58,8 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 	utilruntime.Must(policyv1.AddToScheme(scheme))
+	utilruntime.Must(extensionsv1.AddToScheme(scheme))
+	utilruntime.Must(extensionsv1beta1.AddToScheme(scheme))
 }
 
 func main() {
