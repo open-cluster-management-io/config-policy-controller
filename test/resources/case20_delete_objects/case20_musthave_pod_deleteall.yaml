@@ -1,0 +1,23 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-pod-mhpda
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  pruneObjectBehavior: DeleteAll
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-pod-e2e20-mhpda
+        spec:
+          containers:
+            - image: nginx:1.7.9
+              name: nginx
+              ports:
+                - containerPort: 80
