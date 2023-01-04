@@ -20,6 +20,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	"k8s.io/apimachinery/pkg/fields"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/client-go/kubernetes"
@@ -160,6 +161,20 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Set a field selector so that a watch on CRDs will be limited to just the configuration policy CRD.
+	newCacheFunc := cache.BuilderWithOptions(
+		cache.Options{
+			SelectorsByObject: cache.SelectorsByObject{
+				&extensionsv1.CustomResourceDefinition{}: {
+					Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
+				},
+				&extensionsv1beta1.CustomResourceDefinition{}: {
+					Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
+				},
+			},
+		},
+	)
+
 	// Set default manager options
 	options := manager.Options{
 		Namespace:              namespace,
@@ -169,6 +184,7 @@ func main() {
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "config-policy-controller.open-cluster-management.io",
+		NewCache:               newCacheFunc,
 		// Disable the cache for Secrets to avoid a watch getting created when the `policy-encryption-key`
 		// Secret is retrieved. Special cache handling is done by the controller.
 		ClientDisableCacheFor: []client.Object{&corev1.Secret{}},
