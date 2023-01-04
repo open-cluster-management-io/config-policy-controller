@@ -22,6 +22,7 @@ import (
 	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
@@ -225,11 +226,13 @@ func main() {
 	}
 
 	var targetK8sClient kubernetes.Interface
+	var targetK8sDynamicClient dynamic.Interface
 	var targetK8sConfig *rest.Config
 
 	if targetKubeConfig == "" {
 		targetK8sConfig = cfg
 		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
+		targetK8sDynamicClient = dynamic.NewForConfigOrDie(targetK8sConfig)
 	} else {
 		var err error
 
@@ -240,6 +243,7 @@ func main() {
 		}
 
 		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
+		targetK8sDynamicClient = dynamic.NewForConfigOrDie(targetK8sConfig)
 
 		log.Info(
 			"Overrode the target Kubernetes cluster for policy evaluation and enforcement", "path", targetKubeConfig,
@@ -249,15 +253,16 @@ func main() {
 	instanceName, _ := os.Hostname() // on an error, instanceName will be empty, which is ok
 
 	reconciler := controllers.ConfigurationPolicyReconciler{
-		Client:                mgr.GetClient(),
-		DecryptionConcurrency: decryptionConcurrency,
-		EvaluationConcurrency: evaluationConcurrency,
-		Scheme:                mgr.GetScheme(),
-		Recorder:              mgr.GetEventRecorderFor(controllers.ControllerName),
-		InstanceName:          instanceName,
-		TargetK8sClient:       targetK8sClient,
-		TargetK8sConfig:       targetK8sConfig,
-		EnableMetrics:         enableMetrics,
+		Client:                 mgr.GetClient(),
+		DecryptionConcurrency:  decryptionConcurrency,
+		EvaluationConcurrency:  evaluationConcurrency,
+		Scheme:                 mgr.GetScheme(),
+		Recorder:               mgr.GetEventRecorderFor(controllers.ControllerName),
+		InstanceName:           instanceName,
+		TargetK8sClient:        targetK8sClient,
+		TargetK8sDynamicClient: targetK8sDynamicClient,
+		TargetK8sConfig:        targetK8sConfig,
+		EnableMetrics:          enableMetrics,
 	}
 	if err = reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")
