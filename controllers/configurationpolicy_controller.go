@@ -47,7 +47,10 @@ import (
 	common "open-cluster-management.io/config-policy-controller/pkg/common"
 )
 
-const ControllerName string = "configuration-policy-controller"
+const (
+	ControllerName string = "configuration-policy-controller"
+	CRDName        string = "configurationpolicies.policy.open-cluster-management.io"
+)
 
 var log = ctrl.Log.WithName(ControllerName)
 
@@ -561,7 +564,7 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 }
 
 func (r *ConfigurationPolicyReconciler) definitionIsDeleting() (bool, error) {
-	key := types.NamespacedName{Name: "configurationpolicies.policy.open-cluster-management.io"}
+	key := types.NamespacedName{Name: CRDName}
 	v1def := extensionsv1.CustomResourceDefinition{}
 
 	v1err := r.Get(context.TODO(), key, &v1def)
