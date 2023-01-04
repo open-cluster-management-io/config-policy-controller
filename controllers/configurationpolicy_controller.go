@@ -110,8 +110,9 @@ type ConfigurationPolicyReconciler struct {
 	InstanceName          string
 	// The Kubernetes client to use when evaluating/enforcing policies. Most times, this will be the same cluster
 	// where the controller is running.
-	TargetK8sClient kubernetes.Interface
-	TargetK8sConfig *rest.Config
+	TargetK8sClient        kubernetes.Interface
+	TargetK8sDynamicClient dynamic.Interface
+	TargetK8sConfig        *rest.Config
 	// Whether custom metrics collection is enabled
 	EnableMetrics bool
 	discoveryInfo
@@ -474,8 +475,6 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 			continue
 		}
 
-		dclient, gvr := r.getResourceAndDynamicClient(mapping)
-
 		namespaced := object.Object.Metadata.Namespace != ""
 
 		// determine whether object should be deleted
@@ -485,8 +484,9 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 			namespaced,
 			object.Object.Metadata.Namespace,
 			object.Object.Metadata.Name,
-			gvr,
-			dclient)
+			mapping.Resource,
+			r.TargetK8sDynamicClient,
+		)
 
 		// object does not exist, no deletion logic needed
 		if existing == nil {
@@ -527,9 +527,9 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 
 			var res dynamic.ResourceInterface
 			if namespaced {
-				res = dclient.Resource(gvr).Namespace(object.Object.Metadata.Namespace)
+				res = r.TargetK8sDynamicClient.Resource(mapping.Resource).Namespace(object.Object.Metadata.Namespace)
 			} else {
-				res = dclient.Resource(gvr)
+				res = r.TargetK8sDynamicClient.Resource(mapping.Resource)
 			}
 
 			if completed, err := deleteObject(res, object.Object.Metadata.Name,
@@ -543,8 +543,9 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 					namespaced,
 					object.Object.Metadata.Namespace,
 					object.Object.Metadata.Name,
-					gvr,
-					dclient)
+					mapping.Resource,
+					r.TargetK8sDynamicClient,
+				)
 
 				if obj != nil {
 					log.Error(err, "Error: tried to delete object, but delete is hanging")
@@ -1254,8 +1255,6 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			namespace, objDetails.namespace))
 	}
 
-	dclient, rsrc := r.getResourceAndDynamicClient(mapping)
-
 	if objDetails.isNamespaced && namespace == "" {
 		objName := objDetails.name
 		kindWithoutNS := objDetails.kind
@@ -1289,7 +1288,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 	if objDetails.name != "" { // named object, so checking just for the existence of the specific object
 		// If the object couldn't be retrieved, this will be handled later on.
-		object, _ = getObject(objDetails.isNamespaced, namespace, objDetails.name, rsrc, dclient)
+		object, _ = getObject(
+			objDetails.isNamespaced, namespace, objDetails.name, mapping.Resource, r.TargetK8sDynamicClient,
+		)
 
 		exists = object != nil
 
@@ -1298,8 +1299,17 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		log.V(1).Info(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
-		objNames = append(objNames, getNamesOfKind(unstruct, rsrc, objDetails.isNamespaced,
-			namespace, dclient, strings.ToLower(string(objectT.ComplianceType)))...)
+		objNames = append(
+			objNames,
+			getNamesOfKind(
+				unstruct,
+				mapping.Resource,
+				objDetails.isNamespaced,
+				namespace,
+				r.TargetK8sDynamicClient,
+				strings.ToLower(string(objectT.ComplianceType)),
+			)...,
+		)
 
 		// we do not support enforce on unnamed templates
 		if !strings.EqualFold(string(remediation), "inform") {
@@ -1316,13 +1326,13 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	}
 
 	objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
-	rsrcKind = rsrc.Resource
+	rsrcKind = mapping.Resource.Resource
 
 	if len(objNames) == 1 {
 		name := objNames[0]
 		singObj := singleObject{
 			policy:      policy,
-			gvr:         rsrc,
+			gvr:         mapping.Resource,
 			object:      object,
 			name:        name,
 			namespace:   namespace,
@@ -1337,14 +1347,14 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		var creationInfo *policyv1.ObjectProperties
 
 		objNames, compliant, rsrcKind, statusUpdateNeeded, creationInfo = r.handleSingleObj(
-			singObj, remediation, exists, dclient, objectT,
+			singObj, remediation, exists, objectT,
 		)
 		// The message string for single objects is different than for multiple
 		reason = generateSingleObjReason(objShouldExist, compliant, exists)
 		// Enforce could clear the objNames array so use name instead
 		relatedObjects = addRelatedObjects(
 			compliant,
-			rsrc,
+			mapping.Resource,
 			objDetails.kind,
 			namespace,
 			objDetails.isNamespaced,
@@ -1373,7 +1383,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 		relatedObjects = addRelatedObjects(
 			compliant,
-			rsrc,
+			mapping.Resource,
 			objDetails.kind,
 			namespace,
 			objDetails.isNamespaced,
@@ -1427,7 +1437,6 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	obj singleObject,
 	remediation policyv1.RemediationAction,
 	exists bool,
-	dclient dynamic.Interface,
 	objectT *policyv1.ObjectTemplate,
 ) (
 	objNameList []string,
@@ -1451,7 +1460,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 			var uid string
-			statusUpdateNeeded, uid, err = r.enforceByCreatingOrDeleting(obj, dclient)
+			statusUpdateNeeded, uid, err = r.enforceByCreatingOrDeleting(obj)
 
 			if err != nil {
 				// violation created for handling error
@@ -1471,7 +1480,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if exists && !obj.shouldExist {
 		// it is a mustnothave but it exist, so it must be deleted
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			statusUpdateNeeded, _, err = r.enforceByCreatingOrDeleting(obj, dclient)
+			statusUpdateNeeded, _, err = r.enforceByCreatingOrDeleting(obj)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
 			}
@@ -1505,7 +1514,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 		before := time.Now().UTC()
 
-		throwSpecViolation, msg, pErr := r.checkAndUpdateResource(obj, compType, mdCompType, remediation, dclient)
+		throwSpecViolation, msg, pErr := r.checkAndUpdateResource(obj, compType, mdCompType, remediation)
 
 		duration := time.Now().UTC().Sub(before)
 		seconds := float64(duration) / float64(time.Second)
@@ -1610,29 +1619,6 @@ func (r *ConfigurationPolicyReconciler) isObjectNamespaced(
 	}
 
 	return false
-}
-
-// getResourceAndDynamicClient creates a dynamic client to query resources and pulls the groupVersionResource
-// for an object from its mapping
-func (r *ConfigurationPolicyReconciler) getResourceAndDynamicClient(mapping *meta.RESTMapping) (
-	dclient dynamic.Interface, rsrc schema.GroupVersionResource,
-) {
-	restconfig := rest.CopyConfig(r.TargetK8sConfig)
-	restconfig.GroupVersion = &schema.GroupVersion{
-		Group:   mapping.GroupVersionKind.Group,
-		Version: mapping.GroupVersionKind.Version,
-	}
-
-	dclient, err := dynamic.NewForConfig(restconfig)
-	if err != nil {
-		log.Error(err, "Could not get dynamic client from config", "config", restconfig)
-		os.Exit(1)
-	}
-
-	// check all resources in the list of resources on the cluster to get a match for the mapping
-	rsrc = mapping.Resource
-
-	return dclient, rsrc
 }
 
 // getMapping takes in a raw object, decodes it, and maps it to an existing group/kind
@@ -1820,9 +1806,7 @@ func getNamesOfKind(
 // completely missing (as opposed to existing, but not matching the desired state), or where a
 // mustnothave object does exist. Eg, it does not handle the case where a targeted update would need
 // to be made to an object.
-func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(
-	obj singleObject, dclient dynamic.Interface,
-) (
+func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleObject) (
 	result bool, uid string, erro error,
 ) {
 	log := log.WithValues(
@@ -1835,9 +1819,9 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(
 
 	var res dynamic.ResourceInterface
 	if obj.namespaced {
-		res = dclient.Resource(obj.gvr).Namespace(obj.namespace)
+		res = r.TargetK8sDynamicClient.Resource(obj.gvr).Namespace(obj.namespace)
 	} else {
-		res = dclient.Resource(obj.gvr)
+		res = r.TargetK8sDynamicClient.Resource(obj.gvr)
 	}
 
 	var completed bool
@@ -2341,7 +2325,6 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	complianceType string,
 	mdComplianceType string,
 	remediation policyv1.RemediationAction,
-	dclient dynamic.Interface,
 ) (throwSpecViolation bool, message string, processingErr bool) {
 	log := log.WithValues(
 		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
@@ -2355,9 +2338,9 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 	var res dynamic.ResourceInterface
 	if obj.namespaced {
-		res = dclient.Resource(obj.gvr).Namespace(obj.namespace)
+		res = r.TargetK8sDynamicClient.Resource(obj.gvr).Namespace(obj.namespace)
 	} else {
-		res = dclient.Resource(obj.gvr)
+		res = r.TargetK8sDynamicClient.Resource(obj.gvr)
 	}
 
 	var err error
