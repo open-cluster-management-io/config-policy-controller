@@ -73,62 +73,6 @@ var (
 	reasonCleanupError       = "Error cleaning up child objects"
 )
 
-<<<<<<< HEAD
-=======
-var evalLoopHistogram = prometheus.NewHistogram(
-	prometheus.HistogramOpts{
-		Name:    "config_policies_evaluation_duration_seconds",
-		Help:    "The seconds that it takes to evaluate all configuration policies on the cluster",
-		Buckets: []float64{1, 3, 9, 10.5, 15, 30, 60, 90, 120, 180, 300, 450, 600},
-	},
-)
-
-var policyEvalSecondsCounter = prometheus.NewCounterVec(
-	prometheus.CounterOpts{
-		Name: "config_policy_evaluation_seconds_total",
-		Help: "The total seconds taken while evaluating the configuration policy. Use this alongside " +
-			"config_policy_evaluation_total.",
-	},
-	[]string{"name"},
-)
-
-var policyEvalCounter = prometheus.NewCounterVec(
-	prometheus.CounterOpts{
-		Name: "config_policy_evaluation_total",
-		Help: "The total number of evaluations of the configuration policy. Use this alongside " +
-			"config_policy_evaluation_seconds_total.",
-	},
-	[]string{"name"},
-)
-
-var compareObjSecondsCounter = prometheus.NewCounterVec(
-	prometheus.CounterOpts{
-		Name: "compare_objects_seconds_total",
-		Help: "The total seconds taken while comparing policy objects. Use this alongside " +
-			"compare_objects_evaluation_total.",
-	},
-	[]string{"config_policy_name", "namespace", "object"},
-)
-
-var compareObjEvalCounter = prometheus.NewCounterVec(
-	prometheus.CounterOpts{
-		Name: "compare_objects_evaluation_total",
-		Help: "The total number of times the comparison algorithm is run on an object. " +
-			"Use this alongside compare_objects_seconds_total.",
-	},
-	[]string{"config_policy_name", "namespace", "object"},
-)
-
-func init() {
-	// Register custom metrics with the global Prometheus registry
-	metrics.Registry.MustRegister(evalLoopHistogram)
-	metrics.Registry.MustRegister(policyEvalSecondsCounter)
-	metrics.Registry.MustRegister(policyEvalCounter)
-	metrics.Registry.MustRegister(compareObjSecondsCounter)
-	metrics.Registry.MustRegister(compareObjEvalCounter)
-}
-
->>>>>>> 19f845c (add metrics to time the compare algorithm)
 // SetupWithManager sets up the controller with the Manager.
 func (r *ConfigurationPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
@@ -190,7 +134,6 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 		// If the metric was not deleted, that means the policy was never evaluated so it can be ignored.
 		_ = policyEvalSecondsCounter.DeleteLabelValues(request.Name)
 		_ = policyEvalCounter.DeleteLabelValues(request.Name)
-<<<<<<< HEAD
 		_ = plcTempsProcessSecondsCounter.DeleteLabelValues(request.Name)
 		_ = plcTempsProcessCounter.DeleteLabelValues(request.Name)
 		_ = compareObjEvalCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
@@ -199,10 +142,6 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 			prometheus.Labels{"policy": fmt.Sprintf("%s/%s", request.Namespace, request.Name)})
 		_ = policyUserErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
 		_ = policySystemErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
-=======
-		_ = compareObjEvalCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
-		_ = compareObjSecondsCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
->>>>>>> 19f845c (add metrics to time the compare algorithm)
 	}
 
 	return reconcile.Result{}, nil
@@ -1576,7 +1515,11 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		before := time.Now().UTC()
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 		throwSpecViolation, msg, pErr := r.checkAndUpdateResource(obj, compType, mdCompType, remediation)
+=======
+		throwSpecViolation, msg, pErr, updatedObj := r.checkAndUpdateResource(obj, compType, mdCompType, remediation)
+>>>>>>> 40fb4a2 (fire event on object update)
 
 		duration := time.Now().UTC().Sub(before)
 		seconds := float64(duration) / float64(time.Second)
@@ -1616,8 +1559,19 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			// it is a must have and it does exist, so it is compliant
 			compliant = true
 			if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-				statusUpdateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
-					obj.index, compliant, true)
+				if updatedObj {
+					// object updated in checkAndUpdateResource, send event
+
+					log.Info("Updated must have object", "resource", obj.gvr.Resource, "name", obj.name)
+					reason := "K8s update success"
+					idStr := identifierStr([]string{obj.name}, obj.namespace, obj.namespaced)
+					msg := fmt.Sprintf("%v %v was updated successfully", obj.gvr.Resource, idStr)
+
+					statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, true, reason, msg)
+				} else {
+					statusUpdateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
+						obj.index, compliant, true)
+				}
 				created := false
 				creationInfo = &policyv1.ObjectProperties{
 					CreatedByPolicy: &created,
@@ -2403,7 +2357,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	complianceType string,
 	mdComplianceType string,
 	remediation policyv1.RemediationAction,
-) (throwSpecViolation bool, message string, processingErr bool) {
+) (throwSpecViolation bool, message string, processingErr bool, updatedObj bool) {
 	log := log.WithValues(
 		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
 	)
@@ -2411,7 +2365,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if obj.object == nil {
 		log.Info("Skipping update: Previous object retrieval from the API server failed")
 
-		return false, "", false
+		return false, "", false, false
 	}
 
 	var res dynamic.ResourceInterface
@@ -2424,6 +2378,8 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	var err error
 	var updateNeeded bool
 	var statusUpdated bool
+
+	updatedObj = false
 
 	for key := range obj.unstruct.Object {
 		isStatus := key == "status"
@@ -2441,7 +2397,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		if errorMsg != "" {
 			log.Info(errorMsg)
 
-			return false, errorMsg, true
+			return false, errorMsg, true, false
 		}
 
 		if mergedObj == nil && skipped {
@@ -2460,7 +2416,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		if keyUpdateNeeded {
 			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
-				return true, "", false
+				return true, "", false, false
 			} else if isStatus {
 				statusUpdated = true
 				log.Info("Ignoring an update to the object status", "key", key)
@@ -2477,26 +2433,26 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		if err := r.validateObject(obj.object); err != nil {
 			message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
 
-			return false, message, true
+			return false, message, true, false
 		}
 
 		_, err = res.Update(context.TODO(), obj.object, metav1.UpdateOptions{})
 		if k8serrors.IsNotFound(err) {
 			message := fmt.Sprintf("`%v` is not present and must be created", obj.object.GetKind())
 
-			return false, message, true
+			return false, message, true, false
 		}
 
 		if err != nil {
 			message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
 
-			return false, message, true
+			return false, message, true, false
 		}
 
-		log.Info("Updated the object based on the template definition")
+		updatedObj = true
 	}
 
-	return statusUpdated, "", false
+	return statusUpdated, "", false, updatedObj
 }
 
 // AppendCondition check and appends conditions to the policy status
