@@ -1459,6 +1459,17 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if !exists && obj.shouldExist {
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
+			// object is missing, so send noncompliant event
+			_ = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
+				obj.index, false, true)
+			obj.policy.Status.ComplianceState = policyv1.NonCompliant
+			statusStr := convertPolicyStatusToString(obj.policy)
+			objLog.Info("Sending an update policy status event", "policy", obj.policy.Name, "status", statusStr)
+			r.Recorder.Event(obj.policy, eventWarning, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name),
+				statusStr)
+			// update parent policy status
+			r.addForUpdate(obj.policy, true)
+
 			var uid string
 			statusUpdateNeeded, uid, err = r.enforceByCreatingOrDeleting(obj)
 
@@ -1471,6 +1482,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 					CreatedByPolicy: &created,
 					UID:             uid,
 				}
+				compliant = true
 			}
 		} else { // inform
 			compliant = false
@@ -1514,7 +1526,21 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 		before := time.Now().UTC()
 
-		throwSpecViolation, msg, pErr := r.checkAndUpdateResource(obj, compType, mdCompType, remediation)
+		throwSpecViolation, msg, pErr, triedUpdate, updatedObj := r.checkAndUpdateResource(obj, compType, mdCompType,
+			remediation)
+
+		if triedUpdate {
+			// object has a mismatch and needs an update to be enforced, throw violation for mismatch
+			_ = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy, obj.index,
+				false, true)
+			obj.policy.Status.ComplianceState = policyv1.NonCompliant
+			statusStr := convertPolicyStatusToString(obj.policy)
+			objLog.Info("Sending an update policy status event", "policy", obj.policy.Name, "status", statusStr)
+			r.Recorder.Event(obj.policy, eventWarning, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name),
+				statusStr)
+			// update parent policy status
+			r.addForUpdate(obj.policy, true)
+		}
 
 		duration := time.Now().UTC().Sub(before)
 		seconds := float64(duration) / float64(time.Second)
@@ -1538,8 +1564,17 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			// it is a must have and it does exist, so it is compliant
 			compliant = true
 			if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-				statusUpdateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
-					obj.index, compliant, true)
+				if updatedObj {
+					// object updated in checkAndUpdateResource, send event
+					reason := "K8s update success"
+					idStr := identifierStr([]string{obj.name}, obj.namespace, obj.namespaced)
+					msg := fmt.Sprintf("%v %v was updated successfully", obj.gvr.Resource, idStr)
+
+					statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, true, reason, msg)
+				} else {
+					statusUpdateNeeded = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
+						obj.index, compliant, true)
+				}
 				created := false
 				creationInfo = &policyv1.ObjectProperties{
 					CreatedByPolicy: &created,
@@ -1559,7 +1594,14 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			compliant = false
 		}
 
+		if compliant {
+			obj.policy.Status.ComplianceState = policyv1.Compliant
+		} else {
+			obj.policy.Status.ComplianceState = policyv1.NonCompliant
+		}
+
 		statusStr := convertPolicyStatusToString(obj.policy)
+
 		log.V(1).Info("Sending an update policy status event", "policy", obj.policy.Name, "status", statusStr)
 		r.Recorder.Event(obj.policy, eventType, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name), statusStr)
 
@@ -1845,6 +1887,8 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 			if !uidIsString || err != nil {
 				log.Error(err, "Tried to set UID in status but the field is not a string")
 			}
+
+			completed = true
 		}
 	} else {
 		log.Info("Enforcing the policy by deleting the object")
@@ -2319,13 +2363,15 @@ func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unst
 }
 
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
-// matches the template and update it if the remediationAction is enforce
+// matches the template and update it if the remediationAction is enforce. UpdateNeeded indicates whether the
+// function tried to update the child object and updateSucceeded indicates whether the update was applied
+// successfully.
 func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	obj singleObject,
 	complianceType string,
 	mdComplianceType string,
 	remediation policyv1.RemediationAction,
-) (throwSpecViolation bool, message string, processingErr bool) {
+) (throwSpecViolation bool, message string, processingErr bool, updateNeeded bool, updateSucceeded bool) {
 	log := log.WithValues(
 		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
 	)
@@ -2333,7 +2379,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if obj.object == nil {
 		log.Info("Skipping update: Previous object retrieval from the API server failed")
 
-		return false, "", false
+		return false, "", false, false, false
 	}
 
 	var res dynamic.ResourceInterface
@@ -2344,8 +2390,9 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	}
 
 	var err error
-	var updateNeeded bool
 	var statusUpdated bool
+
+	updateSucceeded = false
 
 	for key := range obj.unstruct.Object {
 		isStatus := key == "status"
@@ -2363,7 +2410,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		if errorMsg != "" {
 			log.Info(errorMsg)
 
-			return false, errorMsg, true
+			return false, errorMsg, true, false, false
 		}
 
 		if mergedObj == nil && skipped {
@@ -2382,7 +2429,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		if keyUpdateNeeded {
 			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
-				return true, "", false
+				return true, "", false, false, false
 			} else if isStatus {
 				statusUpdated = true
 				log.Info("Ignoring an update to the object status", "key", key)
@@ -2399,26 +2446,26 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		if err := r.validateObject(obj.object); err != nil {
 			message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
 
-			return false, message, true
+			return false, message, true, updateNeeded, false
 		}
 
 		_, err = res.Update(context.TODO(), obj.object, metav1.UpdateOptions{})
 		if k8serrors.IsNotFound(err) {
 			message := fmt.Sprintf("`%v` is not present and must be created", obj.object.GetKind())
 
-			return false, message, true
+			return false, message, true, updateNeeded, false
 		}
 
 		if err != nil {
 			message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
 
-			return false, message, true
+			return false, message, true, updateNeeded, false
 		}
 
-		log.Info("Updated the object based on the template definition")
+		updateSucceeded = true
 	}
 
-	return statusUpdated, "", false
+	return statusUpdated, "", false, updateNeeded, updateSucceeded
 }
 
 // AppendCondition check and appends conditions to the policy status
