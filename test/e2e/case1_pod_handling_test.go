@@ -6,6 +6,7 @@ package e2e
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -47,12 +48,35 @@ var _ = Describe("Test pod obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case1ConfigPolicyNameEnforce, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
+
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case1ConfigPolicyNameEnforce, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+
+			By("verifying status.compliancyDetails[].conditions")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case1ConfigPolicyNameEnforce, testNamespace, true, defaultTimeoutSeconds)
+
+				compliancyDetails, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "compliancyDetails")
+				g.Expect(compliancyDetails).To(HaveLen(1))
+
+				conditions, ok := compliancyDetails[0].(map[string]interface{})["conditions"].([]interface{})
+				g.Expect(ok).To(BeTrue())
+				g.Expect(conditions).To(HaveLen(3))
+				g.Expect(conditions[0].(map[string]interface{})["reason"]).To(
+					Equal("K8s does not have a `must have` object"),
+				)
+				g.Expect(conditions[1].(map[string]interface{})["reason"]).To(Equal("K8s creation success"))
+				g.Expect(conditions[2].(map[string]interface{})["reason"]).To(
+					Equal("K8s `must have` object already exists"),
+				)
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+			By("verifying that " + case1ConfigPolicyNameInform + " is compliant")
 			Eventually(func() interface{} {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case1ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
