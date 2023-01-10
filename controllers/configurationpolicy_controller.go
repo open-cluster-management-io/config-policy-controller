@@ -48,8 +48,9 @@ import (
 )
 
 const (
-	ControllerName string = "configuration-policy-controller"
-	CRDName        string = "configurationpolicies.policy.open-cluster-management.io"
+	ControllerName                 string = "configuration-policy-controller"
+	CRDName                        string = "configurationpolicies.policy.open-cluster-management.io"
+	complianceStatusConditionLimit        = 10
 )
 
 var log = ctrl.Log.WithName(ControllerName)
@@ -1155,7 +1156,7 @@ func addConditionToStatus(
 
 	// do not add condition unless it does not already appear in the status
 	if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
-		conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond, "", false)
+		conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond)
 		plc.Status.CompliancyDetails[index].Conditions = conditions
 		updateNeeded = true
 	}
@@ -1757,8 +1758,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 			policy.Status.CompliancyDetails[index].ComplianceState = policyv1.NonCompliant
 
 			if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
-				conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions,
-					cond, gvk.GroupKind().Kind, false)
+				conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond)
 				policy.Status.CompliancyDetails[index].Conditions = conditions
 				updateNeeded = true
 			}
@@ -2470,26 +2470,19 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 // AppendCondition check and appends conditions to the policy status
 func AppendCondition(
-	conditions []policyv1.Condition, newCond *policyv1.Condition, resourceType string, resolved ...bool,
+	conditions []policyv1.Condition, newCond *policyv1.Condition,
 ) (conditionsRes []policyv1.Condition) {
-	defer recoverFlow()
-
-	lastIndex := len(conditions)
-	if lastIndex > 0 {
-		oldCond := conditions[lastIndex-1]
-		if IsSimilarToLastCondition(oldCond, *newCond) {
-			conditions[lastIndex-1] = *newCond
-
-			return conditions
-		}
-	} else {
-		// first condition => trigger event
-		conditions = append(conditions, *newCond)
+	if len(conditions) != 0 && IsSimilarToLastCondition(conditions[len(conditions)-1], *newCond) {
+		conditions[len(conditions)-1] = *newCond
 
 		return conditions
 	}
 
-	conditions[lastIndex-1] = *newCond
+	conditions = append(conditions, *newCond)
+
+	if len(conditions) > complianceStatusConditionLimit {
+		conditions = conditions[1:]
+	}
 
 	return conditions
 }
@@ -2678,11 +2671,4 @@ func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results str
 	}
 
 	return result
-}
-
-func recoverFlow() {
-	if r := recover(); r != nil {
-		// V(-2) is the error level
-		log.V(-2).Info("ALERT!!!! -> recovered from ", "recover", r)
-	}
 }
