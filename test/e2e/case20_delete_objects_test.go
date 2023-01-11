@@ -575,10 +575,12 @@ var _ = Describe("Test objects are not deleted when the CRD is removed", Ordered
 		utils.Kubectl("delete", "-f", case20ConfigPolicyCRDPath)
 
 		By("Checking that the ConfigurationPolicy is gone")
-		namespace := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace)
-		_, err := namespace.Get(context.TODO(), case20ConfigPolicyNameMHPDA, metav1.GetOptions{})
-		Expect(err).NotTo(BeNil())
-		Expect(err.Error()).To(ContainSubstring("the server could not find the requested resource"))
+		Eventually(func(g Gomega) {
+			namespace := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace)
+			_, err := namespace.Get(context.TODO(), case20ConfigPolicyNameMHPDA, metav1.GetOptions{})
+			g.Expect(err).NotTo(BeNil())
+			g.Expect(err.Error()).To(ContainSubstring("the server could not find the requested resource"))
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Recreating the CRD")
 		utils.Kubectl("apply", "-f", case20ConfigPolicyCRDPath)
