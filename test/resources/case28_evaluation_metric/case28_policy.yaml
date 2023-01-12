@@ -1,0 +1,18 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-cfgmap-watch
+spec:
+  remediationAction: inform
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: case28-map
+        data:
+          fieldToUpdate: "1"
