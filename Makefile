@@ -208,6 +208,10 @@ CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 .PHONY: manifests
 manifests: controller-gen
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=config-policy-controller paths="./..." output:crd:artifacts:config=deploy/crds output:rbac:artifacts:config=deploy/rbac
+	mv deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml deploy/crds/kustomize/policy.open-cluster-management.io_configurationpolicies.yaml
+	# Add a newline so that the format matches what kubebuilder generates
+	@printf "\n---\n" > deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
+	$(KUSTOMIZE) build deploy/crds/kustomize >> deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

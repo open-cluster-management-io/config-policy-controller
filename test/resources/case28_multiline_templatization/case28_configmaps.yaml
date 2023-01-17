@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: 28config1
+data:
+  name: testvalue1
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: 28config2
+data:
+  name: testvalue2

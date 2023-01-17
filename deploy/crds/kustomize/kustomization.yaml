@@ -1,0 +1,11 @@
+resources:
+- policy.open-cluster-management.io_configurationpolicies.yaml
+
+# Add validation more complicated than Kubebuilder markers can provide
+patches:
+- path: obj-template-validation.json
+  target:
+    group: apiextensions.k8s.io
+    version: v1
+    kind: CustomResourceDefinition
+    name: configurationpolicies.policy.open-cluster-management.io

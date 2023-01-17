@@ -1,0 +1,19 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case28-configpolicy
+spec:
+  remediationAction: enforce
+  severity: low
+  object-templates-raw: |
+    {{ range (lookup "v1" "ConfigMap" "default" "").items }}
+      - complianceType: musthave
+        objectDefinition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: {{ .metadata.name }}
+            namespace: default
+          data:
+            extraData: exists!
+    {{ end }}

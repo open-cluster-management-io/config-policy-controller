@@ -1,0 +1,11 @@
+[
+    {
+        "op":"add",
+        "path":"/spec/versions/0/schema/openAPIV3Schema/properties/spec/oneOf",
+        "value": [{
+            "required": ["object-templates"]
+        },{
+            "required": ["object-templates-raw"]
+        }]
+    }
+]
