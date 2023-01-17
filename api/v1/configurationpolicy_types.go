@@ -157,8 +157,19 @@ type ConfigurationPolicySpec struct {
 	// 'matchLabels' and/or 'matchExpressions' are, 'include' will behave as if ['*'] were given. If
 	// 'matchExpressions' and 'matchLabels' are both not provided, 'include' must be provided to
 	// retrieve namespaces.
-	NamespaceSelector  Target             `json:"namespaceSelector,omitempty"`
-	ObjectTemplates    []*ObjectTemplate  `json:"object-templates,omitempty"`
+	NamespaceSelector Target `json:"namespaceSelector,omitempty"`
+	// 'object-templates' and 'object-templates-raw' are arrays of objects for the configuration
+	// policy to check, create, modify, or delete on the cluster. 'object-templates' is an array
+	// of objects, while 'object-templates-raw' is a string containing an array of objects in
+	// YAML format. Only one of the two object-templates variables can be set in a given
+	// configurationPolicy.
+	ObjectTemplates []*ObjectTemplate `json:"object-templates,omitempty"`
+	// 'object-templates' and 'object-templates-raw' are arrays of objects for the configuration
+	// policy to check, create, modify, or delete on the cluster. 'object-templates' is an array
+	// of objects, while 'object-templates-raw' is a string containing an array of objects in
+	// YAML format. Only one of the two object-templates variables can be set in a given
+	// configurationPolicy.
+	ObjectTemplatesRaw string             `json:"object-templates-raw,omitempty"`
 	EvaluationInterval EvaluationInterval `json:"evaluationInterval,omitempty"`
 	// +kubebuilder:default:=None
 	PruneObjectBehavior PruneObjectBehavior `json:"pruneObjectBehavior,omitempty"`

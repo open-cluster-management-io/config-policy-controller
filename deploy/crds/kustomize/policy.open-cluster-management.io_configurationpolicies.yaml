@@ -40,11 +40,6 @@ spec:
             type: object
           spec:
             description: ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
-            oneOf:
-            - required:
-              - object-templates
-            - required:
-              - object-templates-raw
             properties:
               evaluationInterval:
                 description: Configures the minimum elapsed time before a ConfigurationPolicy
