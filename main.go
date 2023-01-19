@@ -15,9 +15,8 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/spf13/pflag"
 	"github.com/stolostron/go-log-utils/zaputil"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-
-	// to ensure that exec-entrypoint and run can make use of them.
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	"k8s.io/apimachinery/pkg/fields"
@@ -26,6 +25,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+
+	// Import all k8s client auth plugins to ensure that exec-entrypoint and run can use them
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -147,14 +148,6 @@ func main() {
 
 	printVersion()
 
-	namespace, err := common.GetWatchNamespace()
-	if err != nil {
-		log.Error(err, "Failed to get watch namespace")
-		os.Exit(1)
-	}
-
-	log.V(2).Info("Configured the watch namespace", "namespace", namespace)
-
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
@@ -163,29 +156,65 @@ func main() {
 	}
 
 	// Set a field selector so that a watch on CRDs will be limited to just the configuration policy CRD.
-	newCacheFunc := cache.BuilderWithOptions(
-		cache.Options{
-			SelectorsByObject: cache.SelectorsByObject{
-				&extensionsv1.CustomResourceDefinition{}: {
-					Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
-				},
-				&extensionsv1beta1.CustomResourceDefinition{}: {
-					Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
-				},
-			},
+	cacheSelectors := cache.SelectorsByObject{
+		&extensionsv1.CustomResourceDefinition{}: {
+			Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
 		},
-	)
+		&extensionsv1beta1.CustomResourceDefinition{}: {
+			Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
+		},
+	}
+
+	ctrlKey, err := common.GetOperatorNamespacedName()
+	if err != nil {
+		if errors.Is(err, common.ErrNoNamespace) || errors.Is(err, common.ErrRunLocal) {
+			log.Info("Running locally, skipping restrictions on the Deployment cache")
+		} else {
+			log.Error(err, "Failed to identify the controller's deployment")
+			os.Exit(1)
+		}
+	} else {
+		cacheSelectors[&appsv1.Deployment{}] = cache.ObjectSelector{
+			Field: fields.SelectorFromSet(fields.Set{
+				"metadata.namespace": ctrlKey.Namespace,
+				"metadata.name":      ctrlKey.Name,
+			}),
+		}
+	}
+
+	watchNamespace, err := common.GetWatchNamespace()
+	if err != nil {
+		log.Error(err, "Failed to get watch namespace")
+		os.Exit(1)
+	}
+
+	if strings.Contains(watchNamespace, ",") {
+		err = fmt.Errorf("multiple watched namespaces are not allowed for this controller")
+		log.Error(err, "Failed to get watch namespace")
+		os.Exit(1)
+	}
+
+	log.V(2).Info("Configured the watch namespace", "watchNamespace", watchNamespace)
+
+	if watchNamespace != "" {
+		cacheSelectors[&policyv1.ConfigurationPolicy{}] = cache.ObjectSelector{
+			Field: fields.SelectorFromSet(fields.Set{
+				"metadata.namespace": watchNamespace,
+			}),
+		}
+	} else {
+		log.Info("Skipping restrictions on the ConfigurationPolicy cache because watchNamespace is empty")
+	}
 
 	// Set default manager options
 	options := manager.Options{
-		Namespace:              namespace,
 		MetricsBindAddress:     metricsAddr,
 		Scheme:                 scheme,
 		Port:                   9443,
 		HealthProbeBindAddress: probeAddr,
 		LeaderElection:         enableLeaderElection,
 		LeaderElectionID:       "config-policy-controller.open-cluster-management.io",
-		NewCache:               newCacheFunc,
+		NewCache:               cache.BuilderWithOptions(cache.Options{SelectorsByObject: cacheSelectors}),
 		// Disable the cache for Secrets to avoid a watch getting created when the `policy-encryption-key`
 		// Secret is retrieved. Special cache handling is done by the controller.
 		ClientDisableCacheFor: []client.Object{&corev1.Secret{}},
@@ -215,11 +244,6 @@ func main() {
 				},
 			},
 		),
-	}
-
-	if strings.Contains(namespace, ",") {
-		options.Namespace = ""
-		options.NewCache = cache.MultiNamespacedCacheBuilder(strings.Split(namespace, ","))
 	}
 
 	if legacyLeaderElection {

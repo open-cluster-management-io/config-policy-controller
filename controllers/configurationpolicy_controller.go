@@ -18,6 +18,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	templates "github.com/stolostron/go-template-utils/v3/pkg/templates"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
@@ -51,6 +52,7 @@ const (
 	ControllerName                 string = "configuration-policy-controller"
 	CRDName                        string = "configurationpolicies.policy.open-cluster-management.io"
 	complianceStatusConditionLimit        = 10
+	pruneObjectFinalizer           string = "policy.open-cluster-management.io/delete-related-objects"
 )
 
 var log = ctrl.Log.WithName(ControllerName)
@@ -186,6 +188,26 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 			}
 		} else {
 			skipLoop = true
+		}
+
+		needDeploymentFinalizer := false
+
+		for _, plc := range policiesList.Items {
+			if objHasFinalizer(&plc, pruneObjectFinalizer) {
+				needDeploymentFinalizer = true
+
+				break
+			}
+		}
+
+		if err := r.manageDeploymentFinalizer(needDeploymentFinalizer); err != nil {
+			if errors.Is(err, common.ErrNoNamespace) || errors.Is(err, common.ErrRunLocal) {
+				log.Info("Not managing the controller's deployment finalizer because it is running locally")
+			} else {
+				log.Error(err, "Failed to manage the controller's deployment finalizer, skipping loop")
+
+				skipLoop = true
+			}
 		}
 
 		// This is done every loop cycle since the channel needs to be variable in size to account for the number of
@@ -565,6 +587,52 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 	return deletionFailures
 }
 
+// cleanupImmediately returns true when the cluster is in a state where configurationpolicies should
+// be removed as soon as possible, ignoring the pruneObjectBehavior of the policies. This is the
+// case when the CRD or the controller's deployment are already being deleted.
+func (r *ConfigurationPolicyReconciler) cleanupImmediately() (bool, error) {
+	deployDeleting, deployErr := r.deploymentIsDeleting()
+	if deployErr == nil && deployDeleting {
+		return true, nil
+	}
+
+	defDeleting, defErr := r.definitionIsDeleting()
+	if defErr == nil && defDeleting {
+		return true, nil
+	}
+
+	if deployErr == nil && defErr == nil {
+		// if either was deleting, we would've already returned.
+		return false, nil
+	}
+
+	// At least one had an unexpected error, so the decision can't be made right now
+	//nolint:errorlint // we can't choose just one of the errors to "correctly" wrap
+	return false, fmt.Errorf("deploymentIsDeleting error: '%v', definitionIsDeleting error: '%v'",
+		deployErr, defErr)
+}
+
+func (r *ConfigurationPolicyReconciler) deploymentIsDeleting() (bool, error) {
+	key, keyErr := common.GetOperatorNamespacedName()
+	if keyErr != nil {
+		if errors.Is(keyErr, common.ErrNoNamespace) || errors.Is(keyErr, common.ErrRunLocal) {
+			// running locally
+			return false, nil
+		}
+
+		return false, keyErr
+	}
+
+	deployment := appsv1.Deployment{}
+
+	err := r.Get(context.TODO(), key, &deployment)
+	if err != nil {
+		return false, err
+	}
+
+	return deployment.DeletionTimestamp != nil, nil
+}
+
 func (r *ConfigurationPolicyReconciler) definitionIsDeleting() (bool, error) {
 	key := types.NamespacedName{Name: CRDName}
 	v1def := extensionsv1.CustomResourceDefinition{}
@@ -631,13 +699,31 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		return
 	}
 
-	pruneObjectFinalizer := "policy.open-cluster-management.io/delete-related-objects"
-
 	// object handling for when configurationPolicy is deleted
 	if plc.Spec.PruneObjectBehavior == "DeleteIfCreated" || plc.Spec.PruneObjectBehavior == "DeleteAll" {
+		cleanupNow, err := r.cleanupImmediately()
+		if err != nil {
+			log.Error(err, "Error determining whether to cleanup immediately, requeueing policy")
+
+			return
+		}
+
+		if cleanupNow {
+			if objHasFinalizer(&plc, pruneObjectFinalizer) {
+				plc.SetFinalizers(removeObjFinalizer(&plc, pruneObjectFinalizer))
+
+				err := r.Update(context.TODO(), &plc)
+				if err != nil {
+					log.V(1).Error(err, "Error removing finalizer for configuration policy", plc)
+				}
+			}
+
+			return
+		}
+
 		// set finalizer if it hasn't been set
-		if !configPlcHasFinalizer(plc, pruneObjectFinalizer) {
-			plc.SetFinalizers(addConfigPlcFinalizer(plc, pruneObjectFinalizer))
+		if !objHasFinalizer(&plc, pruneObjectFinalizer) {
+			plc.SetFinalizers(addObjFinalizer(&plc, pruneObjectFinalizer))
 
 			err := r.Update(context.TODO(), &plc)
 			if err != nil {
@@ -647,32 +733,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		// kick off object deletion if configurationPolicy has been deleted
 		if plc.ObjectMeta.DeletionTimestamp != nil {
-			// If the CRD is deleting, don't prune objects
-			crdDeleting, err := r.definitionIsDeleting()
-			if err != nil {
-				log.Error(err, "Error getting configurationpolicies CRD, requeueing policy")
-
-				return
-			} else if crdDeleting {
-				log.V(1).Info("The configuraionpolicy CRD is being deleted, ignoring and removing " +
-					"the delete-related-objects finalizer")
-
-				plc.SetFinalizers(removeConfigPlcFinalizer(plc, pruneObjectFinalizer))
-				err := r.Update(context.TODO(), &plc)
-				if err != nil {
-					log.V(1).Error(err, "Error unsetting finalizer for configuration policy", plc)
-				}
-
-				return
-			} // else: CRD is not being deleted
-
 			log.V(1).Info("Config policy has been deleted, handling child objects")
 
 			failures := r.cleanUpChildObjects(plc)
 
 			if len(failures) == 0 {
 				log.V(1).Info("Objects have been successfully cleaned up, removing finalizer")
-				plc.SetFinalizers(removeConfigPlcFinalizer(plc, pruneObjectFinalizer))
+				plc.SetFinalizers(removeObjFinalizer(&plc, pruneObjectFinalizer))
 
 				err := r.Update(context.TODO(), &plc)
 				if err != nil {
@@ -704,9 +771,9 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 			return
 		}
-	} else if configPlcHasFinalizer(plc, pruneObjectFinalizer) {
+	} else if objHasFinalizer(&plc, pruneObjectFinalizer) {
 		// if pruneObjectBehavior is none, no finalizer is needed
-		plc.SetFinalizers(removeConfigPlcFinalizer(plc, pruneObjectFinalizer))
+		plc.SetFinalizers(removeObjFinalizer(&plc, pruneObjectFinalizer))
 		err := r.Update(context.TODO(), &plc)
 		if err != nil {
 			log.V(1).Error(err, "Error unsetting finalizer for configuration policy", plc)
@@ -2671,4 +2738,32 @@ func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results str
 	}
 
 	return result
+}
+
+func (r *ConfigurationPolicyReconciler) manageDeploymentFinalizer(shouldBeSet bool) error {
+	key, err := common.GetOperatorNamespacedName()
+	if err != nil {
+		return err
+	}
+
+	deployment := appsv1.Deployment{}
+	if err := r.Client.Get(context.TODO(), key, &deployment); err != nil {
+		return err
+	}
+
+	if objHasFinalizer(&deployment, pruneObjectFinalizer) {
+		if shouldBeSet {
+			return nil
+		}
+
+		deployment.SetFinalizers(removeObjFinalizer(&deployment, pruneObjectFinalizer))
+	} else {
+		if !shouldBeSet {
+			return nil
+		}
+
+		deployment.SetFinalizers(addObjFinalizer(&deployment, pruneObjectFinalizer))
+	}
+
+	return r.Update(context.TODO(), &deployment)
 }

@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"k8s.io/apimachinery/pkg/types"
 )
 
 type RunModeType string
@@ -22,6 +24,10 @@ const (
 	// which specifies the Namespace to watch.
 	// An empty value means the operator is running with cluster scope.
 	watchNamespaceEnvVar = "WATCH_NAMESPACE"
+
+	// OperatorNameEnvVar is the constant for env variable OPERATOR_NAME
+	// which is the name of the current operator
+	OperatorNameEnvVar = "OPERATOR_NAME"
 )
 
 // ErrNoNamespace indicates that a namespace could not be found for the current
@@ -62,4 +68,36 @@ func GetOperatorNamespace() (string, error) {
 	}
 
 	return strings.TrimSpace(string(nsBytes)), nil
+}
+
+// GetOperatorName returns the operator name
+func GetOperatorName() (string, error) {
+	operatorName, found := os.LookupEnv(OperatorNameEnvVar)
+	if !found {
+		return "", fmt.Errorf("%s must be set", OperatorNameEnvVar)
+	}
+
+	if len(operatorName) == 0 {
+		return "", fmt.Errorf("%s must not be empty", OperatorNameEnvVar)
+	}
+
+	return operatorName, nil
+}
+
+// GetOperatorNamespacedName returns the name and namespace of the operator.
+func GetOperatorNamespacedName() (types.NamespacedName, error) {
+	key := types.NamespacedName{}
+	var err error
+
+	key.Namespace, err = GetOperatorNamespace()
+	if err != nil {
+		return key, err
+	}
+
+	key.Name, err = GetOperatorName()
+	if err != nil {
+		return key, err
+	}
+
+	return key, nil
 }
