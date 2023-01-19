@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	apiRes "k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
@@ -530,8 +531,8 @@ func sortAndJoinKeys(m map[string]bool, sep string) string {
 	return strings.Join(keys, sep)
 }
 
-func configPlcHasFinalizer(plc policyv1.ConfigurationPolicy, finalizer string) bool {
-	for _, existingFinalizer := range plc.GetFinalizers() {
+func objHasFinalizer(obj metav1.Object, finalizer string) bool {
+	for _, existingFinalizer := range obj.GetFinalizers() {
 		if existingFinalizer == finalizer {
 			return true
 		}
@@ -540,18 +541,19 @@ func configPlcHasFinalizer(plc policyv1.ConfigurationPolicy, finalizer string) b
 	return false
 }
 
-func addConfigPlcFinalizer(plc policyv1.ConfigurationPolicy, finalizer string) []string {
-	if configPlcHasFinalizer(plc, finalizer) {
-		return plc.GetFinalizers()
+func addObjFinalizer(obj metav1.Object, finalizer string) []string {
+	if objHasFinalizer(obj, finalizer) {
+		return obj.GetFinalizers()
 	}
 
-	return append(plc.GetFinalizers(), finalizer)
+	return append(obj.GetFinalizers(), finalizer)
 }
 
-func removeConfigPlcFinalizer(plc policyv1.ConfigurationPolicy, finalizer string) []string {
+// nolint: unparam
+func removeObjFinalizer(obj metav1.Object, finalizer string) []string {
 	result := []string{}
 
-	for _, existingFinalizer := range plc.GetFinalizers() {
+	for _, existingFinalizer := range obj.GetFinalizers() {
 		if existingFinalizer != finalizer {
 			result = append(result, existingFinalizer)
 		}
