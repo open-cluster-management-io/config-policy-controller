@@ -192,7 +192,9 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 
 		needDeploymentFinalizer := false
 
-		for _, plc := range policiesList.Items {
+		for i := range policiesList.Items {
+			plc := policiesList.Items[i]
+
 			if objHasFinalizer(&plc, pruneObjectFinalizer) {
 				needDeploymentFinalizer = true
 
