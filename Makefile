@@ -206,7 +206,7 @@ KUSTOMIZE = $(LOCAL_BIN)/kustomize
 CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 
 .PHONY: manifests
-manifests: controller-gen
+manifests: controller-gen kustomize
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=config-policy-controller paths="./..." output:crd:artifacts:config=deploy/crds output:rbac:artifacts:config=deploy/rbac
 	mv deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml deploy/crds/kustomize/policy.open-cluster-management.io_configurationpolicies.yaml
 	# Add a newline so that the format matches what kubebuilder generates
@@ -218,7 +218,7 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 	$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 .PHONY: generate-operator-yaml
-generate-operator-yaml: kustomize manifests
+generate-operator-yaml: manifests
 	$(KUSTOMIZE) build deploy/manager > deploy/operator.yaml
 
 .PHONY: controller-gen
