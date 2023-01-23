@@ -207,9 +207,8 @@ func GetComplianceState(managedPlc *unstructured.Unstructured) (result interface
 func GetStatusMessage(managedPlc *unstructured.Unstructured) (result interface{}) {
 	if managedPlc.Object["status"] != nil {
 		detail := managedPlc.Object["status"].(map[string]interface{})["compliancyDetails"].([]interface{})[0]
-		conditions := detail.(map[string]interface{})["conditions"].([]interface{})
 
-		return conditions[len(conditions)-1].(map[string]interface{})["message"]
+		return detail.(map[string]interface{})["conditions"].([]interface{})[0].(map[string]interface{})["message"]
 	}
 
 	return nil
