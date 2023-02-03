@@ -87,8 +87,7 @@ test/crds/test-policy.yaml
 !vbh/.build-harness-vendorized
 !vbh/build-harness
 !vbh/build-harness-extensions 
-kubeconfig_managed
-kubeconfig_managed2
+kubeconfig_managed*
 kind_kubeconfig.yaml
 report.json
 report_*.json

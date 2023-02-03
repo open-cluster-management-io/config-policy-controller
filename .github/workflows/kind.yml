@@ -67,10 +67,14 @@ jobs:
       run: |
         make kind-bootstrap-cluster-dev
 
+    - name: Ensure Service Account kubeconfig
+      run: |
+        KUBECONFIG=${PWD}/kubeconfig_managed make kind-ensure-sa
+
     - name: E2E Tests
       run: |
         export GOPATH=$(go env GOPATH)
-        make e2e-test-coverage
+        KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-coverage
 
     - name: Create K8s KinD Cluster to simulate hosted mode - ${{ matrix.kind }}
       env:
@@ -81,7 +85,7 @@ jobs:
     - name: E2E tests that simulate hosted mode
       run: |
         export GOPATH=$(go env GOPATH)
-        make e2e-test-hosted-mode-coverage
+        KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-hosted-mode-coverage
 
     - name: Test Coverage Verification
       if: ${{ github.event_name == 'pull_request' }}
@@ -92,7 +96,7 @@ jobs:
     - name: Verify Deployment Configuration
       run: |
         make build-images
-        make kind-deploy-controller-dev
+        KUBECONFIG=${PWD}/kubeconfig_managed_e2e make kind-deploy-controller-dev
 
     - name: Debug
       if: ${{ failure() }}
