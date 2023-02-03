@@ -29,6 +29,9 @@ linters:
   enable-all: true
   disable:
     - bodyclose
+    # Disable contextcheck since we don't want to pass the context passed to PeriodicallyExecConfigPolicies to functions
+    # called within it or else cleanup won't occur
+    - contextcheck
     - cyclop
     - depguard
     - dupl

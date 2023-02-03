@@ -320,10 +320,16 @@ func main() {
 		os.Exit(1)
 	}
 
+	terminatingCtx := ctrl.SetupSignalHandler()
+	managerCtx, managerCancel := context.WithCancel(context.Background())
+
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
 	log.V(1).Info("Perodically processing Configuration Policies", "frequency", frequency)
 
-	go reconciler.PeriodicallyExecConfigPolicies(frequency, mgr.Elected(), false)
+	go func() {
+		reconciler.PeriodicallyExecConfigPolicies(terminatingCtx, frequency, mgr.Elected())
+		managerCancel()
+	}()
 
 	// This lease is not related to leader election. This is to report the status of the controller
 	// to the addon framework. This can be seen in the "status" section of the ManagedClusterAddOn
@@ -361,7 +367,7 @@ func main() {
 
 	log.Info("Starting manager")
 
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+	if err := mgr.Start(managerCtx); err != nil {
 		log.Error(err, "Problem running manager")
 		os.Exit(1)
 	}
