@@ -28,12 +28,15 @@ TESTARGS_DEFAULT := -v
 export TESTARGS ?= $(TESTARGS_DEFAULT)
 VERSION ?= $(shell cat COMPONENT_VERSION 2> /dev/null)
 IMAGE_NAME_AND_VERSION ?= $(REGISTRY)/$(IMG)
+CONTROLLER_NAMESPACE ?= open-cluster-management-agent-addon
 # Handle KinD configuration
-KIND_NAME ?= test-managed
-KIND_NAMESPACE ?= open-cluster-management-agent-addon
-KIND_VERSION ?= latest
-MANAGED_CLUSTER_NAME ?= managed
+MANAGED_CLUSTER_SUFFIX ?= 
+MANAGED_CLUSTER_NAME ?= managed$(MANAGED_CLUSTER_SUFFIX)
 WATCH_NAMESPACE ?= $(MANAGED_CLUSTER_NAME)
+KIND_NAME ?= test-$(MANAGED_CLUSTER_NAME)
+KIND_CLUSTER_NAME ?= kind-$(KIND_NAME)
+KIND_NAMESPACE ?= $(CONTROLLER_NAMESPACE)
+KIND_VERSION ?= latest
 # Set the Kind version tag
 ifeq ($(KIND_VERSION), minimum)
 	KIND_ARGS = --image kindest/node:v1.19.16
@@ -51,6 +54,13 @@ COVERAGE_E2E_OUT ?= coverage_e2e.out
 IMG ?= $(shell cat COMPONENT_NAME 2> /dev/null)
 REGISTRY ?= quay.io/open-cluster-management
 TAG ?= latest
+
+# Handle base64 OS differences
+OS = $(shell uname -s | tr '[:upper:]' '[:lower:]')
+BASE64 = base64 -w 0
+ifeq ($(OS), darwin)
+    BASE64 = base64
+endif
 
 # go-get-tool will 'go install' any package $1 and install it to LOCAL_BIN.
 define go-get-tool
@@ -195,7 +205,7 @@ clean:
 	-rm build/_output/bin/*
 	-rm coverage*.out
 	-rm report*.json
-	-rm kubeconfig_managed
+	-rm kubeconfig_managed*
 	-rm -r vendor/
 
 ############################################################
@@ -235,17 +245,13 @@ kustomize: ## Download kustomize locally if necessary.
 GINKGO = $(LOCAL_BIN)/ginkgo
 
 .PHONY: kind-bootstrap-cluster
-kind-bootstrap-cluster: kind-create-cluster install-crds kind-deploy-controller install-resources
+kind-bootstrap-cluster: kind-bootstrap-cluster-dev kind-deploy-controller
 
 .PHONY: kind-bootstrap-cluster-dev
-kind-bootstrap-cluster-dev: kind-create-cluster install-crds install-resources
+kind-bootstrap-cluster-dev: kind-create-cluster install-crds kind-controller-kubeconfig
 
 .PHONY: kind-deploy-controller
-kind-deploy-controller: generate-operator-yaml
-	@echo Installing $(IMG)
-	-kubectl create ns $(KIND_NAMESPACE)
-	kubectl apply -f deploy/operator.yaml -n $(KIND_NAMESPACE)
-	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"env\":[{\"name\":\"WATCH_NAMESPACE\",\"value\":\"$(WATCH_NAMESPACE)\"}]}]}}}}"
+kind-deploy-controller: generate-operator-yaml install-resources deploy
 
 .PHONY: deploy-controller
 deploy-controller: kind-deploy-controller
@@ -262,16 +268,27 @@ kind-deploy-controller-dev: kind-deploy-controller
 # Specify KIND_VERSION to indicate the version tag of the KinD image
 .PHONY: kind-create-cluster
 kind-create-cluster:
-	@echo "creating cluster"
-	kind create cluster --name $(KIND_NAME) $(KIND_ARGS)
-	kind get kubeconfig --name $(KIND_NAME) > $(PWD)/kubeconfig_managed
+	# ensuring cluster $(KIND_NAME)
+	-kind create cluster --name $(KIND_NAME) $(KIND_ARGS)
+	kubectl config use-context $(KIND_CLUSTER_NAME)
+	kind get kubeconfig --name $(KIND_NAME) > kubeconfig_$(MANAGED_CLUSTER_NAME)_e2e
+
+.PHONY: kind-controller-kubeconfig
+kind-controller-kubeconfig: install-resources
+	kubectl -n $(KIND_NAMESPACE) apply -f test/resources/e2e_controller_secret.yaml
+	-rm kubeconfig_$(MANAGED_CLUSTER_NAME)
+	@kubectl config set-cluster $(KIND_CLUSTER_NAME) --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME) \
+		--server=$(shell kubectl config view --minify -o jsonpath='{.clusters[].cluster.server}' --kubeconfig=kubeconfig_$(MANAGED_CLUSTER_NAME)_e2e) \
+		--insecure-skip-tls-verify=true
+	@kubectl config set-credentials $(KIND_CLUSTER_NAME) --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME) \
+		--token=$$(kubectl get secret -n $(KIND_NAMESPACE) config-policy-controller -o jsonpath='{.data.token}' --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME)_e2e | $(BASE64) --decode)
+	@kubectl config set-context $(KIND_CLUSTER_NAME) --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME) \
+		--user=$(KIND_CLUSTER_NAME) --cluster=$(KIND_CLUSTER_NAME)
+	@kubectl config use-context $(KIND_CLUSTER_NAME) --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME)
 
 .PHONY: kind-additional-cluster
-kind-additional-cluster:
-	@echo "creating cluster"
-	kind create cluster --name $(KIND_NAME)2 $(KIND_ARGS)
-	kind get kubeconfig --name $(KIND_NAME)2 > $(PWD)/kubeconfig_managed2
-	kubectl config use-context kind-$(KIND_NAME)
+kind-additional-cluster: MANAGED_CLUSTER_SUFFIX = 2
+kind-additional-cluster: kind-create-cluster kind-controller-kubeconfig
 
 .PHONY: kind-delete-cluster
 kind-delete-cluster:
@@ -294,8 +311,19 @@ install-crds:
 
 .PHONY: install-resources
 install-resources:
-	@echo creating namespaces
-	kubectl create ns $(WATCH_NAMESPACE)
+	# creating namespaces
+	-kubectl create ns $(WATCH_NAMESPACE)
+	-kubectl create ns $(KIND_NAMESPACE)
+	# deploying roles and service account
+	kubectl apply -k deploy/rbac
+	kubectl apply -f deploy/manager/service-account.yaml -n $(KIND_NAMESPACE)
+
+.PHONY: kind-ensure-sa
+kind-ensure-sa:
+	@KUBECONFIG_TOKEN="$$(kubectl config view --raw -o jsonpath='{.users[].user.token}')"; \
+	KUBECONFIG_USER="$$(echo "$${KUBECONFIG_TOKEN}" | jq -rR 'split(".") | .[1] | select(. != null) | @base64d | fromjson | .sub')"; \
+	echo "Kubeconfig user detected from token: $${KUBECONFIG_USER}"; \
+	[ "$${KUBECONFIG_USER}" = "system:serviceaccount:$(KIND_NAMESPACE):config-policy-controller" ]
 
 .PHONY: e2e-dependencies
 e2e-dependencies:
@@ -306,7 +334,7 @@ e2e-test: e2e-dependencies
 	$(GINKGO) -v --fail-fast --slow-spec-threshold=10s $(E2E_TEST_ARGS) test/e2e
 
 .PHONY: e2e-test-coverage
-e2e-test-coverage: E2E_TEST_ARGS = --json-report=report_e2e.json --label-filter="!hosted-mode" --output-dir=.
+e2e-test-coverage: E2E_TEST_ARGS = --json-report=report_e2e.json --label-filter='!hosted-mode' --output-dir=.
 e2e-test-coverage: e2e-run-instrumented e2e-test e2e-stop-instrumented
 
 .PHONY: e2e-test-hosted-mode-coverage
