@@ -550,6 +550,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		complianceState         policyv1.ComplianceState
 		expected                bool
 		deletionTimestamp       *metav1.Time
+		cleanupImmediately      bool
+		finalizers              []string
 	}{
 		{
 			"Just evaluated and the generation is unchanged",
@@ -559,6 +561,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.Compliant,
 			false,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"The generation has changed",
@@ -568,6 +572,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.Compliant,
 			true,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"lastEvaluated not set",
@@ -577,6 +583,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.Compliant,
 			true,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Invalid lastEvaluated",
@@ -586,6 +594,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.Compliant,
 			true,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Unknown compliance state",
@@ -595,6 +605,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.UnknownCompliancy,
 			true,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Default evaluation interval with a past lastEvaluated when compliant",
@@ -604,6 +616,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.Compliant,
 			true,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Default evaluation interval with a past lastEvaluated when noncompliant",
@@ -613,6 +627,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.NonCompliant,
 			true,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Never evaluation interval with past lastEvaluated when compliant",
@@ -622,6 +638,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.Compliant,
 			false,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Never evaluation interval with past lastEvaluated when noncompliant",
@@ -631,6 +649,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.NonCompliant,
 			false,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Invalid evaluation interval when compliant",
@@ -640,6 +660,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.Compliant,
 			true,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Invalid evaluation interval when noncompliant",
@@ -649,6 +671,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.NonCompliant,
 			true,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Custom evaluation interval that hasn't past yet when compliant",
@@ -658,6 +682,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.Compliant,
 			false,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Custom evaluation interval that hasn't past yet when noncompliant",
@@ -667,6 +693,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.NonCompliant,
 			false,
 			nil,
+			false,
+			[]string{},
 		},
 		{
 			"Deletion timestamp is non nil",
@@ -676,6 +704,30 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.NonCompliant,
 			true,
 			&metav1.Time{Time: time.Now()},
+			false,
+			[]string{},
+		},
+		{
+			"Finalizer and the controller is being deleted",
+			time.Now().UTC().Add(-13 * time.Hour).Format(time.RFC3339),
+			2,
+			policyv1.EvaluationInterval{NonCompliant: "12h"},
+			policyv1.NonCompliant,
+			true,
+			&metav1.Time{Time: time.Now()},
+			true,
+			[]string{pruneObjectFinalizer},
+		},
+		{
+			"No finalizer and the controller is being deleted",
+			time.Now().UTC().Add(-13 * time.Hour).Format(time.RFC3339),
+			2,
+			policyv1.EvaluationInterval{NonCompliant: "12h"},
+			policyv1.NonCompliant,
+			false,
+			&metav1.Time{Time: time.Now()},
+			true,
+			[]string{},
 		},
 	}
 
@@ -693,8 +745,9 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 				policy.Spec.EvaluationInterval = test.evaluationInterval
 				policy.Status.ComplianceState = test.complianceState
 				policy.ObjectMeta.DeletionTimestamp = test.deletionTimestamp
+				policy.ObjectMeta.Finalizers = test.finalizers
 
-				if actual := shouldEvaluatePolicy(policy); actual != test.expected {
+				if actual := shouldEvaluatePolicy(policy, test.cleanupImmediately); actual != test.expected {
 					t.Fatalf("expected %v but got %v", test.expected, actual)
 				}
 			},

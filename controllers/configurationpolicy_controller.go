@@ -211,6 +211,13 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 			}
 		}
 
+		cleanupImmediately, err := r.cleanupImmediately()
+		if err != nil {
+			log.Error(err, "Failed to determine if it's time to cleanup immediately")
+
+			skipLoop = true
+		}
+
 		// This is done every loop cycle since the channel needs to be variable in size to account for the number of
 		// policies changing.
 		policyQueue := make(chan *policyv1.ConfigurationPolicy, len(policiesList.Items))
@@ -230,7 +237,7 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 
 			for i := range policiesList.Items {
 				policy := policiesList.Items[i]
-				if !shouldEvaluatePolicy(&policy) {
+				if !shouldEvaluatePolicy(&policy, cleanupImmediately) {
 					continue
 				}
 
@@ -317,9 +324,17 @@ func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 // shouldEvaluatePolicy will determine if the policy is ready for evaluation by examining the
 // status.lastEvaluated and status.lastEvaluatedGeneration fields. If a policy has been updated, it
 // will always be triggered for evaluation. If the spec.evaluationInterval configuration has been
-// met, then that will also trigger an evaluation.
-func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy) bool {
+// met, then that will also trigger an evaluation. If cleanupImmediately is true, then only policies
+// with finalizers will be ready for evaluation regardless of the last evaluation.
+// cleanupImmediately should be set true when the controller is getting uninstalled.
+func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy, cleanupImmediately bool) bool {
 	log := log.WithValues("policy", policy.GetName())
+
+	// If it's time to clean up such as when the config-policy-controller is being uninstalled, only evaluate policies
+	// with a finalizer to remove the finalizer.
+	if cleanupImmediately {
+		return len(policy.Finalizers) != 0
+	}
 
 	if policy.ObjectMeta.DeletionTimestamp != nil {
 		log.V(2).Info("The policy has been deleted and is waiting for object cleanup. Will evaluate it now.")
