@@ -151,14 +151,31 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 
 // PeriodicallyExecConfigPolicies loops through all configurationpolicies in the target namespace and triggers
 // template handling for each one. This function drives all the work the configuration policy controller does.
-func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint, elected <-chan struct{}, test bool) {
+func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
+	ctx context.Context, freq uint, elected <-chan struct{},
+) {
 	log.Info("Waiting for leader election before periodically evaluating configuration policies")
-	<-elected
+
+	select {
+	case <-elected:
+	case <-ctx.Done():
+		return
+	}
 
 	const waiting = 10 * time.Minute
+	var exiting bool
+	// Loop twice after exit condition is received to account for race conditions and retries.
+	loopsAfterExit := 2
 
-	for {
+	for !exiting || (exiting && loopsAfterExit > 0) {
 		start := time.Now()
+
+		select {
+		case <-ctx.Done():
+			exiting = true
+			loopsAfterExit--
+		default:
+		}
 
 		policiesList := policyv1.ConfigurationPolicyList{}
 
@@ -263,10 +280,6 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(freq uint
 			sleepTime := time.Duration(remainingSleep) * time.Second
 			log.V(2).Info("Sleeping before reprocessing the configuration policies", "seconds", sleepTime)
 			time.Sleep(sleepTime)
-		}
-
-		if test {
-			return
 		}
 	}
 }
