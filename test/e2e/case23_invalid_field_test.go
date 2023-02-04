@@ -26,22 +26,18 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 		By("Creating the " + policyName + " policy")
 		utils.Kubectl("apply", "-f", policyYAML, "-n", testNamespace)
 
-		By("Verifying that the " + policyName + " policy is noncompliant")
-		var managedPlc *unstructured.Unstructured
+		expectedMsg := "configmaps [case23] in namespace default is missing, and cannot be created, reason: " +
+			"`ValidationError(ConfigMap): unknown field \"invalid\" in io.k8s.api.core.v1.ConfigMap`"
 
-		Eventually(func() interface{} {
-			managedPlc = utils.GetWithTimeout(
+		By("Verifying that the " + policyName + " policy is noncompliant")
+		Eventually(func(g Gomega) {
+			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
-
-		// expectedMsg := "Error validating the object case23, the error is `ValidationError(ConfigMap): unknown " +
-		// 	"field \"invalid\" in io.k8s.api.core.v1.ConfigMap`"
-		expectedMsg := "configmaps [case23] in namespace default is missing, and cannot be created, reason: " +
-			"`ValidationError(ConfigMap): unknown field \"invalid\" in io.k8s.api.core.v1.ConfigMap`"
-		Expect(utils.GetStatusMessage(managedPlc)).To(Equal(expectedMsg))
+			g.Expect(utils.GetComplianceState(managedPlc)).To(Equal("NonCompliant"))
+			g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(expectedMsg))
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the message is correct when the " + configMapName + " ConfigMap already exists")
 		configmap := &corev1.ConfigMap{
@@ -55,7 +51,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 		expectedMsg = "Error validating the object case23, the error is `ValidationError(ConfigMap): unknown " +
 			"field \"invalid\" in io.k8s.api.core.v1.ConfigMap`"
 		Eventually(func() interface{} {
-			managedPlc = utils.GetWithTimeout(
+			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 			)
 
