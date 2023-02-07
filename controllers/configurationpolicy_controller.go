@@ -163,20 +163,11 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 	}
 
 	const waiting = 10 * time.Minute
-	var exiting bool
-	// Loop twice after exit condition is received to account for race conditions and retries.
-	loopsAfterExit := 2
 
-	for !exiting || (exiting && loopsAfterExit > 0) {
+	exiting := false
+
+	for !exiting {
 		start := time.Now()
-
-		select {
-		case <-ctx.Done():
-			exiting = true
-			loopsAfterExit--
-		default:
-		}
-
 		policiesList := policyv1.ConfigurationPolicyList{}
 
 		var skipLoop bool
@@ -204,28 +195,6 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 			}
 		} else {
 			skipLoop = true
-		}
-
-		needDeploymentFinalizer := false
-
-		for i := range policiesList.Items {
-			plc := policiesList.Items[i]
-
-			if objHasFinalizer(&plc, pruneObjectFinalizer) {
-				needDeploymentFinalizer = true
-
-				break
-			}
-		}
-
-		if err := r.manageDeploymentFinalizer(needDeploymentFinalizer); err != nil {
-			if errors.Is(err, common.ErrNoNamespace) || errors.Is(err, common.ErrRunLocal) {
-				log.Info("Not managing the controller's deployment finalizer because it is running locally")
-			} else {
-				log.Error(err, "Failed to manage the controller's deployment finalizer, skipping loop")
-
-				skipLoop = true
-			}
 		}
 
 		cleanupImmediately, err := r.cleanupImmediately()
@@ -280,6 +249,12 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 			sleepTime := time.Duration(remainingSleep) * time.Second
 			log.V(2).Info("Sleeping before reprocessing the configuration policies", "seconds", sleepTime)
 			time.Sleep(sleepTime)
+		}
+
+		select {
+		case <-ctx.Done():
+			exiting = true
+		default:
 		}
 	}
 }
@@ -618,10 +593,10 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 
 // cleanupImmediately returns true when the cluster is in a state where configurationpolicies should
 // be removed as soon as possible, ignoring the pruneObjectBehavior of the policies. This is the
-// case when the CRD or the controller's deployment are already being deleted.
+// case when the controller is being uninstalled or the CRD is being deleted.
 func (r *ConfigurationPolicyReconciler) cleanupImmediately() (bool, error) {
-	deployDeleting, deployErr := r.deploymentIsDeleting()
-	if deployErr == nil && deployDeleting {
+	beingUninstalled, beingUninstalledErr := r.isBeingUninstalled()
+	if beingUninstalledErr == nil && beingUninstalled {
 		return true, nil
 	}
 
@@ -630,36 +605,16 @@ func (r *ConfigurationPolicyReconciler) cleanupImmediately() (bool, error) {
 		return true, nil
 	}
 
-	if deployErr == nil && defErr == nil {
+	if beingUninstalledErr == nil && defErr == nil {
 		// if either was deleting, we would've already returned.
 		return false, nil
 	}
 
 	// At least one had an unexpected error, so the decision can't be made right now
 	//nolint:errorlint // we can't choose just one of the errors to "correctly" wrap
-	return false, fmt.Errorf("deploymentIsDeleting error: '%v', definitionIsDeleting error: '%v'",
-		deployErr, defErr)
-}
-
-func (r *ConfigurationPolicyReconciler) deploymentIsDeleting() (bool, error) {
-	key, keyErr := common.GetOperatorNamespacedName()
-	if keyErr != nil {
-		if errors.Is(keyErr, common.ErrNoNamespace) || errors.Is(keyErr, common.ErrRunLocal) {
-			// running locally
-			return false, nil
-		}
-
-		return false, keyErr
-	}
-
-	deployment := appsv1.Deployment{}
-
-	err := r.Get(context.TODO(), key, &deployment)
-	if err != nil {
-		return false, err
-	}
-
-	return deployment.DeletionTimestamp != nil, nil
+	return false, fmt.Errorf(
+		"isBeingUninstalled error: '%v', definitionIsDeleting error: '%v'", beingUninstalledErr, defErr,
+	)
 }
 
 func (r *ConfigurationPolicyReconciler) definitionIsDeleting() (bool, error) {
@@ -2808,32 +2763,23 @@ func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results str
 	return result
 }
 
-func (r *ConfigurationPolicyReconciler) manageDeploymentFinalizer(shouldBeSet bool) error {
+func (r *ConfigurationPolicyReconciler) isBeingUninstalled() (bool, error) {
 	key, err := common.GetOperatorNamespacedName()
 	if err != nil {
-		return err
+		// Running locally
+		if errors.Is(err, common.ErrNoNamespace) || errors.Is(err, common.ErrRunLocal) {
+			return false, nil
+		}
+
+		return false, err
 	}
 
 	deployment := appsv1.Deployment{}
 	if err := r.Client.Get(context.TODO(), key, &deployment); err != nil {
-		return err
+		return false, err
 	}
 
-	if objHasFinalizer(&deployment, pruneObjectFinalizer) {
-		if shouldBeSet {
-			return nil
-		}
-
-		deployment.SetFinalizers(removeObjFinalizer(&deployment, pruneObjectFinalizer))
-	} else {
-		if !shouldBeSet {
-			return nil
-		}
-
-		deployment.SetFinalizers(addObjFinalizer(&deployment, pruneObjectFinalizer))
-	}
-
-	return r.Update(context.TODO(), &deployment)
+	return deployment.Annotations[common.UninstallingAnnotation] == "true", nil
 }
 
 func recoverFlow() {

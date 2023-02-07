@@ -20,6 +20,7 @@ spec:
           command:
           - config-policy-controller
           args:
+            - "controller"
             - "--enable-lease=true"
             - "--log-level=2"
             - "--v=0"

@@ -24,7 +24,7 @@ COPY --from=builder ${REPO_PATH}/build/_output/bin/${COMPONENT} ${OPERATOR}
 COPY --from=builder ${REPO_PATH}/build/bin /usr/local/bin
 RUN  /usr/local/bin/user_setup
 
-ENTRYPOINT ["/usr/local/bin/entrypoint"]
+ENTRYPOINT ["/usr/local/bin/entrypoint", "controller"]
 
 RUN microdnf update && \
     microdnf clean all

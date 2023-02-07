@@ -11,6 +11,8 @@ import (
 	"k8s.io/client-go/tools/record"
 )
 
+const UninstallingAnnotation string = "policy.open-cluster-management.io/uninstalling"
+
 // CreateRecorder return recorder
 func CreateRecorder(kubeClient kubernetes.Interface, componentName string) (record.EventRecorder, error) {
 	eventsScheme := runtime.NewScheme()
