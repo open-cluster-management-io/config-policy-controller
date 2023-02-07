@@ -1,0 +1,7 @@
+[
+    {
+        "op":"add",
+        "path":"/metadata/labels",
+        "value": {"policy.open-cluster-management.io/policy-type": "template"}
+    }
+]
