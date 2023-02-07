@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: case28-configpolicy
+  name: case30-configpolicy
 spec:
   remediationAction: enforce
   severity: low

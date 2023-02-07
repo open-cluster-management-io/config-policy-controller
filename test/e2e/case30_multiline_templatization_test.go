@@ -15,24 +15,26 @@ import (
 )
 
 const (
-	case28RangePolicyName string = "case28-configpolicy"
-	case28RangePolicyYaml string = "../resources/case28_multiline_templatization/case28_policy.yaml"
-	case28ConfigMapsYaml  string = "../resources/case28_multiline_templatization/case28_configmaps.yaml"
+	case30RangePolicyName      string = "case30-configpolicy"
+	case30NoTemplatePolicyName string = "case30-configpolicy-notemplate"
+	case30RangePolicyYaml      string = "../resources/case30_multiline_templatization/case30_policy.yaml"
+	case30NoTemplatePolicyYaml string = "../resources/case30_multiline_templatization/case30_policy_notemplate.yaml"
+	case30ConfigMapsYaml       string = "../resources/case30_multiline_templatization/case30_configmaps.yaml"
 )
 
 const (
-	case28Unterminated     string = "policy-pod-create-unterminated"
-	case28UnterminatedYaml string = "../resources/case28_multiline_templatization/case28_unterminated.yaml"
-	case28WrongArgs        string = "policy-pod-create-wrong-args"
-	case28WrongArgsYaml    string = "../resources/case28_multiline_templatization/case28_wrong_args.yaml"
+	case30Unterminated     string = "policy-pod-create-unterminated"
+	case30UnterminatedYaml string = "../resources/case30_multiline_templatization/case30_unterminated.yaml"
+	case30WrongArgs        string = "policy-pod-create-wrong-args"
+	case30WrongArgsYaml    string = "../resources/case30_multiline_templatization/case30_wrong_args.yaml"
 )
 
 var _ = Describe("Test multiline templatization", Ordered, func() {
 	Describe("Verify multiline template with range keyword", Ordered, func() {
 		It("configmap should be created properly on the managed cluster", func() {
 			By("Creating config maps on managed")
-			utils.Kubectl("apply", "-f", case28ConfigMapsYaml, "-n", "default")
-			for _, cfgMapName := range []string{"28config1", "28config2"} {
+			utils.Kubectl("apply", "-f", case30ConfigMapsYaml, "-n", "default")
+			for _, cfgMapName := range []string{"30config1", "30config2"} {
 				cfgmap := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
 					cfgMapName, "default", true, defaultTimeoutSeconds)
 				Expect(cfgmap).NotTo(BeNil())
@@ -40,17 +42,17 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 		})
 		It("both configmaps should be updated properly on the managed cluster", func() {
 			By("Creating policy with range template on managed")
-			utils.Kubectl("apply", "-f", case28RangePolicyYaml, "-n", testNamespace)
+			utils.Kubectl("apply", "-f", case30RangePolicyYaml, "-n", testNamespace)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-				case28RangePolicyName, testNamespace, true, defaultTimeoutSeconds)
+				case30RangePolicyName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
 
-			By("Verifying that the " + case28RangePolicyName + " policy is compliant")
+			By("Verifying that the " + case30RangePolicyName + " policy is compliant")
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(
 					clientManagedDynamic,
 					gvrConfigPolicy,
-					case28RangePolicyName,
+					case30RangePolicyName,
 					testNamespace,
 					true,
 					defaultTimeoutSeconds,
@@ -60,7 +62,7 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 
 			By("Verifying that both configmaps have the updated data")
-			for _, cfgMapName := range []string{"28config1", "28config2"} {
+			for _, cfgMapName := range []string{"30config1", "30config2"} {
 				Eventually(
 					func() interface{} {
 						configMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
@@ -78,28 +80,50 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 			}
 		})
 
+		It("processes policies with no template correctly", func() {
+			By("Creating policy with no template in object-templates-raw")
+			utils.Kubectl("apply", "-f", case30NoTemplatePolicyYaml, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case30NoTemplatePolicyName, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+
+			By("Verifying that the " + case30NoTemplatePolicyName + " policy is compliant")
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic,
+					gvrConfigPolicy,
+					case30NoTemplatePolicyName,
+					testNamespace,
+					true,
+					defaultTimeoutSeconds,
+				)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+		})
+
 		AfterAll(func() {
-			deleteConfigPolicies([]string{case28RangePolicyName})
-			utils.Kubectl("delete", "-f", case28ConfigMapsYaml)
+			deleteConfigPolicies([]string{case30RangePolicyName, case30NoTemplatePolicyName})
+			utils.Kubectl("delete", "-f", case30ConfigMapsYaml)
 		})
 	})
 	Describe("Test invalid multiline templates", func() {
 		It("should generate noncompliant for invalid template strings", func() {
 			By("Creating policies on managed")
 			// create policy with unterminated template
-			utils.Kubectl("apply", "-f", case28UnterminatedYaml, "-n", testNamespace)
+			utils.Kubectl("apply", "-f", case30UnterminatedYaml, "-n", testNamespace)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-				case28Unterminated, testNamespace, true, defaultTimeoutSeconds)
+				case30Unterminated, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case28Unterminated, testNamespace, true, defaultTimeoutSeconds)
+					case30Unterminated, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case28Unterminated, testNamespace, true, defaultTimeoutSeconds)
+					case30Unterminated, testNamespace, true, defaultTimeoutSeconds)
 
 				return strings.Contains(
 					utils.GetStatusMessage(managedPlc).(string),
@@ -107,19 +131,19 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 				)
 			}, 10, 1).Should(BeTrue())
 			// create policy with incomplete args in template
-			utils.Kubectl("apply", "-f", case28WrongArgsYaml, "-n", testNamespace)
+			utils.Kubectl("apply", "-f", case30WrongArgsYaml, "-n", testNamespace)
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-				case28WrongArgs, testNamespace, true, defaultTimeoutSeconds)
+				case30WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case28WrongArgs, testNamespace, true, defaultTimeoutSeconds)
+					case30WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case28WrongArgs, testNamespace, true, defaultTimeoutSeconds)
+					case30WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 
 				return strings.Contains(
 					utils.GetStatusMessage(managedPlc).(string),
@@ -128,7 +152,7 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 			}, 10, 1).Should(BeTrue())
 		})
 		AfterAll(func() {
-			deleteConfigPolicies([]string{case28Unterminated, case28WrongArgs})
+			deleteConfigPolicies([]string{case30Unterminated, case30WrongArgs})
 		})
 	})
 })

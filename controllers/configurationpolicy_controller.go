@@ -43,6 +43,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	yaml "sigs.k8s.io/yaml"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	common "open-cluster-management.io/config-policy-controller/pkg/common"
@@ -966,6 +967,19 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 				// Otherwise, set the resolved data for use in further processing
 				plc.Spec.ObjectTemplates[i].ObjectDefinition.Raw = resolvedTemplate.ResolvedJSON
+			} else if isRawObjTemplate {
+				// Unmarshal raw template YAML into object if that has not already been done by the template
+				// resolution function
+				err = yaml.Unmarshal(rawData, &objTemps)
+				if err != nil {
+					addTemplateErrorViolation("Error parsing the YAML in the object-templates-raw field", err.Error())
+
+					return
+				}
+
+				plc.Spec.ObjectTemplates = objTemps
+
+				break
 			}
 		}
 
