@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"time"
 
 	"github.com/go-logr/zapr"
 	"github.com/spf13/pflag"
@@ -43,6 +44,7 @@ import (
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/controllers"
 	"open-cluster-management.io/config-policy-controller/pkg/common"
+	"open-cluster-management.io/config-policy-controller/pkg/triggeruninstall"
 	"open-cluster-management.io/config-policy-controller/version"
 )
 
@@ -74,51 +76,52 @@ func main() {
 	}
 
 	zflags.Bind(flag.CommandLine)
-	pflag.CommandLine.AddGoFlagSet(flag.CommandLine)
+
+	controllerFlagSet := pflag.NewFlagSet("controller", pflag.ExitOnError)
 
 	var clusterName, hubConfigPath, targetKubeConfig, metricsAddr, probeAddr string
 	var frequency uint
 	var decryptionConcurrency, evaluationConcurrency uint8
 	var enableLease, enableLeaderElection, legacyLeaderElection, enableMetrics bool
 
-	pflag.UintVar(&frequency, "update-frequency", 10,
+	controllerFlagSet.UintVar(&frequency, "update-frequency", 10,
 		"The status update frequency (in seconds) of a mutation policy")
-	pflag.BoolVar(&enableLease, "enable-lease", false,
+	controllerFlagSet.BoolVar(&enableLease, "enable-lease", false,
 		"If enabled, the controller will start the lease controller to report its status")
-	pflag.StringVar(&clusterName, "cluster-name", "acm-managed-cluster", "Name of the cluster")
-	pflag.StringVar(&hubConfigPath, "hub-kubeconfig-path", "/var/run/klusterlet/kubeconfig",
+	controllerFlagSet.StringVar(&clusterName, "cluster-name", "acm-managed-cluster", "Name of the cluster")
+	controllerFlagSet.StringVar(&hubConfigPath, "hub-kubeconfig-path", "/var/run/klusterlet/kubeconfig",
 		"Path to the hub kubeconfig")
-	pflag.StringVar(
+	controllerFlagSet.StringVar(
 		&targetKubeConfig,
 		"target-kubeconfig-path",
 		"",
 		"A path to an alternative kubeconfig for policy evaluation and enforcement.",
 	)
-	pflag.StringVar(
+	controllerFlagSet.StringVar(
 		&metricsAddr, "metrics-bind-address", "localhost:8383", "The address the metrics endpoint binds to.",
 	)
-	pflag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	pflag.BoolVar(&enableLeaderElection, "leader-elect", true,
+	controllerFlagSet.StringVar(
+		&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.",
+	)
+	controllerFlagSet.BoolVar(&enableLeaderElection, "leader-elect", true,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
-	pflag.BoolVar(&legacyLeaderElection, "legacy-leader-elect", false,
+	controllerFlagSet.BoolVar(&legacyLeaderElection, "legacy-leader-elect", false,
 		"Use a legacy leader election method for controller manager instead of the lease API.")
-	pflag.Uint8Var(
+	controllerFlagSet.Uint8Var(
 		&decryptionConcurrency,
 		"decryption-concurrency",
 		5,
 		"The max number of concurrent policy template decryptions",
 	)
-	pflag.Uint8Var(
+	controllerFlagSet.Uint8Var(
 		&evaluationConcurrency,
 		"evaluation-concurrency",
 		// Set a low default to not add too much load to the Kubernetes API server in resource constrained deployments.
 		2,
 		"The max number of concurrent configuration policy evaluations",
 	)
-	pflag.BoolVar(&enableMetrics, "enable-metrics", true, "Disable custom metrics collection")
-
-	pflag.Parse()
+	controllerFlagSet.BoolVar(&enableMetrics, "enable-metrics", true, "Disable custom metrics collection")
 
 	ctrlZap, err := zflags.BuildForCtrl()
 	if err != nil {
@@ -140,6 +143,24 @@ func main() {
 		log.Error(err, "Failed to build zap logger for klog, those logs will not go through zap")
 	} else {
 		klog.SetLogger(zapr.NewLogger(klogZap).WithName("klog"))
+	}
+
+	subcommand := ""
+	if len(os.Args) >= 2 {
+		subcommand = os.Args[1]
+	}
+
+	switch subcommand {
+	case "controller":
+		controllerFlagSet.AddGoFlagSet(flag.CommandLine)
+		_ = controllerFlagSet.Parse(os.Args[2:])
+	case "trigger-uninstall":
+		handleTriggerUninstall()
+
+		return
+	default:
+		fmt.Fprintln(os.Stderr, "expected 'controller' or 'trigger-uninstall' subcommands")
+		os.Exit(1)
 	}
 
 	if evaluationConcurrency < 1 {
@@ -369,6 +390,60 @@ func main() {
 
 	if err := mgr.Start(managerCtx); err != nil {
 		log.Error(err, "Problem running manager")
+		os.Exit(1)
+	}
+}
+
+func handleTriggerUninstall() {
+	triggerUninstallFlagSet := pflag.NewFlagSet("trigger-uninstall", pflag.ExitOnError)
+
+	var deploymentName, deploymentNamespace, policyNamespace string
+	var timeoutSeconds uint
+
+	triggerUninstallFlagSet.StringVar(
+		&deploymentName, "deployment-name", "config-policy-controller", "The name of the controller Deployment object",
+	)
+	triggerUninstallFlagSet.StringVar(
+		&deploymentNamespace,
+		"deployment-namespace",
+		"open-cluster-management-agent-addon",
+		"The namespace of the controller Deployment object",
+	)
+	triggerUninstallFlagSet.StringVar(
+		&policyNamespace, "policy-namespace", "", "The namespace of where ConfigurationPolicy objects are stored",
+	)
+	triggerUninstallFlagSet.UintVar(
+		&timeoutSeconds, "timeout-seconds", 300, "The number of seconds before the operation is canceled",
+	)
+	triggerUninstallFlagSet.AddGoFlagSet(flag.CommandLine)
+
+	_ = triggerUninstallFlagSet.Parse(os.Args[2:])
+
+	if deploymentName == "" || deploymentNamespace == "" || policyNamespace == "" {
+		fmt.Fprintln(os.Stderr, "--deployment-name, --deployment-namespace, --policy-namespace must all have values")
+		os.Exit(1)
+	}
+
+	if timeoutSeconds < 30 {
+		fmt.Fprintln(os.Stderr, "--timeout-seconds must be set to at least 30 seconds")
+		os.Exit(1)
+	}
+
+	terminatingCtx := ctrl.SetupSignalHandler()
+	ctx, cancelCtx := context.WithDeadline(terminatingCtx, time.Now().Add(time.Duration(timeoutSeconds)*time.Second))
+
+	defer cancelCtx()
+
+	// Get a config to talk to the apiserver
+	cfg, err := config.GetConfig()
+	if err != nil {
+		log.Error(err, "Failed to get config")
+		os.Exit(1)
+	}
+
+	err = triggeruninstall.TriggerUninstall(ctx, cfg, deploymentName, deploymentNamespace, policyNamespace)
+	if err != nil {
+		klog.Errorf("Failed to trigger the uninstall due to the error: %s", err)
 		os.Exit(1)
 	}
 }

@@ -334,14 +334,18 @@ e2e-test: e2e-dependencies
 	$(GINKGO) -v --fail-fast --slow-spec-threshold=10s $(E2E_TEST_ARGS) test/e2e
 
 .PHONY: e2e-test-coverage
-e2e-test-coverage: E2E_TEST_ARGS = --json-report=report_e2e.json --label-filter='!hosted-mode' --output-dir=.
+e2e-test-coverage: E2E_TEST_ARGS = --json-report=report_e2e.json --label-filter='!hosted-mode && !running-in-cluster' --output-dir=.
 e2e-test-coverage: e2e-run-instrumented e2e-test e2e-stop-instrumented
 
 .PHONY: e2e-test-hosted-mode-coverage
-e2e-test-hosted-mode-coverage: E2E_TEST_ARGS = --json-report=report_e2e_hosted_mode.json --label-filter="hosted-mode" --output-dir=.
+e2e-test-hosted-mode-coverage: E2E_TEST_ARGS = --json-report=report_e2e_hosted_mode.json --label-filter="hosted-mode && !running-in-cluster" --output-dir=.
 e2e-test-hosted-mode-coverage: COVERAGE_E2E_OUT = coverage_e2e_hosted_mode.out
 e2e-test-hosted-mode-coverage: export TARGET_KUBECONFIG_PATH = $(PWD)/kubeconfig_managed2
 e2e-test-hosted-mode-coverage: e2e-run-instrumented e2e-test e2e-stop-instrumented
+
+.PHONY: e2e-test-running-in-cluster
+e2e-test-running-in-cluster: E2E_TEST_ARGS = --label-filter="running-in-cluster" --covermode=atomic --coverprofile=coverage_e2e_uninstall.out --coverpkg=open-cluster-management.io/config-policy-controller/pkg/triggeruninstall
+e2e-test-running-in-cluster: e2e-test
 
 .PHONY: e2e-build-instrumented
 e2e-build-instrumented:

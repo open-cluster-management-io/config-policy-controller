@@ -549,7 +549,6 @@ func addObjFinalizer(obj metav1.Object, finalizer string) []string {
 	return append(obj.GetFinalizers(), finalizer)
 }
 
-// nolint: unparam
 func removeObjFinalizer(obj metav1.Object, finalizer string) []string {
 	result := []string{}
 

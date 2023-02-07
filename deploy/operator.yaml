@@ -45,6 +45,7 @@ spec:
     spec:
       containers:
       - args:
+        - controller
         - --enable-lease=true
         - --log-level=2
         - --v=0
