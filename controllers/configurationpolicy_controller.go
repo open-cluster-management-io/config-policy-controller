@@ -166,8 +166,18 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 	const waiting = 10 * time.Minute
 
 	exiting := false
+	deploymentFinalizerRemoved := false
 
 	for !exiting {
+		if !deploymentFinalizerRemoved {
+			err := r.removeLegacyDeploymentFinalizer()
+			if err == nil {
+				deploymentFinalizerRemoved = true
+			} else {
+				log.Error(err, "Failed to remove the legacy Deployment finalizer. Will try again.")
+			}
+		}
+
 		start := time.Now()
 		policiesList := policyv1.ConfigurationPolicyList{}
 
@@ -2777,23 +2787,58 @@ func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results str
 	return result
 }
 
-func (r *ConfigurationPolicyReconciler) isBeingUninstalled() (bool, error) {
+// getDeployment gets the Deployment object associated with this controller. If the controller is running outside of
+// a cluster, no Deployment object or error will be returned.
+func (r *ConfigurationPolicyReconciler) getDeployment() (*appsv1.Deployment, error) {
 	key, err := common.GetOperatorNamespacedName()
 	if err != nil {
 		// Running locally
 		if errors.Is(err, common.ErrNoNamespace) || errors.Is(err, common.ErrRunLocal) {
-			return false, nil
+			return nil, nil
 		}
 
-		return false, err
+		return nil, err
 	}
 
 	deployment := appsv1.Deployment{}
 	if err := r.Client.Get(context.TODO(), key, &deployment); err != nil {
+		return nil, err
+	}
+
+	return &deployment, nil
+}
+
+func (r *ConfigurationPolicyReconciler) isBeingUninstalled() (bool, error) {
+	deployment, err := r.getDeployment()
+	if deployment == nil || err != nil {
 		return false, err
 	}
 
 	return deployment.Annotations[common.UninstallingAnnotation] == "true", nil
+}
+
+// removeLegacyDeploymentFinalizer removes the policy.open-cluster-management.io/delete-related-objects on the
+// Deployment object. This finalizer is no longer needed on the Deployment object, so it is removed.
+func (r *ConfigurationPolicyReconciler) removeLegacyDeploymentFinalizer() error {
+	deployment, err := r.getDeployment()
+	if deployment == nil || err != nil {
+		return err
+	}
+
+	for i, finalizer := range deployment.Finalizers {
+		if finalizer == pruneObjectFinalizer {
+			newFinalizers := append(deployment.Finalizers[:i], deployment.Finalizers[i+1:]...)
+			deployment.SetFinalizers(newFinalizers)
+
+			log.Info("Removing the legacy finalizer on the controller Deployment")
+
+			err := r.Client.Update(context.TODO(), deployment)
+
+			return err
+		}
+	}
+
+	return nil
 }
 
 func recoverFlow() {
