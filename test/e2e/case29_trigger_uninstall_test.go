@@ -119,3 +119,59 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 })
+
+// This test only works when the controller is running in the cluster.
+var _ = Describe("Clean up the finalizer on the Deployment", Label("running-in-cluster"), Ordered, func() {
+	const (
+		deploymentName       string = "config-policy-controller"
+		deploymentNamespace  string = "open-cluster-management-agent-addon"
+		pruneObjectFinalizer string = "policy.open-cluster-management.io/delete-related-objects"
+	)
+
+	It("verifies that the Deployment finalizer is removed", func() {
+		deploymentRsrc := clientManaged.AppsV1().Deployments(deploymentNamespace)
+
+		By("Adding a finalizer to the Deployment")
+		Eventually(func(g Gomega) {
+			deployment, err := deploymentRsrc.Get(context.TODO(), deploymentName, metav1.GetOptions{})
+			g.Expect(err).To(BeNil())
+
+			deployment.SetFinalizers(append(deployment.Finalizers, pruneObjectFinalizer))
+			_, err = deploymentRsrc.Update(context.TODO(), deployment, metav1.UpdateOptions{})
+			g.Expect(err).To(BeNil())
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+		// Trigger a restart so that the finalizer removal logic is executed.
+		utils.Kubectl("-n", deploymentNamespace, "rollout", "restart", "deployment/"+deploymentName)
+
+		By("Waiting for the finalizer on the Deployment to be removed")
+		Eventually(func(g Gomega) {
+			deployment, err := deploymentRsrc.Get(context.TODO(), deploymentName, metav1.GetOptions{})
+			g.Expect(err).To(BeNil())
+
+			g.Expect(deployment.Finalizers).ToNot(ContainElement(pruneObjectFinalizer))
+		}, defaultTimeoutSeconds*2, 1).Should(Succeed())
+	})
+
+	AfterAll(func() {
+		deploymentRsrc := clientManaged.AppsV1().Deployments(deploymentNamespace)
+
+		// Use an eventually in case there are update conflicts and there needs to be a retry
+		Eventually(func(g Gomega) {
+			deployment, err := deploymentRsrc.Get(context.TODO(), deploymentName, metav1.GetOptions{})
+			g.Expect(err).To(BeNil())
+
+			for i, finalizer := range deployment.Finalizers {
+				if finalizer == pruneObjectFinalizer {
+					newFinalizers := append(deployment.Finalizers[:i], deployment.Finalizers[i+1:]...)
+					deployment.SetFinalizers(newFinalizers)
+
+					_, err := deploymentRsrc.Update(context.TODO(), deployment, metav1.UpdateOptions{})
+					g.Expect(err).To(BeNil())
+
+					break
+				}
+			}
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
+	})
+})
