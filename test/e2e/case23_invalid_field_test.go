@@ -4,6 +4,7 @@ package e2e
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -39,6 +40,23 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 			g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(expectedMsg))
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
+		By("Verifying events do not continue to be created after the first violation for created objects")
+		startTime := metav1.NewTime(time.Now())
+
+		Consistently(func() interface{} {
+			compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
+				policyName,
+				"",
+				"unknown field \"invalid\" in io.k8s.api.core.v1.ConfigMap",
+				defaultTimeoutSeconds)
+
+			if len(compPlcEvents) == 0 {
+				return false
+			}
+
+			return startTime.After(compPlcEvents[len(compPlcEvents)-1].LastTimestamp.Time)
+		}, defaultTimeoutSeconds, 1).Should(BeTrue())
+
 		By("Verifying the message is correct when the " + configMapName + " ConfigMap already exists")
 		configmap := &corev1.ConfigMap{
 			ObjectMeta: metav1.ObjectMeta{
@@ -57,6 +75,23 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).Should(Equal(expectedMsg))
+
+		By("Verifying events do not continue to be created after the first violation for existing objects")
+		alreadyExistsStartTime := metav1.NewTime(time.Now())
+
+		Consistently(func() interface{} {
+			compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
+				policyName,
+				"",
+				"unknown field \"invalid\" in io.k8s.api.core.v1.ConfigMap",
+				defaultTimeoutSeconds)
+
+			if len(compPlcEvents) == 0 {
+				return false
+			}
+
+			return alreadyExistsStartTime.After(compPlcEvents[len(compPlcEvents)-1].LastTimestamp.Time)
+		}, defaultTimeoutSeconds, 1).Should(BeTrue())
 	})
 
 	AfterAll(func() {

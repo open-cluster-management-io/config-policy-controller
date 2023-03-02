@@ -1587,17 +1587,6 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if !exists && obj.shouldExist {
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			// object is missing, so send noncompliant event
-			_ = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
-				obj.index, false, true)
-			obj.policy.Status.ComplianceState = policyv1.NonCompliant
-			statusStr := convertPolicyStatusToString(obj.policy)
-			objLog.Info("Sending an update policy status event", "policy", obj.policy.Name, "status", statusStr)
-			r.Recorder.Event(obj.policy, eventWarning, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name),
-				statusStr)
-			// update parent policy status
-			r.addForUpdate(obj.policy, true)
-
 			var uid string
 			statusUpdateNeeded, uid, err = r.enforceByCreatingOrDeleting(obj)
 
@@ -1605,6 +1594,20 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				// violation created for handling error
 				objLog.Error(err, "Could not handle missing musthave object")
 			} else {
+				// object is missing and will be created, so send noncompliant "does not exist" event first
+				// (this check has already happened, but we send the event here to avoid the status flipping on an
+				// error)
+				_ = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
+					obj.index, false, true)
+				obj.policy.Status.ComplianceState = policyv1.NonCompliant
+				statusStr := convertPolicyStatusToString(obj.policy)
+				objLog.Info("Sending a noncompliant status event (object missing)", "policy", obj.policy.Name, "status",
+					statusStr)
+				r.Recorder.Event(obj.policy, eventWarning, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name),
+					statusStr)
+				// update parent policy status
+				r.addForUpdate(obj.policy, true)
+
 				created := true
 				creationInfo = &policyv1.ObjectProperties{
 					CreatedByPolicy: &created,
@@ -1657,7 +1660,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		throwSpecViolation, msg, pErr, triedUpdate, updatedObj := r.checkAndUpdateResource(obj, compType, mdCompType,
 			remediation)
 
-		if triedUpdate {
+		if triedUpdate && !strings.Contains(msg, "Error validating the object") {
 			// object has a mismatch and needs an update to be enforced, throw violation for mismatch
 			_ = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy, obj.index,
 				false, true)
