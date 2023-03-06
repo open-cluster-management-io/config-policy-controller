@@ -23,10 +23,12 @@ const (
 )
 
 const (
-	case30Unterminated     string = "policy-pod-create-unterminated"
-	case30UnterminatedYaml string = "../resources/case30_multiline_templatization/case30_unterminated.yaml"
-	case30WrongArgs        string = "policy-pod-create-wrong-args"
-	case30WrongArgsYaml    string = "../resources/case30_multiline_templatization/case30_wrong_args.yaml"
+	case30Unterminated       string = "policy-pod-create-unterminated"
+	case30UnterminatedYaml   string = "../resources/case30_multiline_templatization/case30_unterminated.yaml"
+	case30WrongArgs          string = "policy-pod-create-wrong-args"
+	case30WrongArgsYaml      string = "../resources/case30_multiline_templatization/case30_wrong_args.yaml"
+	case30NoObject           string = "case30-configpolicy-no-object"
+	case30NoObjectPolicyYaml string = "../resources/case30_multiline_templatization/case30_no_object.yaml"
 )
 
 var _ = Describe("Test multiline templatization", Ordered, func() {
@@ -151,8 +153,31 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 				)
 			}, 10, 1).Should(BeTrue())
 		})
+		It("should be compliant when no templates are specified", func() {
+			By("Creating policies on managed")
+			// create policy with unterminated template
+			utils.Kubectl("apply", "-f", case30NoObjectPolicyYaml, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case30NoObject, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case30NoObject, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case30NoObject, testNamespace, true, defaultTimeoutSeconds)
+
+				return strings.Contains(
+					utils.GetStatusMessage(managedPlc).(string),
+					"contains no object templates to check",
+				)
+			}, 10, 1).Should(BeTrue())
+		})
 		AfterAll(func() {
-			deleteConfigPolicies([]string{case30Unterminated, case30WrongArgs})
+			deleteConfigPolicies([]string{case30Unterminated, case30WrongArgs, case30NoObject})
 		})
 	})
 })

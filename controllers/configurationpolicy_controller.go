@@ -1019,6 +1019,25 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		return
 	}
 
+	if len(plc.Spec.ObjectTemplates) == 0 {
+		reason := "No object templates"
+		msg := fmt.Sprintf("%v contains no object templates to check, and thus has no violations",
+			plc.GetName())
+
+		statusUpdateNeeded := addConditionToStatus(&plc, 0, true, reason, msg)
+
+		if statusUpdateNeeded {
+			eventType := eventNormal
+
+			r.Recorder.Event(&plc, eventType, fmt.Sprintf(plcFmtStr, plc.GetName()),
+				convertPolicyStatusToString(&plc))
+		}
+
+		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusUpdateNeeded)
+
+		return
+	}
+
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		nonCompliantObjects := map[string]map[string]interface{}{}
 		compliantObjects := map[string]map[string]interface{}{}
