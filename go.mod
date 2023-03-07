@@ -23,6 +23,7 @@ require (
 	k8s.io/kubectl v0.23.9
 	open-cluster-management.io/addon-framework v0.2.0
 	sigs.k8s.io/controller-runtime v0.11.2
+	sigs.k8s.io/yaml v1.3.0
 )
 
 require (
@@ -95,11 +96,11 @@ require (
 	open-cluster-management.io/api v0.6.1-0.20220208144021-3297cac74dc5 // indirect
 	sigs.k8s.io/json v0.0.0-20211208200746-9f7c6b3444d2 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.2.1 // indirect
-	sigs.k8s.io/yaml v1.3.0 // indirect
 )
 
 replace (
 	golang.org/x/crypto => golang.org/x/crypto v0.0.0-20220214200702-86341886e292 // CVE-2021-43565
 	golang.org/x/text => golang.org/x/text v0.3.8 // CVE-2022-32149
+	gopkg.in/yaml.v2 => gopkg.in/yaml.v2 v2.4.0 // CVE-2022-3064
 	k8s.io/client-go => k8s.io/client-go v0.23.9
 )
