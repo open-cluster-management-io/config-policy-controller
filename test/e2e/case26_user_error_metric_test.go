@@ -15,6 +15,21 @@ var _ = Describe("Test related object metrics", Ordered, func() {
 		policy1Name = "case26-test-policy-1"
 		policyYaml  = "../resources/case26_user_error_metric/case26-missing-crd.yaml"
 	)
+	cleanup := func() {
+		// Delete the policies and ignore any errors (in case it was deleted previously)
+		cmd := exec.Command("kubectl", "delete",
+			"-f", policyYaml,
+			"-n", testNamespace, "--ignore-not-found")
+		_, _ = cmd.CombinedOutput()
+		opt := metav1.ListOptions{}
+		utils.ListWithTimeout(
+			clientManagedDynamic, gvrConfigPolicy, opt, 0, false, defaultTimeoutSeconds)
+		By("Checking metric endpoint for related object gauges")
+		Eventually(func() interface{} {
+			return utils.GetMetrics("policy_user_errors")
+		}, defaultTimeoutSeconds, 1).Should(Equal([]string{}))
+	}
+
 	It("should create policy", func() {
 		By("Creating " + policyYaml)
 		utils.Kubectl("apply",
@@ -34,26 +49,6 @@ var _ = Describe("Test related object metrics", Ordered, func() {
 				"policy_user_errors",
 			)
 		}, defaultTimeoutSeconds, 1).Should(Equal([]string{"policies", "counter", "1"}))
-	})
-
-	cleanup := func() {
-		// Delete the policies and ignore any errors (in case it was deleted previously)
-		cmd := exec.Command("kubectl", "delete",
-			"-f", policyYaml,
-			"-n", testNamespace)
-		_, _ = cmd.CombinedOutput()
-		opt := metav1.ListOptions{}
-		utils.ListWithTimeout(
-			clientManagedDynamic, gvrConfigPolicy, opt, 0, false, defaultTimeoutSeconds)
-	}
-
-	It("should clean up", cleanup)
-
-	It("should have no common related object metrics after clean up", func() {
-		By("Checking metric endpoint for related object gauges")
-		Eventually(func() interface{} {
-			return utils.GetMetrics("policy_user_errors")
-		}, defaultTimeoutSeconds, 1).Should(Equal([]string{}))
 	})
 
 	AfterAll(cleanup)

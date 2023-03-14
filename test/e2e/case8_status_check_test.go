@@ -144,7 +144,6 @@ var _ = Describe("Test pod obj template handling", func() {
 			policies := []string{
 				case8ConfigPolicyStatusPod,
 			}
-
 			deleteConfigPolicies(policies)
 		})
 	})

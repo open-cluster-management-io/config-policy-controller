@@ -356,7 +356,17 @@ var _ = Describe("Test list handling for musthave", func() {
 			deleteConfigPolicies(policies)
 		})
 	})
-	Describe("Create a statefulset object with a byte quantity field on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a statefulset object with a byte quantity field "+
+		"on managed cluster in ns:"+testNamespace, Ordered, func() {
+		cleanup := func() {
+			// Delete the policies and ignore any errors (in case it was deleted previously)
+			policies := []string{
+				case12ByteCreate,
+				case12ByteInform,
+			}
+
+			deleteConfigPolicies(policies)
+		}
 		It("should only add the list item with the rounded byte value once", func() {
 			By("Creating " + case12ByteCreate + " and " + case12ByteInform + " on managed")
 			utils.Kubectl("apply", "-f", case12ByteCreateYaml, "-n", testNamespace)
@@ -389,14 +399,6 @@ var _ = Describe("Test list handling for musthave", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
-
-		It("Cleans up", func() {
-			policies := []string{
-				case12ByteCreate,
-				case12ByteInform,
-			}
-
-			deleteConfigPolicies(policies)
-		})
+		AfterAll(cleanup)
 	})
 })

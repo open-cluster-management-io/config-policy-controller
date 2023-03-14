@@ -1,0 +1,39 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: test-policy-security
+  annotations:
+    policy.open-cluster.management.io/standards: NIST-CSF
+    policy.open-cluster.management.io/categories: PR.PT Protective Technology
+    policy.open-cluster.management.io/controls: PR.PT-3 Least Functionality
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: config-policy-pod
+        spec:
+          remediationAction: enforce
+          namespaceSelector:
+            exclude:
+              - kube-*
+            include:
+              - default
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Pod
+                metadata:
+                  name: case31-pod-policy
+                spec:
+                  hostIPC: false
+                  containers:
+                    - image: nginx:1.7.9
+                      imagePullPolicy: Never
+                      name: nginx
+                      ports:
+                        - containerPort: 80

@@ -119,6 +119,16 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}) (areEqual bool)
 			return false
 		}
 	default:
+		// NOTE: when type is string, int, bool
+		var oVal interface{}
+
+		if oldObj == nil && mergedObj != nil {
+			ref := reflect.ValueOf(mergedObj)
+			oVal = reflect.Zero(ref.Type()).Interface()
+
+			return fmt.Sprint(oVal) == fmt.Sprint(mergedObj)
+		}
+
 		if !reflect.DeepEqual(fmt.Sprint(mergedObj), fmt.Sprint(oldObj)) {
 			return false
 		}
@@ -175,8 +185,12 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 			// extra check to see if value is a byte value
 			mQty, err := apiRes.ParseQuantity(mVal)
 			if err != nil {
+				oVal := oldObj[i]
+				if oVal == nil {
+					oVal = ""
+				}
 				// An error indicates the value is a regular string, so check equality normally
-				if fmt.Sprint(oldObj[i]) != fmt.Sprint(mVal) {
+				if fmt.Sprint(oVal) != fmt.Sprint(mVal) {
 					return false
 				}
 			} else {
@@ -194,6 +208,12 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 		default:
 			// if field is not an object, just do a basic compare to check for a match
 			oVal := oldObj[i]
+			// When oVal value omitted because of omitempty
+			if oVal == nil && mVal != nil {
+				ref := reflect.ValueOf(mVal)
+				oVal = reflect.Zero(ref.Type()).Interface()
+			}
+
 			if fmt.Sprint(oVal) != fmt.Sprint(mVal) {
 				return false
 			}
