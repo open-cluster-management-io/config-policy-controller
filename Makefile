@@ -15,19 +15,12 @@
 
 PWD := $(shell pwd)
 LOCAL_BIN ?= $(PWD)/bin
-
-# Keep an existing GOPATH, make a private one if it is undefined
-GOPATH_DEFAULT := $(PWD)/.go
-export GOPATH ?= $(GOPATH_DEFAULT)
-GOBIN_DEFAULT := $(GOPATH)/bin
-export GOBIN ?= $(GOBIN_DEFAULT)
-export PATH := $(LOCAL_BIN):$(GOBIN):$(PATH)
+export PATH := $(LOCAL_BIN):$(PATH)
 GOARCH = $(shell go env GOARCH)
 GOOS = $(shell go env GOOS)
 TESTARGS_DEFAULT := -v
-export TESTARGS ?= $(TESTARGS_DEFAULT)
-VERSION ?= $(shell cat COMPONENT_VERSION 2> /dev/null)
-IMAGE_NAME_AND_VERSION ?= $(REGISTRY)/$(IMG)
+TESTARGS ?= $(TESTARGS_DEFAULT)
+CONTROLLER_NAME = $(shell cat COMPONENT_NAME 2> /dev/null)
 CONTROLLER_NAMESPACE ?= open-cluster-management-agent-addon
 # Handle KinD configuration
 MANAGED_CLUSTER_SUFFIX ?= 
@@ -36,125 +29,43 @@ WATCH_NAMESPACE ?= $(MANAGED_CLUSTER_NAME)
 KIND_NAME ?= test-$(MANAGED_CLUSTER_NAME)
 KIND_CLUSTER_NAME ?= kind-$(KIND_NAME)
 KIND_NAMESPACE ?= $(CONTROLLER_NAMESPACE)
-KIND_VERSION ?= latest
-# Set the Kind version tag
-ifeq ($(KIND_VERSION), minimum)
-	KIND_ARGS = --image kindest/node:v1.19.16
-else ifneq ($(KIND_VERSION), latest)
-	KIND_ARGS = --image kindest/node:$(KIND_VERSION)
-else
-	KIND_ARGS =
-endif
 # Test coverage threshold
 export COVERAGE_MIN ?= 75
 COVERAGE_E2E_OUT ?= coverage_e2e.out
 
 # Image URL to use all building/pushing image targets;
 # Use your own docker registry and image name for dev/test by overridding the IMG and REGISTRY environment variable.
-IMG ?= $(shell cat COMPONENT_NAME 2> /dev/null)
+IMG ?= $(CONTROLLER_NAME)
 REGISTRY ?= quay.io/open-cluster-management
 TAG ?= latest
-
-# Handle base64 OS differences
-OS = $(shell uname -s | tr '[:upper:]' '[:lower:]')
-BASE64 = base64 -w 0
-ifeq ($(OS), darwin)
-    BASE64 = base64
-endif
-
-# go-get-tool will 'go install' any package $1 and install it to LOCAL_BIN.
-define go-get-tool
-@set -e ;\
-echo "Checking installation of $(1)" ;\
-GOBIN=$(LOCAL_BIN) go install $(1)
-endef
+IMAGE_NAME_AND_VERSION ?= $(REGISTRY)/$(IMG)
 
 include build/common/Makefile.common.mk
 
 ############################################################
-# work section
+# Lint
 ############################################################
 
-$(GOBIN):
-	@mkdir -p $(GOBIN)
-
-$(LOCAL_BIN):
-	@mkdir -p $(LOCAL_BIN)
-
-############################################################
-# format section
-############################################################
-
-.PHONY: fmt-dependencies
-fmt-dependencies:
-	$(call go-get-tool,github.com/daixiang0/gci@v0.2.9)
-	$(call go-get-tool,mvdan.cc/gofumpt@v0.2.0)
+.PHONY: lint
+lint:
 
 .PHONY: fmt
-fmt: fmt-dependencies
-	find . -not \( -path "./.go" -prune \) -name "*.go" | xargs gofmt -s -w
-	find . -not \( -path "./.go" -prune \) -name "*.go" | xargs gci -w -local "$(shell cat go.mod | head -1 | cut -d " " -f 2)"
-	find . -not \( -path "./.go" -prune \) -name "*.go" | xargs gofumpt -l -w
-
-############################################################
-# check section
-############################################################
-
-.PHONY: lint-dependencies
-lint-dependencies:
-	$(call go-get-tool,github.com/golangci/golangci-lint/cmd/golangci-lint@v1.46.2)
-
-.PHONY: check
-check: lint
-
-# All available linters: lint-dockerfiles lint-scripts lint-yaml lint-copyright-banner lint-go lint-python lint-helm lint-markdown lint-sass lint-typescript lint-protos
-# Default value will run all linters, override these make target with your requirements:
-#    eg: lint: lint-go lint-yaml
-.PHONY: lint
-lint: lint-dependencies lint-all
+fmt:
 
 ############################################################
 # test section
 ############################################################
-GOSEC = $(LOCAL_BIN)/gosec
-KUBEBUILDER = $(LOCAL_BIN)/kubebuilder
-KBVERSION = 3.2.0
-K8S_VERSION = 1.21.2
 
 .PHONY: test
-test: test-dependencies
+test: kubebuilder-dependencies kubebuilder
 	KUBEBUILDER_ASSETS=$(LOCAL_BIN) go test $(TESTARGS) `go list ./... | grep -v test/e2e`
 
 .PHONY: test-coverage
 test-coverage: TESTARGS = -json -cover -covermode=atomic -coverprofile=coverage_unit.out
 test-coverage: test
 
-.PHONY: test-dependencies
-test-dependencies: kubebuilder-dependencies kubebuilder
-
-.PHONY: kubebuilder
-kubebuilder:
-	@if [ "$$($(KUBEBUILDER) version 2>/dev/null | grep -o KubeBuilderVersion:\"[0-9]*\.[0-9]\.[0-9]*\")" != "KubeBuilderVersion:\"$(KBVERSION)\"" ]; then \
-		echo "Installing Kubebuilder"; \
-		curl -L https://github.com/kubernetes-sigs/kubebuilder/releases/download/v$(KBVERSION)/kubebuilder_$(GOOS)_$(GOARCH) -o $(KUBEBUILDER); \
-		chmod +x $(KUBEBUILDER); \
-	fi
-
-.PHONY: kubebuilder-dependencies
-kubebuilder-dependencies: $(LOCAL_BIN)
-	@if [ ! -f $(LOCAL_BIN)/etcd ] || [ ! -f $(LOCAL_BIN)/kube-apiserver ] || [ ! -f $(LOCAL_BIN)/kubectl ] || \
-	[ "$$($(KUBEBUILDER) version 2>/dev/null | grep -o KubeBuilderVersion:\"[0-9]*\.[0-9]\.[0-9]*\")" != "KubeBuilderVersion:\"$(KBVERSION)\"" ]; then \
-		echo "Installing envtest Kubebuilder assets"; \
-		curl -L "https://go.kubebuilder.io/test-tools/$(K8S_VERSION)/$(GOOS)/$(GOARCH)" | tar xz --strip-components=2 -C $(LOCAL_BIN); \
-	fi
-
-.PHONY: gosec
-gosec:
-	$(call go-get-tool,github.com/securego/gosec/v2/cmd/gosec@v2.9.6)
-
 .PHONY: gosec-scan
-gosec-scan: gosec
-	$(GOSEC) -fmt sonarqube -out gosec.json -no-fail -exclude-dir=.go ./...
+gosec-scan:
 
 ############################################################
 # build section
@@ -176,7 +87,6 @@ local:
 build-images:
 	@docker build -t ${IMAGE_NAME_AND_VERSION} -f build/Dockerfile .
 	@docker tag ${IMAGE_NAME_AND_VERSION} $(REGISTRY)/$(IMG):$(TAG)
-
 
 # Deploy controller in the configured Kubernetes cluster in ~/.kube/config
 .PHONY: deploy
@@ -205,14 +115,12 @@ clean:
 	-rm build/_output/bin/*
 	-rm coverage*.out
 	-rm report*.json
-	-rm kubeconfig_managed*
+	-rm kubeconfig_*
 	-rm -r vendor/
 
 ############################################################
 # Generate manifests
 ############################################################
-CONTROLLER_GEN = $(LOCAL_BIN)/controller-gen
-KUSTOMIZE = $(LOCAL_BIN)/kustomize
 CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 
 .PHONY: manifests
@@ -231,14 +139,6 @@ generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and
 generate-operator-yaml: manifests
 	$(KUSTOMIZE) build deploy/manager > deploy/operator.yaml
 
-.PHONY: controller-gen
-controller-gen: ## Download controller-gen locally if necessary.
-	$(call go-get-tool,sigs.k8s.io/controller-tools/cmd/controller-gen@v0.6.1)
-
-.PHONY: kustomize
-kustomize: ## Download kustomize locally if necessary.
-	$(call go-get-tool,sigs.k8s.io/kustomize/kustomize/v4@v4.5.4)
-
 ############################################################
 # e2e test section
 ############################################################
@@ -248,6 +148,7 @@ GINKGO = $(LOCAL_BIN)/ginkgo
 kind-bootstrap-cluster: kind-bootstrap-cluster-dev kind-deploy-controller
 
 .PHONY: kind-bootstrap-cluster-dev
+kind-bootstrap-cluster-dev: CLUSTER_NAME = $(MANAGED_CLUSTER_NAME)
 kind-bootstrap-cluster-dev: kind-create-cluster install-crds kind-controller-kubeconfig
 
 .PHONY: kind-deploy-controller
@@ -257,7 +158,7 @@ kind-deploy-controller: generate-operator-yaml install-resources deploy
 deploy-controller: kind-deploy-controller
 
 .PHONY: kind-deploy-controller-dev
-kind-deploy-controller-dev: kind-deploy-controller
+kind-deploy-controller-dev: kind-deploy-controller build-images
 	@echo Pushing image to KinD cluster
 	kind load docker-image $(REGISTRY)/$(IMG):$(TAG) --name $(KIND_NAME)
 	@echo "Patch deployment image"
@@ -268,26 +169,10 @@ kind-deploy-controller-dev: kind-deploy-controller
 # Specify KIND_VERSION to indicate the version tag of the KinD image
 .PHONY: kind-create-cluster
 kind-create-cluster:
-	# ensuring cluster $(KIND_NAME)
-	-kind create cluster --name $(KIND_NAME) $(KIND_ARGS)
-	kubectl config use-context $(KIND_CLUSTER_NAME)
-	kind get kubeconfig --name $(KIND_NAME) > kubeconfig_$(MANAGED_CLUSTER_NAME)_e2e
-
-.PHONY: kind-controller-kubeconfig
-kind-controller-kubeconfig: install-resources
-	kubectl -n $(KIND_NAMESPACE) apply -f test/resources/e2e_controller_secret.yaml
-	-rm kubeconfig_$(MANAGED_CLUSTER_NAME)
-	@kubectl config set-cluster $(KIND_CLUSTER_NAME) --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME) \
-		--server=$(shell kubectl config view --minify -o jsonpath='{.clusters[].cluster.server}' --kubeconfig=kubeconfig_$(MANAGED_CLUSTER_NAME)_e2e) \
-		--insecure-skip-tls-verify=true
-	@kubectl config set-credentials $(KIND_CLUSTER_NAME) --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME) \
-		--token=$$(kubectl get secret -n $(KIND_NAMESPACE) config-policy-controller -o jsonpath='{.data.token}' --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME)_e2e | $(BASE64) --decode)
-	@kubectl config set-context $(KIND_CLUSTER_NAME) --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME) \
-		--user=$(KIND_CLUSTER_NAME) --cluster=$(KIND_CLUSTER_NAME)
-	@kubectl config use-context $(KIND_CLUSTER_NAME) --kubeconfig=$(PWD)/kubeconfig_$(MANAGED_CLUSTER_NAME)
 
 .PHONY: kind-additional-cluster
 kind-additional-cluster: MANAGED_CLUSTER_SUFFIX = 2
+kind-additional-cluster: CLUSTER_NAME = $(MANAGED_CLUSTER_NAME)
 kind-additional-cluster: kind-create-cluster kind-controller-kubeconfig
 
 .PHONY: kind-delete-cluster
@@ -296,7 +181,7 @@ kind-delete-cluster:
 	-kind delete cluster --name $(KIND_NAME)2
 
 .PHONY: kind-tests
-kind-tests: kind-delete-cluster kind-bootstrap-cluster-dev build-images kind-deploy-controller-dev e2e-test
+kind-tests: kind-delete-cluster kind-bootstrap-cluster-dev kind-deploy-controller-dev e2e-test
 
 .PHONY: install-crds
 install-crds:
@@ -317,17 +202,6 @@ install-resources:
 	# deploying roles and service account
 	kubectl apply -k deploy/rbac
 	kubectl apply -f deploy/manager/service-account.yaml -n $(KIND_NAMESPACE)
-
-.PHONY: kind-ensure-sa
-kind-ensure-sa:
-	@KUBECONFIG_TOKEN="$$(kubectl config view --raw -o jsonpath='{.users[].user.token}')"; \
-	KUBECONFIG_USER="$$(echo "$${KUBECONFIG_TOKEN}" | jq -rR 'split(".") | .[1] | select(. != null) | @base64d | fromjson | .sub')"; \
-	echo "Kubeconfig user detected from token: $${KUBECONFIG_USER}"; \
-	[ "$${KUBECONFIG_USER}" = "system:serviceaccount:$(KIND_NAMESPACE):config-policy-controller" ]
-
-.PHONY: e2e-dependencies
-e2e-dependencies:
-	$(call go-get-tool,github.com/onsi/ginkgo/v2/ginkgo@$(shell awk '/github.com\/onsi\/ginkgo\/v2/ {print $$2}' go.mod))
 
 .PHONY: e2e-test
 e2e-test: e2e-dependencies
@@ -369,12 +243,8 @@ e2e-debug:
 ############################################################
 # test coverage
 ############################################################
-GOCOVMERGE = $(LOCAL_BIN)/gocovmerge
-.PHONY: coverage-dependencies
-coverage-dependencies:
-	$(call go-get-tool,github.com/wadey/gocovmerge@v0.0.0-20160331181800-b5bfa59ec0ad)
-
 COVERAGE_FILE = coverage.out
+
 .PHONY: coverage-merge
 coverage-merge: coverage-dependencies
 	@echo Merging the coverage reports into $(COVERAGE_FILE)
