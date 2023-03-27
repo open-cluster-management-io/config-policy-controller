@@ -1599,7 +1599,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				// error)
 				_ = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
 					obj.index, false, true)
-
+				obj.policy.Status.ComplianceState = policyv1.NonCompliant
 				statusStr := convertPolicyStatusToString(obj.policy)
 				objLog.Info("Sending a noncompliant status event (object missing)", "policy", obj.policy.Name, "status",
 					statusStr)
