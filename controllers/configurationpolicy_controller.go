@@ -1575,7 +1575,6 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 ) {
 	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name, "index", obj.index)
 
-	var err error
 	var compliant bool
 
 	compliantObject := map[string]map[string]interface{}{
@@ -1588,18 +1587,20 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 			var uid string
-			statusUpdateNeeded, uid, err = r.enforceByCreatingOrDeleting(obj)
+			completed, reason, msg, uid, err := r.enforceByCreatingOrDeleting(obj)
 
 			if err != nil {
 				// violation created for handling error
 				objLog.Error(err, "Could not handle missing musthave object")
+
+				statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, completed, reason, msg)
 			} else {
 				// object is missing and will be created, so send noncompliant "does not exist" event first
 				// (this check has already happened, but we send the event here to avoid the status flipping on an
 				// error)
 				_ = createStatus("", obj.gvr.Resource, compliantObject, obj.namespaced, obj.policy,
 					obj.index, false, true)
-				obj.policy.Status.ComplianceState = policyv1.NonCompliant
+
 				statusStr := convertPolicyStatusToString(obj.policy)
 				objLog.Info("Sending a noncompliant status event (object missing)", "policy", obj.policy.Name, "status",
 					statusStr)
@@ -1607,6 +1608,8 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 					statusStr)
 				// update parent policy status
 				r.addForUpdate(obj.policy, true)
+
+				statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, completed, reason, msg)
 
 				created := true
 				creationInfo = &policyv1.ObjectProperties{
@@ -1623,10 +1626,12 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if exists && !obj.shouldExist {
 		// it is a mustnothave but it exist, so it must be deleted
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			statusUpdateNeeded, _, err = r.enforceByCreatingOrDeleting(obj)
+			completed, reason, msg, _, err := r.enforceByCreatingOrDeleting(obj)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
 			}
+
+			statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, completed, reason, msg)
 		} else { // inform
 			compliant = false
 		}
@@ -1980,7 +1985,7 @@ func getNamesOfKind(
 // mustnothave object does exist. Eg, it does not handle the case where a targeted update would need
 // to be made to an object.
 func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleObject) (
-	result bool, uid string, erro error,
+	result bool, reason string, msg string, uid string, erro error,
 ) {
 	log := log.WithValues(
 		"object", obj.name,
@@ -1998,7 +2003,6 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 	}
 
 	var completed bool
-	var reason, msg string
 	var err error
 
 	if obj.shouldExist {
@@ -2034,7 +2038,7 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 		}
 	}
 
-	return addConditionToStatus(obj.policy, obj.index, completed, reason, msg), uid, err
+	return completed, reason, msg, uid, err
 }
 
 // checkMessageSimilarity decides whether to append a new condition to a configurationPolicy status

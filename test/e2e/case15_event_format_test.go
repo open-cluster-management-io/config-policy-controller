@@ -166,8 +166,13 @@ var _ = Describe("Testing compliance event formatting", func() {
 		compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
 			case15BecomesCompliantName, "", "Policy status is: Compliant", defaultTimeoutSeconds)
 		Expect(compPlcEvents).NotTo(BeEmpty())
+		compParentEventsPreCreation := utils.GetMatchingEvents(clientManaged, testNamespace,
+			case15BecomesCompliantParentName, "policy: "+testNamespace+"/"+case15BecomesCompliantName,
+			"^NonCompliant;.*No instances of.*found as specified", defaultTimeoutSeconds)
+		Expect(compParentEventsPreCreation).NotTo(BeEmpty())
 		compParentEvents := utils.GetMatchingEvents(clientManaged, testNamespace, case15BecomesCompliantParentName,
-			"policy: "+testNamespace+"/"+case15BecomesCompliantName, "^Compliant;", defaultTimeoutSeconds)
+			"policy: "+testNamespace+"/"+case15BecomesCompliantName,
+			"^Compliant;.*and was created successfully$", defaultTimeoutSeconds)
 		Expect(compParentEvents).NotTo(BeEmpty())
 	})
 	It("Records events for a policy that becomes noncompliant", func() {
