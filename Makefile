@@ -103,7 +103,7 @@ create-ns:
 # Run against the current locally configured Kubernetes cluster
 .PHONY: run
 run:
-	WATCH_NAMESPACE=$(WATCH_NAMESPACE) go run ./main.go --leader-elect=false
+	WATCH_NAMESPACE=$(WATCH_NAMESPACE) go run ./main.go controller --leader-elect=false
 
 ############################################################
 # clean section
