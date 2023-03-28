@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: tmplt-policy-secret-duplicate
+  name: policy-copy-referenced-configmap
 spec:
   remediationAction: enforce
   namespaceSelector:
@@ -11,8 +11,8 @@ spec:
     - complianceType: musthave
       objectDefinition:
         apiVersion: v1
-        kind: Secret
+        kind: ConfigMap
         metadata:
-          name: e2esecret2
-        type: Opaque
-        data: '{{ copySecretData "default" "e2esecret" }}'
+          name: configmap-copy-configmap-object-repl
+          namespace: default
+        data: '{{ copyConfigMapData "default" "configmap-copy-configmap-object" }}'

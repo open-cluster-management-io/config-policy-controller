@@ -22,7 +22,8 @@ const (
 	case13SecretYaml             string = "../resources/case13_templatization/case13_secret.yaml"
 	case13CfgPolCreateSecret     string = "tmplt-policy-secret-duplicate"
 	case13CfgPolCheckSecret      string = "tmplt-policy-secret-duplicate-check"
-	case13CfgPolCreateSecretYaml string = "../resources/case13_templatization/case13_copysecret.yaml"
+	case13CfgPolCopySecretYaml   string = "../resources/case13_templatization/case13_copysecret.yaml"
+	case13CfgPolCreateSecretYaml string = "../resources/case13_templatization/case13_fromsecret.yaml"
 	case13CfgPolCheckSecretYaml  string = "../resources/case13_templatization/case13_verifysecret.yaml"
 )
 
@@ -58,6 +59,8 @@ const (
 const (
 	case13UpdateRefObject     = "policy-update-referenced-object"
 	case13UpdateRefObjectYaml = "../resources/case13_templatization/case13_update_referenced_object.yaml"
+	case13CopyRefObject       = "policy-copy-referenced-configmap"
+	case13CopyRefObjectYaml   = "../resources/case13_templatization/case13_copy_referenced_configmap.yaml"
 )
 
 var _ = Describe("Test templatization", func() {
@@ -71,6 +74,46 @@ var _ = Describe("Test templatization", func() {
 			Expect(secret).NotTo(BeNil())
 			// create copy with password from original secret using a templatized policy
 			utils.Kubectl("apply", "-f", case13CfgPolCreateSecretYaml, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case13CfgPolCreateSecret, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case13CfgPolCreateSecret, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			Eventually(func() interface{} {
+				copiedSecret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
+					case13Secret, "default", true, defaultTimeoutSeconds)
+
+				return utils.GetFieldFromSecret(copiedSecret, "PASSWORD")
+			}, defaultTimeoutSeconds, 1).Should(Equal("MWYyZDFlMmU2N2Rm"))
+			// check copied secret with a templatized inform policy
+			utils.Kubectl("apply", "-f", case13CfgPolCheckSecretYaml, "-n", testNamespace)
+			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case13CfgPolCheckSecret, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case13CfgPolCheckSecret, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
+			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCheckSecret, "-n", testNamespace)
+		})
+	})
+	Describe("Create a secret and copy all secret data into a configurationPolicy", func() {
+		It("should be created properly on the managed cluster", func() {
+			By("Creating " + case13CfgPolCreateSecret + " and " + case13CfgPolCheckSecret + " on managed")
+			// create secret
+			utils.Kubectl("apply", "-f", case13SecretYaml, "-n", "default")
+			secret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
+				case13Secret, "default", true, defaultTimeoutSeconds)
+			Expect(secret).NotTo(BeNil())
+			// create full data copy from original secret using a templatized policy
+			utils.Kubectl("apply", "-f", case13CfgPolCopySecretYaml, "-n", testNamespace)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13CfgPolCreateSecret, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
@@ -322,6 +365,55 @@ var _ = Describe("Test templatization", func() {
 			deleteConfigPolicies([]string{case13UpdateRefObject})
 			utils.Kubectl("delete", "configmap", configMapName, "-n", "default")
 			utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default")
+		})
+	})
+	Describe("Test the copy configMap function", func() {
+		const configMapName = "configmap-copy-configmap-object"
+		const configMapReplName = configMapName + "-repl"
+		It("Should have the expected ConfigMap created", func() {
+			By("Creating the ConfigMap to reference")
+			configMap := corev1.ConfigMap{
+				ObjectMeta: v1.ObjectMeta{
+					Name: configMapName,
+				},
+				Data: map[string]string{"message": "Hello Raleigh!"},
+			}
+			_, err := clientManaged.CoreV1().ConfigMaps("default").Create(
+				context.TODO(), &configMap, v1.CreateOptions{},
+			)
+			Expect(err).To(BeNil())
+			By("Creating the configuration policy that references the ConfigMap")
+			utils.Kubectl("apply", "-f", case13CopyRefObjectYaml, "-n", testNamespace)
+
+			By("By verifying that the policy is compliant")
+			Eventually(
+				func() interface{} {
+					managedPlc := utils.GetWithTimeout(
+						clientManagedDynamic,
+						gvrConfigPolicy,
+						case13CopyRefObject,
+						testNamespace,
+						true,
+						defaultTimeoutSeconds,
+					)
+
+					return utils.GetComplianceState(managedPlc)
+				},
+				defaultTimeoutSeconds,
+				1,
+			).Should(Equal("Compliant"))
+
+			By("By verifying that the replicated ConfigMap has the expected data")
+			replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
+				context.TODO(), configMapReplName, v1.GetOptions{},
+			)
+			Expect(err).To(BeNil())
+			Expect(replConfigMap.Data["message"]).To(Equal("Hello Raleigh!"))
+		})
+		It("Cleans up", func() {
+			deleteConfigPolicies([]string{case13CopyRefObject})
+			utils.Kubectl("delete", "configmap", configMapName, "-n", "default", "--ignore-not-found")
+			utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default", "--ignore-not-found")
 		})
 	})
 })
