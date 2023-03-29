@@ -1068,9 +1068,9 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		nonCompliantObjects := map[string]map[string]interface{}{}
 		compliantObjects := map[string]map[string]interface{}{}
 		enforce := strings.EqualFold(string(plc.Spec.RemediationAction), string(policyv1.Enforce))
-		kind := ""
+		kind := templateObjs[indx].kind
 		objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
-
+		mergeMessageEnforce := false
 		// If the object does not have a namespace specified, use the previously retrieved namespaces
 		// from the NamespaceSelector. If no namespaces are found/specified, use the value from the
 		// object so that the objectTemplate is processed:
@@ -1084,10 +1084,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			relevantNamespaces = []string{templateObjs[indx].namespace}
 		}
 
+		if enforce && len(relevantNamespaces) > 1 {
+			mergeMessageEnforce = true
+		}
+
 		numCompliant := 0
 		numNonCompliant := 0
 		handled := false
-
 		// iterate through all namespaces the configurationpolicy is set on
 		for _, ns := range relevantNamespaces {
 			log.Info(
@@ -1106,20 +1109,33 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			}
 
 			if objKind != "" {
+				// object template enforced, objKind is empty
 				kind = objKind
 			}
 
+			if mergeMessageEnforce {
+				names = []string{templateObjs[indx].name}
+			}
+
+			// object template enforced, already handled in handleObjects
 			if names == nil {
-				// object template enforced, already handled in handleObjects
 				handled = true
 			} else {
+				// when multiple messages and enforce mode, it doesn't mean remediactionAction is changed
 				enforce = false
+			}
+
+			// violations for enforce configurationpolicies are already handled in handleObjects,
+			// so we only need to generate a violation if the remediationAction is set to inform
+			// Or multiple namespaces and enforce use this
+			if !handled && !enforce {
 				if !compliant {
 					if len(names) == 0 {
 						numNonCompliant++
 					} else {
 						numNonCompliant += len(names)
 					}
+
 					nonCompliantObjects[ns] = map[string]interface{}{
 						"names":  names,
 						"reason": reason,
@@ -1137,8 +1153,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				relatedObjects = updateRelatedObjectsStatus(relatedObjects, object)
 			}
 		}
-		// violations for enforce configurationpolicies are already handled in handleObjects,
-		// so we only need to generate a violation if the remediationAction is set to inform
+
 		if !handled && !enforce {
 			objData := templateIdentifier{
 				index:       indx,
@@ -1147,9 +1162,10 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				namespaced:  templateObjs[indx].isNamespaced,
 			}
 
-			statusUpdateNeeded := createInformStatus(
+			statusUpdateNeeded := createMergedStatus(
 				objShouldExist, numCompliant, numNonCompliant, compliantObjects, nonCompliantObjects, &plc, objData,
 			)
+
 			if statusUpdateNeeded {
 				parentStatusUpdateNeeded = true
 			}
@@ -1342,9 +1358,10 @@ type templateIdentifier struct {
 	namespaced  bool
 }
 
-// createInformStatus updates the status field for a configurationpolicy with remediationAction=inform
+// createMergedStatus updates the status field for a configurationpolicy with remediationAction=inform
 // based on how many compliant/noncompliant objects are found when processing the templates in the configurationpolicy
-func createInformStatus(
+// Or multiple namespaces and enforce use this
+func createMergedStatus(
 	objShouldExist bool,
 	numCompliant,
 	numNonCompliant int,
