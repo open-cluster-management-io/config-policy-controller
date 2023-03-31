@@ -29,7 +29,6 @@ import (
 
 var (
 	testNamespace         string
-	gvrPolicy             schema.GroupVersionResource
 	defaultTimeoutSeconds int
 	kubeconfigManaged     string
 	clientManaged         kubernetes.Interface
@@ -44,6 +43,7 @@ var (
 	gvrClusterClaim       schema.GroupVersionResource
 	gvrConfigMap          schema.GroupVersionResource
 	gvrDeployment         schema.GroupVersionResource
+	gvrPolicy             schema.GroupVersionResource
 
 	defaultImageRegistry string
 )
@@ -197,5 +197,26 @@ func deleteConfigPolicies(policyNames []string) {
 		_ = utils.GetWithTimeout(
 			clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, false, defaultTimeoutSeconds,
 		)
+	}
+}
+
+func deletePods(podNames []string, namespaces []string) {
+	for _, podName := range podNames {
+		for _, ns := range namespaces {
+			err := clientManagedDynamic.Resource(gvrPod).Namespace(ns).Delete(
+				context.TODO(), podName, metav1.DeleteOptions{},
+			)
+			if !errors.IsNotFound(err) {
+				Expect(err).To(BeNil())
+			}
+		}
+	}
+
+	for _, podName := range podNames {
+		for _, ns := range namespaces {
+			_ = utils.GetWithTimeout(
+				clientManagedDynamic, gvrPod, podName, ns, false, defaultTimeoutSeconds,
+			)
+		}
 	}
 }
