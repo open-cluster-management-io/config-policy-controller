@@ -102,7 +102,6 @@ var _ = Describe("Test config policy evaluation metrics", Ordered, func() {
 		opt := metav1.ListOptions{}
 		utils.ListWithTimeout(
 			clientManagedDynamic, gvrConfigPolicy, opt, 0, false, defaultTimeoutSeconds)
-
 		Eventually(func() interface{} {
 			return utils.GetMetrics(
 				"config_policy_evaluation_total", fmt.Sprintf(`name=\"%s\"`, policyName))

@@ -12,6 +12,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -752,5 +753,101 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 				}
 			},
 		)
+	}
+}
+
+func TestShouldHandleSingleKeyFalse(t *testing.T) {
+	t.Parallel()
+
+	var unstruct unstructured.Unstructured
+	var unstructObj unstructured.Unstructured
+
+	var update, skip bool
+
+	type ExpectResult struct {
+		key    string
+		expect bool
+	}
+
+	type TestSingleKey struct {
+		input        map[string]interface{}
+		fromAPI      map[string]interface{}
+		expectResult ExpectResult
+	}
+
+	tests := []TestSingleKey{
+		{
+			input: map[string]interface{}{
+				"hostIPC":   false,
+				"container": "test",
+			},
+			fromAPI: map[string]interface{}{
+				"container": "test",
+			},
+			expectResult: ExpectResult{
+				"hostIPC",
+				false,
+			},
+		},
+		{
+			input: map[string]interface{}{
+				"container": map[string]interface{}{
+					"image":   "nginx1.7.9",
+					"name":    "nginx",
+					"hostIPC": false,
+				},
+			},
+			fromAPI: map[string]interface{}{
+				"container": map[string]interface{}{
+					"image": "nginx1.7.9",
+					"name":  "nginx",
+				},
+			},
+			expectResult: ExpectResult{
+				"container",
+				false,
+			},
+		},
+		{
+			input: map[string]interface{}{
+				"hostIPC":   true,
+				"container": "test",
+			},
+			fromAPI: map[string]interface{}{
+				"container": "test",
+			},
+			expectResult: ExpectResult{
+				"hostIPC",
+				true,
+			},
+		},
+		{
+			input: map[string]interface{}{
+				"container": map[string]interface{}{
+					"image":   "nginx1.7.9",
+					"name":    "nginx",
+					"hostIPC": true,
+				},
+			},
+			fromAPI: map[string]interface{}{
+				"container": map[string]interface{}{
+					"image": "nginx1.7.9",
+					"name":  "nginx",
+				},
+			},
+			expectResult: ExpectResult{
+				"container",
+				true,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		unstruct.Object = test.input
+		unstructObj.Object = test.fromAPI
+		key := test.expectResult.key
+		_, update, _, skip = handleSingleKey(key, unstruct, &unstructObj, "musthave")
+		assert.Equal(t, update, test.expectResult.expect)
+		assert.False(t, skip)
 	}
 }

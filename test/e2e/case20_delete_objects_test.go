@@ -527,7 +527,8 @@ var _ = Describe("Test objects that should be deleted are actually being deleted
 				return nil
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
 		})
-		It("deletes the pod after the policy is deleted", func() {
+		AfterAll(func() {
+			By("deletes the pod after the policy is deleted")
 			deleteConfigPolicies([]string{case20ConfigPolicyNameCreate})
 			Eventually(func() interface{} {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,

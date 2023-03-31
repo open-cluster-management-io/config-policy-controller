@@ -118,3 +118,34 @@ func TestCheckFieldsWithSort(t *testing.T) {
 
 	assert.True(t, checkFieldsWithSort(mergedObj, oldObj))
 }
+
+func TestEqualObjWithSort(t *testing.T) {
+	t.Parallel()
+
+	oldObj := map[string]interface{}{
+		"nonResourceURLs": []string{"/version", "/healthz"},
+		"verbs":           []string{"get"},
+	}
+	mergedObj := map[string]interface{}{
+		"nonResourceURLs": []string{"/version", "/healthz"},
+		"verbs":           []string{"get"},
+		"apiGroups":       []interface{}{},
+		"resources":       []interface{}{},
+	}
+
+	assert.True(t, equalObjWithSort(mergedObj, oldObj))
+	assert.False(t, equalObjWithSort(mergedObj, nil))
+
+	oldObj = map[string]interface{}{
+		"nonResourceURLs": []string{"/version", "/healthz"},
+		"verbs":           []string{"get"},
+	}
+	mergedObj = map[string]interface{}{
+		"nonResourceURLs": []string{"/version", "/healthz"},
+		"verbs":           []string{"post"},
+		"apiGroups":       []interface{}{},
+		"resources":       []interface{}{},
+	}
+
+	assert.False(t, equalObjWithSort(mergedObj, oldObj))
+}
