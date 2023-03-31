@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	gocmp "github.com/google/go-cmp/cmp"
 	apiRes "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -579,4 +580,15 @@ func removeObjFinalizer(obj metav1.Object, finalizer string) []string {
 	}
 
 	return result
+}
+
+func containRelated(arr []policyv1.RelatedObject, input policyv1.RelatedObject) bool {
+	// should compare only object
+	for _, r := range arr {
+		if gocmp.Equal(r.Object, input.Object) {
+			return true
+		}
+	}
+
+	return false
 }

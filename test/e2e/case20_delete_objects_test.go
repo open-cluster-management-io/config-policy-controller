@@ -6,6 +6,7 @@ package e2e
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -605,5 +606,93 @@ var _ = Describe("Test objects are not deleted when the CRD is removed", Ordered
 
 			return string(pod.GetUID())
 		}, defaultTimeoutSeconds, 1).Should(Equal(oldPodUID))
+	})
+})
+
+var _ = Describe("Clean up old object when configuraionpolicy is changed", Ordered, func() {
+	const (
+		oldPodName             string = "case29-name-changed-pod"
+		newPodName             string = "case29-name-changed-new"
+		configplcName          string = "case29-name-changed"
+		case20ChangeConfigYaml string = "../resources/case20_delete_objects/case20_change_config_policy.yaml"
+	)
+	cleanup := func() {
+		policies := []string{
+			configplcName,
+		}
+		deleteConfigPolicies(policies)
+
+		pods := []string{oldPodName, newPodName}
+		namespaces := []string{testNamespace, "default"}
+		deletePods(pods, namespaces)
+	}
+	AfterEach(cleanup)
+	It("check old pod is removed when name is changed in configpolicy ", func() {
+		utils.Kubectl("apply", "-f", case20ChangeConfigYaml, "-n", testNamespace)
+
+		oldPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, "default", true, defaultTimeoutSeconds)
+		Expect(oldPod).ShouldNot(BeNil())
+
+		By("Changing the pod name")
+
+		patch := fmt.Sprintf(`[
+		{"op":"replace", "path": "/spec/object-templates/0/objectDefinition/metadata/name", "value": %s}
+		]`, newPodName)
+		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
+			"--type=json", "-p", patch)
+
+		oldPod = utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, "default", false, defaultTimeoutSeconds)
+		Expect(oldPod).Should(BeNil())
+
+		newPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			newPodName, "default", true, defaultTimeoutSeconds)
+		Expect(newPod).ShouldNot(BeNil())
+	})
+	It("check old pod is removed when namespace is changed in configpolicy ", func() {
+		utils.Kubectl("apply", "-f", case20ChangeConfigYaml, "-n", testNamespace)
+
+		oldPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, "default", true, defaultTimeoutSeconds)
+		Expect(oldPod).ShouldNot(BeNil())
+
+		By("Changing namespace, old-pod should not exist, newpod exist in new namepace with old name")
+		patch := fmt.Sprintf(`[
+			{"op":"replace", "path": "/spec/object-templates/0/objectDefinition/metadata/namespace", "value": %s}
+			]`, testNamespace)
+		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
+			"--type=json", "-p", patch)
+
+		oldPod = utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, "default", false, defaultTimeoutSeconds)
+		Expect(oldPod).Should(BeNil())
+
+		newPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, testNamespace, true, defaultTimeoutSeconds)
+		Expect(newPod).ShouldNot(BeNil())
+	})
+	It("check old pod and new pod is removed when namespace is changed in configpolicy ", func() {
+		utils.Kubectl("apply", "-f", case20ChangeConfigYaml, "-n", testNamespace)
+
+		oldPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, "default", true, defaultTimeoutSeconds)
+		Expect(oldPod).ShouldNot(BeNil())
+
+		By("Changing complianceType and podname at the sametime, both pods should not exist")
+		patch := fmt.Sprintf(`[
+			{"op":"replace", "path": "/spec/object-templates/0/complianceType", "value": %s},
+			{"op":"replace", "path": "/spec/object-templates/0/objectDefinition/metadata/name", "value": %s}
+			]`, "mustnothave", newPodName)
+		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
+			"--type=json", "-p", patch)
+
+		oldPod = utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, "default", false, defaultTimeoutSeconds)
+		Expect(oldPod).Should(BeNil())
+
+		newPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			newPodName, "default", false, defaultTimeoutSeconds)
+		Expect(newPod).Should(BeNil())
 	})
 })

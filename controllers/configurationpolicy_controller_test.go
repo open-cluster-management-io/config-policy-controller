@@ -382,6 +382,8 @@ func TestAddRelatedObject(t *testing.T) {
 }
 
 func TestSortRelatedObjectsAndUpdate(t *testing.T) {
+	r := &ConfigurationPolicyReconciler{}
+
 	policy := &policyv1.ConfigurationPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "foo",
@@ -413,14 +415,14 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 
 	empty := []policyv1.RelatedObject{}
 
-	sortRelatedObjectsAndUpdate(policy, relatedList, empty, false)
+	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false)
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
 
 	// append another object named bar but also with namespace bar
-	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "ConfigurationPolicy", "bar",
-		true, []string{name}, "reason", nil)...)
+	relatedList = append(relatedList, addRelatedObjects(true, rsrc,
+		"ConfigurationPolicy", "bar", true, []string{name}, "reason", nil)...)
 
-	sortRelatedObjectsAndUpdate(policy, relatedList, empty, false)
+	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false)
 	assert.True(t, relatedList[0].Object.Metadata.Namespace == "bar")
 
 	// clear related objects and test sorting with no namespace
@@ -431,7 +433,7 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "ConfigurationPolicy", "",
 		false, []string{name}, "reason", nil)...)
 
-	sortRelatedObjectsAndUpdate(policy, relatedList, empty, false)
+	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false)
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
 }
 
@@ -849,5 +851,386 @@ func TestShouldHandleSingleKeyFalse(t *testing.T) {
 		_, update, _, skip = handleSingleKey(key, unstruct, &unstructObj, "musthave")
 		assert.Equal(t, update, test.expectResult.expect)
 		assert.False(t, skip)
+	}
+}
+
+func TestShouldDeleteDetachedObj(t *testing.T) {
+	policy := policyv1.ConfigurationPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "foo",
+			Namespace: "default",
+		},
+		Spec: &policyv1.ConfigurationPolicySpec{
+			Severity: "low",
+			NamespaceSelector: policyv1.Target{
+				Exclude: []policyv1.NonEmptyString{"kube-system"},
+			},
+			RemediationAction: "inform",
+			ObjectTemplates: []*policyv1.ObjectTemplate{
+				{
+					ComplianceType:   "musthave",
+					ObjectDefinition: runtime.RawExtension{},
+				},
+			},
+		},
+	}
+
+	r := ConfigurationPolicyReconciler{}
+	testTable := []map[string]interface{}{
+		{
+			"incommingRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod1",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"oldRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod2",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"expectRelated": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod2",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+		},
+		// not diff, should delete nothing
+		{
+			"incommingRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"oldRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"expectRelated": []policyv1.RelatedObject{},
+		},
+		// only Kind diff, should delete one(all) old
+		{
+			"incommingRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "development",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"oldRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"expectRelated": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+		},
+		// should delete all old when kind diff
+		{
+			"incommingRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "development",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "dvl",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"oldRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "pod",
+							// namespace diff
+							Namespace: "managed",
+						},
+					},
+					Reason: "",
+				},
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod-1",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"expectRelated": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod",
+							Namespace: "managed",
+						},
+					},
+					Reason: "",
+				},
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod-1",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+		},
+		// should delete all old when namespace diff
+		{
+			"incommingRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "development",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "dvl",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"oldRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "pod",
+							// namespace diff
+							Namespace: "managed",
+						},
+					},
+					Reason: "",
+				},
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod-1",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"expectRelated": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod",
+							Namespace: "managed",
+						},
+					},
+					Reason: "",
+				},
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod-1",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+		},
+		// should delete all old when new is empty
+		{
+			"incommingRelate": []policyv1.RelatedObject{},
+			"oldRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "pod",
+							// namespace diff
+							Namespace: "managed",
+						},
+					},
+					Reason: "",
+				},
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod2",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"expectRelated": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "pod",
+							// namespace diff
+							Namespace: "managed",
+						},
+					},
+					Reason: "",
+				},
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod2",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+		},
+		// should delete nothing when old is empty
+		{
+			"incommingRelate": []policyv1.RelatedObject{
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "pod",
+							// namespace diff
+							Namespace: "managed",
+						},
+					},
+					Reason: "",
+				},
+				{
+					Object: policyv1.ObjectResource{
+						Kind:       "pod",
+						APIVersion: "v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "pod2",
+							Namespace: "default",
+						},
+					},
+					Reason: "",
+				},
+			},
+			"oldRelate":     []policyv1.RelatedObject{},
+			"expectRelated": []policyv1.RelatedObject{},
+		},
+	}
+
+	for _, test := range testTable {
+		deletedRelated := r.deleteDetachedObj(policy, test["incommingRelate"].([]policyv1.RelatedObject),
+			test["oldRelate"].([]policyv1.RelatedObject))
+		assert.Equal(t, deletedRelated, test["expectRelated"])
 	}
 }

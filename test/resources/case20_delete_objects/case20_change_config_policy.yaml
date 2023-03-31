@@ -1,0 +1,23 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case29-name-changed
+  namespace: managed
+spec:
+  remediationAction: enforce
+  pruneObjectBehavior: DeleteAll
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: case29-name-changed-pod
+          namespace: default
+        spec:
+          containers:
+            - name: nginx
+              imagePullPolicy: Never
+              image: nginx:1.7.9
+              ports:
+                - containerPort: 80
