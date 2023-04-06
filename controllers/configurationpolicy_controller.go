@@ -2756,9 +2756,27 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 		"Updating configurationPolicy status", "status", policy.Status.ComplianceState, "policy", policy.GetName(),
 	)
 
-	err := r.Status().Update(context.TODO(), policy)
-	if err != nil {
-		return err
+	updatedStatus := policy.Status
+
+	maxRetries := 3
+	for i := 1; i <= maxRetries; i++ {
+		err := r.Get(context.TODO(), types.NamespacedName{Namespace: policy.Namespace, Name: policy.Name}, policy)
+		if err != nil {
+			log.Info(fmt.Sprintf("Failed to refresh policy; using previously fetched version: %s", err))
+		} else {
+			policy.Status = updatedStatus
+		}
+
+		err = r.Status().Update(context.TODO(), policy)
+		if err != nil {
+			if i == maxRetries {
+				return err
+			}
+
+			log.Info(fmt.Sprintf("Failed to update policy status. Retrying (attempt %d/%d): %s", i, maxRetries, err))
+		} else {
+			break
+		}
 	}
 
 	if sendEvent {
