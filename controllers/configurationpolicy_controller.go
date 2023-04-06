@@ -704,11 +704,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		if cleanupNow {
 			if objHasFinalizer(&plc, pruneObjectFinalizer) {
-				plc.SetFinalizers(removeObjFinalizer(&plc, pruneObjectFinalizer))
+				patch := removeObjFinalizerPatch(&plc, pruneObjectFinalizer)
 
-				err := r.Update(context.TODO(), &plc)
+				err = r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 				if err != nil {
-					log.V(1).Error(err, "Error removing finalizer for configuration policy", plc)
+					log.V(1).Error(err, "Error removing finalizer for configuration policy")
+
+					return
 				}
 			}
 
@@ -717,11 +719,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		// set finalizer if it hasn't been set
 		if !objHasFinalizer(&plc, pruneObjectFinalizer) {
-			plc.SetFinalizers(addObjFinalizer(&plc, pruneObjectFinalizer))
+			mergePatch := []byte(`{"metadata": {"finalizers": ["` + pruneObjectFinalizer + `"]}}`)
 
-			err := r.Update(context.TODO(), &plc)
+			err := r.Patch(context.TODO(), &plc, client.RawPatch(types.MergePatchType, mergePatch))
 			if err != nil {
-				log.V(1).Error(err, "Error setting finalizer for configuration policy", plc)
+				log.V(1).Error(err, "Error setting finalizer for configuration policy")
+
+				return
 			}
 		}
 
@@ -733,11 +737,14 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 			if len(failures) == 0 {
 				log.V(1).Info("Objects have been successfully cleaned up, removing finalizer")
-				plc.SetFinalizers(removeObjFinalizer(&plc, pruneObjectFinalizer))
 
-				err := r.Update(context.TODO(), &plc)
+				patch := removeObjFinalizerPatch(&plc, pruneObjectFinalizer)
+
+				err = r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 				if err != nil {
-					log.V(1).Error(err, "Error unsetting finalizer for configuration policy", plc)
+					log.V(1).Error(err, "Error removing finalizer for configuration policy")
+
+					return
 				}
 			} else {
 				log.V(1).Info("Object cleanup failed, some objects have not been deleted from the cluster")
@@ -767,10 +774,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		}
 	} else if objHasFinalizer(&plc, pruneObjectFinalizer) {
 		// if pruneObjectBehavior is none, no finalizer is needed
-		plc.SetFinalizers(removeObjFinalizer(&plc, pruneObjectFinalizer))
-		err := r.Update(context.TODO(), &plc)
+		patch := removeObjFinalizerPatch(&plc, pruneObjectFinalizer)
+
+		err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 		if err != nil {
-			log.V(1).Error(err, "Error unsetting finalizer for configuration policy", plc)
+			log.V(1).Error(err, "Error removing finalizer for configuration policy")
+
+			return
 		}
 	}
 
