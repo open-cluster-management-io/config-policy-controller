@@ -727,9 +727,18 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		// set finalizer if it hasn't been set
 		if !objHasFinalizer(&plc, pruneObjectFinalizer) {
-			mergePatch := []byte(`{"metadata": {"finalizers": ["` + pruneObjectFinalizer + `"]}}`)
+			var patch []byte
+			if plc.Finalizers == nil {
+				patch = []byte(
+					`[{"op":"add","path":"/metadata/finalizers","value":["` + pruneObjectFinalizer + `"]}]`,
+				)
+			} else {
+				patch = []byte(
+					`[{"op":"add","path":"/metadata/finalizers/-","value":"` + pruneObjectFinalizer + `"}]`,
+				)
+			}
 
-			err := r.Patch(context.TODO(), &plc, client.RawPatch(types.MergePatchType, mergePatch))
+			err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 			if err != nil {
 				log.V(1).Error(err, "Error setting finalizer for configuration policy")
 
