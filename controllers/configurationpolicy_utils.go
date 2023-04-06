@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	gocmp "github.com/google/go-cmp/cmp"
@@ -562,24 +563,14 @@ func objHasFinalizer(obj metav1.Object, finalizer string) bool {
 	return false
 }
 
-func addObjFinalizer(obj metav1.Object, finalizer string) []string {
-	if objHasFinalizer(obj, finalizer) {
-		return obj.GetFinalizers()
-	}
-
-	return append(obj.GetFinalizers(), finalizer)
-}
-
-func removeObjFinalizer(obj metav1.Object, finalizer string) []string {
-	result := []string{}
-
-	for _, existingFinalizer := range obj.GetFinalizers() {
-		if existingFinalizer != finalizer {
-			result = append(result, existingFinalizer)
+func removeObjFinalizerPatch(obj metav1.Object, finalizer string) []byte {
+	for i, existingFinalizer := range obj.GetFinalizers() {
+		if existingFinalizer == finalizer {
+			return []byte(`[{"op":"remove","path":"/metadata/finalizers/` + strconv.FormatInt(int64(i), 10) + `"}]`)
 		}
 	}
 
-	return result
+	return nil
 }
 
 func containRelated(arr []policyv1.RelatedObject, input policyv1.RelatedObject) bool {
