@@ -21,6 +21,7 @@ jobs:
     env:
       REGISTRY: localhost:5000
     strategy:
+      fail-fast: false
       matrix:
         # Run tests on minimum and newest supported OCP Kubernetes
         # The "minimum" tag is set in the Makefile
