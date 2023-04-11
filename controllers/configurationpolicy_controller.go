@@ -1978,7 +1978,7 @@ func buildNameList(
 		}
 
 		if match {
-			kindNameList = append(kindNameList, uObj.Object["metadata"].(map[string]interface{})["name"].(string))
+			kindNameList = append(kindNameList, uObj.GetName())
 		}
 	}
 
@@ -2594,10 +2594,15 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		// only look at labels and annotations for metadata - configurationPolicies do not update other metadata fields
 		if key == "metadata" {
-			mergedAnnotations := mergedObj.(map[string]interface{})["annotations"]
-			mergedLabels := mergedObj.(map[string]interface{})["labels"]
-			obj.object.UnstructuredContent()["metadata"].(map[string]interface{})["annotations"] = mergedAnnotations
-			obj.object.UnstructuredContent()["metadata"].(map[string]interface{})["labels"] = mergedLabels
+			// if it's not the right type, the map will be empty
+			mdMap, _ := mergedObj.(map[string]interface{})
+
+			// if either isn't found, they'll just be empty
+			mergedAnnotations, _, _ := unstructured.NestedStringMap(mdMap, "annotations")
+			mergedLabels, _, _ := unstructured.NestedStringMap(mdMap, "labels")
+
+			obj.object.SetAnnotations(mergedAnnotations)
+			obj.object.SetLabels(mergedLabels)
 		} else {
 			obj.object.UnstructuredContent()[key] = mergedObj
 		}
