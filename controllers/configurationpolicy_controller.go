@@ -2423,7 +2423,7 @@ func handleSingleKey(
 
 	updateNeeded := false
 
-	if isDenylisted(key) {
+	if key == "apiVersion" || key == "kind" {
 		log.V(2).Info("Ignoring the key since it is deny listed", "key", key)
 
 		return "", false, nil, true
