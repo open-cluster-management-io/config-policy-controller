@@ -68,16 +68,12 @@ func addRelatedObjects(
 // unmarshalFromJSON unmarshals raw JSON data into an object
 func unmarshalFromJSON(rawData []byte) (unstructured.Unstructured, error) {
 	var unstruct unstructured.Unstructured
-	var blob interface{}
 
-	if jsonErr := json.Unmarshal(rawData, &blob); jsonErr != nil {
+	if jsonErr := json.Unmarshal(rawData, &unstruct.Object); jsonErr != nil {
 		log.Error(jsonErr, "Could not unmarshal data from JSON")
 
 		return unstruct, jsonErr
 	}
-
-	unstruct.Object = make(map[string]interface{})
-	unstruct.Object = blob.(map[string]interface{})
 
 	return unstruct, nil
 }
@@ -113,13 +109,17 @@ func updateRelatedObjectsStatus(
 func equalObjWithSort(mergedObj interface{}, oldObj interface{}) (areEqual bool) {
 	switch mergedObj := mergedObj.(type) {
 	case map[string]interface{}:
-		if oldObj == nil || !checkFieldsWithSort(mergedObj, oldObj.(map[string]interface{})) {
-			return false
+		if oldObjMap, ok := oldObj.(map[string]interface{}); ok {
+			return checkFieldsWithSort(mergedObj, oldObjMap)
 		}
+		// this includes the case where oldObj is nil
+		return false
 	case []interface{}:
-		if oldObj == nil || !checkListsMatch(mergedObj, oldObj.([]interface{})) {
-			return false
+		if oldObjList, ok := oldObj.([]interface{}); ok {
+			return checkListsMatch(mergedObj, oldObjList)
 		}
+
+		return false
 	default:
 		// NOTE: when type is string, int, bool
 		var oVal interface{}
@@ -243,15 +243,18 @@ func checkListFieldsWithSort(mergedObj []map[string]interface{}, oldObj []map[st
 			switch mVal := mVal.(type) {
 			case []interface{}:
 				// if a map in the list contains a nested list, sort and check for equality
-				oVal, ok := oldItem[i].([]interface{})
-				if !ok || len(mVal) != len(oVal) || !checkListsMatch(oVal, mVal) {
-					return false
+				if oVal, ok := oldItem[i].([]interface{}); ok {
+					return len(mVal) == len(oVal) && checkListsMatch(oVal, mVal)
 				}
+
+				return false
 			case map[string]interface{}:
 				// if a map in the list contains another map, check fields for equality
-				if !checkFieldsWithSort(mVal, oldItem[i].(map[string]interface{})) {
-					return false
+				if oVal, ok := oldItem[i].(map[string]interface{}); ok {
+					return len(mVal) == len(oVal) && checkFieldsWithSort(mVal, oVal)
 				}
+
+				return false
 			case string:
 				// extra check to see if value is a byte value
 				mQty, err := apiRes.ParseQuantity(mVal)
@@ -308,9 +311,11 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 		switch oNestedVal := oNestedVal.(type) {
 		case map[string]interface{}:
 			// if list contains maps, recurse on those maps to check for a match
-			if !checkFieldsWithSort(mVal[idx].(map[string]interface{}), oNestedVal) {
-				return false
+			if mVal, ok := mVal[idx].(map[string]interface{}); ok {
+				return len(mVal) == len(oNestedVal) && checkFieldsWithSort(mVal, oNestedVal)
 			}
+
+			return false
 		default:
 			// otherwise, just do a generic check
 			if fmt.Sprint(oNestedVal) != fmt.Sprint(mVal[idx]) {
@@ -338,8 +343,10 @@ func filterUnwantedAnnotations(input map[string]interface{}) map[string]interfac
 // formatTemplate returns the value of the input key in a manner that the controller can use for comparisons.
 func formatTemplate(unstruct unstructured.Unstructured, key string) (obj interface{}) {
 	if key == "metadata" {
-		//nolint:forcetypeassert
-		metadata := unstruct.Object[key].(map[string]interface{})
+		metadata, ok := unstruct.Object[key].(map[string]interface{})
+		if !ok {
+			return metadata // it will just be empty
+		}
 
 		return formatMetadata(metadata)
 	}
