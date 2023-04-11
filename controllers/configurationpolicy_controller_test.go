@@ -458,11 +458,11 @@ func TestCreateInformStatus(t *testing.T) {
 		},
 	}
 	objNamespaced := true
-	objData := map[string]interface{}{
-		"indx":        0,
-		"kind":        "Secret",
-		"desiredName": "myobject",
-		"namespaced":  objNamespaced,
+	objData := templateIdentifier{
+		index:       0,
+		kind:        "Secret",
+		desiredName: "myobject",
+		namespaced:  objNamespaced,
 	}
 	mustNotHave := false
 	numCompliant := 0
