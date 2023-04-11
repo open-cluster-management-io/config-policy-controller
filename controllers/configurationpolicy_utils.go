@@ -436,12 +436,9 @@ func identifierStr(names []string, namespace string, namespaced bool) (nameStr s
 }
 
 func createStatus(
-	desiredName string,
-	kind string,
+	tmplID templateIdentifier,
 	complianceObjects map[string]map[string]interface{},
-	namespaced bool,
 	plc *policyv1.ConfigurationPolicy,
-	indx int,
 	compliant bool,
 	objShouldExist bool,
 ) (update bool) {
@@ -456,19 +453,19 @@ func createStatus(
 	sort.Strings(sortedNamespaces)
 
 	// Noncompliant with no resources -- return violation immediately
-	if objShouldExist && !compliant && desiredName == "" {
-		message := fmt.Sprintf("No instances of `%v` found as specified", kind)
-		if namespaced && len(sortedNamespaces) > 0 {
+	if objShouldExist && !compliant && tmplID.desiredName == "" {
+		message := fmt.Sprintf("No instances of `%v` found as specified", tmplID.kind)
+		if tmplID.namespaced && len(sortedNamespaces) > 0 {
 			message += fmt.Sprintf(" in namespaces: %v", strings.Join(sortedNamespaces, ", "))
 		}
 
-		return addConditionToStatus(plc, indx, false, "K8s does not have a `must have` object", message)
+		return addConditionToStatus(plc, tmplID.index, false, "K8s does not have a `must have` object", message)
 	}
 
 	for _, ns := range sortedNamespaces {
 		// if the assertion fails, `names` will effectively be an empty list, which is fine.
 		names, _ := complianceObjects[ns]["names"].([]string)
-		idStr := identifierStr(names, ns, namespaced)
+		idStr := identifierStr(names, ns, tmplID.namespaced)
 
 		if objShouldExist {
 			if compliant {
@@ -490,22 +487,23 @@ func createStatus(
 	if objShouldExist {
 		if compliant {
 			reason = "K8s `must have` object already exists"
-			msg = fmt.Sprintf("%v %v as specified, therefore this Object template is compliant", kind, niceNames)
+			msg = fmt.Sprintf("%v %v as specified, therefore this Object template is compliant", tmplID.kind, niceNames)
 		} else {
 			reason = "K8s does not have a `must have` object"
-			msg = fmt.Sprintf("%v not found: %v", kind, niceNames)
+			msg = fmt.Sprintf("%v not found: %v", tmplID.kind, niceNames)
 		}
 	} else {
 		if compliant {
 			reason = "K8s `must not have` object already missing"
-			msg = fmt.Sprintf("%v %v missing as expected, therefore this Object template is compliant", kind, niceNames)
+			msg = fmt.Sprintf(
+				"%v %v missing as expected, therefore this Object template is compliant", tmplID.kind, niceNames)
 		} else {
 			reason = "K8s has a `must not have` object"
-			msg = fmt.Sprintf("%v found: %v", kind, niceNames)
+			msg = fmt.Sprintf("%v found: %v", tmplID.kind, niceNames)
 		}
 	}
 
-	return addConditionToStatus(plc, indx, compliant, reason, msg)
+	return addConditionToStatus(plc, tmplID.index, compliant, reason, msg)
 }
 
 func sortAndJoinKeys(m map[string]bool, sep string) string {
