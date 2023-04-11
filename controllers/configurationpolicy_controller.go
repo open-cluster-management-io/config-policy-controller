@@ -2264,6 +2264,11 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interf
 	return templateVal.(string)
 }
 
+type countedVal struct {
+	value interface{}
+	count int
+}
+
 // mergeArrays is a helper function that takes a list from the existing object and merges in all the data that is
 // different in the template. This way, comparing the merged object to the one that exists on the cluster will tell
 // you whether the existing object is compliant with the template
@@ -2280,18 +2285,15 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 	}
 
 	// create a set with a key for each unique item in the list
-	oldItemSet := map[string]map[string]interface{}{}
+	oldItemSet := make(map[string]*countedVal)
 
 	for _, val2 := range old {
 		key := fmt.Sprint(val2)
 
 		if entry, ok := oldItemSet[key]; ok {
-			oldItemSet[key]["count"] = entry["count"].(int) + 1
+			entry.count++
 		} else {
-			oldItemSet[key] = map[string]interface{}{
-				"count": 1,
-				"value": val2,
-			}
+			oldItemSet[key] = &countedVal{value: val2, count: 1}
 		}
 	}
 
@@ -2306,10 +2308,8 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 			seen[key] = true
 		}
 
-		data := oldItemSet[key]
 		count := 0
-		reqCount := data["count"]
-		val2 := data["value"]
+		val2 := oldItemSet[key].value
 		// for each list item in the existing array, iterate through the template array and try to find a match
 		for newArrIdx, val1 := range newArrCopy {
 			if idxWritten[newArrIdx] {
@@ -2353,14 +2353,14 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 
 			// If the result of merging val1 (template) into val2 (existing value) matched val2 for the required count,
 			// move on to the next existing value.
-			if count == reqCount {
+			if count == oldItemSet[key].count {
 				break
 			}
 		}
 		// if an item in the existing object cannot be found in the template, we add it to the template array
 		// to produce the merged array
-		if count < reqCount.(int) {
-			for i := 0; i < (reqCount.(int) - count); i++ {
+		if count < oldItemSet[key].count {
+			for i := 0; i < (oldItemSet[key].count - count); i++ {
 				newArr = append(newArr, val2)
 			}
 		}
