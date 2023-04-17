@@ -72,7 +72,7 @@ var _ = Describe("Test object namespace selection", Ordered, func() {
 		"MatchExpressions with incorrect operator": {
 			"{\"matchExpressions\":[{\"key\":\"name\",\"operator\":\"Seriously\"}]}",
 			"Error filtering namespaces with provided namespaceSelector: " +
-				"error parsing namespace LabelSelector: \"Seriously\" is not a valid pod selector operator",
+				"error parsing namespace LabelSelector: \"Seriously\" is not a valid label selector operator",
 		},
 		"MatchExpressions with missing values": {
 			"{\"matchExpressions\":[{\"key\":\"name\",\"operator\":\"In\",\"values\":[]}]}",
