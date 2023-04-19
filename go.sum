@@ -293,8 +293,8 @@ github.com/spf13/pflag v1.0.5/go.mod h1:McXfInJRrz4CZXVZOBLb0bTZqETkiAhM9Iw0y3An
 github.com/stoewer/go-strcase v1.2.0/go.mod h1:IBiWB2sKIp3wVVQ3Y035++gc+knqhUQag1KpM8ahLw8=
 github.com/stolostron/go-log-utils v0.1.1 h1:T48GyfuGpn2+6817FQVec1CyxGf0ibuVhoBiz9SeCec=
 github.com/stolostron/go-log-utils v0.1.1/go.mod h1:2Uc5mbuLvSFpoXFFEKRTEFOlR7nqGVMu9mbU+FIttTI=
-github.com/stolostron/go-template-utils/v3 v3.1.0 h1:wizzuURDnI2fewOx/AxHLpKx06FXUGjkUnMjdcgat3o=
-github.com/stolostron/go-template-utils/v3 v3.1.0/go.mod h1:k9qoQ/OH/jOQI5ovfC11QJ6ApWsa3E5rmbkfUAEUF3g=
+github.com/stolostron/go-template-utils/v3 v3.2.0 h1:q0rkOg3tZoOdnt199/BzGprRo6elbthuXTaOndj8rcg=
+github.com/stolostron/go-template-utils/v3 v3.2.0/go.mod h1:YckC6JM+gf4HZK1+qGQAQ5f6uR5qSMGu/npsauJ1W3U=
 github.com/stolostron/kubernetes-dependency-watches v0.0.0-20221007134235-7551d84cf688 h1:Q/0MspxKFkqBN59keMsJI2hGqGGpTSxdNEvrxTOBlRg=
 github.com/stolostron/kubernetes-dependency-watches v0.0.0-20221007134235-7551d84cf688/go.mod h1:jGnjY4g8N1PaBqt35EjqNRjymjG0DWqki/2JOLMN1Pg=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
@@ -345,6 +345,7 @@ golang.org/x/exp v0.0.0-20191227195350-da58074b4299/go.mod h1:2RIsYlXP63K8oxa1u0
 golang.org/x/exp v0.0.0-20200119233911-0405dc783f0a/go.mod h1:2RIsYlXP63K8oxa1u096TMicItID8zy7Y6sNkU49FU4=
 golang.org/x/exp v0.0.0-20200207192155-f17229e696bd/go.mod h1:J/WKrq2StrnmMY6+EHIKF9dgMWnmCNThgcyBT1FY9mM=
 golang.org/x/exp v0.0.0-20200224162631-6cc2880d07d6/go.mod h1:3jZMyOhIsHpP37uCMkUooju7aAi5cS1Q23tOzKc+0MU=
+golang.org/x/exp v0.0.0-20230321023759-10a507213a29 h1:ooxPy7fPvB4kwsA2h+iBNHkAbp/4JxTSwCmvdjEYmug=
 golang.org/x/image v0.0.0-20190227222117-0694c2d4d067/go.mod h1:kZ7UVZpmo3dzQBMxlp+ypCbDeSB+sBbTgSJuh5dn5js=
 golang.org/x/image v0.0.0-20190802002840-cff245a6509b/go.mod h1:FeLwcggjj3mMvU+oOTbSwawSJRM1uh48EjtB4UJZlP0=
 golang.org/x/lint v0.0.0-20181026193005-c67002cb31c3/go.mod h1:UVdnD1Gm6xHRNCYTkRU2/jEulfH38KcIWyp/GAMgvoE=
