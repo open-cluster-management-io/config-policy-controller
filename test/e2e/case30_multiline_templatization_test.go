@@ -149,7 +149,7 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 
 				return strings.Contains(
 					utils.GetStatusMessage(managedPlc).(string),
-					"wrong number of args for lookup: want 4 got 1",
+					"wrong number of args for lookup: want at least 4 got 1",
 				)
 			}, 10, 1).Should(BeTrue())
 		})
