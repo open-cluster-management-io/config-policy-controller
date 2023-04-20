@@ -73,6 +73,8 @@ type ctrlOpts struct {
 	targetKubeConfig      string
 	metricsAddr           string
 	probeAddr             string
+	clientQPS             float32
+	clientBurst           uint
 	frequency             uint
 	decryptionConcurrency uint8
 	evaluationConcurrency uint8
@@ -112,9 +114,7 @@ func main() {
 	zflags.Bind(flag.CommandLine)
 	controllerFlagSet.AddGoFlagSet(flag.CommandLine)
 
-	opts := setupOpts(controllerFlagSet)
-
-	_ = controllerFlagSet.Parse(os.Args[2:])
+	opts := parseOpts(controllerFlagSet, os.Args[2:])
 
 	ctrlZap, err := zflags.BuildForCtrl()
 	if err != nil {
@@ -150,6 +150,9 @@ func main() {
 		log.Error(err, "Failed to get config")
 		os.Exit(1)
 	}
+
+	cfg.Burst = int(opts.clientBurst)
+	cfg.QPS = opts.clientQPS
 
 	// Set a field selector so that a watch on CRDs will be limited to just the configuration policy CRD.
 	cacheSelectors := cache.SelectorsByObject{
@@ -424,7 +427,7 @@ func handleTriggerUninstall() {
 	}
 }
 
-func setupOpts(flags *pflag.FlagSet) *ctrlOpts {
+func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 	opts := &ctrlOpts{}
 
 	flags.UintVar(
@@ -512,6 +515,35 @@ func setupOpts(flags *pflag.FlagSet) *ctrlOpts {
 		true,
 		"Disable custom metrics collection",
 	)
+
+	flags.Float32Var(
+		&opts.clientQPS,
+		"client-max-qps",
+		30, // 15 * concurrency is recommended
+		"The max queries per second that will be made against the kubernetes API server. "+
+			"Will scale with concurrency, if not explicitly set.",
+	)
+
+	flags.UintVar(
+		&opts.clientBurst,
+		"client-burst",
+		45, // the controller-runtime defaults are 20:30 (qps:burst) - this matches that ratio
+		"The maximum burst before client requests will be throttled. "+
+			"Will scale with concurrency, if not explicitly set.",
+	)
+
+	_ = flags.Parse(args)
+
+	// Scale QPS and Burst with concurrency, when they aren't explicitly set.
+	if flags.Changed("evaluation-concurrency") {
+		if !flags.Changed("client-max-qps") {
+			opts.clientQPS = float32(opts.evaluationConcurrency) * 15
+		}
+
+		if !flags.Changed("client-burst") {
+			opts.clientBurst = uint(opts.evaluationConcurrency)*22 + 1
+		}
+	}
 
 	return opts
 }
