@@ -49,6 +49,8 @@ spec:
         - --enable-lease=true
         - --log-level=2
         - --v=0
+        - --client-max-qps=35
+        - --client-burst=50
         command:
         - config-policy-controller
         env:
