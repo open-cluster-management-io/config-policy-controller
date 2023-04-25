@@ -29,26 +29,7 @@ const (
 
 var _ = Describe("Test evaluation interval", func() {
 	It("Verifies that status.lastEvaluated is properly set", func() {
-		By("Creating the parent policy " + case17ParentPolicyName + " on the managed cluster")
-		utils.Kubectl("apply", "-f", case17ParentPolicy, "-n", testNamespace)
-		parent := utils.GetWithTimeout(clientManagedDynamic,
-			gvrPolicy,
-			case17ParentPolicyName,
-			testNamespace,
-			true,
-			defaultTimeoutSeconds,
-		)
-		Expect(parent).NotTo(BeNil())
-
-		By("Creating " + case17PolicyName + " on the managed cluster")
-		plcDef := utils.ParseYaml(case17Policy)
-		ownerRefs := plcDef.GetOwnerReferences()
-		ownerRefs[0].UID = parent.GetUID()
-		plcDef.SetOwnerReferences(ownerRefs)
-		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Create(
-			context.TODO(), plcDef, v1.CreateOptions{},
-		)
-		Expect(err).To(BeNil())
+		createConfigPolicyWithParent(case17ParentPolicy, case17ParentPolicyName, case17Policy)
 
 		By("Getting status.lastEvaluated")
 		var managedPlc *unstructured.Unstructured

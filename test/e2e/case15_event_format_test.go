@@ -36,21 +36,8 @@ const (
 
 var _ = Describe("Testing compliance event formatting", func() {
 	It("Records the right events for a policy that is always compliant", func() {
-		By("Creating parent policy " + case15AlwaysCompliantParentName + " on " + testNamespace)
-		utils.Kubectl("apply", "-f", case15AlwaysCompliantParentYaml, "-n", testNamespace)
-		parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
-			case15AlwaysCompliantParentName, testNamespace, true, defaultTimeoutSeconds)
-		Expect(parent).NotTo(BeNil())
-
-		By("Creating compliant policy " + case15AlwaysCompliantName + " on " + testNamespace + " with parent " +
-			case15AlwaysCompliantParentName)
-		plcDef := utils.ParseYaml(case15AlwaysCompliantYaml)
-		ownerRefs := plcDef.GetOwnerReferences()
-		ownerRefs[0].UID = parent.GetUID()
-		plcDef.SetOwnerReferences(ownerRefs)
-		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-			Create(context.TODO(), plcDef, metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		createConfigPolicyWithParent(case15AlwaysCompliantParentYaml, case15AlwaysCompliantParentName,
+			case15AlwaysCompliantYaml)
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15AlwaysCompliantName, testNamespace, true, defaultTimeoutSeconds)
@@ -81,21 +68,8 @@ var _ = Describe("Testing compliance event formatting", func() {
 		Expect(nonCompParentEvents).To(BeEmpty())
 	})
 	It("Records the right events for a policy that is never compliant", func() {
-		By("Creating parent policy " + case15NeverCompliantParentName + " on " + testNamespace)
-		utils.Kubectl("apply", "-f", case15NeverCompliantParentYaml, "-n", testNamespace)
-		parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
-			case15NeverCompliantParentName, testNamespace, true, defaultTimeoutSeconds)
-		Expect(parent).NotTo(BeNil())
-
-		By("Creating noncompliant policy " + case15NeverCompliantName + " on " + testNamespace + " with parent " +
-			case15NeverCompliantParentName)
-		plcDef := utils.ParseYaml(case15NeverCompliantYaml)
-		ownerRefs := plcDef.GetOwnerReferences()
-		ownerRefs[0].UID = parent.GetUID()
-		plcDef.SetOwnerReferences(ownerRefs)
-		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-			Create(context.TODO(), plcDef, metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		createConfigPolicyWithParent(case15NeverCompliantParentYaml, case15NeverCompliantParentName,
+			case15NeverCompliantYaml)
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15NeverCompliantName, testNamespace, true, defaultTimeoutSeconds)
@@ -126,21 +100,8 @@ var _ = Describe("Testing compliance event formatting", func() {
 		Expect(nonCompParentEvents).NotTo(BeEmpty())
 	})
 	It("Records events for a policy that becomes compliant", func() {
-		By("Creating parent policy " + case15BecomesCompliantParentName + " on " + testNamespace)
-		utils.Kubectl("apply", "-f", case15BecomesCompliantParentYaml, "-n", testNamespace)
-		parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
-			case15BecomesCompliantParentName, testNamespace, true, defaultTimeoutSeconds)
-		Expect(parent).NotTo(BeNil())
-
-		By("Creating noncompliant policy " + case15BecomesCompliantName + " on " + testNamespace + " with parent " +
-			case15BecomesCompliantParentName)
-		plcDef := utils.ParseYaml(case15BecomesCompliantYaml)
-		ownerRefs := plcDef.GetOwnerReferences()
-		ownerRefs[0].UID = parent.GetUID()
-		plcDef.SetOwnerReferences(ownerRefs)
-		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-			Create(context.TODO(), plcDef, metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		createConfigPolicyWithParent(case15BecomesCompliantParentYaml, case15BecomesCompliantParentName,
+			case15BecomesCompliantYaml)
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15BecomesCompliantName, testNamespace, true, defaultTimeoutSeconds)
@@ -176,21 +137,8 @@ var _ = Describe("Testing compliance event formatting", func() {
 		Expect(compParentEvents).NotTo(BeEmpty())
 	})
 	It("Records events for a policy that becomes noncompliant", func() {
-		By("Creating parent policy " + case15BecomesNonCompliantParentName + " on " + testNamespace)
-		utils.Kubectl("apply", "-f", case15BecomesNonCompliantParentYaml, "-n", testNamespace)
-		parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
-			case15BecomesNonCompliantParentName, testNamespace, true, defaultTimeoutSeconds)
-		Expect(parent).NotTo(BeNil())
-
-		By("Creating compliant policy " + case15BecomesNonCompliantName + " on " + testNamespace + " with parent " +
-			case15BecomesNonCompliantParentName)
-		plcDef := utils.ParseYaml(case15BecomesNonCompliantYaml)
-		ownerRefs := plcDef.GetOwnerReferences()
-		ownerRefs[0].UID = parent.GetUID()
-		plcDef.SetOwnerReferences(ownerRefs)
-		_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-			Create(context.TODO(), plcDef, metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		createConfigPolicyWithParent(case15BecomesNonCompliantParentYaml, case15BecomesNonCompliantParentName,
+			case15BecomesNonCompliantYaml)
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15BecomesNonCompliantName, testNamespace, true, defaultTimeoutSeconds)
