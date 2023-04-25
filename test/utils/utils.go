@@ -292,3 +292,51 @@ func GetMetrics(metricPatterns ...string) []string {
 
 	return values
 }
+
+func getConfigPolicyStatusMessages(clientHubDynamic dynamic.Interface,
+	gvrConfigPolicy schema.GroupVersionResource, namespace string, policyName string, templateIdx int,
+) (string, bool, error) {
+	empty := ""
+	policyInterface := clientHubDynamic.Resource(gvrConfigPolicy).Namespace(namespace)
+
+	configPolicy, err := policyInterface.Get(context.TODO(), policyName, metav1.GetOptions{})
+	if err != nil {
+		return empty, false, fmt.Errorf("error in getting policy")
+	}
+
+	details, found, err := unstructured.NestedSlice(configPolicy.Object, "status", "compliancyDetails")
+	if !found || err != nil || len(details) <= templateIdx {
+		return empty, false, fmt.Errorf("error in getting status")
+	}
+
+	templateDetails, ok := details[templateIdx].(map[string]interface{})
+	if !ok {
+		return empty, false, fmt.Errorf("error in getting detail")
+	}
+
+	conditions, ok, _ := unstructured.NestedSlice(templateDetails, "conditions")
+
+	if !ok {
+		return empty, false, fmt.Errorf("error conditions not found")
+	}
+
+	condition := conditions[0].(map[string]interface{})
+
+	message, ok, err := unstructured.NestedString(condition, "message")
+
+	return message, ok, err
+}
+
+func DoConfigPolicyMessageTest(clientHubDynamic dynamic.Interface,
+	gvrConfigPolicy schema.GroupVersionResource, namespace string, policyName string,
+	templateIdx int, timeout int, expectedMsg string,
+) {
+	Eventually(func(g Gomega) string {
+		message, _, err := getConfigPolicyStatusMessages(clientHubDynamic,
+			gvrConfigPolicy, namespace, policyName, templateIdx)
+
+		g.Expect(err).Should(BeNil())
+
+		return message
+	}, timeout, 1).Should(Equal(expectedMsg))
+}

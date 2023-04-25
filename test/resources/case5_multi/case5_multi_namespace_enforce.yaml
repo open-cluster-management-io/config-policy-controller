@@ -1,0 +1,25 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-multi-namespace-enforce
+  namespace: managed
+spec:
+  remediationAction: enforce
+  pruneObjectBehavior: DeleteAll
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["n1","n2","n3"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: case5-multi-namespace-enforce-pod
+        spec:
+          containers:
+            - image: nginx:1.7.9
+              imagePullPolicy: Never
+              name: nginx
+              ports:
+                - containerPort: 80

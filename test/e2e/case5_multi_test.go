@@ -87,4 +87,134 @@ var _ = Describe("Test multiple obj template handling", func() {
 			deleteConfigPolicies(policies)
 		})
 	})
+
+	Describe("Check messages when it is multiple namesapces and multiple obj-templates", Ordered, func() {
+		const (
+			case5MultiNamespace1               string = "n1"
+			case5MultiNamespace2               string = "n2"
+			case5MultiNamespace3               string = "n3"
+			case5MultiNSConfigPolicyName       string = "policy-multi-namespace-enforce"
+			case5MultiNSInformConfigPolicyName string = "policy-multi-namespace-inform"
+			case5MultiObjNSConfigPolicyName    string = "policy-pod-multi-obj-temp-enforce"
+			case5InformYaml                    string = "../resources/case5_multi/case5_multi_namespace_inform.yaml"
+			case5EnforceYaml                   string = "../resources/case5_multi/case5_multi_namespace_enforce.yaml"
+			case5MultiObjTmpYaml               string = "../resources/case5_multi/case5_multi_obj_template_enforce.yaml"
+			case5MultiEnforceErrYaml           string = "../resources/case5_multi/" +
+				"case5_multi_namespace_enforce_error.yaml"
+			case5KindMissPlcName     string = "policy-multi-namespace-enforce-kind-missing"
+			case5KindNameMissPlcName string = "policy-multi-namespace-enforce-both-missing"
+			case5NameMissPlcName     string = "policy-multi-namespace-enforce-name-missing"
+		)
+
+		BeforeAll(func() {
+			nss := []string{
+				case5MultiNamespace1,
+				case5MultiNamespace2,
+				case5MultiNamespace3,
+			}
+
+			for _, ns := range nss {
+				utils.Kubectl("create", "ns", ns)
+			}
+		})
+		It("Should handle when kind or name missing without any panic", func() {
+			utils.Kubectl("apply", "-f", case5MultiEnforceErrYaml)
+
+			By("Kind missing")
+			kindErrMsg := "Decoding error, please check your policy file! Aborting handling the " +
+				"object template at index [0] in policy `policy-multi-namespace-enforce-kind-missing` with " +
+				"error = `Object 'Kind' is missing in '{\"apiVersion\":\"v1\",\"metadata\":" +
+				"{\"name\":\"case5-multi-namespace-enforce-kind-missing-pod\"}," +
+				"\"spec\":{\"containers\":[{\"image\":\"nginx:1.7.9\",\"imagePullPolicy\":\"Never\",\"name\":" +
+				"\"nginx\",\"ports\":[{\"containerPort\":80}]}]}}'`"
+			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
+				case5KindMissPlcName, 0, defaultTimeoutSeconds, kindErrMsg)
+
+			By("Kind and Name missing")
+			kindNameErrMsg := "Decoding error, please check your policy file! Aborting handling the " +
+				"object template at index [0] in policy `policy-multi-namespace-enforce-both-missing` " +
+				"with error = `Object 'Kind' is missing in " +
+				"'{\"apiVersion\":\"v1\",\"metadata\":{\"name\":\"\"},\"spec\":{\"containers\":" +
+				"[{\"image\":\"nginx:1.7.9\",\"imagePullPolicy\":\"Never\"," +
+				"\"name\":\"nginx\",\"ports\":[{\"containerPort\":80}]}]}}'`"
+			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
+				case5KindNameMissPlcName, 0, defaultTimeoutSeconds, kindNameErrMsg)
+
+			By("Name missing")
+			nameErrMsg := "No instances of `pods` found as specified in namespaces: n1, n2, n3"
+			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
+				case5NameMissPlcName, 0, defaultTimeoutSeconds, nameErrMsg)
+		})
+		It("Should show merged Noncompliant messages when it is multiple namespaces and inform", func() {
+			expectedMsg := "pods not found: [case5-multi-namespace-inform-pod] " +
+				"in namespace n1 missing; [case5-multi-namespace-inform-pod] " +
+				"in namespace n2 missing; [case5-multi-namespace-inform-pod] " +
+				"in namespace n3 missing"
+			utils.Kubectl("apply", "-f", case5InformYaml)
+			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
+				case5MultiNSInformConfigPolicyName, 0, defaultTimeoutSeconds, expectedMsg)
+		})
+		It("Should show merged messages when it is multiple namespaces", func() {
+			expectedMsg := "Pod [case5-multi-namespace-enforce-pod] in namespace n1 found; " +
+				"[case5-multi-namespace-enforce-pod] in namespace n2 found; " +
+				"[case5-multi-namespace-enforce-pod] in namespace n3 found " +
+				"as specified, therefore this Object template is compliant"
+			utils.Kubectl("apply", "-f", case5EnforceYaml)
+			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
+				case5MultiNSConfigPolicyName, 0, defaultTimeoutSeconds, expectedMsg)
+		})
+		It("Should show 3 merged messages when it is multiple namespaces and multiple obj-template", func() {
+			firstMsg := "Pod [case5-multi-obj-temp-pod-11] in namespace n1 found; " +
+				"[case5-multi-obj-temp-pod-11] in namespace n2 found; " +
+				"[case5-multi-obj-temp-pod-11] in namespace n3 found " +
+				"as specified, therefore this Object template is compliant"
+			secondMsg := "Pod [case5-multi-obj-temp-pod-22] in namespace n1 found; " +
+				"[case5-multi-obj-temp-pod-22] in namespace n2 found; " +
+				"[case5-multi-obj-temp-pod-22] in namespace n3 found " +
+				"as specified, therefore this Object template is compliant"
+			thirdMsg := "Pod [case5-multi-obj-temp-pod-33] in namespace n1 found; " +
+				"[case5-multi-obj-temp-pod-33] in namespace n2 found; " +
+				"[case5-multi-obj-temp-pod-33] in namespace n3 found " +
+				"as specified, therefore this Object template is compliant"
+			utils.Kubectl("apply", "-f", case5MultiObjTmpYaml)
+			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
+				case5MultiObjNSConfigPolicyName, 0, defaultTimeoutSeconds, firstMsg)
+			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
+				case5MultiObjNSConfigPolicyName, 1, defaultTimeoutSeconds, secondMsg)
+			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
+				case5MultiObjNSConfigPolicyName, 2, defaultTimeoutSeconds, thirdMsg)
+
+			By("Configuration policy name " + case5NameMissPlcName +
+				" should be compliant after apply " + case5MultiObjTmpYaml)
+
+			Eventually(func() interface{} {
+				plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case5NameMissPlcName, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(plc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+		})
+		cleanup := func() {
+			policies := []string{
+				case5MultiNSConfigPolicyName,
+				case5MultiNSInformConfigPolicyName,
+				case5MultiObjNSConfigPolicyName,
+				case5NameMissPlcName,
+				case5KindNameMissPlcName,
+				case5KindMissPlcName,
+			}
+
+			deleteConfigPolicies(policies)
+			nss := []string{
+				case5MultiNamespace1,
+				case5MultiNamespace2,
+				case5MultiNamespace3,
+			}
+
+			for _, ns := range nss {
+				utils.Kubectl("delete", "ns", ns, "--ignore-not-found")
+			}
+		}
+		AfterAll(cleanup)
+	})
 })

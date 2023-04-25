@@ -25,7 +25,7 @@ const (
 )
 
 var _ = Describe("Test pod obj template handling", func() {
-	Describe("Create a policy on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a policy on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should create a policy properly on the managed cluster", func() {
 			By("Creating " + case8ConfigPolicyNamePod + " on managed")
 			utils.Kubectl("apply", "-f", case8PolicyYamlPod, "-n", testNamespace)
@@ -89,7 +89,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			deleteConfigPolicies(policies)
 		})
 	})
-	Describe("Create a policy with status on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a policy with status on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should create a policy properly on the managed cluster", func() {
 			By("Creating " + case8ConfigPolicyStatusPod + " on managed")
 			utils.Kubectl("apply", "-f", case8PolicyYamlBadPod, "-n", testNamespace)
@@ -140,11 +140,13 @@ var _ = Describe("Test pod obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case8ConfigPolicyStatusPod,
 			}
 			deleteConfigPolicies(policies)
+
+			utils.Kubectl("delete", "pod", "nginx-badpod-e2e-8", "-n", "default", "--ignore-not-found")
 		})
 	})
 })
