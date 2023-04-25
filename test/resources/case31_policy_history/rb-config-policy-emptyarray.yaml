@@ -1,0 +1,33 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: config-policy-rb-emptyarray
+  labels:
+    policy.open-cluster-management.io/policy: test-policy-security
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    blockOwnerDeletion: false
+    controller: true
+    kind: Policy
+    name: test-policy-security-emptyarray
+    uid: 08bae967-4262-498a-84e9-d1f0e321b41e
+spec:
+  pruneObjectBehavior: DeleteAll  
+  remediationAction: enforce
+  namespaceSelector:
+    exclude:
+      - kube-*
+    include:
+      - default
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: RoleBinding
+        metadata:
+          name: case31-empty-binding
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: Role
+          name: case31-imaginary-role
+        subjects: []
