@@ -115,6 +115,10 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}) (areEqual bool)
 		// this includes the case where oldObj is nil
 		return false
 	case []interface{}:
+		if len(mergedObj) == 0 && oldObj == nil {
+			return true
+		}
+
 		if oldObjList, ok := oldObj.([]interface{}); ok {
 			return checkListsMatch(mergedObj, oldObjList)
 		}
