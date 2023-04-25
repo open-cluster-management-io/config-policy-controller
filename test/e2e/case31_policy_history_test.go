@@ -13,143 +13,141 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case31Policy                 = "../resources/case31_policy_history/pod-policy.yaml"
-	case31ConfigPolicy           = "../resources/case31_policy_history/pod-config-policy.yaml"
-	case31PolicyName             = "test-policy-security"
-	case31ConfigPolicyName       = "config-policy-pod"
-	case31PolicyNumber           = "../resources/case31_policy_history/pod-policy-number.yaml"
-	case31ConfigPolicyNumber     = "../resources/case31_policy_history/pod-config-policy-number.yaml"
-	case31PolicyNumberName       = "test-policy-security-number"
-	case31ConfigPolicyNumberName = "config-policy-pod-number"
-)
+var _ = Describe("Test policy history messages when KubeAPI omits values in the returned object", Ordered, func() {
+	doHistoryTest := func(policyYAML, policyName, configPolicyYAML, configPolicyName string) {
+		By("Waiting until the policy is initially compliant")
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				configPolicyName, testNamespace, true, defaultTimeoutSeconds)
 
-var _ = Describe("Test policy history message when KubeAPI return "+
-	"omits values in the returned object", Ordered, func() {
-	Describe("status toggling should not be generated When Policy include default value,", Ordered, func() {
-		It("creates the policyconfiguration "+case31Policy, func() {
-			utils.Kubectl("apply", "-f", case31Policy, "-n", "managed")
+			return utils.GetComplianceState(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+
+		By("Checking the events on the configuration policy")
+		Consistently(func() int {
+			eventlen := len(utils.GetMatchingEvents(clientManaged, testNamespace,
+				configPolicyName, configPolicyName, "NonCompliant;", defaultTimeoutSeconds))
+
+			return eventlen
+		}, 30, 5).Should(BeNumerically("<", 2))
+
+		By("Checking the events on the parent policy")
+		// NOTE: pick policy event, these event's reason include ConfigPolicyName
+		Consistently(func() int {
+			eventlen := len(utils.GetMatchingEvents(clientManaged, testNamespace,
+				policyName, configPolicyName, "NonCompliant;", defaultTimeoutSeconds))
+
+			return eventlen
+		}, 30, 5).Should(BeNumerically("<", 3))
+	}
+
+	const (
+		rsrcPath = "../resources/case31_policy_history/"
+	)
+
+	Describe("status should not toggle when a boolean field might be omitted", Ordered, func() {
+		const (
+			policyYAML       = rsrcPath + "pod-policy.yaml"
+			policyName       = "test-policy-security"
+			configPolicyYAML = rsrcPath + "pod-config-policy.yaml"
+			configPolicyName = "config-policy-pod"
+		)
+
+		It("sets up a configuration policy with an omitempty boolean set to false", func() {
+			createConfigPolicyWithParent(policyYAML, policyName, configPolicyYAML)
 		})
 
-		It("verifies the policy "+case31PolicyName+" in "+testNamespace, func() {
-			By("bind policy and configurationpolicy")
-			parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
-				case31PolicyName, testNamespace, true, defaultTimeoutSeconds)
-			Expect(parent).NotTo(BeNil())
-
-			plcDef := utils.ParseYaml(case31ConfigPolicy)
-			ownerRefs := plcDef.GetOwnerReferences()
-			ownerRefs[0].UID = parent.GetUID()
-			plcDef.SetOwnerReferences(ownerRefs)
-			_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-				Create(context.TODO(), plcDef, metav1.CreateOptions{})
-			Expect(err).To(BeNil())
-
-			By("check configurationpolicy exist")
-			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-				case31ConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
-			Expect(plc).NotTo(BeNil())
+		It("checks the policy's history", func() {
+			doHistoryTest(policyYAML, policyName, configPolicyYAML, configPolicyName)
 		})
 
-		It("check history toggling", func() {
-			By("wait until pod is up")
-			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case31ConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
-
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-
-			By("check events")
-			Consistently(func() int {
-				eventlen := len(utils.GetMatchingEvents(clientManaged, testNamespace,
-					case31ConfigPolicyName, case31ConfigPolicyName, "NonCompliant;", defaultTimeoutSeconds))
-
-				return eventlen
-			}, 30, 5).Should(BeNumerically("<", 2))
-
-			Consistently(func() int {
-				eventlen := len(utils.GetMatchingEvents(clientManaged, testNamespace,
-					case31PolicyName, case31ConfigPolicyName, "NonCompliant;", defaultTimeoutSeconds))
-
-				return eventlen
-			}, 30, 5).Should(BeNumerically("<", 3))
-		})
 		AfterAll(func() {
-			utils.Kubectl("delete", "policy", case31PolicyName, "-n",
-				"managed", "--ignore-not-found")
+			utils.Kubectl("delete", "policy", policyName, "-n", "managed", "--ignore-not-found")
 			configlPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-				case31ConfigPolicyName, "managed", false, defaultTimeoutSeconds,
+				configPolicyName, "managed", false, defaultTimeoutSeconds,
 			)
-			utils.Kubectl("delete", "event",
-				"--field-selector=involvedObject.name="+case31PolicyName, "-n", "managed")
-			utils.Kubectl("delete", "event",
-				"--field-selector=involvedObject.name="+case31ConfigPolicyName, "-n", "managed")
+			utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
+			utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
 			ExpectWithOffset(1, configlPlc).To(BeNil())
 		})
 	})
-	Describe("status should not toggle When Policy include default value of number", Ordered, func() {
-		It("creates the policyconfiguration "+case31PolicyNumber, func() {
-			utils.Kubectl("apply", "-f", case31PolicyNumber, "-n", "managed")
+
+	Describe("status should not toggle when a numerical field might be omitted", Ordered, func() {
+		const (
+			policyYAML       = rsrcPath + "pod-policy-number.yaml"
+			policyName       = "test-policy-security-number"
+			configPolicyYAML = rsrcPath + "pod-config-policy-number.yaml"
+			configPolicyName = "config-policy-pod-number"
+		)
+
+		It("sets up a configuration policy with an omitempty number set to 0", func() {
+			createConfigPolicyWithParent(policyYAML, policyName, configPolicyYAML)
 		})
 
-		It("verifies the policy "+case31PolicyNumberName+" in "+testNamespace, func() {
-			By("bind policy and configurationpolicy")
-			parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
-				case31PolicyNumberName, testNamespace, true, defaultTimeoutSeconds)
-			Expect(parent).NotTo(BeNil())
-
-			plcDef := utils.ParseYaml(case31ConfigPolicyNumber)
-			ownerRefs := plcDef.GetOwnerReferences()
-			ownerRefs[0].UID = parent.GetUID()
-			plcDef.SetOwnerReferences(ownerRefs)
-			_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-				Create(context.TODO(), plcDef, metav1.CreateOptions{})
-			Expect(err).To(BeNil())
-
-			By("check configurationpolicy exist")
-			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-				case31ConfigPolicyNumberName, testNamespace, true, defaultTimeoutSeconds)
-			Expect(plc).NotTo(BeNil())
+		It("checks the policy's history", func() {
+			doHistoryTest(policyYAML, policyName, configPolicyYAML, configPolicyName)
 		})
 
-		It("check history toggling", func() {
-			By("wait until pod is up")
-			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case31ConfigPolicyNumberName, testNamespace, true, defaultTimeoutSeconds)
-
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-
-			By("check events")
-			Consistently(func() int {
-				eventLen := len(utils.GetMatchingEvents(clientManaged, testNamespace, case31ConfigPolicyNumberName,
-					case31ConfigPolicyNumberName, "NonCompliant;", defaultTimeoutSeconds))
-
-				return eventLen
-			}, 30, 5).Should(BeNumerically("<", 2))
-
-			// NOTE: pick policy event, these event's reason include ConfigPolicyName
-			Consistently(func() int {
-				eventLen := len(utils.GetMatchingEvents(clientManaged, testNamespace,
-					case31PolicyNumberName, case31ConfigPolicyNumberName, "NonCompliant;", defaultTimeoutSeconds))
-
-				return eventLen
-			}, 30, 5).Should(BeNumerically("<", 3))
-		})
 		AfterAll(func() {
-			utils.Kubectl("delete", "policy", case31PolicyNumberName, "-n",
-				"managed", "--ignore-not-found")
+			utils.Kubectl("delete", "policy", policyName, "-n", "managed", "--ignore-not-found")
 			configlPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-				case31ConfigPolicyName, "managed", false, defaultTimeoutSeconds,
+				configPolicyName, "managed", false, defaultTimeoutSeconds,
 			)
-			utils.Kubectl("delete", "event",
-				"--field-selector=involvedObject.name="+case31PolicyNumberName, "-n", "managed")
-			utils.Kubectl("delete", "event",
-				"--field-selector=involvedObject.name="+case31ConfigPolicyNumberName, "-n", "managed")
+			utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
+			utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
+			ExpectWithOffset(1, configlPlc).To(BeNil())
+		})
+	})
 
+	Describe("status should not toggle when an array might be omitted", Ordered, func() {
+		const (
+			policyYAML       = rsrcPath + "rb-policy-emptyarray.yaml"
+			policyName       = "test-policy-security-emptyarray"
+			configPolicyYAML = rsrcPath + "rb-config-policy-emptyarray.yaml"
+			configPolicyName = "config-policy-rb-emptyarray"
+		)
+
+		It("sets up a configuration policy with an omitempty number set to 0", func() {
+			createConfigPolicyWithParent(policyYAML, policyName, configPolicyYAML)
+		})
+
+		It("checks the policy's history", func() {
+			doHistoryTest(policyYAML, policyName, configPolicyYAML, configPolicyName)
+		})
+
+		AfterAll(func() {
+			utils.Kubectl("delete", "policy", policyName, "-n", "managed", "--ignore-not-found")
+			configlPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				configPolicyName, "managed", false, defaultTimeoutSeconds,
+			)
+			utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
+			utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
 			ExpectWithOffset(1, configlPlc).To(BeNil())
 		})
 	})
 })
+
+func createConfigPolicyWithParent(parentPolicyYAML, parentPolicyName, configPolicyYAML string) {
+	By("Creating the parent policy")
+	utils.Kubectl("apply", "-f", parentPolicyYAML, "-n", testNamespace)
+	parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
+		parentPolicyName, testNamespace, true, defaultTimeoutSeconds)
+	Expect(parent).NotTo(BeNil())
+
+	plcDef := utils.ParseYaml(configPolicyYAML)
+	ownerRefs := plcDef.GetOwnerReferences()
+	ownerRefs[0].UID = parent.GetUID()
+	plcDef.SetOwnerReferences(ownerRefs)
+
+	By("Creating the configuration policy with the owner reference")
+
+	_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
+		Create(context.TODO(), plcDef, metav1.CreateOptions{})
+	Expect(err).To(BeNil())
+
+	By("Verifying the configuration policy exists")
+
+	plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+		plcDef.GetName(), testNamespace, true, defaultTimeoutSeconds)
+	Expect(plc).NotTo(BeNil())
+}
