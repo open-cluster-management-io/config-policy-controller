@@ -125,6 +125,33 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			ExpectWithOffset(1, configlPlc).To(BeNil())
 		})
 	})
+
+	Describe("status should not toggle when a struct might be omitted", Ordered, func() {
+		const (
+			policyYAML       = rsrcPath + "event-policy-emptystruct.yaml"
+			policyName       = "test-policy-security-emptystruct"
+			configPolicyYAML = rsrcPath + "event-config-policy-emptystruct.yaml"
+			configPolicyName = "config-policy-event-emptystruct"
+		)
+
+		It("sets up a configuration policy with struct set to null", func() {
+			createConfigPolicyWithParent(policyYAML, policyName, configPolicyYAML)
+		})
+
+		It("checks the policy's history", func() {
+			doHistoryTest(policyYAML, policyName, configPolicyYAML, configPolicyName)
+		})
+
+		AfterAll(func() {
+			utils.Kubectl("delete", "policy", policyName, "-n", "managed", "--ignore-not-found")
+			configlPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				configPolicyName, "managed", false, defaultTimeoutSeconds,
+			)
+			utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
+			utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
+			ExpectWithOffset(1, configlPlc).To(BeNil())
+		})
+	})
 })
 
 func createConfigPolicyWithParent(parentPolicyYAML, parentPolicyName, configPolicyYAML string) {

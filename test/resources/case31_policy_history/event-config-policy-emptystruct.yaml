@@ -1,0 +1,39 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: config-policy-event-emptystruct
+  labels:
+    policy.open-cluster-management.io/policy: test-policy-security
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    blockOwnerDeletion: false
+    controller: true
+    kind: Policy
+    name: test-policy-security-emptystruct
+    uid: 08bae967-4262-498a-84e9-d1f0e321b41e
+spec:
+  pruneObjectBehavior: DeleteAll  
+  remediationAction: enforce
+  namespaceSelector:
+    exclude:
+      - kube-public
+    include:
+      - default
+      - kube-system
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        action: DidTheThing
+        apiVersion: events.k8s.io/v1
+        eventTime: 2023-04-27T14:37:36.721589Z
+        kind: Event
+        metadata:
+          name: configpol-test-event
+          namespace: kube-system
+        note: Successfully did something
+        reason: Success
+        regarding: null
+        related: null
+        reportingController: ConfigPolicyTester
+        reportingInstance: configpol-history-test
+        type: Normal

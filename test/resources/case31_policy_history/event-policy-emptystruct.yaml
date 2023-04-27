@@ -1,0 +1,42 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: test-policy-security-emptystruct
+  annotations:
+    policy.open-cluster.management.io/standards: NIST-CSF
+    policy.open-cluster.management.io/categories: PR.PT Protective Technology
+    policy.open-cluster.management.io/controls: PR.PT-3 Least Functionality
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: config-policy-event-emptystruct
+        spec:
+          remediationAction: enforce
+          namespaceSelector:
+            exclude:
+              - kube-public
+            include:
+              - default
+              - kube-system
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                action: DidTheThing
+                apiVersion: events.k8s.io/v1
+                eventTime: 2023-04-27T14:37:36.721589Z
+                kind: Event
+                metadata:
+                  name: configpol-test-event
+                  namespace: kube-system
+                note: Successfully did something
+                reason: Success
+                regarding: null
+                related: null
+                reportingController: ConfigPolicyTester
+                reportingInstance: configpol-history-test
+                type: Normal
