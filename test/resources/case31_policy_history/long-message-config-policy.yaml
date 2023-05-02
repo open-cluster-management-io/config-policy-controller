@@ -1,0 +1,47 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: long-message-config-policy
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    blockOwnerDeletion: false
+    controller: true
+    kind: Policy
+    name: long-message-policy
+    uid: 08bae967-4262-498a-84e9-d1f0e321b41e
+spec:
+  pruneObjectBehavior: DeleteAll  
+  remediationAction: inform
+  namespaceSelector:
+    exclude:
+      - kube-*
+    include:            
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt1
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt2
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt3
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt4
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt5
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt6
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt7
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt8
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt9
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt10
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt11
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt12
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt13
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt14
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt15
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: case31-multi-namespace-inform-pod
+        spec:
+          containers:
+            - image: nginx:1.7.9
+              imagePullPolicy: Never
+              name: nginx
+              ports:
+                - containerPort: 80

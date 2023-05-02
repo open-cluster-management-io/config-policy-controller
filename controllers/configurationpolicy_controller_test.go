@@ -268,8 +268,7 @@ func TestConvertPolicyStatusToStringLongMsg(t *testing.T) {
 	}
 	statusMsg := convertPolicyStatusToString(&samplePolicy)
 
-	assert.Contains(t, statusMsg, "...")
-	assert.Len(t, []rune(statusMsg), 1024)
+	assert.Greater(t, len(statusMsg), 1024)
 }
 
 func TestMerge(t *testing.T) {
