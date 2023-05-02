@@ -5,6 +5,7 @@ package e2e
 
 import (
 	"context"
+	"strconv"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -150,6 +151,70 @@ var _ = Describe("Test policy history message when KubeAPI return "+
 				"--field-selector=involvedObject.name="+case31ConfigPolicyNumberName, "-n", "managed")
 
 			ExpectWithOffset(1, configlPlc).To(BeNil())
+		})
+	})
+	Describe("policy message should not be truncated", func() {
+		const (
+			case31LMPolicy           = "../resources/case31_policy_history/long-message-policy.yaml"
+			case31LMConfigPolicy     = "../resources/case31_policy_history/long-message-config-policy.yaml"
+			case31LMPolicyName       = "long-message-policy"
+			case31LMConfigPolicyName = "long-message-config-policy"
+			namespacePrefix          = "innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt"
+		)
+		It("Test policy message length is over 1024 ", func() {
+			By("Create namespaces")
+			for i := range [15]int{} {
+				utils.Kubectl("create", "ns", namespacePrefix+strconv.Itoa(i+1))
+			}
+			utils.Kubectl("apply", "-f", case31LMPolicy, "-n", "managed")
+			By("bind policy and configurationpolicy")
+			parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
+				case31LMPolicyName, testNamespace, true, defaultTimeoutSeconds)
+			Expect(parent).NotTo(BeNil())
+
+			plcDef := utils.ParseYaml(case31LMConfigPolicy)
+			ownerRefs := plcDef.GetOwnerReferences()
+			ownerRefs[0].UID = parent.GetUID()
+			plcDef.SetOwnerReferences(ownerRefs)
+			_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
+				Create(context.TODO(), plcDef, metav1.CreateOptions{})
+			Expect(err).To(BeNil())
+
+			By("check configurationpolicy exist")
+			Eventually(func() interface{} {
+				plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case31LMConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
+				compliant := utils.GetComplianceState(plc)
+
+				return compliant
+			}, 30, 5).Should(Equal("NonCompliant"))
+
+			By("check message longer than 1024")
+			Eventually(func() int {
+				event := utils.GetMatchingEvents(clientManaged, testNamespace,
+					case31LMPolicyName, case31LMConfigPolicyName, "NonCompliant", defaultTimeoutSeconds)
+
+				Expect(len(event)).ShouldNot(BeZero())
+				message := event[len(event)-1].Message
+
+				return len(message)
+			}, 30, 5).Should(BeNumerically(">", 1024))
+		})
+		AfterAll(func() {
+			utils.Kubectl("delete", "policy", case31LMPolicyName, "-n",
+				"managed", "--ignore-not-found")
+			configlPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case31LMPolicyName, "managed", false, defaultTimeoutSeconds,
+			)
+			Expect(configlPlc).To(BeNil())
+			utils.Kubectl("delete", "event",
+				"--field-selector=involvedObject.name="+case31LMPolicyName, "-n", "managed")
+			utils.Kubectl("delete", "event",
+				"--field-selector=involvedObject.name="+case31LMConfigPolicy, "-n", "managed")
+			for i := range [15]int{} {
+				utils.Kubectl("delete", "ns", namespacePrefix+strconv.Itoa(i+1),
+					"--ignore-not-found", "--force", "--grace-period=0")
+			}
 		})
 	})
 })
