@@ -106,35 +106,35 @@ var _ = Describe("Test discovery info refresh", func() {
 			context.TODO(), case18PolicyName, metav1.DeleteOptions{},
 		)
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 
 		err = clientManagedDynamic.Resource(gvrCRD).Delete(
 			context.TODO(), "pizzaslices.food.example.com", metav1.DeleteOptions{},
 		)
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 
 		err = clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Delete(
 			context.TODO(), case18PolicyTemplateName, metav1.DeleteOptions{},
 		)
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 
 		err = clientManagedDynamic.Resource(gvrCRD).Delete(
 			context.TODO(), "pizzaslices.diner.example.com", metav1.DeleteOptions{},
 		)
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 
 		err = clientManaged.CoreV1().ConfigMaps("default").Delete(
 			context.TODO(), case18ConfigMapName, metav1.DeleteOptions{},
 		)
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 	})
 })

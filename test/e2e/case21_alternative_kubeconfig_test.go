@@ -35,10 +35,10 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 		Expect(altKubeconfigPath).ToNot(Equal(""))
 
 		targetK8sConfig, err := clientcmd.BuildConfigFromFlags("", altKubeconfigPath)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		targetK8sClient, err = kubernetes.NewForConfig(targetK8sConfig)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 	})
 
 	AfterAll(func() {
@@ -48,12 +48,12 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 			context.TODO(), parentPolicyName, metav1.DeleteOptions{},
 		)
 		if !errors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 
 		err = targetK8sClient.CoreV1().Namespaces().Delete(context.TODO(), namespaceName, metav1.DeleteOptions{})
 		if !errors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 	})
 
@@ -71,7 +71,7 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 
 		By("Verifying that the " + policyName + " was created using the alternative kubeconfig")
 		_, err := targetK8sClient.CoreV1().Namespaces().Get(context.TODO(), namespaceName, metav1.GetOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying that a compliance event was created on the parent policy")
 		compParentEvents := utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,

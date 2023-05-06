@@ -189,7 +189,7 @@ func deleteConfigPolicies(policyNames []string) {
 			context.TODO(), policyName, metav1.DeleteOptions{},
 		)
 		if !errors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 	}
 
@@ -207,7 +207,7 @@ func deletePods(podNames []string, namespaces []string) {
 				context.TODO(), podName, metav1.DeleteOptions{},
 			)
 			if !errors.IsNotFound(err) {
-				Expect(err).To(BeNil())
+				Expect(err).ToNot(HaveOccurred())
 			}
 		}
 	}

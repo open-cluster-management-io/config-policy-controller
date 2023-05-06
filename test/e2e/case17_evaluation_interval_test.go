@@ -48,7 +48,7 @@ var _ = Describe("Test evaluation interval", func() {
 		Expect(lastEvaluatedGeneration).To(Equal(managedPlc.GetGeneration()))
 
 		lastEvaluatedParsed, err := time.Parse(time.RFC3339, lastEvaluated)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("Waiting for status.lastEvaluated to refresh")
 		Eventually(func() interface{} {
@@ -65,7 +65,7 @@ var _ = Describe("Test evaluation interval", func() {
 		Expect(lastEvalGenerationRefreshed).To(Equal(lastEvaluatedGeneration))
 
 		lastEvalRefreshedParsed, err := time.Parse(time.RFC3339, lastEvalRefreshed)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		Expect(lastEvaluatedParsed.Before(lastEvalRefreshedParsed)).To(BeTrue())
 
@@ -78,7 +78,7 @@ var _ = Describe("Test evaluation interval", func() {
 			"Policy status is: NonCompliant",
 			defaultTimeoutSeconds,
 		)
-		Expect(len(events)).To(Equal(1))
+		Expect(events).To(HaveLen(1))
 		Expect(events[0].Count).To(Equal(int32(1)))
 
 		By("Verifying that only one event was sent for the parent policy")
@@ -90,7 +90,7 @@ var _ = Describe("Test evaluation interval", func() {
 			"^NonCompliant;",
 			defaultTimeoutSeconds,
 		)
-		Expect(len(parentEvents)).To(Equal(1))
+		Expect(parentEvents).To(HaveLen(1))
 		Expect(parentEvents[0].Count).To(Equal(int32(1)))
 	})
 
@@ -120,7 +120,7 @@ var _ = Describe("Test evaluation interval", func() {
 
 		lastEvaluated, _ := utils.GetLastEvaluated(managedPlc)
 		_, err := time.Parse(time.RFC3339, lastEvaluated)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying that compliance message mentions it won't be reevaluated")
 		msg, ok := utils.GetStatusMessage(managedPlc).(string)
@@ -149,11 +149,11 @@ var _ = Describe("Test evaluation interval", func() {
 			context.TODO(), case17CreatedNamespaceName, v1.DeleteOptions{},
 		)
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 
 		events, err := clientManaged.CoreV1().Events(testNamespace).List(context.TODO(), v1.ListOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		for _, event := range events.Items {
 			name := event.GetName()
@@ -162,7 +162,7 @@ var _ = Describe("Test evaluation interval", func() {
 				strings.HasPrefix(name, case17PolicyName) ||
 				strings.HasPrefix(name, case17PolicyNeverName) {
 				err = clientManaged.CoreV1().Events(testNamespace).Delete(context.TODO(), name, v1.DeleteOptions{})
-				Expect(err).To(BeNil())
+				Expect(err).ToNot(HaveOccurred())
 			}
 		}
 	})
