@@ -78,7 +78,6 @@ type ctrlOpts struct {
 	evaluationConcurrency uint8
 	enableLease           bool
 	enableLeaderElection  bool
-	legacyLeaderElection  bool
 	enableMetrics         bool
 }
 
@@ -241,18 +240,6 @@ func main() {
 				},
 			},
 		),
-	}
-
-	if opts.legacyLeaderElection {
-		// If legacyLeaderElection is enabled, then that means the lease API is not available.
-		// In this case, use the legacy leader election method of a ConfigMap.
-		log.Info("Using the legacy leader election of configmaps")
-
-		options.LeaderElectionResourceLock = "configmaps"
-	} else {
-		// use the leases leader election by default for controller-runtime 0.11 instead of
-		// the default of configmapsleases (leases is the new default in 0.12)
-		options.LeaderElectionResourceLock = "leases"
 	}
 
 	// Create a new manager to provide shared dependencies and start components
@@ -483,13 +470,6 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		true,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.",
-	)
-
-	flags.BoolVar(
-		&opts.legacyLeaderElection,
-		"legacy-leader-elect",
-		false,
-		"Use a legacy leader election method for controller manager instead of the lease API.",
 	)
 
 	flags.Uint8Var(
