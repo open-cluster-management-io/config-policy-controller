@@ -43,7 +43,7 @@ var _ = Describe("Test that an array can be updated when using named objects", O
 			},
 		}
 		_, err := clientManaged.CoreV1().Pods("default").Create(context.TODO(), pod, metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("Creating the " + policyName + " policy")
 		utils.Kubectl("apply", "-f", policyYAML, "-n", testNamespace)
@@ -59,7 +59,7 @@ var _ = Describe("Test that an array can be updated when using named objects", O
 
 		By("Verifying the pod's image was updated")
 		pod, err = clientManaged.CoreV1().Pods("default").Get(context.TODO(), podName, metav1.GetOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		Expect(pod.Spec.Containers).To(HaveLen(1))
 		Expect(pod.Spec.Containers[0].Image).To(Equal("nginx:1.7.8"))
 	})
@@ -68,7 +68,7 @@ var _ = Describe("Test that an array can be updated when using named objects", O
 		deleteConfigPolicies([]string{policyName})
 		err := clientManaged.CoreV1().Pods("default").Delete(context.TODO(), podName, metav1.DeleteOptions{})
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 	})
 })

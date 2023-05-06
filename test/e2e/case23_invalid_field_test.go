@@ -64,7 +64,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 			},
 		}
 		_, err := clientManaged.CoreV1().ConfigMaps("default").Create(context.TODO(), configmap, metav1.CreateOptions{})
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		expectedMsg = "Error validating the object case23, the error is `ValidationError(ConfigMap): unknown " +
 			"field \"invalid\" in io.k8s.api.core.v1.ConfigMap`"
@@ -101,7 +101,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 			context.TODO(), configMapName, metav1.DeleteOptions{},
 		)
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 	})
 })
@@ -134,7 +134,7 @@ var _ = Describe("Test an objectDefinition with a missing status field that shou
 
 		err := clientManaged.CoreV1().Pods("default").Delete(context.TODO(), podName, metav1.DeleteOptions{})
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 	})
 })

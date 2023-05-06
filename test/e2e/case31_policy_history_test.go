@@ -15,7 +15,7 @@ import (
 )
 
 var _ = Describe("Test policy history messages when KubeAPI omits values in the returned object", Ordered, func() {
-	doHistoryTest := func(policyYAML, policyName, configPolicyYAML, configPolicyName string) {
+	doHistoryTest := func(policyName, configPolicyName string) {
 		By("Waiting until the policy is initially compliant")
 		Eventually(func() interface{} {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -59,7 +59,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 		})
 
 		It("checks the policy's history", func() {
-			doHistoryTest(policyYAML, policyName, configPolicyYAML, configPolicyName)
+			doHistoryTest(policyName, configPolicyName)
 		})
 
 		AfterAll(func() {
@@ -86,7 +86,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 		})
 
 		It("checks the policy's history", func() {
-			doHistoryTest(policyYAML, policyName, configPolicyYAML, configPolicyName)
+			doHistoryTest(policyName, configPolicyName)
 		})
 
 		AfterAll(func() {
@@ -113,7 +113,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 		})
 
 		It("checks the policy's history", func() {
-			doHistoryTest(policyYAML, policyName, configPolicyYAML, configPolicyName)
+			doHistoryTest(policyName, configPolicyName)
 		})
 
 		AfterAll(func() {
@@ -140,7 +140,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 		})
 
 		It("checks the policy's history", func() {
-			doHistoryTest(policyYAML, policyName, configPolicyYAML, configPolicyName)
+			doHistoryTest(policyName, configPolicyName)
 		})
 
 		AfterAll(func() {
@@ -178,7 +178,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			plcDef.SetOwnerReferences(ownerRefs)
 			_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
 				Create(context.TODO(), plcDef, metav1.CreateOptions{})
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 
 			By("check configurationpolicy exist")
 			Eventually(func() interface{} {
@@ -194,7 +194,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 				event := utils.GetMatchingEvents(clientManaged, testNamespace,
 					case31LMPolicyName, case31LMConfigPolicyName, "NonCompliant", defaultTimeoutSeconds)
 
-				Expect(len(event)).ShouldNot(BeZero())
+				Expect(event).ShouldNot(BeEmpty())
 				message := event[len(event)-1].Message
 
 				return len(message)
@@ -235,7 +235,7 @@ func createConfigPolicyWithParent(parentPolicyYAML, parentPolicyName, configPoli
 
 	_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
 		Create(context.TODO(), plcDef, metav1.CreateOptions{})
-	Expect(err).To(BeNil())
+	Expect(err).ToNot(HaveOccurred())
 
 	By("Verifying the configuration policy exists")
 

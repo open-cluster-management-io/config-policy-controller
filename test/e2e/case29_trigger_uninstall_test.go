@@ -55,7 +55,7 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 
 		By("Triggering an uninstall")
 		config, err := LoadConfig("", kubeconfigManaged, "")
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		ctx, ctxCancel := context.WithDeadline(
 			context.Background(),
@@ -66,25 +66,25 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 		defer ctxCancel()
 
 		err = triggeruninstall.TriggerUninstall(ctx, config, deploymentName, deploymentNamespace, testNamespace)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying that the uninstall annotation was set on the Deployment")
 		deployment, err := clientManaged.AppsV1().Deployments(deploymentNamespace).Get(
 			context.TODO(), deploymentName, metav1.GetOptions{},
 		)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 		Expect(deployment.GetAnnotations()).To(HaveKeyWithValue(common.UninstallingAnnotation, "true"))
 
 		By("Verifying that the ConfiguratioPolicy finalizers have been removed")
 		policy := utils.GetWithTimeout(
 			clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 		)
-		Expect(policy.GetFinalizers()).To(HaveLen(0))
+		Expect(policy.GetFinalizers()).To(BeEmpty())
 
 		policy2 := utils.GetWithTimeout(
 			clientManagedDynamic, gvrConfigPolicy, policy2Name, testNamespace, true, defaultTimeoutSeconds,
 		)
-		Expect(policy2.GetFinalizers()).To(HaveLen(0))
+		Expect(policy2.GetFinalizers()).To(BeEmpty())
 	})
 
 	AfterAll(func() {
@@ -94,7 +94,7 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 			context.TODO(), configMapName, metav1.DeleteOptions{},
 		)
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 
 		// Use an eventually in case there are update conflicts and there needs to be a retry
@@ -102,7 +102,7 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 			deployment, err := clientManaged.AppsV1().Deployments(deploymentNamespace).Get(
 				context.TODO(), deploymentName, metav1.GetOptions{},
 			)
-			g.Expect(err).To(BeNil())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			annotations := deployment.GetAnnotations()
 			if _, ok := annotations[common.UninstallingAnnotation]; !ok {
@@ -115,7 +115,7 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 			_, err = clientManaged.AppsV1().Deployments(deploymentNamespace).Update(
 				context.TODO(), deployment, metav1.UpdateOptions{},
 			)
-			g.Expect(err).To(BeNil())
+			g.Expect(err).ToNot(HaveOccurred())
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 })
@@ -134,11 +134,11 @@ var _ = Describe("Clean up the finalizer on the Deployment", Label("running-in-c
 		By("Adding a finalizer to the Deployment")
 		Eventually(func(g Gomega) {
 			deployment, err := deploymentRsrc.Get(context.TODO(), deploymentName, metav1.GetOptions{})
-			g.Expect(err).To(BeNil())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			deployment.SetFinalizers(append(deployment.Finalizers, pruneObjectFinalizer))
 			_, err = deploymentRsrc.Update(context.TODO(), deployment, metav1.UpdateOptions{})
-			g.Expect(err).To(BeNil())
+			g.Expect(err).ToNot(HaveOccurred())
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		// Trigger a restart so that the finalizer removal logic is executed.
@@ -147,7 +147,7 @@ var _ = Describe("Clean up the finalizer on the Deployment", Label("running-in-c
 		By("Waiting for the finalizer on the Deployment to be removed")
 		Eventually(func(g Gomega) {
 			deployment, err := deploymentRsrc.Get(context.TODO(), deploymentName, metav1.GetOptions{})
-			g.Expect(err).To(BeNil())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			g.Expect(deployment.Finalizers).ToNot(ContainElement(pruneObjectFinalizer))
 		}, defaultTimeoutSeconds*2, 1).Should(Succeed())
@@ -159,7 +159,7 @@ var _ = Describe("Clean up the finalizer on the Deployment", Label("running-in-c
 		// Use an eventually in case there are update conflicts and there needs to be a retry
 		Eventually(func(g Gomega) {
 			deployment, err := deploymentRsrc.Get(context.TODO(), deploymentName, metav1.GetOptions{})
-			g.Expect(err).To(BeNil())
+			g.Expect(err).ToNot(HaveOccurred())
 
 			for i, finalizer := range deployment.Finalizers {
 				if finalizer == pruneObjectFinalizer {
@@ -167,7 +167,7 @@ var _ = Describe("Clean up the finalizer on the Deployment", Label("running-in-c
 					deployment.SetFinalizers(newFinalizers)
 
 					_, err := deploymentRsrc.Update(context.TODO(), deployment, metav1.UpdateOptions{})
-					g.Expect(err).To(BeNil())
+					g.Expect(err).ToNot(HaveOccurred())
 
 					break
 				}

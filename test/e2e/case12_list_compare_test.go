@@ -341,10 +341,10 @@ var _ = Describe("Test list handling for musthave", func() {
 			tmpl := deploy.Object["spec"].(map[string]interface{})["template"].(map[string]interface{})
 			//nolint:forcetypeassert
 			containers := tmpl["spec"].(map[string]interface{})["containers"].([]interface{})
-			Expect(len(containers)).To(Equal(1))
+			Expect(containers).To(HaveLen(1))
 			//nolint:forcetypeassert
 			envvars := containers[0].(map[string]interface{})["env"].([]interface{})
-			Expect(len(envvars)).To(Equal(1))
+			Expect(envvars).To(HaveLen(1))
 		})
 
 		It("Cleans up", func() {

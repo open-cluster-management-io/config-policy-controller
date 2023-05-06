@@ -166,9 +166,9 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 			// If an object name is not specified in the policy, related objects match those in the
 			//   cluster as this is not enforceable.
 			if policy.hasObjName {
-				Expect(len(checkRelated(plc))).Should(Equal(len(testNamespaces) + 1))
+				Expect(checkRelated(plc)).Should(HaveLen(len(testNamespaces) + 1))
 			} else {
-				Expect(len(checkRelated(plc))).Should(Equal(len(testNamespaces)))
+				Expect(checkRelated(plc)).Should(HaveLen(len(testNamespaces)))
 			}
 		}
 	})
@@ -189,7 +189,7 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policy.name, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Expect(len(checkRelated(plc))).Should(Equal(len(testNamespaces) + 1))
+			Expect(checkRelated(plc)).Should(HaveLen(len(testNamespaces) + 1))
 		}
 	})
 
@@ -240,7 +240,7 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 	It("should update relatedObjects after deleting a namespace", func() {
 		By("Deleting namespace " + newNs)
 		namespaces := clientManaged.CoreV1().Namespaces()
-		Expect(namespaces.Delete(context.TODO(), newNs, metav1.DeleteOptions{})).To(BeNil())
+		Expect(namespaces.Delete(context.TODO(), newNs, metav1.DeleteOptions{})).To(Succeed())
 		Eventually(func() bool {
 			_, err := namespaces.Get(context.TODO(), newNs, metav1.GetOptions{})
 

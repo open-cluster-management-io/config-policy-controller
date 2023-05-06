@@ -32,11 +32,11 @@ func getReconciler(includeSecret bool) ConfigurationPolicyReconciler {
 		// Generate AES-256 keys and store them as a secret.
 		key := make([]byte, keySize/8)
 		_, err := rand.Read(key)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		previousKey := make([]byte, keySize/8)
 		_, err = rand.Read(previousKey)
-		Expect(err).To(BeNil())
+		Expect(err).ToNot(HaveOccurred())
 
 		encryptionSecret := &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{
@@ -74,7 +74,7 @@ func TestGetEncryptionKey(t *testing.T) {
 	r := getReconciler(true)
 	cachedEncryptionKey, err := r.getEncryptionKey(clusterName)
 
-	Expect(err).To(BeNil())
+	Expect(err).ToNot(HaveOccurred())
 	Expect(cachedEncryptionKey.key).ToNot(BeNil())
 	Expect(cachedEncryptionKey.previousKey).ToNot(BeNil())
 }
@@ -86,7 +86,7 @@ func TestGetEncryptionKeyFail(t *testing.T) {
 	r := getReconciler(false)
 	cachedEncryptionKey, err := r.getEncryptionKey(clusterName)
 
-	Expect(err).ToNot(BeNil())
+	Expect(err).To(HaveOccurred())
 	Expect(cachedEncryptionKey).To(BeNil())
 }
 
@@ -100,7 +100,7 @@ func TestGetEncryptionConfig(t *testing.T) {
 	policy := getEmptyPolicy()
 
 	config, usedCache, err := r.getEncryptionConfig(policy, false)
-	Expect(err).To(BeNil())
+	Expect(err).ToNot(HaveOccurred())
 	Expect(usedCache).To(BeFalse())
 	Expect(config).ToNot(BeNil())
 	Expect(config.AESKey).ToNot(BeNil())
@@ -124,13 +124,13 @@ func TestGetEncryptionConfigCached(t *testing.T) {
 
 	key := make([]byte, keySize/8)
 	_, err := rand.Read(key)
-	Expect(err).To(BeNil())
+	Expect(err).ToNot(HaveOccurred())
 
 	r.cachedEncryptionKey = &cachedEncryptionKey{key: key}
 	policy := getEmptyPolicy()
 
 	config, usedCache, err := r.getEncryptionConfig(policy, false)
-	Expect(err).To(BeNil())
+	Expect(err).ToNot(HaveOccurred())
 	Expect(usedCache).To(BeTrue())
 	Expect(config).ToNot(BeNil())
 	Expect(config.AESKey).ToNot(BeNil())
@@ -189,7 +189,7 @@ func TestGetEncryptionConfigForceRefresh(t *testing.T) {
 	policy := getEmptyPolicy()
 
 	config, usedCache, err := r.getEncryptionConfig(policy, true)
-	Expect(err).To(BeNil())
+	Expect(err).ToNot(HaveOccurred())
 	Expect(usedCache).To(BeFalse())
 	Expect(config).ToNot(BeNil())
 	Expect(config.AESKey).ToNot(Equal(key))
@@ -214,7 +214,7 @@ func TestGetEncryptionKeyEmptySecret(t *testing.T) {
 	r := ConfigurationPolicyReconciler{Client: client, DecryptionConcurrency: 5}
 	cachedEncryptionKey, err := r.getEncryptionKey(clusterName)
 
-	Expect(err).To(BeNil())
+	Expect(err).ToNot(HaveOccurred())
 	Expect(cachedEncryptionKey.key).To(BeNil())
 	Expect(cachedEncryptionKey.previousKey).To(BeNil())
 }

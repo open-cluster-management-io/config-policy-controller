@@ -180,7 +180,7 @@ var _ = Describe("Testing compliance event formatting", func() {
 				context.TODO(), policyName, metav1.DeleteOptions{},
 			)
 			if !k8serrors.IsNotFound(err) {
-				Expect(err).To(BeNil())
+				Expect(err).ToNot(HaveOccurred())
 			}
 		}
 
@@ -197,7 +197,7 @@ var _ = Describe("Testing compliance event formatting", func() {
 		err := clientManaged.CoreV1().Pods("default").Delete(
 			context.TODO(), "case15-becomescompliant", metav1.DeleteOptions{})
 		if !k8serrors.IsNotFound(err) {
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 		}
 	})
 })

@@ -23,11 +23,11 @@ var _ = Describe("Test config policy evaluation metrics", Ordered, func() {
 	It("should record number of evaluations under 30 seconds for comparison", func() {
 		evalMetric := utils.GetMetrics(
 			"config_policies_evaluation_duration_seconds_bucket", fmt.Sprintf(`le=\"%d\"`, 30))
-		Expect(len(evalMetric) != 0).To(BeTrue())
+		Expect(evalMetric).ToNot(BeEmpty())
 		numEvals, err := strconv.Atoi(evalMetric[0])
-		Expect(err == nil).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
 		prePolicyEvalDuration = numEvals
-		Expect(prePolicyEvalDuration > -1).To(BeTrue())
+		Expect(prePolicyEvalDuration).To(BeNumerically(">", -1))
 	})
 
 	It("should create policy", func() {

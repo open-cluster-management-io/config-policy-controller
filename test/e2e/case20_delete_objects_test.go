@@ -373,7 +373,7 @@ var _ = Describe("Test objects that should be deleted are actually being deleted
 			err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Delete(
 				context.TODO(), case20ConfigPolicyNameFinalizer, metav1.DeleteOptions{},
 			)
-			Expect(err).To(BeNil())
+			Expect(err).ToNot(HaveOccurred())
 
 			Consistently(func() interface{} {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
@@ -580,7 +580,7 @@ var _ = Describe("Test objects are not deleted when the CRD is removed", Ordered
 		Eventually(func(g Gomega) {
 			namespace := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace)
 			_, err := namespace.Get(context.TODO(), case20ConfigPolicyNameMHPDA, metav1.GetOptions{})
-			g.Expect(err).NotTo(BeNil())
+			g.Expect(err).To(HaveOccurred())
 			g.Expect(err.Error()).To(ContainSubstring("the server could not find the requested resource"))
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
