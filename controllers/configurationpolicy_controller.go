@@ -195,7 +195,14 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 			_ = r.refreshDiscoveryInfo()
 		}
 
-		if discoveryErr == nil {
+		cleanupImmediately, err := r.cleanupImmediately()
+		if err != nil {
+			log.Error(err, "Failed to determine if it's time to cleanup immediately")
+
+			skipLoop = true
+		}
+
+		if !skipLoop && (discoveryErr == nil || cleanupImmediately) {
 			// This retrieves the policies from the controller-runtime cache populated by the watch.
 			err := r.List(context.TODO(), &policiesList)
 			if err != nil {
@@ -204,13 +211,6 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 				skipLoop = true
 			}
 		} else {
-			skipLoop = true
-		}
-
-		cleanupImmediately, err := r.cleanupImmediately()
-		if err != nil {
-			log.Error(err, "Failed to determine if it's time to cleanup immediately")
-
 			skipLoop = true
 		}
 
