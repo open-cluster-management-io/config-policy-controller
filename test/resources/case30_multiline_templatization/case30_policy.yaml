@@ -6,7 +6,7 @@ spec:
   remediationAction: enforce
   severity: low
   object-templates-raw: |
-    {{ range (lookup "v1" "ConfigMap" "default" "").items }}
+    {{ range (lookup "v1" "ConfigMap" "default" "" "testcase=30").items }}
       - complianceType: musthave
         objectDefinition:
           apiVersion: v1

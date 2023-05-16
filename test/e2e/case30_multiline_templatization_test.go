@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -23,7 +24,7 @@ const (
 )
 
 const (
-	case30Unterminated       string = "policy-pod-create-unterminated"
+	case30Unterminated       string = "case30-configpolicy"
 	case30UnterminatedYaml   string = "../resources/case30_multiline_templatization/case30_unterminated.yaml"
 	case30WrongArgs          string = "policy-pod-create-wrong-args"
 	case30WrongArgsYaml      string = "../resources/case30_multiline_templatization/case30_wrong_args.yaml"
@@ -110,6 +111,41 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 		})
 	})
 	Describe("Test invalid multiline templates", func() {
+		It("configmap should be created properly on the managed cluster", func() {
+			By("Creating config maps on managed")
+			utils.Kubectl("apply", "-f", case30ConfigMapsYaml, "-n", "default")
+			for _, cfgMapName := range []string{"30config1", "30config2"} {
+				cfgmap := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
+					cfgMapName, "default", true, defaultTimeoutSeconds)
+				Expect(cfgmap).NotTo(BeNil())
+			}
+		})
+		It("should create compliant policy", func() {
+			By("Creating policy with range template on managed")
+			utils.Kubectl("apply", "-f", case30RangePolicyYaml, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case30RangePolicyName, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+
+			By("Verifying that the " + case30RangePolicyName + " policy is compliant")
+			Eventually(func(g Gomega) interface{} {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic,
+					gvrConfigPolicy,
+					case30RangePolicyName,
+					testNamespace,
+					true,
+					defaultTimeoutSeconds,
+				)
+
+				details, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "compliancyDetails")
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(details).To(HaveLen(2))
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+		})
+
 		It("should generate noncompliant for invalid template strings", func() {
 			By("Creating policies on managed")
 			// create policy with unterminated template
@@ -117,9 +153,13 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case30Unterminated, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case30Unterminated, testNamespace, true, defaultTimeoutSeconds)
+
+				details, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "compliancyDetails")
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(details).To(HaveLen(1))
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))

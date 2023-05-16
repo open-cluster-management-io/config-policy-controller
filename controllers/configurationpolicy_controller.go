@@ -466,7 +466,7 @@ func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
 				reason := "namespaceSelector error"
 				msg := fmt.Sprintf(
 					"%s: %s", errMsg, err.Error())
-				statusChanged := addConditionToStatus(&plc, 0, false, reason, msg)
+				statusChanged := addConditionToStatus(&plc, -1, false, reason, msg)
 				if statusChanged {
 					r.Recorder.Event(
 						&plc,
@@ -682,7 +682,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 	if validationErr != "" {
 		message := validationErr
 		log.Info(message)
-		statusChanged := addConditionToStatus(&plc, 0, false, "Invalid spec", message)
+		statusChanged := addConditionToStatus(&plc, -1, false, "Invalid spec", message)
 
 		if statusChanged {
 			r.Recorder.Event(&plc, eventWarning,
@@ -768,7 +768,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 				statusChanged := addConditionToStatus(
 					&plc,
-					0,
+					-1,
 					false,
 					reasonCleanupError,
 					"Failed to delete objects: "+strings.Join(failures, ", "))
@@ -808,7 +808,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			reason = "Error processing template"
 		}
 
-		statusChanged := addConditionToStatus(&plc, 0, false, reason, msg)
+		statusChanged := addConditionToStatus(&plc, -1, false, reason, msg)
 		if statusChanged {
 			parentStatusUpdateNeeded = true
 
@@ -1033,6 +1033,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 	templateObjs, selectedNamespaces, objTmplStatusChangeNeeded, err = r.getObjectTemplateDetails(plc)
 
+	// Set the CompliancyDetails array length accordingly in case the number of
+	// object-templates was reduced (the status update will handle if it's longer)
+	if len(templateObjs) < len(plc.Status.CompliancyDetails) {
+		plc.Status.CompliancyDetails = plc.Status.CompliancyDetails[:len(templateObjs)]
+	}
+
 	if objTmplStatusChangeNeeded {
 		parentStatusUpdateNeeded = true
 	}
@@ -1050,7 +1056,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		msg := fmt.Sprintf("%v contains no object templates to check, and thus has no violations",
 			plc.GetName())
 
-		statusUpdateNeeded := addConditionToStatus(&plc, 0, true, reason, msg)
+		statusUpdateNeeded := addConditionToStatus(&plc, -1, true, reason, msg)
 
 		if statusUpdateNeeded {
 			eventType := eventNormal
@@ -1288,6 +1294,7 @@ func (r *ConfigurationPolicyReconciler) deleteDetachedObj(plc policyv1.Configura
 }
 
 // helper function that appends a condition (violation or compliant) to the status of a configurationpolicy
+// Set the index to -1 to signal that the status should be cleared.
 func addConditionToStatus(
 	plc *policyv1.ConfigurationPolicy, index int, compliant bool, reason string, message string,
 ) (updateNeeded bool) {
@@ -1324,6 +1331,15 @@ func addConditionToStatus(
 		cond.Message += fmt.Sprintf(". %s.", msg)
 	}
 
+	// Set a boolean to clear the details array if the index is -1, but set
+	// the index to zero to determine whether a status update is required
+	clearStatus := false
+
+	if index == -1 {
+		clearStatus = true
+		index = 0
+	}
+
 	if len(plc.Status.CompliancyDetails) <= index {
 		plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1.TemplateStatus{
 			ComplianceState: complianceState,
@@ -1342,6 +1358,11 @@ func addConditionToStatus(
 		conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond)
 		plc.Status.CompliancyDetails[index].Conditions = conditions
 		updateNeeded = true
+	}
+
+	// Clear the details array if the index provided was -1
+	if clearStatus {
+		plc.Status.CompliancyDetails = plc.Status.CompliancyDetails[0:1]
 	}
 
 	if updateNeeded {
