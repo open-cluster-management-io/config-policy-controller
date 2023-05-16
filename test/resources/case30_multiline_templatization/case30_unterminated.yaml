@@ -1,22 +1,21 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: policy-pod-create-unterminated
+  name: case30-configpolicy
 spec:
   remediationAction: enforce
   namespaceSelector:
     exclude: ["kube-*"]
     include: ["default"]
-  object-templates-raw: |
-    - complianceType: musthave
-      objectDefinition:
-        apiVersion: v1
-        kind: Pod
-        metadata:
-          name: '{{'
-        spec:
-          containers:
-            - image: nginx:1.7.9
-              name: nginx
-              ports:
-                - containerPort: 80
+  object-templates-raw:  |
+    {{ range (lookup "v1" "ConfigMap" "default" "" "testcase=30").items }}
+      - complianceType: musthave
+        objectDefinition:
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: '{{'
+            namespace: default
+          data:
+            extraData: exists!
+    {{ end }}
