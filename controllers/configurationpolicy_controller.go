@@ -178,13 +178,16 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 		}
 
 		start := time.Now()
-		policiesList := policyv1.ConfigurationPolicyList{}
 
 		var skipLoop bool
-		var discoveryErr error
 
 		if len(r.apiResourceList) == 0 || len(r.apiGroups) == 0 {
-			discoveryErr = r.refreshDiscoveryInfo()
+			discoveryErr := r.refreshDiscoveryInfo()
+
+			// If there was an error and no API information was received, then skip the loop.
+			if discoveryErr != nil && (len(r.apiResourceList) == 0 || len(r.apiGroups) == 0) {
+				skipLoop = true
+			}
 		}
 
 		// If it's been more than 10 minutes since the last refresh, then refresh the discovery info, but ignore
@@ -202,48 +205,44 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 			skipLoop = true
 		}
 
-		if !skipLoop && (discoveryErr == nil || cleanupImmediately) {
+		if cleanupImmediately || !skipLoop {
+			policiesList := policyv1.ConfigurationPolicyList{}
+
 			// This retrieves the policies from the controller-runtime cache populated by the watch.
 			err := r.List(context.TODO(), &policiesList)
 			if err != nil {
 				log.Error(err, "Failed to list the ConfigurationPolicy objects to evaluate")
+			} else {
+				// This is done every loop cycle since the channel needs to be variable in size to
+				// account for the number of policies changing.
+				policyQueue := make(chan *policyv1.ConfigurationPolicy, len(policiesList.Items))
+				var wg sync.WaitGroup
 
-				skipLoop = true
-			}
-		} else {
-			skipLoop = true
-		}
+				log.Info("Processing the policies", "count", len(policiesList.Items))
 
-		// This is done every loop cycle since the channel needs to be variable in size to account for the number of
-		// policies changing.
-		policyQueue := make(chan *policyv1.ConfigurationPolicy, len(policiesList.Items))
-		var wg sync.WaitGroup
+				// Initialize the related object map
+				policyRelatedObjectMap = sync.Map{}
 
-		if !skipLoop {
-			log.Info("Processing the policies", "count", len(policiesList.Items))
+				for i := 0; i < int(r.EvaluationConcurrency); i++ {
+					wg.Add(1)
 
-			// Initialize the related object map
-			policyRelatedObjectMap = sync.Map{}
-
-			for i := 0; i < int(r.EvaluationConcurrency); i++ {
-				wg.Add(1)
-
-				go r.handlePolicyWorker(policyQueue, &wg)
-			}
-
-			for i := range policiesList.Items {
-				policy := policiesList.Items[i]
-				if !shouldEvaluatePolicy(&policy, cleanupImmediately) {
-					continue
+					go r.handlePolicyWorker(policyQueue, &wg)
 				}
 
-				// handle each template in each policy
-				policyQueue <- &policy
+				for i := range policiesList.Items {
+					policy := policiesList.Items[i]
+					if !shouldEvaluatePolicy(&policy, cleanupImmediately) {
+						continue
+					}
+
+					// handle each template in each policy
+					policyQueue <- &policy
+				}
+
+				close(policyQueue)
+				wg.Wait()
 			}
 		}
-
-		close(policyQueue)
-		wg.Wait()
 
 		// Update the related object metric after policy processing
 		if r.EnableMetrics {
@@ -288,6 +287,9 @@ func (r *ConfigurationPolicyReconciler) handlePolicyWorker(
 	}
 }
 
+// refreshDiscoveryInfo tries to discover all the available APIs on the cluster, and update the
+// cached information. If it encounters an error, it may update the cache with partial results,
+// if those seem "better" than what's in the current cache.
 func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 	log.V(2).Info("Refreshing the discovery info")
 	r.lock.Lock()
@@ -295,28 +297,35 @@ func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 
 	dd := r.TargetK8sClient.Discovery()
 
-	_, apiResourceList, err := dd.ServerGroupsAndResources()
-	if err != nil {
-		log.Error(err, "Could not get the API resource list")
-
-		return err
+	_, apiResourceList, resourceErr := dd.ServerGroupsAndResources()
+	if resourceErr != nil {
+		log.Error(resourceErr, "Could not get the full API resource list")
 	}
 
-	r.apiResourceList = apiResourceList
-
-	apiGroups, err := restmapper.GetAPIGroupResources(dd)
-	if err != nil {
-		log.Error(err, "Could not get the API groups list")
-
-		return err
+	if resourceErr == nil || (len(apiResourceList) > len(r.discoveryInfo.apiResourceList)) {
+		// update the list if it's complete, or if it's "better" than the old one
+		r.discoveryInfo.apiResourceList = apiResourceList
 	}
 
-	r.apiGroups = apiGroups
+	apiGroups, groupErr := restmapper.GetAPIGroupResources(dd)
+	if groupErr != nil {
+		log.Error(groupErr, "Could not get the full API groups list")
+	}
+
+	if (resourceErr == nil && groupErr == nil) || (len(apiGroups) > len(r.discoveryInfo.apiGroups)) {
+		// update the list if it's complete, or if it's "better" than the old one
+		r.discoveryInfo.apiGroups = apiGroups
+	}
+
 	// Reset the OpenAPI cache in case the CRDs were updated since the last fetch.
 	r.openAPIParser = openapi.NewOpenAPIParser(dd)
-	r.discoveryLastRefreshed = time.Now().UTC()
+	r.discoveryInfo.discoveryLastRefreshed = time.Now().UTC()
 
-	return nil
+	if resourceErr != nil {
+		return resourceErr
+	}
+
+	return groupErr // can be nil
 }
 
 // shouldEvaluatePolicy will determine if the policy is ready for evaluation by examining the

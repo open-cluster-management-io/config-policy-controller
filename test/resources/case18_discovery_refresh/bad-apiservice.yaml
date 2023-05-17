@@ -1,0 +1,13 @@
+apiVersion: apiregistration.k8s.io/v1
+kind: APIService
+metadata:
+  name: v1beta1.pizza.example.com
+spec:
+  group: pizza.example.com
+  groupPriorityMinimum: 100
+  insecureSkipTLSVerify: true
+  service:
+    name: pizza-server
+    namespace: kube-system
+  version: v1beta1
+  versionPriority: 100
