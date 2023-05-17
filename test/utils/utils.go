@@ -59,7 +59,7 @@ func GetClusterLevelWithTimeout(
 	}
 	var obj *unstructured.Unstructured
 
-	Eventually(func() error {
+	EventuallyWithOffset(1, func() error {
 		var err error
 		namespace := clientHubDynamic.Resource(gvr)
 		obj, err = namespace.Get(context.TODO(), name, metav1.GetOptions{})
@@ -74,7 +74,7 @@ func GetClusterLevelWithTimeout(
 		}
 
 		return nil
-	}, timeout, 1).Should(BeNil())
+	}, timeout, 1).ShouldNot(HaveOccurred())
 
 	if wantFound {
 		return obj
@@ -97,7 +97,7 @@ func GetWithTimeout(
 	}
 	var obj *unstructured.Unstructured
 
-	Eventually(func() error {
+	EventuallyWithOffset(1, func() error {
 		var err error
 		namespace := clientHubDynamic.Resource(gvr).Namespace(namespace)
 		obj, err = namespace.Get(context.TODO(), name, metav1.GetOptions{})
@@ -112,7 +112,7 @@ func GetWithTimeout(
 		}
 
 		return nil
-	}, timeout, 1).Should(BeNil())
+	}, timeout, 1).ShouldNot(HaveOccurred())
 
 	if wantFound {
 		return obj
@@ -136,17 +136,13 @@ func ListWithTimeout(
 	}
 	var list *unstructured.UnstructuredList
 
-	Eventually(func() error {
+	EventuallyWithOffset(1, func(g Gomega) []unstructured.Unstructured {
 		var err error
 		list, err = clientHubDynamic.Resource(gvr).List(context.TODO(), opts)
-		if err != nil {
-			return err
-		} else if len(list.Items) != size {
-			return fmt.Errorf("list size doesn't match, expected %d actual %d", size, len(list.Items))
-		}
+		g.Expect(err).ToNot(HaveOccurred())
 
-		return nil
-	}, timeout, 1).Should(BeNil())
+		return list.Items
+	}, timeout, 1).Should(HaveLen(size))
 
 	if wantFound {
 		return list
@@ -160,12 +156,12 @@ func GetMatchingEvents(
 ) []corev1.Event {
 	var eventList *corev1.EventList
 
-	Eventually(func() error {
+	EventuallyWithOffset(1, func() error {
 		var err error
 		eventList, err = client.CoreV1().Events(namespace).List(context.TODO(), metav1.ListOptions{})
 
 		return err
-	}, timeout, 1).Should(BeNil())
+	}, timeout, 1).ShouldNot(HaveOccurred())
 
 	matchingEvents := make([]corev1.Event, 0)
 	msgMatcher := regexp.MustCompile(msgRegex)
@@ -331,10 +327,9 @@ func DoConfigPolicyMessageTest(clientHubDynamic dynamic.Interface,
 	gvrConfigPolicy schema.GroupVersionResource, namespace string, policyName string,
 	templateIdx int, timeout int, expectedMsg string,
 ) {
-	Eventually(func(g Gomega) string {
+	EventuallyWithOffset(1, func(g Gomega) string {
 		message, _, err := getConfigPolicyStatusMessages(clientHubDynamic,
 			gvrConfigPolicy, namespace, policyName, templateIdx)
-
 		g.Expect(err).ShouldNot(HaveOccurred())
 
 		return message
