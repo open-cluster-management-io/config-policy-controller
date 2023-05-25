@@ -13,6 +13,7 @@ require (
 	github.com/stolostron/go-log-utils v0.1.2
 	github.com/stolostron/go-template-utils/v3 v3.2.1
 	github.com/stretchr/testify v1.8.1
+	golang.org/x/mod v0.10.0
 	k8s.io/api v0.27.1
 	k8s.io/apiextensions-apiserver v0.27.1
 	k8s.io/apimachinery v0.27.1
@@ -20,7 +21,7 @@ require (
 	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.100.1
 	k8s.io/kube-openapi v0.0.0-20230501164219-8b0f38b5fd1f
-	k8s.io/kubectl v0.27.1
+	k8s.io/kubectl v0.0.0-00010101000000-000000000000
 	open-cluster-management.io/addon-framework v0.6.1
 	sigs.k8s.io/controller-runtime v0.14.6
 	sigs.k8s.io/yaml v1.3.0
@@ -36,7 +37,7 @@ require (
 	github.com/emicklei/go-restful/v3 v3.10.2 // indirect
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
 	github.com/evanphx/json-patch/v5 v5.6.0 // indirect
-	github.com/exponent-io/jsonpath v0.0.0-20210407135951-1de76d718b3f // indirect
+	github.com/exponent-io/jsonpath v0.0.0-20151013193312-d6023ce2651d // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/go-errors/errors v1.0.1 // indirect
 	github.com/go-logr/logr v1.2.4 // indirect

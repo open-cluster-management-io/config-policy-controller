@@ -17,6 +17,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	templates "github.com/stolostron/go-template-utils/v3/pkg/templates"
+	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -94,6 +95,7 @@ type cachedEncryptionKey struct {
 type discoveryInfo struct {
 	apiResourceList        []*metav1.APIResourceList
 	apiGroups              []*restmapper.APIGroupResources
+	serverVersion          string
 	discoveryLastRefreshed time.Time
 }
 
@@ -295,6 +297,13 @@ func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 	defer func() { r.lock.Unlock() }()
 
 	dd := r.TargetK8sClient.Discovery()
+
+	serverVersion, err := dd.ServerVersion()
+	if err != nil {
+		log.Error(err, "Could not get the server version")
+	}
+
+	r.serverVersion = serverVersion.String()
 
 	_, apiResourceList, resourceErr := dd.ServerGroupsAndResources()
 	if resourceErr != nil {
@@ -2189,11 +2198,17 @@ func (r *ConfigurationPolicyReconciler) createObject(
 	objLog := log.WithValues("name", unstruct.GetName(), "namespace", unstruct.GetNamespace())
 	objLog.V(2).Info("Entered createObject", "unstruct", unstruct)
 
-	if err := r.validateObject(&unstruct); err != nil {
-		return nil, err
+	// FieldValidation is supported in k8s 1.25 as beta release
+	// so if the version is below 1.25, we need to use client side validation to validate the object
+	if semver.Compare(r.serverVersion, "v1.25.0") < 0 {
+		if err := r.validateObject(&unstruct); err != nil {
+			return nil, err
+		}
 	}
 
-	object, err = res.Create(context.TODO(), &unstruct, metav1.CreateOptions{})
+	object, err = res.Create(context.TODO(), &unstruct, metav1.CreateOptions{
+		FieldValidation: metav1.FieldValidationStrict,
+	})
 	if err != nil {
 		if k8serrors.IsAlreadyExists(err) {
 			objLog.V(2).Info("Got 'Already Exists' response for object")
@@ -2671,13 +2686,19 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if updateNeeded {
 		log.V(2).Info("Updating the object based on the template definition")
 
-		if err := r.validateObject(obj.object); err != nil {
-			message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
+		// FieldValidation is supported in k8s 1.25 as beta release
+		// so if the version is below 1.25, we need to use client side validation to validate the object
+		if semver.Compare(r.serverVersion, "v1.25.0") < 0 {
+			if err := r.validateObject(obj.object); err != nil {
+				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
 
-			return false, message, true, updateNeeded, false
+				return false, message, true, updateNeeded, false
+			}
 		}
 
-		_, err = res.Update(context.TODO(), obj.object, metav1.UpdateOptions{})
+		_, err = res.Update(context.TODO(), obj.object, metav1.UpdateOptions{
+			FieldValidation: metav1.FieldValidationStrict,
+		})
 		if k8serrors.IsNotFound(err) {
 			message := fmt.Sprintf("`%v` is not present and must be created", obj.object.GetKind())
 
@@ -2685,6 +2706,12 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		}
 
 		if err != nil {
+			if strings.Contains(err.Error(), "strict decoding error:") {
+				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
+
+				return false, message, true, updateNeeded, false
+			}
+
 			message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
 
 			return false, message, true, updateNeeded, false

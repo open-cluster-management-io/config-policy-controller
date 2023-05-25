@@ -335,3 +335,10 @@ func DoConfigPolicyMessageTest(clientHubDynamic dynamic.Interface,
 		return message
 	}, timeout, 1).Should(Equal(expectedMsg))
 }
+
+func GetServerVersion(clientManaged kubernetes.Interface) string {
+	serverVersion, err := clientManaged.Discovery().ServerVersion()
+	Expect(err).ToNot(HaveOccurred())
+
+	return serverVersion.String()
+}
