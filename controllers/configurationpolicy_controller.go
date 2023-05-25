@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"reflect"
 	"sort"
 	"strconv"
@@ -1106,6 +1105,14 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		numCompliant := 0
 		numNonCompliant := 0
 		handled := false
+		// map raw object to a resource, generate a violation if resource cannot be found
+		mapping, statusUpdateNeeded := r.getMapping(objectT.ObjectDefinition, &plc, indx)
+
+		unstruct, err := unmarshalFromJSON(objectT.ObjectDefinition.Raw)
+		if err != nil {
+			panic(err)
+		}
+
 		// iterate through all namespaces the configurationpolicy is set on
 		for _, ns := range relevantNamespaces {
 			log.Info(
@@ -1114,10 +1121,16 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				"desiredName", templateObjs[indx].name,
 				"index", indx,
 			)
+			var names []string
+			var compliant bool
+			var reason, objKind string
+			var related []policyv1.RelatedObject
 
-			names, compliant, reason, objKind, related, statusUpdateNeeded := r.handleObjects(
-				objectT, ns, templateObjs[indx], indx, &plc,
-			)
+			if mapping != nil {
+				names, compliant, reason, objKind, related, statusUpdateNeeded = r.handleObjects(
+					objectT, ns, templateObjs[indx], indx, &plc, mapping, unstruct,
+				)
+			}
 
 			if statusUpdateNeeded {
 				parentStatusUpdateNeeded = true
@@ -1429,6 +1442,8 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	objDetails objectTemplateDetails,
 	index int,
 	policy *policyv1.ConfigurationPolicy,
+	mapping *meta.RESTMapping,
+	unstruct unstructured.Unstructured,
 ) (
 	objNameList []string,
 	compliant bool,
@@ -1443,19 +1458,6 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		log.V(2).Info("Handling object template")
 	} else {
 		log.V(2).Info("Handling object template, no namespace specified")
-	}
-
-	ext := objectT.ObjectDefinition
-
-	// map raw object to a resource, generate a violation if resource cannot be found
-	mapping, statusUpdateNeeded := r.getMapping(ext, policy, index)
-	if mapping == nil {
-		return nil, false, "", "", nil, statusUpdateNeeded
-	}
-
-	unstruct, err := unmarshalFromJSON(ext.Raw)
-	if err != nil {
-		os.Exit(1)
 	}
 
 	exists := true
