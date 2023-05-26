@@ -6,7 +6,7 @@ on:
       - 'v*.*.*'
 
 env:
-  RELEASE_VERSION: ${{ github.ref_name }}
+  TAG: ${{ github.ref_name }}
 defaults:
   run:
     working-directory: go/src/open-cluster-management.io/config-policy-controller
@@ -31,11 +31,11 @@ jobs:
       - name: push image
         run: |
           echo ${{ secrets.DOCKER_PASSWORD }} | docker login quay.io --username ${{ secrets.DOCKER_USER }} --password-stdin
-          docker push quay.io/open-cluster-management/config-policy-controller:$RELEASE_VERSION
+          docker push quay.io/open-cluster-management/config-policy-controller:$TAG
       - name: generate changelog
         run: |
-          echo "# config-policy-controller $RELEASE_VERSION" > /home/runner/work/changelog.txt
-          echo "- The released image is quay.io/open-cluster-management/config-policy-controller:$RELEASE_VERSION" >> /home/runner/work/changelog.txt
+          echo "# config-policy-controller $TAG" > /home/runner/work/changelog.txt
+          echo "- The released image is quay.io/open-cluster-management/config-policy-controller:$TAG" >> /home/runner/work/changelog.txt
       - name: publish release
         uses: softprops/action-gh-release@v0.1.15
         with:
