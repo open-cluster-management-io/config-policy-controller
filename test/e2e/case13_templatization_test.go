@@ -63,6 +63,11 @@ const (
 	case13CopyRefObjectYaml   = "../resources/case13_templatization/case13_copy_referenced_configmap.yaml"
 )
 
+const (
+	case13PruneTmpErr     string = "case13-prune-template-error"
+	case13PruneTmpErrYaml string = "../resources/case13_templatization/case13_prune_template_error.yaml"
+)
+
 var _ = Describe("Test templatization", func() {
 	Describe("Create a secret and pull data from it into a configurationPolicy", func() {
 		It("should be created properly on the managed cluster", func() {
@@ -414,6 +419,106 @@ var _ = Describe("Test templatization", func() {
 			deleteConfigPolicies([]string{case13CopyRefObject})
 			utils.Kubectl("delete", "configmap", configMapName, "-n", "default", "--ignore-not-found")
 			utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default", "--ignore-not-found")
+		})
+	})
+	Describe("Create a secret and create template error", func() {
+		It("Should the object created by configpolicy remain", func() {
+			By("Creating " + case13CfgPolCreateSecret + " and " + case13CfgPolCheckSecret + " on managed")
+			// create secret
+			utils.Kubectl("apply", "-f", case13SecretYaml, "-n", "default")
+			secret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
+				case13Secret, "default", true, defaultTimeoutSeconds)
+			Expect(secret).NotTo(BeNil())
+			// create copy with password from original secret using a templatized policy
+			utils.Kubectl("apply", "-f", case13PruneTmpErrYaml, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case13PruneTmpErr, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+
+			By("By verifying that the configurationpolicy is working well")
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case13PruneTmpErr, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+
+			By("By verifying that the configmap exist ")
+			Eventually(func() interface{} {
+				configmap := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
+					case13PruneTmpErr+"-configmap", "default", true, defaultTimeoutSeconds)
+
+				return configmap
+			}, defaultTimeoutSeconds, 1).ShouldNot(BeNil())
+
+			By("Patch with invalid hub template")
+			utils.Kubectl("patch", "configurationpolicy", case13PruneTmpErr, "--type=json", "-p",
+				`[{ "op": "replace", 
+			"path": "/spec/object-templates/0/objectDefinition/data/test",
+			 "value": '{{hub "default" "e2esecret" dddddd vvvvv d hub}}' }]`,
+				"-n", testNamespace)
+
+			By("By verifying that the configurationpolicy is NonCompliant")
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case13PruneTmpErr, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+
+			By("By verifying that the configmap still exist ")
+			Consistently(func() interface{} {
+				configmap := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
+					case13PruneTmpErr+"-configmap", "default", true, defaultTimeoutSeconds)
+
+				return configmap
+			}, defaultTimeoutSeconds, 1).ShouldNot(BeNil())
+
+			By("Change to valid configmap")
+			utils.Kubectl("patch", "configurationpolicy", case13PruneTmpErr, "--type=json", "-p",
+				`[{ "op": "replace", 
+				"path": "/spec/object-templates/0/objectDefinition/data/test",
+				 "value": "working" }]`,
+				"-n", testNamespace)
+
+			By("By verifying that the configmap has no error")
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case13PruneTmpErr, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+
+			By("Patch with invalid managed template")
+			utils.Kubectl("patch", "configurationpolicy", case13PruneTmpErr, "--type=json", "-p",
+				`[{ "op": "replace", 
+			"path": "/spec/object-templates/0/objectDefinition/data/test",
+			 "value": '{{ "default" "e2esecret" dddddd vvvvv d }}' }]`,
+				"-n", testNamespace)
+
+			By("By verifying that the configurationpolicy is NonCompliant")
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case13PruneTmpErr, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetComplianceState(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+
+			By("By verifying that the configmap still exist ")
+			Consistently(func() interface{} {
+				configmap := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
+					case13PruneTmpErr+"-configmap", "default", true, defaultTimeoutSeconds)
+
+				return configmap
+			}, defaultTimeoutSeconds, 1).ShouldNot(BeNil())
+		})
+		It("Cleans up", func() {
+			utils.Kubectl("delete", "configurationpolicy", case13PruneTmpErr,
+				"-n", testNamespace, "--ignore-not-found")
+			utils.Kubectl("delete", "configmap", case13PruneTmpErr+"-configmap",
+				"-n", "default", "--ignore-not-found")
+			utils.Kubectl("delete", "secret", case13Secret,
+				"-n", "default", "--ignore-not-found")
 		})
 	})
 })

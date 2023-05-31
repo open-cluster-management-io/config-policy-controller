@@ -706,7 +706,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
 		}
 
-		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusChanged)
+		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusChanged, true)
 
 		parent := ""
 		if len(plc.OwnerReferences) > 0 {
@@ -801,7 +801,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				}
 
 				// don't change related objects while deletion is in progress
-				r.checkRelatedAndUpdate(plc, oldRelated, oldRelated, parentStatusUpdateNeeded)
+				r.checkRelatedAndUpdate(plc, oldRelated, oldRelated, parentStatusUpdateNeeded, true)
 			}
 
 			return
@@ -818,6 +818,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		}
 	}
 
+	// When it is hub or managed template parse error, deleteDetachedObjs should be false
+	// Then it doesn't remove resources
 	addTemplateErrorViolation := func(reason, msg string) {
 		log.Info("Setting the policy to noncompliant due to a templating error", "error", msg)
 
@@ -837,7 +839,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			)
 		}
 
-		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded)
+		// deleteDetachedObjs should be false
+		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded, false)
 	}
 
 	// initialize apiresources for template processing before starting objectTemplate processing
@@ -1062,7 +1065,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 	if err != nil {
 		if parentStatusUpdateNeeded {
-			r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded)
+			r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded, false)
 		}
 
 		return
@@ -1082,7 +1085,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				convertPolicyStatusToString(&plc))
 		}
 
-		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusUpdateNeeded)
+		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusUpdateNeeded, true)
 
 		return
 	}
@@ -1209,14 +1212,17 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		}
 	}
 
-	r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded)
+	r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded, true)
 }
 
 // checkRelatedAndUpdate checks the related objects field and triggers an update on the ConfigurationPolicy
 func (r *ConfigurationPolicyReconciler) checkRelatedAndUpdate(
-	plc policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject, sendEvent bool,
+	plc policyv1.ConfigurationPolicy,
+	related, oldRelated []policyv1.RelatedObject,
+	sendEvent bool,
+	deleteDetachedObjs bool,
 ) {
-	r.sortRelatedObjectsAndUpdate(&plc, related, oldRelated, r.EnableMetrics)
+	r.sortRelatedObjectsAndUpdate(&plc, related, oldRelated, r.EnableMetrics, deleteDetachedObjs)
 	// An update always occurs to account for the lastEvaluated status field
 	r.addForUpdate(&plc, sendEvent)
 }
@@ -1225,6 +1231,7 @@ func (r *ConfigurationPolicyReconciler) checkRelatedAndUpdate(
 func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 	plc *policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject,
 	collectMetrics bool,
+	deleteDetachedObjs bool,
 ) {
 	sort.SliceStable(related, func(i, j int) bool {
 		if related[i].Object.Kind != related[j].Object.Kind {
@@ -1295,7 +1302,11 @@ func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 	}
 
 	if !gocmp.Equal(related, oldRelated) {
-		r.deleteDetachedObj(*plc, related, oldRelated)
+		// When it is hub or managed template parse error, it should not remove previous objects
+		if deleteDetachedObjs {
+			r.deleteDetachedObj(*plc, related, oldRelated)
+		}
+
 		plc.Status.RelatedObjects = related
 	}
 }
