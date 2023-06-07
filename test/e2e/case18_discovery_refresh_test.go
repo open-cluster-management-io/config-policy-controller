@@ -6,6 +6,7 @@ package e2e
 import (
 	"context"
 	"os/exec"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -63,19 +64,23 @@ var _ = Describe("Test discovery info refresh", Ordered, func() {
 		Eventually(
 			func() error {
 				cmd := exec.Command("kubectl", "api-resources")
+				stderr := new(strings.Builder)
+				cmd.Stderr = stderr
 
 				err := cmd.Start()
 				if err != nil {
+					GinkgoWriter.Printf("Encountered error running cmd.Start(): '%w'", err)
 					return nil // Just retry. If this consistently has an error, the test should fail.
 				}
 
 				err = cmd.Wait()
+				GinkgoWriter.Printf("StdErr: '%s'", stderr.String())
 
 				return err
 			},
 			defaultTimeoutSeconds,
 			1,
-		).ShouldNot(BeNil())
+		).Should(HaveOccurred())
 
 		By("Creating the prerequisites on managed")
 		// This needs to be wrapped in an eventually since the object can't be created immediately after the CRD

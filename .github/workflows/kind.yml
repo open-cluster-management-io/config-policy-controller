@@ -66,6 +66,8 @@ jobs:
       env:
         KIND_VERSION: ${{ matrix.kind }}
       run: |
+        kubectl version
+        kind version
         make kind-bootstrap-cluster-dev
 
     - name: Ensure Service Account kubeconfig
