@@ -11,6 +11,7 @@ import (
 	. "github.com/onsi/gomega"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
@@ -61,21 +62,38 @@ var _ = Describe("Test discovery info refresh", Ordered, func() {
 
 		By("Checking that the API causes an error during API discovery")
 		Eventually(
-			func() error {
-				cmd := exec.Command("kubectl", "api-resources")
+			func(g Gomega) {
+				apiService := utils.GetWithTimeout(
+					clientManagedDynamic,
+					gvrAPIService,
+					"v1beta1.pizza.example.com",
+					"",
+					true,
+					defaultTimeoutSeconds,
+				)
 
-				err := cmd.Start()
-				if err != nil {
-					return nil // Just retry. If this consistently has an error, the test should fail.
+				apiStatus, _, err := unstructured.NestedSlice(apiService.Object, "status", "conditions")
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(apiStatus).ToNot(BeEmpty())
+
+				statusFound := false
+				for _, status := range apiStatus {
+					if status, ok := status.(map[string]interface{}); ok {
+						if status["type"] == "Available" {
+							g.Expect(status["status"]).To(Equal("False"))
+							g.Expect(status["reason"]).To(Equal("ServiceNotFound"))
+							statusFound = true
+						}
+					}
 				}
 
-				err = cmd.Wait()
-
-				return err
+				if !statusFound {
+					Fail("Failed to find 'Available' status for APIService")
+				}
 			},
 			defaultTimeoutSeconds,
 			1,
-		).ShouldNot(BeNil())
+		).Should(Succeed())
 
 		By("Creating the prerequisites on managed")
 		// This needs to be wrapped in an eventually since the object can't be created immediately after the CRD

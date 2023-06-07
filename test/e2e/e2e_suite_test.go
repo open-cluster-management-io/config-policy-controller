@@ -33,6 +33,7 @@ var (
 	kubeconfigManaged     string
 	clientManaged         kubernetes.Interface
 	clientManagedDynamic  dynamic.Interface
+	gvrAPIService         schema.GroupVersionResource
 	gvrConfigPolicy       schema.GroupVersionResource
 	gvrCRD                schema.GroupVersionResource
 	gvrPod                schema.GroupVersionResource
@@ -70,6 +71,11 @@ var _ = BeforeSuite(func() {
 		Group:    "policy.open-cluster-management.io",
 		Version:  "v1",
 		Resource: "configurationpolicies",
+	}
+	gvrAPIService = schema.GroupVersionResource{
+		Group:    "apiregistration.k8s.io",
+		Version:  "v1",
+		Resource: "apiservices",
 	}
 	gvrCRD = schema.GroupVersionResource{
 		Group:    "apiextensions.k8s.io",
