@@ -557,9 +557,9 @@ func removeObjFinalizerPatch(obj metav1.Object, finalizer string) []byte {
 	return nil
 }
 
-func containRelated(arr []policyv1.RelatedObject, input policyv1.RelatedObject) bool {
-	// should compare only object
-	for _, r := range arr {
+func containRelated(related []policyv1.RelatedObject, input policyv1.RelatedObject) bool {
+	// should compare name, APIVersion, Kind  and namespace
+	for _, r := range related {
 		if gocmp.Equal(r.Object, input.Object) {
 			return true
 		}
