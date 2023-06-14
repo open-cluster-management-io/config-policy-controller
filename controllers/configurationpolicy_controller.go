@@ -506,10 +506,37 @@ func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
 	return templateObjs, selectedNamespaces, false, nil
 }
 
-func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.ConfigurationPolicy) []string {
+func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.ConfigurationPolicy,
+	newRelated []policyv1.RelatedObject,
+) []string {
 	deletionFailures := []string{}
 
-	for _, object := range plc.Status.RelatedObjects {
+	if !strings.EqualFold(string(plc.Spec.RemediationAction), "enforce") {
+		return deletionFailures
+	}
+
+	// PruneObjectBehavior = none case fall in here
+	if !(string(plc.Spec.PruneObjectBehavior) == "DeleteAll" ||
+		string(plc.Spec.PruneObjectBehavior) == "DeleteIfCreated") {
+		return deletionFailures
+	}
+
+	objsToDelete := plc.Status.RelatedObjects
+
+	// When spec is updated and new related objects are created
+	if len(newRelated) != 0 {
+		var objShouldRemoved []policyv1.RelatedObject
+
+		for _, oldR := range objsToDelete {
+			if !containRelated(newRelated, oldR) {
+				objShouldRemoved = append(objShouldRemoved, oldR)
+			}
+		}
+
+		objsToDelete = objShouldRemoved
+	}
+
+	for _, object := range objsToDelete {
 		// set up client for object deletion
 		gvk := schema.FromAPIVersionAndKind(object.Object.APIVersion, object.Object.Kind)
 
@@ -555,22 +582,20 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 			continue
 		}
 
-		if strings.EqualFold(string(plc.Spec.RemediationAction), "enforce") {
-			if string(plc.Spec.PruneObjectBehavior) == "DeleteAll" {
-				needsDelete = true
-			} else {
-				// if prune behavior is DeleteIfCreated, we need to check whether createdByPolicy
-				// is true and the UID is not stale
-				uid, uidFound, err := unstructured.NestedString(existing.Object, "metadata", "uid")
+		if string(plc.Spec.PruneObjectBehavior) == "DeleteAll" {
+			needsDelete = true
+		} else if string(plc.Spec.PruneObjectBehavior) == "DeleteIfCreated" {
+			// if prune behavior is DeleteIfCreated, we need to check whether createdByPolicy
+			// is true and the UID is not stale
+			uid, uidFound, err := unstructured.NestedString(existing.Object, "metadata", "uid")
 
-				if !uidFound || err != nil {
-					log.Error(err, "Tried to pull UID from obj but the field did not exist or was not a string")
-				} else if object.Properties != nil &&
-					object.Properties.CreatedByPolicy != nil &&
-					*object.Properties.CreatedByPolicy &&
-					object.Properties.UID == uid {
-					needsDelete = true
-				}
+			if !uidFound || err != nil {
+				log.Error(err, "Tried to pull UID from obj but the field did not exist or was not a string")
+			} else if object.Properties != nil &&
+				object.Properties.CreatedByPolicy != nil &&
+				*object.Properties.CreatedByPolicy &&
+				object.Properties.UID == uid {
+				needsDelete = true
 			}
 		}
 
@@ -618,7 +643,7 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 					continue
 				}
 
-				log.Info("Object successfully deleted as part of child object pruning")
+				log.Info("Object successfully deleted as part of child object pruning or detached objects")
 			}
 		}
 	}
@@ -767,7 +792,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		if plc.ObjectMeta.DeletionTimestamp != nil {
 			log.V(1).Info("Config policy has been deleted, handling child objects")
 
-			failures := r.cleanUpChildObjects(plc)
+			failures := r.cleanUpChildObjects(plc, nil)
 
 			if len(failures) == 0 {
 				log.V(1).Info("Objects have been successfully cleaned up, removing finalizer")
@@ -1302,37 +1327,12 @@ func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 	}
 
 	if !gocmp.Equal(related, oldRelated) {
-		// When it is hub or managed template parse error, it should not remove previous objects
 		if deleteDetachedObjs {
-			r.deleteDetachedObj(*plc, related, oldRelated)
+			r.cleanUpChildObjects(*plc, related)
 		}
 
 		plc.Status.RelatedObjects = related
 	}
-}
-
-// helper function to delete unconnected objs
-func (r *ConfigurationPolicyReconciler) deleteDetachedObj(plc policyv1.ConfigurationPolicy,
-	related, oldRelated []policyv1.RelatedObject,
-) []policyv1.RelatedObject {
-	objShouldRemoved := []policyv1.RelatedObject{}
-	// Pick out only obj should be removed in oldRelated
-	for _, oldR := range oldRelated {
-		isContain := containRelated(related, oldR)
-
-		if !isContain {
-			objShouldRemoved = append(objShouldRemoved, oldR)
-		}
-	}
-
-	plc.Status.RelatedObjects = objShouldRemoved
-
-	// removed objs which are not related(detached) anymore
-	if r != nil {
-		r.cleanUpChildObjects(plc)
-	}
-	// For now this is for unit test
-	return objShouldRemoved
 }
 
 // helper function that appends a condition (violation or compliant) to the status of a configurationpolicy

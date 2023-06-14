@@ -611,9 +611,9 @@ var _ = Describe("Test objects are not deleted when the CRD is removed", Ordered
 
 var _ = Describe("Clean up old object when configurationpolicy is changed", Ordered, func() {
 	const (
-		oldPodName             string = "case29-name-changed-pod"
-		newPodName             string = "case29-name-changed-new"
-		configplcName          string = "case29-name-changed"
+		oldPodName             string = "case20-name-changed-pod"
+		newPodName             string = "case20-name-changed-new"
+		configplcName          string = "case20-name-changed"
 		case20ChangeConfigYaml string = "../resources/case20_delete_objects/case20_change_config_policy.yaml"
 	)
 	cleanup := func() {
@@ -694,5 +694,101 @@ var _ = Describe("Clean up old object when configurationpolicy is changed", Orde
 		newPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 			newPodName, "default", false, defaultTimeoutSeconds)
 		Expect(newPod).Should(BeNil())
+	})
+})
+
+var _ = Describe("Object Should not be deleted", Ordered, func() {
+	const (
+		oldPodName             string = "case20-name-changed-pod"
+		newPodName             string = "case20-name-changed-new"
+		configplcName          string = "case20-name-changed"
+		case20ChangeConfigYaml string = "../resources/case20_delete_objects/case20_change_config_policy.yaml"
+	)
+	BeforeEach(func() {
+		utils.Kubectl("apply", "-f", case20ChangeConfigYaml, "-n", testNamespace)
+		patch := `[{"op": "remove", "path": "/spec/pruneObjectBehavior"}]`
+		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
+			"--type=json", "-p", patch)
+	})
+	cleanup := func() {
+		policies := []string{
+			configplcName,
+		}
+		deleteConfigPolicies(policies)
+
+		pods := []string{oldPodName, newPodName}
+		namespaces := []string{testNamespace, "default"}
+		deletePods(pods, namespaces)
+	}
+	AfterEach(cleanup)
+	It("check pod is not removed when PruneObjectBehavior is none and name changed", func() {
+		oldPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, "default", true, defaultTimeoutSeconds)
+		Expect(oldPod).ShouldNot(BeNil())
+
+		By("Changing the pod name")
+
+		patch := fmt.Sprintf(`[
+		{"op":"replace", "path": "/spec/object-templates/0/objectDefinition/metadata/name", "value": %s}
+		]`, newPodName)
+		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
+			"--type=json", "-p", patch)
+
+		Consistently(func() interface{} {
+			oldPod = utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+				oldPodName, "default", true, defaultTimeoutSeconds)
+			Expect(oldPod).ShouldNot(BeNil())
+
+			return oldPod
+		}, 20, 1).ShouldNot(BeNil())
+	})
+	It("check pod is not removed when PruneObjectBehavior is none and namespace changed", func() {
+		oldPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, "default", true, defaultTimeoutSeconds)
+		Expect(oldPod).ShouldNot(BeNil())
+
+		By("Changing namespace, old-pod should not exist, newpod exist in new namepace with old name")
+		patch := fmt.Sprintf(`[
+			{"op":"replace", "path": "/spec/object-templates/0/objectDefinition/metadata/namespace", "value": %s}
+			]`, testNamespace)
+		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
+			"--type=json", "-p", patch)
+
+		Consistently(func() interface{} {
+			oldPod = utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+				oldPodName, "default", true, defaultTimeoutSeconds)
+			Expect(oldPod).ShouldNot(BeNil())
+
+			return oldPod
+		}, 20, 1).ShouldNot(BeNil())
+	})
+	It("check pod is not removed when PruneObjectBehavior is DeleteAll and spec changed", func() {
+		By("Add PruneObjectBehavior is DeleteAll")
+		patch := fmt.Sprintf(`[
+			{"op":"add", "path": "/spec/pruneObjectBehavior", "value": %s}
+			]`, "DeleteAll")
+		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
+			"--type=json", "-p", patch)
+
+		utils.Kubectl("apply", "-f", case20ChangeConfigYaml, "-n", testNamespace)
+
+		oldPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+			oldPodName, "default", true, defaultTimeoutSeconds)
+		Expect(oldPod).ShouldNot(BeNil())
+
+		By("Changing imagePullPolicy in spec in object-templates")
+		patch = fmt.Sprintf(`[
+			{"op":"replace", "path": "/spec/object-templates/0/imagePullPolicy", "value": %s},
+			]`, "Always")
+		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
+			"--type=json", "-p", patch)
+
+		Consistently(func() interface{} {
+			oldPod = utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+				oldPodName, "default", true, defaultTimeoutSeconds)
+			Expect(oldPod).ShouldNot(BeNil())
+
+			return oldPod
+		}, 20, 1).ShouldNot(BeNil())
 	})
 })

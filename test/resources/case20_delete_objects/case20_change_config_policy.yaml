@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: case29-name-changed
+  name: case20-name-changed
   namespace: managed
 spec:
   remediationAction: enforce
@@ -12,7 +12,7 @@ spec:
         apiVersion: v1
         kind: Pod
         metadata:
-          name: case29-name-changed-pod
+          name: case20-name-changed-pod
           namespace: default
         spec:
           containers:
