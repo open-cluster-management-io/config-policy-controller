@@ -48,21 +48,17 @@ var _ = Describe("Test object namespace selection", Ordered, func() {
 		"LabelSelector and exclude": {
 			"{\"exclude\":[\"*-[3-4]-e2e\"],\"matchLabels\":{}," +
 				"\"matchExpressions\":[{\"key\":\"name\",\"operator\":\"Exists\"}]}",
-			"configmaps not found: [configmap-selector-e2e] in namespace case19-2-e2e missing; " +
-				"[configmap-selector-e2e] in namespace case19-5-e2e missing",
+			"configmaps [configmap-selector-e2e] not found in namespaces: case19-2-e2e, case19-5-e2e",
 		},
 		"empty LabelSelector and include/exclude": {
 			"{\"include\":[\"case19-[2-5]-e2e\"],\"exclude\":[\"*-[3-4]-e2e\"]," +
 				"\"matchLabels\":{},\"matchExpressions\":[]}",
-			"configmaps not found: [configmap-selector-e2e] in namespace case19-2-e2e missing; " +
-				"[configmap-selector-e2e] in namespace case19-5-e2e missing",
+			"configmaps [configmap-selector-e2e] not found in namespaces: case19-2-e2e, case19-5-e2e",
 		},
 		"LabelSelector": {
 			"{\"matchExpressions\":[{\"key\":\"name\",\"operator\":\"Exists\"}]}",
-			"configmaps not found: [configmap-selector-e2e] in namespace case19-2-e2e missing; " +
-				"[configmap-selector-e2e] in namespace case19-3-e2e missing; " +
-				"[configmap-selector-e2e] in namespace case19-4-e2e missing; " +
-				"[configmap-selector-e2e] in namespace case19-5-e2e missing",
+			"configmaps [configmap-selector-e2e] not found in namespaces: case19-2-e2e, case19-3-e2e, " +
+				"case19-4-e2e, case19-5-e2e",
 		},
 		"Malformed filepath in include": {
 			"{\"include\":[\"*-[a-z-*\"]}",
@@ -135,8 +131,10 @@ var _ = Describe("Test object namespace selection", Ordered, func() {
 				case19PolicyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(ContainSubstring(
-			"[configmap-selector-e2e] in namespace case19-6-e2e missing"))
+		}, defaultTimeoutSeconds, 1).Should(Equal(
+			"configmaps [configmap-selector-e2e] not found in namespaces: case19-2-e2e, case19-3-e2e, case19-4-e2e, " +
+				"case19-5-e2e, case19-6-e2e",
+		))
 	})
 
 	AfterAll(func() {

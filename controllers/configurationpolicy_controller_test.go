@@ -436,97 +436,303 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
 }
 
-func TestCreateMergedStatus(t *testing.T) {
-	policy := &policyv1.ConfigurationPolicy{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "foo",
-			Namespace: "default",
-		},
-		Spec: &policyv1.ConfigurationPolicySpec{
-			Severity: "low",
-			NamespaceSelector: policyv1.Target{
-				Include: []policyv1.NonEmptyString{"test1", "test2"},
-			},
-			RemediationAction: "inform",
-			ObjectTemplates: []*policyv1.ObjectTemplate{
-				{
-					ComplianceType:   "musthave",
-					ObjectDefinition: runtime.RawExtension{},
+func TestCreateStatus(t *testing.T) {
+	testcases := []struct {
+		testName          string
+		resourceName      string
+		namespaceToEvent  map[string]*objectTmplEvalResultWithEvent
+		expectedCompliant bool
+		expectedReason    string
+		expectedMsg       string
+	}{
+		{
+			"must have single object compliant",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundExists,
+					},
 				},
 			},
+			true,
+			"K8s `must have` object already exists",
+			"configmaps [buzz] found as specified, therefore, this object template is compliant in namespace toy-story",
+		},
+		{
+			"must have single object compliant cluster-scoped",
+			"namespaces",
+			map[string]*objectTmplEvalResultWithEvent{
+				"": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"movies"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundExists,
+					},
+				},
+			},
+			true,
+			"K8s `must have` object already exists",
+			"namespaces [movies] found as specified, therefore, this object template is compliant",
+		},
+		{
+			"must have multiple namespaces single object compliant",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundExists,
+					},
+				},
+				"toy-story3": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundExists,
+					},
+				},
+			},
+			true,
+			"K8s `must have` object already exists",
+			"configmaps [buzz] found as specified, therefore, this object template is compliant in namespaces: " +
+				"toy-story, toy-story3",
+		},
+		{
+			"must have unnamed object compliant",
+			"secrets",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundExists,
+					},
+				},
+				"toy-story4": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"bo-peep"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundExists,
+					},
+				},
+			},
+			true,
+			"K8s `must have` object already exists",
+			"secrets [bo-peep] found as specified, therefore, this object template is compliant in namespace " +
+				"toy-story4; secrets [buzz] found as specified, therefore, this object template is compliant in " +
+				"namespace toy-story",
+		},
+		{
+			"must have single object created",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundCreated,
+					},
+				},
+			},
+			true,
+			"K8s creation success",
+			"configmaps [buzz] was missing, and was created successfully in namespace toy-story",
+		},
+		{
+			"must have single object created in one namespace and exists in another",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundCreated,
+					},
+				},
+				"toy-story4": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundExists,
+					},
+				},
+			},
+			true,
+			"K8s `must have` object already exists; K8s creation success",
+			"configmaps [buzz] found as specified, therefore, this object template is compliant in namespace " +
+				"toy-story4; configmaps [buzz] was missing, and was created successfully in namespace toy-story",
+		},
+		{
+			"must have single object not found in one of the namespaces",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantFoundExists,
+					},
+				},
+				"toy-story4": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: false,
+						reason:    reasonWantFoundDNE,
+					},
+				},
+			},
+			false,
+			"K8s does not have a `must have` object",
+			"configmaps [buzz] not found in namespace toy-story4",
+		},
+		{
+			"must have single object no match",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: false,
+						reason:    reasonWantFoundNoMatch,
+					},
+				},
+			},
+			false,
+			"K8s does not have a `must have` object",
+			"configmaps [buzz] found but not as specified in namespace toy-story",
+		},
+		{
+			"must not have single object exists",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: false,
+						reason:    reasonWantNotFoundExists,
+					},
+				},
+			},
+			false,
+			"K8s has a `must not have` object",
+			"configmaps [buzz] found in namespace toy-story",
+		},
+		{
+			"must not have single object not found",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonWantNotFoundDNE,
+					},
+				},
+			},
+			true,
+			"K8s `must not have` object already missing",
+			"configmaps [buzz] missing as expected, therefore, this object template is compliant in namespace " +
+				"toy-story",
+		},
+		{
+			"unnamed object single error",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{""},
+					},
+					event: objectTmplEvalEvent{
+						compliant: false,
+						reason:    "K8s missing namespace",
+						message: "namespaced object of kind ConfigMap has no namespace specified " +
+							"from the policy namespaceSelector nor the object metadata",
+					},
+				},
+			},
+			false,
+			"K8s missing namespace",
+			"namespaced object of kind ConfigMap has no namespace specified from the policy namespaceSelector " +
+				"nor the object metadata",
+		},
+		{
+			"multiple errors",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: false,
+						reason:    "K8s missing namespace",
+						message: "namespaced object buzz of kind ConfigMap has no namespace specified " +
+							"from the policy namespaceSelector nor the object metadata",
+					},
+				},
+				"toy-story4": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: false,
+						reason:    "K8s decode object definition error",
+						message: "Decoding error, please check your policy file! Aborting handling the object " +
+							"template at index [0] in policy `create-configmaps` with error = `some error`",
+					},
+				},
+			},
+			false,
+			"K8s decode object definition error; K8s missing namespace",
+			"Decoding error, please check your policy file! Aborting handling the object template at index [0] in " +
+				"policy `create-configmaps` with error = `some error`; namespaced object buzz of kind ConfigMap has " +
+				"no namespace specified from the policy namespaceSelector nor the object metadata",
 		},
 	}
-	objNamespaced := true
-	objData := templateIdentifier{
-		index:       0,
-		kind:        "Secret",
-		desiredName: "myobject",
-		namespaced:  objNamespaced,
+
+	for _, test := range testcases {
+		test := test
+
+		t.Run(test.testName, func(t *testing.T) {
+			compliant, reason, msg := createStatus(test.resourceName, test.namespaceToEvent)
+
+			assert.Equal(t, test.expectedCompliant, compliant)
+			assert.Equal(t, test.expectedReason, reason)
+			assert.Equal(t, test.expectedMsg, msg)
+		})
 	}
-	mustNotHave := false
-	numCompliant := 0
-	numNonCompliant := 1
-	nonCompliantObjects := make(map[string]map[string]interface{})
-	compliantObjects := make(map[string]map[string]interface{})
-	nonCompliantObjects["test1"] = map[string]interface{}{
-		"names":  []string{"myobject"},
-		"reason": "my reason",
-	}
-
-	// Test 1 NonCompliant resource
-	createMergedStatus(!mustNotHave, numCompliant, numNonCompliant,
-		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.NonCompliant)
-
-	nonCompliantObjects["test2"] = map[string]interface{}{
-		"names":  []string{"myobject"},
-		"reason": "my reason",
-	}
-	numNonCompliant = 2
-
-	// Test 2 NonCompliant resources
-	createMergedStatus(!mustNotHave, numCompliant, numNonCompliant,
-		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.NonCompliant)
-
-	delete(nonCompliantObjects, "test1")
-	delete(nonCompliantObjects, "test2")
-
-	// Test 0 resources
-	numNonCompliant = 0
-	createMergedStatus(!mustNotHave, numCompliant, numNonCompliant,
-		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.NonCompliant)
-
-	compliantObjects["test1"] = map[string]interface{}{
-		"names":  []string{"myobject"},
-		"reason": "my reason",
-	}
-	numCompliant = 1
-	nonCompliantObjects["test2"] = map[string]interface{}{
-		"names":  []string{"myobject"},
-		"reason": "my reason",
-	}
-	numNonCompliant = 1
-
-	// Test 1 compliant and 1 noncompliant resource  NOTE: This use case is the new behavior change!
-	createMergedStatus(!mustNotHave, numCompliant, numNonCompliant,
-		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.NonCompliant)
-
-	compliantObjects["test2"] = map[string]interface{}{
-		"names":  []string{"myobject"},
-		"reason": "my reason",
-	}
-	numCompliant = 2
-	numNonCompliant = 0
-
-	delete(nonCompliantObjects, "test2")
-
-	// Test 2 compliant resources
-	createMergedStatus(!mustNotHave, numCompliant, numNonCompliant,
-		compliantObjects, nonCompliantObjects, policy, objData)
-	assert.True(t, policy.Status.CompliancyDetails[0].ComplianceState == policyv1.Compliant)
 }
 
 func TestShouldEvaluatePolicy(t *testing.T) {

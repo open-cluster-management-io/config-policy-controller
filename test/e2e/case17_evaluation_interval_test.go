@@ -75,7 +75,7 @@ var _ = Describe("Test evaluation interval", func() {
 			testNamespace,
 			case17PolicyName,
 			"",
-			"Policy status is: NonCompliant",
+			"Policy status is NonCompliant",
 			defaultTimeoutSeconds,
 		)
 		Expect(events).To(HaveLen(1))

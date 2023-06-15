@@ -420,7 +420,7 @@ func fmtMetadataForCompare(
 }
 
 // Format name of resource with its namespace (if it has one)
-func identifierStr(names []string, namespace string, namespaced bool) (nameStr string) {
+func identifierStr(names []string, namespace string) (nameStr string) {
 	sort.Strings(names)
 
 	nameStr = "["
@@ -440,7 +440,7 @@ func identifierStr(names []string, namespace string, namespaced bool) (nameStr s
 	}
 
 	// Add namespace
-	if namespaced {
+	if namespace != "" {
 		// Add a space if there are names
 		if nameStr != "" {
 			nameStr += " "
@@ -452,89 +452,193 @@ func identifierStr(names []string, namespace string, namespaced bool) (nameStr s
 	return nameStr
 }
 
+// createStatus generates the status reason and message for the object template after processing. resourceName indicates
+// the name of the resource (e.g. namespaces), and not the kind (e.g. Namespace).
 func createStatus(
-	tmplID templateIdentifier,
-	complianceObjects map[string]map[string]interface{},
-	plc *policyv1.ConfigurationPolicy,
-	compliant bool,
-	objShouldExist bool,
-) (update bool) {
-	// Parse discovered resources
-	foundIdentifiers := make(map[string]bool)
-	sortedNamespaces := []string{}
+	resourceName string, namespaceToEvent map[string]*objectTmplEvalResultWithEvent,
+) (
+	compliant bool, compliancyDetailsReason, compliancyDetailsMsg string,
+) {
+	reasonToNamespaceToEvent := map[string]map[string]*objectTmplEvalResultWithEvent{}
+	compliant = true
+	// If all objects are compliant, this only contains compliant events. If there is at least one noncompliant
+	// object, then this will only contain noncompliant events.
+	filteredNamespaceToEvent := map[string]*objectTmplEvalResultWithEvent{}
 
-	for n := range complianceObjects {
-		sortedNamespaces = append(sortedNamespaces, n)
-	}
-
-	sort.Strings(sortedNamespaces)
-
-	// Noncompliant with no resources -- return violation immediately
-	if objShouldExist && !compliant && tmplID.desiredName == "" {
-		message := fmt.Sprintf("No instances of `%v` found as specified", tmplID.kind)
-		if tmplID.namespaced && len(sortedNamespaces) > 0 {
-			message += fmt.Sprintf(" in namespaces: %v", strings.Join(sortedNamespaces, ", "))
+	for namespace, eventWithCtx := range namespaceToEvent {
+		// If a noncompliant event is encountered, then reset the maps to only include noncompliant events.
+		if compliant && !eventWithCtx.event.compliant {
+			compliant = false
+			filteredNamespaceToEvent = map[string]*objectTmplEvalResultWithEvent{}
+			reasonToNamespaceToEvent = map[string]map[string]*objectTmplEvalResultWithEvent{}
 		}
 
-		return addConditionToStatus(plc, tmplID.index, false, "K8s does not have a `must have` object", message)
+		if compliant != eventWithCtx.event.compliant {
+			continue
+		}
+
+		filteredNamespaceToEvent[namespace] = eventWithCtx
+
+		if _, ok := reasonToNamespaceToEvent[eventWithCtx.event.reason]; !ok {
+			reasonToNamespaceToEvent[eventWithCtx.event.reason] = map[string]*objectTmplEvalResultWithEvent{}
+		}
+
+		reasonToNamespaceToEvent[eventWithCtx.event.reason][namespace] = eventWithCtx
 	}
 
-	for _, ns := range sortedNamespaces {
-		// if the assertion fails, `names` will effectively be an empty list, which is fine.
-		names, _ := complianceObjects[ns]["names"].([]string)
-		idStr := identifierStr(names, ns, tmplID.namespaced)
+	// Create an order of the reasons so that the generated reason and compliance message is deterministic.
+	orderedReasons := []string{
+		reasonWantFoundExists,
+		reasonWantFoundCreated,
+		reasonUpdateSuccess,
+		reasonWantFoundDNE,
+		reasonWantFoundNoMatch,
+		reasonWantNotFoundDNE,
+		reasonWantNotFoundExists,
+	}
+	otherReasons := []string{}
 
-		if objShouldExist {
-			if compliant {
-				idStr += " found"
-			} else if complianceObjects[ns]["reason"] == reasonWantFoundNoMatch {
-				idStr += " found but not as specified"
-			} else {
-				idStr += " missing"
+	for reason := range reasonToNamespaceToEvent {
+		found := false
+
+		for _, orderedReason := range orderedReasons {
+			if orderedReason == reason {
+				found = true
+
+				break
 			}
 		}
 
-		foundIdentifiers[idStr] = true
-	}
-
-	niceNames := sortAndJoinKeys(foundIdentifiers, "; ")
-
-	var reason, msg string
-
-	if objShouldExist {
-		if compliant {
-			reason = "K8s `must have` object already exists"
-			msg = fmt.Sprintf("%v %v as specified, therefore this Object template is compliant", tmplID.kind, niceNames)
-		} else {
-			reason = "K8s does not have a `must have` object"
-			msg = fmt.Sprintf("%v not found: %v", tmplID.kind, niceNames)
-		}
-	} else {
-		if compliant {
-			reason = "K8s `must not have` object already missing"
-			msg = fmt.Sprintf(
-				"%v %v missing as expected, therefore this Object template is compliant", tmplID.kind, niceNames)
-		} else {
-			reason = "K8s has a `must not have` object"
-			msg = fmt.Sprintf("%v found: %v", tmplID.kind, niceNames)
+		if !found {
+			otherReasons = append(otherReasons, reason)
 		}
 	}
 
-	return addConditionToStatus(plc, tmplID.index, compliant, reason, msg)
-}
+	sort.Strings(otherReasons)
+	orderedReasons = append(orderedReasons, otherReasons...)
 
-func sortAndJoinKeys(m map[string]bool, sep string) string {
-	keys := make([]string, len(m))
-	i := 0
+	// The "reason" is more specific in the compliancyDetails section than in the relatedObjects section.
+	// It may be worth using the same message in both eventually.
+	for _, reason := range orderedReasons {
+		namespaceToEvent, ok := reasonToNamespaceToEvent[reason]
+		if !ok {
+			continue
+		}
 
-	for key := range m {
-		keys[i] = key
-		i++
+		sortedNamespaces := make([]string, 0, len(namespaceToEvent))
+
+		for ns := range namespaceToEvent {
+			sortedNamespaces = append(sortedNamespaces, ns)
+		}
+
+		sort.Strings(sortedNamespaces)
+
+		// If the object template was unnamed, then the object names can be different per namespace. If it was named,
+		// all will be the same, but this accounts for both.
+		sortedObjectNamesStrs := []string{}
+		// Note that the namespace slices will be ordered based on how they are populated.
+		objectNameStrsToNamespaces := map[string][]string{}
+
+		for _, ns := range sortedNamespaces {
+			namesStr := ""
+
+			if len(namespaceToEvent[ns].result.objectNames) > 0 {
+				namesStr = " [" + strings.Join(namespaceToEvent[ns].result.objectNames, ", ") + "]"
+			}
+
+			if _, ok := objectNameStrsToNamespaces[namesStr]; !ok {
+				sortedObjectNamesStrs = append(sortedObjectNamesStrs, namesStr)
+			}
+
+			objectNameStrsToNamespaces[namesStr] = append(objectNameStrsToNamespaces[namesStr], ns)
+		}
+
+		sort.Strings(sortedObjectNamesStrs)
+
+		// Process the object name strings in order to ensure a deterministic reason and message.
+		for i, namesStr := range sortedObjectNamesStrs {
+			if compliancyDetailsMsg != "" {
+				compliancyDetailsMsg += "; "
+			}
+
+			var generatedReason, generatedMsg string
+
+			switch reason {
+			case reasonWantFoundExists:
+				generatedReason = "K8s `must have` object already exists"
+				generatedMsg = fmt.Sprintf(
+					"%s%s found as specified, therefore, this object template is compliant", resourceName, namesStr,
+				)
+			case reasonWantFoundCreated:
+				generatedReason = reasonWantFoundCreated
+				generatedMsg = fmt.Sprintf("%s%s was missing, and was created successfully", resourceName, namesStr)
+			case reasonUpdateSuccess:
+				generatedReason = reasonUpdateSuccess
+				generatedMsg = fmt.Sprintf("%s%s was updated successfully", resourceName, namesStr)
+			case reasonWantFoundDNE:
+				generatedReason = "K8s does not have a `must have` object"
+				compliancyDetailsMsg += fmt.Sprintf("%s%s not found", resourceName, namesStr)
+			case reasonWantFoundNoMatch:
+				generatedReason = "K8s does not have a `must have` object"
+				compliancyDetailsMsg += fmt.Sprintf("%s%s found but not as specified", resourceName, namesStr)
+			case reasonWantNotFoundExists:
+				generatedReason = "K8s has a `must not have` object"
+				compliancyDetailsMsg += fmt.Sprintf("%s%s found", resourceName, namesStr)
+			case reasonWantNotFoundDNE:
+				generatedReason = "K8s `must not have` object already missing"
+				compliancyDetailsMsg += fmt.Sprintf(
+					"%s%s missing as expected, therefore, this object template is compliant", resourceName, namesStr,
+				)
+			default:
+				// If it's not one of the above reasons, then skip consolidation. This is likely an error being
+				// reported.
+				if i == 0 {
+					if compliancyDetailsReason != "" {
+						compliancyDetailsReason += "; "
+					}
+
+					compliancyDetailsReason += reason
+				}
+
+				for j, ns := range objectNameStrsToNamespaces[namesStr] {
+					if j != 0 {
+						compliancyDetailsMsg += "; "
+					}
+
+					compliancyDetailsMsg += namespaceToEvent[ns].event.message
+				}
+
+				// Assume the included messages include the namespace.
+				continue
+			}
+
+			// This prevents repeating the same reason for each unique object name list.
+			if i == 0 {
+				if compliancyDetailsReason != "" {
+					compliancyDetailsReason += "; "
+				}
+
+				compliancyDetailsReason += generatedReason
+			}
+
+			compliancyDetailsMsg += generatedMsg
+
+			// If it is namespaced, include the namespaces that were checked. A namespace of "" indicates
+			// cluster scoped. This length check is not necessary but is added for additional safety in case the logic
+			// above is changed.
+			if len(objectNameStrsToNamespaces[namesStr]) > 0 && objectNameStrsToNamespaces[namesStr][0] != "" {
+				if len(objectNameStrsToNamespaces[namesStr]) > 1 {
+					compliancyDetailsMsg += fmt.Sprintf(
+						" in namespaces: %s", strings.Join(objectNameStrsToNamespaces[namesStr], ", "),
+					)
+				} else {
+					compliancyDetailsMsg += fmt.Sprintf(" in namespace %s", objectNameStrsToNamespaces[namesStr][0])
+				}
+			}
+		}
 	}
 
-	sort.Strings(keys)
-
-	return strings.Join(keys, sep)
+	return
 }
 
 func objHasFinalizer(obj metav1.Object, finalizer string) bool {

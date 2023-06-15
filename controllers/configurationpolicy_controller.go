@@ -69,6 +69,8 @@ var (
 
 var (
 	reasonWantFoundExists    = "Resource found as expected"
+	reasonWantFoundCreated   = "K8s creation success"
+	reasonUpdateSuccess      = "K8s update success"
 	reasonWantFoundNoMatch   = "Resource found but does not match"
 	reasonWantFoundDNE       = "Resource not found but should exist"
 	reasonWantNotFoundExists = "Resource found but should not exist"
@@ -1116,18 +1118,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 	}
 
 	for indx, objectT := range plc.Spec.ObjectTemplates {
-		nonCompliantObjects := map[string]map[string]interface{}{}
-		compliantObjects := map[string]map[string]interface{}{}
-		enforce := strings.EqualFold(string(plc.Spec.RemediationAction), string(policyv1.Enforce))
-		kind := templateObjs[indx].kind
-		objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
-		mergeMessageEnforce := false
 		// If the object does not have a namespace specified, use the previously retrieved namespaces
 		// from the NamespaceSelector. If no namespaces are found/specified, use the value from the
 		// object so that the objectTemplate is processed:
 		// - For clusterwide resources, an empty string will be expected
-		// - For namespaced resources, handleObjects() will update status with a no namespace message if
-		//   it's an empty string or else will use the namespace defined in the object
+		// - For namespaced resources, handleObjects() will return a status with a no namespace message if
+		//   it's an empty string or else it will use the namespace defined in the object
 		var relevantNamespaces []string
 		if templateObjs[indx].isNamespaced && templateObjs[indx].namespace == "" && len(selectedNamespaces) != 0 {
 			relevantNamespaces = selectedNamespaces
@@ -1135,15 +1131,15 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			relevantNamespaces = []string{templateObjs[indx].namespace}
 		}
 
-		if enforce && len(relevantNamespaces) > 1 {
-			mergeMessageEnforce = true
-		}
-
-		numCompliant := 0
-		numNonCompliant := 0
-		handled := false
+		nsToResults := map[string]objectTmplEvalResult{}
 		// map raw object to a resource, generate a violation if resource cannot be found
-		mapping, statusUpdateNeeded := r.getMapping(objectT.ObjectDefinition, &plc, indx)
+		mapping, mappingErrResult := r.getMapping(objectT.ObjectDefinition, &plc, indx)
+
+		if mapping == nil && mappingErrResult == nil {
+			// If there was no violation generated but the mapping failed, there is nothing to do for this
+			// object-template.
+			continue
+		}
 
 		unstruct, err := unmarshalFromJSON(objectT.ObjectDefinition.Raw)
 		if err != nil {
@@ -1158,81 +1154,105 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				"desiredName", templateObjs[indx].name,
 				"index", indx,
 			)
-			var names []string
-			var compliant bool
-			var reason, objKind string
-			var related []policyv1.RelatedObject
 
-			if mapping != nil {
-				names, compliant, reason, objKind, related, statusUpdateNeeded = r.handleObjects(
-					objectT, ns, templateObjs[indx], indx, &plc, mapping, unstruct,
-				)
+			if mappingErrResult != nil {
+				nsToResults[ns] = *mappingErrResult
+
+				continue
 			}
 
-			if statusUpdateNeeded {
-				parentStatusUpdateNeeded = true
-			}
+			related, result := r.handleObjects(objectT, ns, templateObjs[indx], indx, &plc, mapping, unstruct)
 
-			if objKind != "" {
-				// object template enforced, objKind is empty
-				kind = objKind
-			}
-
-			if mergeMessageEnforce {
-				names = []string{templateObjs[indx].name}
-			}
-
-			// object template enforced, already handled in handleObjects
-			if names == nil {
-				handled = true
-			} else {
-				// when multiple messages and enforce mode, it doesn't mean remediactionAction is changed
-				enforce = false
-			}
-
-			// violations for enforce configurationpolicies are already handled in handleObjects,
-			// so we only need to generate a violation if the remediationAction is set to inform
-			// Or multiple namespaces and enforce use this
-			if !handled && !enforce {
-				if !compliant {
-					if len(names) == 0 {
-						numNonCompliant++
-					} else {
-						numNonCompliant += len(names)
-					}
-
-					nonCompliantObjects[ns] = map[string]interface{}{
-						"names":  names,
-						"reason": reason,
-					}
-				} else {
-					numCompliant += len(names)
-					compliantObjects[ns] = map[string]interface{}{
-						"names":  names,
-						"reason": reason,
-					}
-				}
-			}
+			nsToResults[ns] = result
 
 			for _, object := range related {
 				relatedObjects = updateRelatedObjectsStatus(relatedObjects, object)
 			}
 		}
 
-		if !handled && !enforce {
-			objData := templateIdentifier{
-				index:       indx,
-				kind:        kind,
-				desiredName: templateObjs[indx].name,
-				namespaced:  templateObjs[indx].isNamespaced,
+		// Each index is a batch of compliance events to be set on the ConfigurationPolicy before going on to the
+		// next one. For example, if an object didn't match and was enforced, there would be an event that it didn't
+		// match in the first batch, and then the second batch would be that it was updated successfully.
+		eventBatches := []map[string]*objectTmplEvalResultWithEvent{}
+
+		for ns, r := range nsToResults {
+			// Ensure eventBatches has enough batch entries for the number of compliance events for this namespace.
+			if len(eventBatches) < len(r.events) {
+				eventBatches = append(
+					make([]map[string]*objectTmplEvalResultWithEvent, len(r.events)-len(eventBatches)),
+					eventBatches...,
+				)
 			}
 
-			statusUpdateNeeded := createMergedStatus(
-				objShouldExist, numCompliant, numNonCompliant, compliantObjects, nonCompliantObjects, &plc, objData,
-			)
+			for i, event := range r.events {
+				// Determine the applicable batch. For example, if the policy enforces a "Role" in namespaces "ns1" and
+				// "ns2", and the "Role" was created in "ns1" and already compliant in "ns2", then "eventBatches" would
+				// have a length of two. The zeroth index would contain a noncompliant event because the "Role" did not
+				// exist in "ns1". The first index would contain two compliant events because the "Role" was created in
+				// "ns1" and was already compliant in "ns2".
+				batchIndex := len(eventBatches) - len(r.events) + i
+
+				if eventBatches[batchIndex] == nil {
+					eventBatches[batchIndex] = map[string]*objectTmplEvalResultWithEvent{}
+				}
+
+				eventBatches[batchIndex][ns] = &objectTmplEvalResultWithEvent{result: r, event: event}
+			}
+		}
+
+		var resourceName string
+		if mapping == nil {
+			resourceName = templateObjs[indx].kind
+		} else {
+			resourceName = mapping.Resource.Resource
+		}
+
+		// If there are multiple batches, check if the last batch is noncompliant and is the current state. If so,
+		// skip status updating and event generation. This is required to avoid an infinite loop of status updating
+		// when there is an error. In the case it's compliant, it's likely that some other process that is also
+		// updating the object and the ConfigurationPolicy has to constantly update it. We want to generate a
+		// status in this case.
+		if len(eventBatches) > 1 {
+			lastBatch := eventBatches[len(eventBatches)-1]
+
+			compliant, reason, msg := createStatus(resourceName, lastBatch)
+
+			if !compliant {
+				statusUpdateNeeded := addConditionToStatus(plc.DeepCopy(), indx, compliant, reason, msg)
+
+				if !statusUpdateNeeded {
+					log.V(2).Info("Skipping status update because the last batch already matches")
+
+					eventBatches = []map[string]*objectTmplEvalResultWithEvent{}
+				}
+			}
+		}
+
+		for i, batch := range eventBatches {
+			compliant, reason, msg := createStatus(resourceName, batch)
+
+			statusUpdateNeeded := addConditionToStatus(&plc, indx, compliant, reason, msg)
 
 			if statusUpdateNeeded {
 				parentStatusUpdateNeeded = true
+
+				// Doesn't account for state change...
+				if !compliant {
+					plc.Status.ComplianceState = policyv1.NonCompliant
+				}
+
+				// Don't send events on the last batch because the final call to checkRelatedAndUpdate
+				// after all the object templates are processed handles this.
+				if i == len(eventBatches)-1 {
+					break
+				}
+
+				log.Info(
+					"Sending an update policy status event for the object template",
+					"policy", plc.Name,
+					"index", indx,
+				)
+				r.addForUpdate(&plc, true)
 			}
 		}
 	}
@@ -1382,9 +1402,20 @@ func addConditionToStatus(
 		index = 0
 	}
 
-	if len(plc.Status.CompliancyDetails) <= index {
+	// Handle the case where this object template index wasn't processed before. This will add unknown compliancy
+	// details for previous object templates that didn't succeed but also didn't cause a violation. One example is if
+	// getting the mapping failed on a previous object template but the mapping error was unknown so processing of the
+	// object template was skipped.
+	for len(plc.Status.CompliancyDetails)-1 < index {
+		emptyCompliance := policyv1.UnknownCompliancy
+
+		// On the entry for the currently processing object template, use the object templates compliance state.
+		if index == len(plc.Status.CompliancyDetails)-2 {
+			emptyCompliance = complianceState
+		}
+
 		plc.Status.CompliancyDetails = append(plc.Status.CompliancyDetails, policyv1.TemplateStatus{
-			ComplianceState: complianceState,
+			ComplianceState: emptyCompliance,
 			Conditions:      []policyv1.Condition{},
 		})
 	}
@@ -1407,52 +1438,7 @@ func addConditionToStatus(
 		plc.Status.CompliancyDetails = plc.Status.CompliancyDetails[0:1]
 	}
 
-	if updateNeeded {
-		log.Info("Will update the policy status")
-	}
-
 	return updateNeeded
-}
-
-type templateIdentifier struct {
-	desiredName string
-	index       int
-	kind        string
-	namespaced  bool
-}
-
-// createMergedStatus updates the status field for a configurationpolicy with remediationAction=inform
-// based on how many compliant/noncompliant objects are found when processing the templates in the configurationpolicy
-// Or multiple namespaces and enforce use this
-func createMergedStatus(
-	objShouldExist bool,
-	numCompliant,
-	numNonCompliant int,
-	compliantObjects,
-	nonCompliantObjects map[string]map[string]interface{},
-	plc *policyv1.ConfigurationPolicy,
-	objData templateIdentifier,
-) bool {
-	if objData.kind == "" {
-		return false
-	}
-
-	var compObjs map[string]map[string]interface{}
-	var compliant bool
-
-	if numNonCompliant > 0 {
-		compliant = false
-		compObjs = nonCompliantObjects
-	} else if objShouldExist && numCompliant == 0 {
-		// Special case: No resources found is NonCompliant
-		compliant = false
-		compObjs = nonCompliantObjects
-	} else {
-		compliant = true
-		compObjs = compliantObjects
-	}
-
-	return createStatus(objData, compObjs, plc, compliant, objShouldExist)
 }
 
 // handleObjects controls the processing of each individual object template within a configurationpolicy
@@ -1465,12 +1451,8 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	mapping *meta.RESTMapping,
 	unstruct unstructured.Unstructured,
 ) (
-	objNameList []string,
-	compliant bool,
-	reason string,
-	rsrcKind string,
 	relatedObjects []policyv1.RelatedObject,
-	statusUpdateNeeded bool,
+	result objectTmplEvalResult,
 ) {
 	log := log.WithValues("policy", policy.GetName(), "index", index, "objectNamespace", namespace)
 
@@ -1498,25 +1480,25 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			"name", objName,
 			"kind", kindWithoutNS,
 		)
-		// namespaced but none specified, generate violation
-		msg := fmt.Sprintf("namespaced object %s of kind %s has no namespace specified "+
-			"from the policy namespaceSelector nor the object metadata",
-			objName, kindWithoutNS,
-		)
-		statusUpdateNeeded = addConditionToStatus(policy, index, false, "K8s missing namespace", msg)
 
-		if statusUpdateNeeded {
-			eventType := eventNormal
-			if index < len(policy.Status.CompliancyDetails) &&
-				policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
-				eventType = eventWarning
-			}
-
-			r.Recorder.Event(policy, eventType, fmt.Sprintf(eventFmtStr, policy.GetName(), objDetails.name),
-				convertPolicyStatusToString(policy))
+		var space string
+		if objName != "" {
+			space = " "
 		}
 
-		return nil, false, "", "", nil, statusUpdateNeeded
+		// namespaced but none specified, generate violation
+		msg := fmt.Sprintf("namespaced object%s%s of kind %s has no namespace specified "+
+			"from the policy namespaceSelector nor the object metadata",
+			space, objName, kindWithoutNS,
+		)
+
+		result = objectTmplEvalResult{
+			[]string{objName},
+			namespace,
+			[]objectTmplEvalEvent{{false, "K8s missing namespace", msg}},
+		}
+
+		return nil, result
 	}
 
 	var object *unstructured.Unstructured
@@ -1534,16 +1516,13 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		log.V(1).Info(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
-		objNames = append(
-			objNames,
-			getNamesOfKind(
-				unstruct,
-				mapping.Resource,
-				objDetails.isNamespaced,
-				namespace,
-				r.TargetK8sDynamicClient,
-				strings.ToLower(string(objectT.ComplianceType)),
-			)...,
+		objNames = getNamesOfKind(
+			unstruct,
+			mapping.Resource,
+			objDetails.isNamespaced,
+			namespace,
+			r.TargetK8sDynamicClient,
+			strings.ToLower(string(objectT.ComplianceType)),
 		)
 
 		// we do not support enforce on unnamed templates
@@ -1561,7 +1540,6 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	}
 
 	objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
-	rsrcKind = mapping.Resource.Resource
 
 	if len(objNames) == 1 {
 		name := objNames[0]
@@ -1581,77 +1559,77 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 		var creationInfo *policyv1.ObjectProperties
 
-		objNames, compliant, rsrcKind, statusUpdateNeeded, creationInfo = r.handleSingleObj(
-			singObj, remediation, exists, objectT,
-		)
-		// The message string for single objects is different than for multiple
-		reason = generateSingleObjReason(objShouldExist, compliant, exists)
-		// Enforce could clear the objNames array so use name instead
-		relatedObjects = addRelatedObjects(
-			compliant,
-			mapping.Resource,
-			objDetails.kind,
-			namespace,
-			objDetails.isNamespaced,
-			[]string{name},
-			reason,
-			creationInfo,
-		)
+		result, creationInfo = r.handleSingleObj(singObj, remediation, exists, objectT)
+
+		if len(result.events) != 0 {
+			event := result.events[len(result.events)-1]
+			relatedObjects = addRelatedObjects(
+				event.compliant,
+				mapping.Resource,
+				objDetails.kind,
+				namespace,
+				objDetails.isNamespaced,
+				result.objectNames,
+				event.reason,
+				creationInfo,
+			)
+		}
 	} else { // This case only occurs when the desired object is not named
+		resultEvent := objectTmplEvalEvent{}
 		if objShouldExist {
 			if exists {
-				compliant = true
-				reason = reasonWantFoundExists
+				resultEvent.compliant = true
+				resultEvent.reason = reasonWantFoundExists
 			} else {
-				compliant = false
-				reason = reasonWantFoundDNE
+				resultEvent.compliant = false
+				resultEvent.reason = reasonWantFoundDNE
 			}
 		} else {
 			if exists {
-				compliant = false
-				reason = reasonWantNotFoundExists
+				resultEvent.compliant = false
+				resultEvent.reason = reasonWantNotFoundExists
 			} else {
-				compliant = true
-				reason = reasonWantNotFoundDNE
+				resultEvent.compliant = true
+				resultEvent.reason = reasonWantNotFoundDNE
 			}
 		}
 
+		result = objectTmplEvalResult{objectNames: objNames, events: []objectTmplEvalEvent{resultEvent}}
+
 		relatedObjects = addRelatedObjects(
-			compliant,
+			resultEvent.compliant,
 			mapping.Resource,
 			objDetails.kind,
 			namespace,
 			objDetails.isNamespaced,
 			objNames,
-			reason,
+			resultEvent.reason,
 			nil,
 		)
-
-		if !statusUpdateNeeded {
-			log.V(2).Info("The status did not change for this object template")
-		}
 	}
 
-	return objNames, compliant, reason, rsrcKind, relatedObjects, statusUpdateNeeded
+	return relatedObjects, result
 }
 
-// generateSingleObjReason is a helper function to create a compliant/noncompliant message for a named object
-func generateSingleObjReason(objShouldExist bool, compliant bool, exists bool) (rsn string) {
-	reason := ""
+// generateSingleObjReason is a helper function to create a compliant/noncompliant reason for a named object.
+func generateSingleObjReason(objShouldExist bool, compliant bool, exists bool) string {
+	if objShouldExist {
+		if compliant {
+			return reasonWantFoundExists
+		}
 
-	if objShouldExist && compliant {
-		reason = reasonWantFoundExists
-	} else if objShouldExist && !compliant && exists {
-		reason = reasonWantFoundNoMatch
-	} else if objShouldExist && !compliant {
-		reason = reasonWantFoundDNE
-	} else if !objShouldExist && compliant {
-		reason = reasonWantNotFoundDNE
-	} else if !objShouldExist && !compliant {
-		reason = reasonWantNotFoundExists
+		if exists {
+			return reasonWantFoundNoMatch
+		}
+
+		return reasonWantFoundDNE
 	}
 
-	return reason
+	if compliant {
+		return reasonWantNotFoundDNE
+	}
+
+	return reasonWantNotFoundExists
 }
 
 type singleObject struct {
@@ -1666,6 +1644,23 @@ type singleObject struct {
 	unstruct    unstructured.Unstructured
 }
 
+type objectTmplEvalResult struct {
+	objectNames []string
+	namespace   string
+	events      []objectTmplEvalEvent
+}
+
+type objectTmplEvalEvent struct {
+	compliant bool
+	reason    string
+	message   string
+}
+
+type objectTmplEvalResultWithEvent struct {
+	result objectTmplEvalResult
+	event  objectTmplEvalEvent
+}
+
 // handleSingleObj takes in an object template (for a named object) and its data and determines whether
 // the object on the cluster is compliant or not
 func (r *ConfigurationPolicyReconciler) handleSingleObj(
@@ -1674,68 +1669,50 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	exists bool,
 	objectT *policyv1.ObjectTemplate,
 ) (
-	objNameList []string,
-	compliance bool,
-	rsrcKind string,
-	statusUpdateNeeded bool,
+	result objectTmplEvalResult,
 	creationInfo *policyv1.ObjectProperties,
 ) {
 	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name, "index", obj.index)
 
-	var compliant bool
-
-	compliantObject := map[string]map[string]interface{}{
-		obj.namespace: {
-			"names": []string{obj.name},
-		},
-	}
-
-	objData := templateIdentifier{
-		kind:       obj.gvr.Resource,
-		namespaced: obj.namespaced,
-		index:      obj.index,
-	}
-
 	if !exists && obj.shouldExist {
+		// object is missing and will be created, so send noncompliant "does not exist" event regardless of the
+		// remediation action
+		noncompliantReason := generateSingleObjReason(obj.shouldExist, false, exists)
+		result = objectTmplEvalResult{
+			objectNames: []string{obj.name},
+			namespace:   obj.namespace,
+			events:      []objectTmplEvalEvent{{false, noncompliantReason, ""}},
+		}
+
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 			var uid string
 			completed, reason, msg, uid, err := r.enforceByCreatingOrDeleting(obj)
 
+			result.events = append(result.events, objectTmplEvalEvent{completed, reason, msg})
+
 			if err != nil {
 				// violation created for handling error
 				objLog.Error(err, "Could not handle missing musthave object")
-
-				statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, completed, reason, msg)
 			} else {
-				// object is missing and will be created, so send noncompliant "does not exist" event first
-				// (this check has already happened, but we send the event here to avoid the status flipping on an
-				// error)
-				_ = createStatus(objData, compliantObject, obj.policy, false, true)
-				obj.policy.Status.ComplianceState = policyv1.NonCompliant
-				statusStr := convertPolicyStatusToString(obj.policy)
-				objLog.Info("Sending a noncompliant status event (object missing)", "policy", obj.policy.Name, "status",
-					statusStr)
-				r.Recorder.Event(obj.policy, eventWarning, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name),
-					statusStr)
-				// update parent policy status
-				r.addForUpdate(obj.policy, true)
-
-				statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, completed, reason, msg)
-
 				created := true
 				creationInfo = &policyv1.ObjectProperties{
 					CreatedByPolicy: &created,
 					UID:             uid,
 				}
-				compliant = true
 			}
-		} else { // inform
-			compliant = false
 		}
+
+		return
 	}
 
 	if exists && !obj.shouldExist {
+		result = objectTmplEvalResult{
+			objectNames: []string{obj.name},
+			namespace:   obj.namespace,
+			events:      []objectTmplEvalEvent{},
+		}
+
 		// it is a mustnothave but it exist, so it must be deleted
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 			completed, reason, msg, _, err := r.enforceByCreatingOrDeleting(obj)
@@ -1743,26 +1720,28 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				objLog.Error(err, "Could not handle existing mustnothave object")
 			}
 
-			statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, completed, reason, msg)
+			result.events = append(result.events, objectTmplEvalEvent{completed, reason, msg})
 		} else { // inform
-			compliant = false
+			reason := generateSingleObjReason(obj.shouldExist, false, exists)
+			result.events = append(result.events, objectTmplEvalEvent{false, reason, ""})
 		}
+
+		return
 	}
 
 	if !exists && !obj.shouldExist {
 		log.V(1).Info("The object does not exist and is compliant with the mustnothave compliance type")
 		// it is a must not have and it does not exist, so it is compliant
-		compliant = true
 
-		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
-			log.V(2).Info("Entering `does not exist` and `must not have`")
-
-			statusUpdateNeeded = createStatus(objData, compliantObject, obj.policy, compliant, false)
+		reason := generateSingleObjReason(obj.shouldExist, true, exists)
+		result = objectTmplEvalResult{
+			objectNames: []string{obj.name},
+			namespace:   obj.namespace,
+			events:      []objectTmplEvalEvent{{true, reason, ""}},
 		}
-	}
 
-	processingErr := false
-	specViolation := false
+		return
+	}
 
 	// object exists and the template requires it, so we need to check specific fields to see if we have a match
 	if exists {
@@ -1773,19 +1752,20 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 		before := time.Now().UTC()
 
-		throwSpecViolation, msg, pErr, triedUpdate, updatedObj := r.checkAndUpdateResource(obj, compType, mdCompType,
-			remediation)
+		throwSpecViolation, msg, triedUpdate, updatedObj := r.checkAndUpdateResource(
+			obj, compType, mdCompType, remediation,
+		)
+
+		result = objectTmplEvalResult{
+			objectNames: []string{obj.name},
+			namespace:   obj.namespace,
+			events:      []objectTmplEvalEvent{},
+		}
 
 		if triedUpdate && !strings.Contains(msg, "Error validating the object") {
-			// object has a mismatch and needs an update to be enforced, throw violation for mismatch
-			_ = createStatus(objData, compliantObject, obj.policy, false, true)
-			obj.policy.Status.ComplianceState = policyv1.NonCompliant
-			statusStr := convertPolicyStatusToString(obj.policy)
-			objLog.Info("Sending an update policy status event", "policy", obj.policy.Name, "status", statusStr)
-			r.Recorder.Event(obj.policy, eventWarning, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name),
-				statusStr)
-			// update parent policy status
-			r.addForUpdate(obj.policy, true)
+			// The object was mismatched and was potentially fixed depending on the remediation action
+			tempReason := generateSingleObjReason(obj.shouldExist, false, exists)
+			result.events = append(result.events, objectTmplEvalEvent{false, tempReason, ""})
 		}
 
 		duration := time.Now().UTC().Sub(before)
@@ -1802,66 +1782,38 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		).Inc()
 
 		if throwSpecViolation {
-			specViolation = throwSpecViolation
-			compliant = false
-		} else if msg != "" {
-			statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, false, "K8s update template error", msg)
+			var resultReason, resultMsg string
+
+			if msg != "" {
+				resultReason = "K8s update template error"
+				resultMsg = msg
+			} else {
+				resultReason = reasonWantFoundNoMatch
+			}
+
+			result.events = append(result.events, objectTmplEvalEvent{false, resultReason, resultMsg})
 		} else if obj.shouldExist {
 			// it is a must have and it does exist, so it is compliant
-			compliant = true
 			if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 				if updatedObj {
-					// object updated in checkAndUpdateResource, send event
-					reason := "K8s update success"
-					idStr := identifierStr([]string{obj.name}, obj.namespace, obj.namespaced)
-					msg := fmt.Sprintf("%v %v was updated successfully", obj.gvr.Resource, idStr)
-
-					statusUpdateNeeded = addConditionToStatus(obj.policy, obj.index, true, reason, msg)
+					result.events = append(result.events, objectTmplEvalEvent{true, reasonUpdateSuccess, ""})
 				} else {
-					statusUpdateNeeded = createStatus(objData, compliantObject, obj.policy, compliant, true)
+					reason := generateSingleObjReason(obj.shouldExist, true, exists)
+					result.events = append(result.events, objectTmplEvalEvent{true, reason, ""})
 				}
 				created := false
 				creationInfo = &policyv1.ObjectProperties{
 					CreatedByPolicy: &created,
 					UID:             "",
 				}
+			} else {
+				reason := generateSingleObjReason(obj.shouldExist, true, exists)
+				result.events = append(result.events, objectTmplEvalEvent{true, reason, ""})
 			}
 		}
-
-		processingErr = pErr
 	}
 
-	if statusUpdateNeeded {
-		eventType := eventNormal
-		if obj.index < len(obj.policy.Status.CompliancyDetails) &&
-			obj.policy.Status.CompliancyDetails[obj.index].ComplianceState == policyv1.NonCompliant {
-			eventType = eventWarning
-			compliant = false
-		}
-
-		if compliant {
-			obj.policy.Status.ComplianceState = policyv1.Compliant
-		} else {
-			obj.policy.Status.ComplianceState = policyv1.NonCompliant
-		}
-
-		statusStr := convertPolicyStatusToString(obj.policy)
-
-		log.V(1).Info("Sending an update policy status event", "policy", obj.policy.Name, "status", statusStr)
-		r.Recorder.Event(obj.policy, eventType, fmt.Sprintf(eventFmtStr, obj.policy.GetName(), obj.name), statusStr)
-
-		return nil, compliant, "", statusUpdateNeeded, creationInfo
-	}
-
-	if processingErr {
-		return nil, false, "", statusUpdateNeeded, creationInfo
-	}
-
-	if strings.EqualFold(string(remediation), string(policyv1.Inform)) || specViolation {
-		return []string{obj.name}, compliant, obj.gvr.Resource, statusUpdateNeeded, creationInfo
-	}
-
-	return nil, compliant, "", statusUpdateNeeded, creationInfo
+	return
 }
 
 // isObjectNamespaced determines if the input object is a namespaced resource. When refreshIfNecessary
@@ -1913,37 +1865,24 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	ext runtime.RawExtension,
 	policy *policyv1.ConfigurationPolicy,
 	index int,
-) (mapping *meta.RESTMapping, updateNeeded bool) {
+) (mapping *meta.RESTMapping, result *objectTmplEvalResult) {
 	log := log.WithValues("policy", policy.GetName(), "index", index)
 
 	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, nil)
 	if err != nil {
-		// generate violation if object cannot be decoded and update the configpolicy
 		decodeErr := fmt.Sprintf("Decoding error, please check your policy file!"+
 			" Aborting handling the object template at index [%v] in policy `%v` with error = `%v`",
 			index, policy.Name, err)
 
 		log.Error(err, "Could not decode object")
 
-		if len(policy.Status.CompliancyDetails) <= index {
-			policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1.TemplateStatus{
-				ComplianceState: policyv1.NonCompliant,
-				Conditions:      []policyv1.Condition{},
-			})
-		}
-
-		policy.Status.CompliancyDetails[index].ComplianceState = policyv1.NonCompliant
-		policy.Status.CompliancyDetails[index].Conditions = []policyv1.Condition{
-			{
-				Type:               "violation",
-				Status:             corev1.ConditionTrue,
-				LastTransitionTime: metav1.Now(),
-				Reason:             "K8s decode object definition error",
-				Message:            decodeErr,
+		result = &objectTmplEvalResult{
+			events: []objectTmplEvalEvent{
+				{compliant: false, reason: "K8s decode object definition error", message: decodeErr},
 			},
 		}
 
-		return nil, true
+		return nil, result
 	}
 
 	// initializes a mapping between Kind and APIVersion to a resource name
@@ -1952,68 +1891,39 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	r.lock.RUnlock()
 
 	mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-	mappingErrMsg := ""
 
 	if err != nil {
-		// if the restmapper fails to find a mapping to a resource, generate a violation and update the configpolicy
+		// if the restmapper fails to find a mapping to a resource, generate a violation
 		prefix := "no matches for kind \""
 		startIdx := strings.Index(err.Error(), prefix)
 
 		if startIdx == -1 {
 			log.Error(err, "Could not identify mapping error from raw object", "gvk", gvk)
-		} else {
-			afterPrefix := err.Error()[(startIdx + len(prefix)):len(err.Error())]
-			kind := afterPrefix[0:(strings.Index(afterPrefix, "\" "))]
-			mappingErrMsg = "couldn't find mapping resource with kind " + kind +
-				", please check if you have CRD deployed"
 
-			log.Error(err, "Could not map resource, do you have the CRD deployed?", "kind", kind)
-
-			parent := ""
-			if len(policy.OwnerReferences) > 0 {
-				parent = policy.OwnerReferences[0].Name
-			}
-
-			policyUserErrorsCounter.WithLabelValues(parent, policy.GetName(), "no-object-CRD").Add(1)
+			return nil, nil
 		}
 
-		errMsg := err.Error()
-		if mappingErrMsg != "" {
-			errMsg = mappingErrMsg
-			cond := &policyv1.Condition{
-				Type:               "violation",
-				Status:             corev1.ConditionFalse,
-				LastTransitionTime: metav1.Now(),
-				Reason:             "K8s creation error",
-				Message:            mappingErrMsg,
-			}
+		afterPrefix := err.Error()[(startIdx + len(prefix)):len(err.Error())]
+		kind := afterPrefix[0:(strings.Index(afterPrefix, "\" "))]
+		mappingErrMsg := "couldn't find mapping resource with kind " + kind +
+			", please check if you have CRD deployed"
 
-			if len(policy.Status.CompliancyDetails) <= index {
-				policy.Status.CompliancyDetails = append(policy.Status.CompliancyDetails, policyv1.TemplateStatus{
-					ComplianceState: policyv1.NonCompliant,
-					Conditions:      []policyv1.Condition{},
-				})
-			}
+		log.Error(err, "Could not map resource, do you have the CRD deployed?", "kind", kind)
 
-			if policy.Status.CompliancyDetails[index].ComplianceState != policyv1.NonCompliant {
-				updateNeeded = true
-			}
-
-			policy.Status.CompliancyDetails[index].ComplianceState = policyv1.NonCompliant
-
-			if !checkMessageSimilarity(policy.Status.CompliancyDetails[index].Conditions, cond) {
-				conditions := AppendCondition(policy.Status.CompliancyDetails[index].Conditions, cond)
-				policy.Status.CompliancyDetails[index].Conditions = conditions
-				updateNeeded = true
-			}
+		parent := ""
+		if len(policy.OwnerReferences) > 0 {
+			parent = policy.OwnerReferences[0].Name
 		}
 
-		if updateNeeded {
-			// generate an event on the configurationpolicy if a violation is created
-			r.Recorder.Event(policy, eventWarning, fmt.Sprintf(plcFmtStr, policy.GetName()), errMsg)
+		policyUserErrorsCounter.WithLabelValues(parent, policy.GetName(), "no-object-CRD").Add(1)
+
+		result = &objectTmplEvalResult{
+			events: []objectTmplEvalEvent{
+				{compliant: false, reason: "K8s creation error", message: mappingErrMsg},
+			},
 		}
 
-		return nil, updateNeeded
+		return nil, result
 	}
 
 	log.V(2).Info(
@@ -2023,7 +1933,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 		"kind", gvk.Kind,
 	)
 
-	return mapping, updateNeeded
+	return mapping, nil
 }
 
 // buildNameList is a helper function to pull names of resources that match an objectTemplate from a list of resources
@@ -2101,7 +2011,7 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 		"objectNamespace", obj.namespace,
 		"objectTemplateIndex", obj.index,
 	)
-	idStr := identifierStr([]string{obj.name}, obj.namespace, obj.namespaced)
+	idStr := identifierStr([]string{obj.name}, obj.namespace)
 
 	var res dynamic.ResourceInterface
 	if obj.namespaced {
@@ -2121,7 +2031,7 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
 			log.V(2).Info("Created missing must have object", "resource", obj.gvr.Resource, "name", obj.name)
-			reason = "K8s creation success"
+			reason = reasonWantFoundCreated
 			msg = fmt.Sprintf("%v %v was missing, and was created successfully", obj.gvr.Resource, idStr)
 
 			var uidIsString bool
@@ -2620,7 +2530,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	complianceType string,
 	mdComplianceType string,
 	remediation policyv1.RemediationAction,
-) (throwSpecViolation bool, message string, processingErr bool, updateNeeded bool, updateSucceeded bool) {
+) (throwSpecViolation bool, message string, updateNeeded bool, updateSucceeded bool) {
 	log := log.WithValues(
 		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
 	)
@@ -2628,7 +2538,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if obj.object == nil {
 		log.Info("Skipping update: Previous object retrieval from the API server failed")
 
-		return false, "", false, false, false
+		return false, "", false, false
 	}
 
 	var res dynamic.ResourceInterface
@@ -2637,9 +2547,6 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	} else {
 		res = r.TargetK8sDynamicClient.Resource(obj.gvr)
 	}
-
-	var err error
-	var statusUpdated bool
 
 	updateSucceeded = false
 
@@ -2659,7 +2566,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		if errorMsg != "" {
 			log.Info(errorMsg)
 
-			return false, errorMsg, true, false, false
+			return true, errorMsg, true, false
 		}
 
 		if mergedObj == nil && skipped {
@@ -2683,9 +2590,9 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		if keyUpdateNeeded {
 			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
-				return true, "", false, false, false
+				return true, "", false, false
 			} else if isStatus {
-				statusUpdated = true
+				throwSpecViolation = true
 				log.Info("Ignoring an update to the object status", "key", key)
 			} else {
 				updateNeeded = true
@@ -2703,35 +2610,35 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			if err := r.validateObject(obj.object); err != nil {
 				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
 
-				return false, message, true, updateNeeded, false
+				return true, message, updateNeeded, false
 			}
 		}
 
-		_, err = res.Update(context.TODO(), obj.object, metav1.UpdateOptions{
+		_, err := res.Update(context.TODO(), obj.object, metav1.UpdateOptions{
 			FieldValidation: metav1.FieldValidationStrict,
 		})
 		if k8serrors.IsNotFound(err) {
 			message := fmt.Sprintf("`%v` is not present and must be created", obj.object.GetKind())
 
-			return false, message, true, updateNeeded, false
+			return true, message, updateNeeded, false
 		}
 
 		if err != nil {
 			if strings.Contains(err.Error(), "strict decoding error:") {
 				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
 
-				return false, message, true, updateNeeded, false
+				return true, message, updateNeeded, false
 			}
 
 			message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
 
-			return false, message, true, updateNeeded, false
+			return true, message, updateNeeded, false
 		}
 
 		updateSucceeded = true
 	}
 
-	return statusUpdated, "", false, updateNeeded, updateSucceeded
+	return throwSpecViolation, "", updateNeeded, updateSucceeded
 }
 
 // AppendCondition check and appends conditions to the policy status
@@ -2873,8 +2780,37 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	if sendEvent {
 		log.V(1).Info("Sending policy status update event")
 
-		r.Recorder.Event(policy, "Normal", "Policy updated",
-			fmt.Sprintf("Policy status is: %v", policy.Status.ComplianceState))
+		var msg string
+
+		for i, compliancyDetail := range policy.Status.CompliancyDetails {
+			if i == 0 {
+				msg = ": "
+			}
+
+			for _, condition := range compliancyDetail.Conditions {
+				if condition.Message == "" {
+					continue
+				}
+
+				if msg != ": " {
+					msg += "; "
+				}
+
+				msg += condition.Message
+			}
+		}
+
+		eventType := eventNormal
+		if policy.Status.ComplianceState == policyv1.NonCompliant {
+			eventType = eventWarning
+		}
+
+		r.Recorder.Event(
+			policy,
+			eventType,
+			"Policy updated",
+			fmt.Sprintf("Policy status is %s%s", policy.Status.ComplianceState, msg),
+		)
 	}
 
 	return nil
@@ -2931,7 +2867,7 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 }
 
 // convertPolicyStatusToString to be able to pass the status as event
-func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) (results string) {
+func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) string {
 	if plc.Status.ComplianceState == "" || plc.Status.ComplianceState == policyv1.UnknownCompliancy {
 		return "ComplianceState is still unknown"
 	}

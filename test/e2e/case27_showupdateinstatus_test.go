@@ -29,8 +29,9 @@ var _ = Describe("Verify status update after updating object", Ordered, func() {
 
 			return utils.GetStatusMessage(managedPlc)
 		}, 120, 1).Should(Equal(
-			"configmaps [case27-map] in namespace default found as specified, " +
-				"therefore this Object template is compliant"))
+			"configmaps [case27-map] found as specified, therefore, this object template is compliant in " +
+				"namespace default",
+		))
 	})
 	It("configmap and status should be updated properly on the managed cluster", func() {
 		By("Updating " + case27ConfigPolicyName + " on managed")
@@ -40,8 +41,7 @@ var _ = Describe("Verify status update after updating object", Ordered, func() {
 				case27ConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, 30, 0.5).Should(Equal(
-			"configmaps [case27-map] in namespace default was updated successfully"))
+		}, 30, 0.5).Should(Equal("configmaps [case27-map] was updated successfully in namespace default"))
 	})
 
 	AfterAll(func() {
