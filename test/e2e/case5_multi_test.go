@@ -141,41 +141,30 @@ var _ = Describe("Test multiple obj template handling", func() {
 				case5KindNameMissPlcName, 0, defaultTimeoutSeconds, kindNameErrMsg)
 
 			By("Name missing")
-			nameErrMsg := "No instances of `pods` found as specified in namespaces: n1, n2, n3"
+			nameErrMsg := "pods not found in namespaces: n1, n2, n3"
 			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
 				case5NameMissPlcName, 0, defaultTimeoutSeconds, nameErrMsg)
 		})
 		It("Should show merged Noncompliant messages when it is multiple namespaces and inform", func() {
-			expectedMsg := "pods not found: [case5-multi-namespace-inform-pod] " +
-				"in namespace n1 missing; [case5-multi-namespace-inform-pod] " +
-				"in namespace n2 missing; [case5-multi-namespace-inform-pod] " +
-				"in namespace n3 missing"
+			expectedMsg := "pods [case5-multi-namespace-inform-pod] not found in namespaces: n1, n2, n3"
 			utils.Kubectl("apply", "-f", case5InformYaml)
 			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
 				case5MultiNSInformConfigPolicyName, 0, defaultTimeoutSeconds, expectedMsg)
 		})
 		It("Should show merged messages when it is multiple namespaces", func() {
-			expectedMsg := "Pod [case5-multi-namespace-enforce-pod] in namespace n1 found; " +
-				"[case5-multi-namespace-enforce-pod] in namespace n2 found; " +
-				"[case5-multi-namespace-enforce-pod] in namespace n3 found " +
-				"as specified, therefore this Object template is compliant"
+			expectedMsg := "pods [case5-multi-namespace-enforce-pod] found as specified, therefore, this object " +
+				"template is compliant in namespaces: n1, n2, n3"
 			utils.Kubectl("apply", "-f", case5EnforceYaml)
 			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
 				case5MultiNSConfigPolicyName, 0, defaultTimeoutSeconds, expectedMsg)
 		})
 		It("Should show 3 merged messages when it is multiple namespaces and multiple obj-template", func() {
-			firstMsg := "Pod [case5-multi-obj-temp-pod-11] in namespace n1 found; " +
-				"[case5-multi-obj-temp-pod-11] in namespace n2 found; " +
-				"[case5-multi-obj-temp-pod-11] in namespace n3 found " +
-				"as specified, therefore this Object template is compliant"
-			secondMsg := "Pod [case5-multi-obj-temp-pod-22] in namespace n1 found; " +
-				"[case5-multi-obj-temp-pod-22] in namespace n2 found; " +
-				"[case5-multi-obj-temp-pod-22] in namespace n3 found " +
-				"as specified, therefore this Object template is compliant"
-			thirdMsg := "Pod [case5-multi-obj-temp-pod-33] in namespace n1 found; " +
-				"[case5-multi-obj-temp-pod-33] in namespace n2 found; " +
-				"[case5-multi-obj-temp-pod-33] in namespace n3 found " +
-				"as specified, therefore this Object template is compliant"
+			firstMsg := "pods [case5-multi-obj-temp-pod-11] found as specified, therefore, this object template is " +
+				"compliant in namespaces: n1, n2, n3"
+			secondMsg := "pods [case5-multi-obj-temp-pod-22] found as specified, therefore, this object template is " +
+				"compliant in namespaces: n1, n2, n3"
+			thirdMsg := "pods [case5-multi-obj-temp-pod-33] found as specified, therefore, this object template is " +
+				"compliant in namespaces: n1, n2, n3"
 			utils.Kubectl("apply", "-f", case5MultiObjTmpYaml)
 			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
 				case5MultiObjNSConfigPolicyName, 0, defaultTimeoutSeconds, firstMsg)

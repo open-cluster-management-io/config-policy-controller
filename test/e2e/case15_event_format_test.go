@@ -51,10 +51,10 @@ var _ = Describe("Testing compliance event formatting", func() {
 
 		By("Checking events on the configurationpolicy")
 		compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
-			case15AlwaysCompliantName, "", "Policy status is: Compliant", defaultTimeoutSeconds)
+			case15AlwaysCompliantName, "", "Policy status is Compliant", defaultTimeoutSeconds)
 		Expect(compPlcEvents).NotTo(BeEmpty())
 		nonCompPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
-			case15AlwaysCompliantName, "", "Policy status is: NonCompliant", defaultTimeoutSeconds)
+			case15AlwaysCompliantName, "", "Policy status is NonCompliant", defaultTimeoutSeconds)
 		Expect(nonCompPlcEvents).To(BeEmpty())
 
 		By("Checking events on the parent policy")
@@ -83,10 +83,10 @@ var _ = Describe("Testing compliance event formatting", func() {
 
 		By("Checking events on the configurationpolicy")
 		compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
-			case15NeverCompliantName, "", "Policy status is: Compliant", defaultTimeoutSeconds)
+			case15NeverCompliantName, "", "Policy status is Compliant", defaultTimeoutSeconds)
 		Expect(compPlcEvents).To(BeEmpty())
 		nonCompPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
-			case15NeverCompliantName, "", "Policy status is: NonCompliant", defaultTimeoutSeconds)
+			case15NeverCompliantName, "", "Policy status is NonCompliant", defaultTimeoutSeconds)
 		Expect(nonCompPlcEvents).NotTo(BeEmpty())
 
 		By("Checking events on the parent policy")
@@ -125,15 +125,15 @@ var _ = Describe("Testing compliance event formatting", func() {
 
 		By("Checking for compliant events on the configurationpolicy and the parent policy")
 		compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
-			case15BecomesCompliantName, "", "Policy status is: Compliant", defaultTimeoutSeconds)
+			case15BecomesCompliantName, "", "Policy status is Compliant", defaultTimeoutSeconds)
 		Expect(compPlcEvents).NotTo(BeEmpty())
 		compParentEventsPreCreation := utils.GetMatchingEvents(clientManaged, testNamespace,
 			case15BecomesCompliantParentName, "policy: "+testNamespace+"/"+case15BecomesCompliantName,
-			"^NonCompliant;.*No instances of.*found as specified", defaultTimeoutSeconds)
+			"^NonCompliant;.*not found in namespace default$", defaultTimeoutSeconds)
 		Expect(compParentEventsPreCreation).NotTo(BeEmpty())
 		compParentEvents := utils.GetMatchingEvents(clientManaged, testNamespace, case15BecomesCompliantParentName,
 			"policy: "+testNamespace+"/"+case15BecomesCompliantName,
-			"^Compliant;.*and was created successfully$", defaultTimeoutSeconds)
+			"^Compliant;.*and was created successfully in namespace default$", defaultTimeoutSeconds)
 		Expect(compParentEvents).NotTo(BeEmpty())
 	})
 	It("Records events for a policy that becomes noncompliant", func() {
@@ -161,7 +161,7 @@ var _ = Describe("Testing compliance event formatting", func() {
 
 		By("Checking for noncompliant events on the configurationpolicy and the parent policy")
 		nonCompPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
-			case15BecomesNonCompliantName, "", "Policy status is: NonCompliant", defaultTimeoutSeconds)
+			case15BecomesNonCompliantName, "", "Policy status is NonCompliant", defaultTimeoutSeconds)
 		Expect(nonCompPlcEvents).NotTo(BeEmpty())
 		nonCompParentEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
 			case15BecomesNonCompliantParentName, "policy: "+testNamespace+"/"+case15BecomesNonCompliantName,

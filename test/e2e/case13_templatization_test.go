@@ -224,7 +224,8 @@ var _ = Describe("Test templatization", func() {
 
 				return utils.GetStatusMessage(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal(
-				"pods [testvalue] in namespace default found as specified, therefore this Object template is compliant",
+				"pods [testvalue] found as specified, therefore, this object template is compliant in " +
+					"namespace default",
 			))
 			utils.Kubectl("delete", "configurationpolicy", case13LookupSecret, "-n", testNamespace)
 			utils.Kubectl("delete", "configurationpolicy", case13LookupClusterClaim, "-n", testNamespace)
