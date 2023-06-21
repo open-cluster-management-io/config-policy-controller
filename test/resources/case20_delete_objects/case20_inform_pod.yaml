@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: policy-pod-inform
+  name: policy-pod-inform-c20
 spec:
   remediationAction: inform
   namespaceSelector:

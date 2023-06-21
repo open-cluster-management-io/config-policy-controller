@@ -14,15 +14,15 @@ const (
 	case5ConfigPolicyNameInform  string = "policy-pod-multi-mh"
 	case5ConfigPolicyNameEnforce string = "policy-pod-multi-create"
 	case5ConfigPolicyNameCombo   string = "policy-pod-multi-combo"
-	case5PodName1                string = "nginx-pod-1"
-	case5PodName2                string = "nginx-pod-1"
+	case5PodName1                string = "case5-nginx-pod-1"
+	case5PodName2                string = "case5-nginx-pod-2"
 	case5InformYaml              string = "../resources/case5_multi/case5_multi_mh.yaml"
 	case5EnforceYaml             string = "../resources/case5_multi/case5_multi_enforce.yaml"
 	case5ComboYaml               string = "../resources/case5_multi/case5_multi_combo.yaml"
 )
 
 var _ = Describe("Test multiple obj template handling", func() {
-	Describe("Create a policy on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a policy on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case5ConfigPolicyNameInform + " and " + case5ConfigPolicyNameCombo + " on managed")
 			utils.Kubectl("apply", "-f", case5InformYaml, "-n", testNamespace)
@@ -77,7 +77,7 @@ var _ = Describe("Test multiple obj template handling", func() {
 				case5PodName2, "default", true, defaultTimeoutSeconds)
 			Expect(pod2).NotTo(BeNil())
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case5ConfigPolicyNameInform,
 				case5ConfigPolicyNameEnforce,
@@ -85,6 +85,11 @@ var _ = Describe("Test multiple obj template handling", func() {
 			}
 
 			deleteConfigPolicies(policies)
+
+			By("Delete pods")
+			pods := []string{case5PodName1, case5PodName2}
+			namespaces := []string{"default"}
+			deletePods(pods, namespaces)
 		})
 	})
 

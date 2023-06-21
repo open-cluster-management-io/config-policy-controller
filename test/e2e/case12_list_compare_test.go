@@ -15,6 +15,7 @@ import (
 const (
 	case12ConfigPolicyNameInform  string = "policy-pod-mh-listinform"
 	case12ConfigPolicyNameEnforce string = "policy-pod-create-listinspec"
+	case12PodName                 string = "nginx-pod-e2e-12"
 	case12InformYaml              string = "../resources/case12_list_compare/case12_pod_inform.yaml"
 	case12EnforceYaml             string = "../resources/case12_list_compare/case12_pod_create.yaml"
 )
@@ -77,7 +78,7 @@ const (
 )
 
 var _ = Describe("Test list handling for musthave", func() {
-	Describe("Create a policy with a nested list on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a policy with a nested list on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case12ConfigPolicyNameEnforce + " and " + case12ConfigPolicyNameInform + " on managed")
 			utils.Kubectl("apply", "-f", case12EnforceYaml, "-n", testNamespace)
@@ -101,16 +102,18 @@ var _ = Describe("Test list handling for musthave", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case12ConfigPolicyNameInform,
 				case12ConfigPolicyNameEnforce,
 			}
 
 			deleteConfigPolicies(policies)
+
+			utils.Kubectl("delete", "pod", case12PodName, "-n", "default", "--ignore-not-found")
 		})
 	})
-	Describe("Create a policy with a list field on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a policy with a list field on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case12ConfigPolicyNameRoleEnforce + " and " +
 				case12ConfigPolicyNameRoleInform + " on managed")
@@ -135,7 +138,7 @@ var _ = Describe("Test list handling for musthave", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case12ConfigPolicyNameRoleInform,
 				case12ConfigPolicyNameRoleEnforce,
@@ -144,7 +147,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			deleteConfigPolicies(policies)
 		})
 	})
-	Describe("Create and patch a role on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create and patch a role on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case12RoleToPatch + " and " + case12RolePatchEnforce + " on managed")
 			utils.Kubectl("apply", "-f", case12RoleToPatchYaml, "-n", testNamespace)
@@ -178,7 +181,7 @@ var _ = Describe("Test list handling for musthave", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case12RoleToPatch,
 				case12RolePatchEnforce,
@@ -188,7 +191,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			deleteConfigPolicies(policies)
 		})
 	})
-	Describe("Create and patch an oauth object on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create and patch an oauth object on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case12OauthCreate + " and " + case12OauthPatch + " on managed")
 			utils.Kubectl("apply", "-f", case12OauthCreateYaml, "-n", testNamespace)
@@ -295,7 +298,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
 
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case12OauthCreate,
 				case12OauthPatch,
@@ -311,7 +314,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			deleteConfigPolicies(policies)
 		})
 	})
-	Describe("Create a deployment object with env vars on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a deployment object with env vars on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should only add the list item with prefix and suffix whitespace once", func() {
 			By("Creating " + case12WhitespaceListCreate + " and " + case12WhitespaceListInform + " on managed")
 			utils.Kubectl("apply", "-f", case12WhitespaceListCreateYaml, "-n", testNamespace)
@@ -347,7 +350,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			Expect(envvars).To(HaveLen(1))
 		})
 
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case12WhitespaceListCreate,
 				case12WhitespaceListInform,

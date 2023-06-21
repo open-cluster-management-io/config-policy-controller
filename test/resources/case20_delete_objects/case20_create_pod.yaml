@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: policy-pod-create
+  name: policy-pod-create-c20
 spec:
   remediationAction: enforce
   namespaceSelector:

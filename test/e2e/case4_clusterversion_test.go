@@ -20,7 +20,7 @@ const (
 )
 
 var _ = Describe("Test cluster version obj template handling", func() {
-	Describe("enforce patch on unnamespaced resource clusterversion "+testNamespace, func() {
+	Describe("enforce patch on unnamespaced resource clusterversion "+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case4ConfigPolicyName + " on managed")
 			utils.Kubectl("apply", "-f", case4PolicyYaml, "-n", testNamespace)
@@ -47,6 +47,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.Kubectl("delete", "configurationpolicy", case4ConfigPolicyNamePatch, "-n", testNamespace)
 		})
 		It("should be generate status properly for cluster-level resources", func() {
 			By("Creating " + case4ConfigPolicyNameInform + " on managed")
@@ -60,8 +61,10 @@ var _ = Describe("Test cluster version obj template handling", func() {
 
 				return utils.GetStatusMessage(managedPlc)
 			}, 120, 1).Should(Equal("clusterversions [version] found as specified"))
+
+			utils.Kubectl("delete", "configurationpolicy", case4ConfigPolicyNameInform, "-n", testNamespace)
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case4ConfigPolicyName,
 				case4ConfigPolicyNameInform,

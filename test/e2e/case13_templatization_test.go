@@ -68,7 +68,7 @@ const (
 	case13PruneTmpErrYaml string = "../resources/case13_templatization/case13_prune_template_error.yaml"
 )
 
-var _ = Describe("Test templatization", func() {
+var _ = Describe("Test templatization", Ordered, func() {
 	Describe("Create a secret and pull data from it into a configurationPolicy", func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case13CfgPolCreateSecret + " and " + case13CfgPolCheckSecret + " on managed")
@@ -105,6 +105,8 @@ var _ = Describe("Test templatization", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+
+			By("Clean up")
 			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
 			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCheckSecret, "-n", testNamespace)
 		})
@@ -145,6 +147,8 @@ var _ = Describe("Test templatization", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+
+			By("Clean up")
 			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
 			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCheckSecret, "-n", testNamespace)
 		})
@@ -194,9 +198,14 @@ var _ = Describe("Test templatization", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreatePod, "-n", testNamespace)
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolVerifyPod, "-n", testNamespace)
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolVerifyPodWithConfigMap, "-n", testNamespace)
+		})
+		AfterAll(func() {
+			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreatePod,
+				"-n", testNamespace, "--ignore-not-found")
+			utils.Kubectl("delete", "configurationpolicy", case13CfgPolVerifyPod,
+				"-n", testNamespace, "--ignore-not-found")
+			utils.Kubectl("delete", "configurationpolicy",
+				case13CfgPolVerifyPodWithConfigMap, "-n", testNamespace, "--ignore-not-found")
 		})
 	})
 	Describe("Use the generic lookup template to get the same resources from the previous tests", func() {
@@ -223,12 +232,14 @@ var _ = Describe("Test templatization", func() {
 					case13LookupClusterClaim, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetStatusMessage(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("pods [testvalue] found as specified in namespace default"))
+			}, defaultTimeoutSeconds, 1).Should(Equal("pods [c13-pod] found as specified in namespace default"))
+
+			By("Clean up")
 			utils.Kubectl("delete", "configurationpolicy", case13LookupSecret, "-n", testNamespace)
 			utils.Kubectl("delete", "configurationpolicy", case13LookupClusterClaim, "-n", testNamespace)
 		})
 	})
-	Describe("test invalid templates", func() {
+	Describe("test invalid templates", Ordered, func() {
 		It("should generate noncompliant for invalid template strings", func() {
 			By("Creating policies on managed")
 			// create policy with unterminated template
@@ -254,123 +265,124 @@ var _ = Describe("Test templatization", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			deleteConfigPolicies([]string{case13Unterminated, case13WrongArgs})
 		})
 	})
 	// Though the Bugzilla bug #2007575 references a different incorrect behavior, it's the same
 	// underlying bug and this behavior is easier to test.
-	Describe("RHBZ#2007575: Test that the template updates when a referenced resource object is updated", func() {
-		const configMapName = "configmap-update-referenced-object"
-		const configMapReplName = configMapName + "-repl"
-		It("Should have the expected ConfigMap created", func() {
-			By("Creating the ConfigMap to reference")
-			configMap := corev1.ConfigMap{
-				ObjectMeta: v1.ObjectMeta{
-					Name: configMapName,
-				},
-				Data: map[string]string{"message": "Hello Raleigh!"},
-			}
-			_, err := clientManaged.CoreV1().ConfigMaps("default").Create(
-				context.TODO(), &configMap, v1.CreateOptions{},
-			)
-			Expect(err).ToNot(HaveOccurred())
-			By("Creating the configuration policy that references the ConfigMap")
-			utils.Kubectl("apply", "-f", case13UpdateRefObjectYaml, "-n", testNamespace)
+	Describe("RHBZ#2007575: Test that the template updates when a referenced resource object is updated",
+		Ordered, func() {
+			const configMapName = "configmap-update-referenced-object"
+			const configMapReplName = configMapName + "-repl"
+			It("Should have the expected ConfigMap created", func() {
+				By("Creating the ConfigMap to reference")
+				configMap := corev1.ConfigMap{
+					ObjectMeta: v1.ObjectMeta{
+						Name: configMapName,
+					},
+					Data: map[string]string{"message": "Hello Raleigh!"},
+				}
+				_, err := clientManaged.CoreV1().ConfigMaps("default").Create(
+					context.TODO(), &configMap, v1.CreateOptions{},
+				)
+				Expect(err).ToNot(HaveOccurred())
+				By("Creating the configuration policy that references the ConfigMap")
+				utils.Kubectl("apply", "-f", case13UpdateRefObjectYaml, "-n", testNamespace)
 
-			By("By verifying that the policy is compliant")
-			Eventually(
-				func() interface{} {
-					managedPlc := utils.GetWithTimeout(
-						clientManagedDynamic,
-						gvrConfigPolicy,
-						case13UpdateRefObject,
-						testNamespace,
-						true,
-						defaultTimeoutSeconds,
+				By("By verifying that the policy is compliant")
+				Eventually(
+					func() interface{} {
+						managedPlc := utils.GetWithTimeout(
+							clientManagedDynamic,
+							gvrConfigPolicy,
+							case13UpdateRefObject,
+							testNamespace,
+							true,
+							defaultTimeoutSeconds,
+						)
+
+						return utils.GetComplianceState(managedPlc)
+					},
+					defaultTimeoutSeconds,
+					1,
+				).Should(Equal("Compliant"))
+
+				By("By verifying that the replicated ConfigMap has the expected data")
+				replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
+					context.TODO(), configMapReplName, v1.GetOptions{},
+				)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(replConfigMap.Data["message"]).To(Equal("Hello Raleigh!\n"))
+
+				By("Sleeping 30 seconds to ensure PeriodicallyExecConfigPolicies has rerun twice")
+				time.Sleep(30 * time.Second)
+
+				By("Checking metric endpoint for policy template counter for policy " + case13UpdateRefObject)
+				Eventually(func() interface{} {
+					return utils.GetMetrics(
+						"config_policy_templates_process_total",
+						fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
 					)
-
-					return utils.GetComplianceState(managedPlc)
-				},
-				defaultTimeoutSeconds,
-				1,
-			).Should(Equal("Compliant"))
-
-			By("By verifying that the replicated ConfigMap has the expected data")
-			replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
-				context.TODO(), configMapReplName, v1.GetOptions{},
-			)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(replConfigMap.Data["message"]).To(Equal("Hello Raleigh!\n"))
-
-			By("Sleeping 30 seconds to ensure PeriodicallyExecConfigPolicies has rerun twice")
-			time.Sleep(30 * time.Second)
-
-			By("Checking metric endpoint for policy template counter for policy " + case13UpdateRefObject)
-			Eventually(func() interface{} {
-				return utils.GetMetrics(
+				}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
+				templatesTotalCounter := utils.GetMetrics(
 					"config_policy_templates_process_total",
 					fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
 				)
-			}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
-			templatesTotalCounter := utils.GetMetrics(
-				"config_policy_templates_process_total",
-				fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
-			)
-			totalCounter, err := strconv.Atoi(templatesTotalCounter[0])
-			Expect(err).ToNot(HaveOccurred())
-			if err == nil {
-				Expect(totalCounter).To(BeNumerically(">", 0))
-			}
-			By("Policy " + case13UpdateRefObject + " total template process counter : " + templatesTotalCounter[0])
+				totalCounter, err := strconv.Atoi(templatesTotalCounter[0])
+				Expect(err).ToNot(HaveOccurred())
+				if err == nil {
+					Expect(totalCounter).To(BeNumerically(">", 0))
+				}
+				By("Policy " + case13UpdateRefObject + " total template process counter : " + templatesTotalCounter[0])
 
-			Eventually(func() interface{} {
-				return utils.GetMetrics(
+				Eventually(func() interface{} {
+					return utils.GetMetrics(
+						"config_policy_templates_process_seconds_total",
+						fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
+					)
+				}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
+				templatesTotalSeconds := utils.GetMetrics(
 					"config_policy_templates_process_seconds_total",
 					fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
 				)
-			}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
-			templatesTotalSeconds := utils.GetMetrics(
-				"config_policy_templates_process_seconds_total",
-				fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
-			)
-			templatesSeconds, err := strconv.ParseFloat(templatesTotalSeconds[0], 32)
-			Expect(err).ToNot(HaveOccurred())
-			if err == nil {
-				Expect(templatesSeconds).To(BeNumerically(">", 0))
-			}
-			By("Policy " + case13UpdateRefObject + " total template process seconds : " + templatesTotalSeconds[0])
+				templatesSeconds, err := strconv.ParseFloat(templatesTotalSeconds[0], 32)
+				Expect(err).ToNot(HaveOccurred())
+				if err == nil {
+					Expect(templatesSeconds).To(BeNumerically(">", 0))
+				}
+				By("Policy " + case13UpdateRefObject + " total template process seconds : " + templatesTotalSeconds[0])
 
-			By("Updating the referenced ConfigMap")
-			configMap.Data["message"] = "Hello world!"
-			_, err = clientManaged.CoreV1().ConfigMaps("default").Update(
-				context.TODO(), &configMap, v1.UpdateOptions{},
-			)
-			Expect(err).ToNot(HaveOccurred())
+				By("Updating the referenced ConfigMap")
+				configMap.Data["message"] = "Hello world!"
+				_, err = clientManaged.CoreV1().ConfigMaps("default").Update(
+					context.TODO(), &configMap, v1.UpdateOptions{},
+				)
+				Expect(err).ToNot(HaveOccurred())
 
-			By("Verifying that the replicated ConfigMap has the updated data")
-			Eventually(
-				func() interface{} {
-					replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
-						context.TODO(), configMapReplName, v1.GetOptions{},
-					)
-					if err != nil {
-						return ""
-					}
+				By("Verifying that the replicated ConfigMap has the updated data")
+				Eventually(
+					func() interface{} {
+						replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
+							context.TODO(), configMapReplName, v1.GetOptions{},
+						)
+						if err != nil {
+							return ""
+						}
 
-					return replConfigMap.Data["message"]
-				},
-				defaultTimeoutSeconds,
-				1,
-			).Should(Equal("Hello world!\n"))
+						return replConfigMap.Data["message"]
+					},
+					defaultTimeoutSeconds,
+					1,
+				).Should(Equal("Hello world!\n"))
+			})
+			AfterAll(func() {
+				deleteConfigPolicies([]string{case13UpdateRefObject})
+				utils.Kubectl("delete", "configmap", configMapName, "-n", "default")
+				utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default")
+			})
 		})
-		It("Cleans up", func() {
-			deleteConfigPolicies([]string{case13UpdateRefObject})
-			utils.Kubectl("delete", "configmap", configMapName, "-n", "default")
-			utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default")
-		})
-	})
-	Describe("Test the copy configMap function", func() {
+	Describe("Test the copy configMap function", Ordered, func() {
 		const configMapName = "configmap-copy-configmap-object"
 		const configMapReplName = configMapName + "-repl"
 		It("Should have the expected ConfigMap created", func() {
@@ -413,13 +425,13 @@ var _ = Describe("Test templatization", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(replConfigMap.Data["message"]).To(Equal("Hello Raleigh!"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			deleteConfigPolicies([]string{case13CopyRefObject})
 			utils.Kubectl("delete", "configmap", configMapName, "-n", "default", "--ignore-not-found")
 			utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default", "--ignore-not-found")
 		})
 	})
-	Describe("Create a secret and create template error", func() {
+	Describe("Create a secret and create template error", Ordered, func() {
 		It("Should the object created by configpolicy remain", func() {
 			By("Creating " + case13CfgPolCreateSecret + " and " + case13CfgPolCheckSecret + " on managed")
 			// create secret
@@ -510,7 +522,7 @@ var _ = Describe("Test templatization", func() {
 				return configmap
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeNil())
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			utils.Kubectl("delete", "configurationpolicy", case13PruneTmpErr,
 				"-n", testNamespace, "--ignore-not-found")
 			utils.Kubectl("delete", "configmap", case13PruneTmpErr+"-configmap",

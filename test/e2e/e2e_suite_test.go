@@ -104,7 +104,6 @@ var _ = BeforeSuite(func() {
 	defaultImageRegistry = "quay.io/open-cluster-management"
 	testNamespace = "managed"
 	defaultTimeoutSeconds = 60
-
 	By("Create watch namespace if needed")
 	namespaces := clientManaged.CoreV1().Namespaces()
 	if _, err := namespaces.Get(

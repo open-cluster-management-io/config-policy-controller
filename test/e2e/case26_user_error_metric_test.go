@@ -1,19 +1,20 @@
 package e2e
 
 import (
+	"fmt"
 	"os/exec"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
 var _ = Describe("Test related object metrics", Ordered, func() {
 	const (
-		policy1Name = "case26-test-policy-1"
-		policyYaml  = "../resources/case26_user_error_metric/case26-missing-crd.yaml"
+		policy1Name   = "case26-test-policy-1"
+		configmapName = "case26-configmap"
+		policyYaml    = "../resources/case26_user_error_metric/case26-missing-crd.yaml"
 	)
 	cleanup := func() {
 		// Delete the policies and ignore any errors (in case it was deleted previously)
@@ -21,12 +22,14 @@ var _ = Describe("Test related object metrics", Ordered, func() {
 			"-f", policyYaml,
 			"-n", testNamespace, "--ignore-not-found")
 		_, _ = cmd.CombinedOutput()
-		opt := metav1.ListOptions{}
-		utils.ListWithTimeout(
-			clientManagedDynamic, gvrConfigPolicy, opt, 0, false, defaultTimeoutSeconds)
+
+		By("Check configmap removed")
+		utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			configmapName, "default", false, defaultTimeoutSeconds)
+
 		By("Checking metric endpoint for related object gauges")
 		Eventually(func() interface{} {
-			return utils.GetMetrics("policy_user_errors")
+			return utils.GetMetrics("policy_user_errors", fmt.Sprintf(`template=\"%s\"`, policy1Name))
 		}, defaultTimeoutSeconds, 1).Should(Equal([]string{}))
 	}
 
@@ -47,8 +50,9 @@ var _ = Describe("Test related object metrics", Ordered, func() {
 		Eventually(func() interface{} {
 			return utils.GetMetrics(
 				"policy_user_errors",
+				fmt.Sprintf(`template=\"%s\"`, policy1Name),
 			)
-		}, defaultTimeoutSeconds, 1).Should(Equal([]string{"policies", "counter", "1"}))
+		}, defaultTimeoutSeconds, 1).Should(Equal([]string{"1"}))
 	})
 
 	AfterAll(cleanup)

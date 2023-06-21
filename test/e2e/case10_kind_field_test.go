@@ -20,7 +20,7 @@ const (
 )
 
 var _ = Describe("Test pod obj template handling", func() {
-	Describe("Create a pod policy on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a pod policy on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should create a policy properly on the managed cluster", func() {
 			By("Creating " + case10ConfigPolicyNamePod + " on managed")
 			utils.Kubectl("apply", "-f", case10PolicyYamlPod, "-n", testNamespace)
@@ -60,7 +60,7 @@ var _ = Describe("Test pod obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case10ConfigPolicyNamePod,
 				case10ConfigPolicyNameCheck,

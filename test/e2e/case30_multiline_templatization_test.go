@@ -21,6 +21,8 @@ const (
 	case30RangePolicyYaml      string = "../resources/case30_multiline_templatization/case30_policy.yaml"
 	case30NoTemplatePolicyYaml string = "../resources/case30_multiline_templatization/case30_policy_notemplate.yaml"
 	case30ConfigMapsYaml       string = "../resources/case30_multiline_templatization/case30_configmaps.yaml"
+	case30ConfigmapName1       string = "30config1"
+	case30ConfigmapName2       string = "30config2"
 )
 
 const (
@@ -108,6 +110,10 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 		AfterAll(func() {
 			deleteConfigPolicies([]string{case30RangePolicyName, case30NoTemplatePolicyName})
 			utils.Kubectl("delete", "-f", case30ConfigMapsYaml)
+			utils.Kubectl("delete", "configmap", case30ConfigmapName1,
+				"-n", "default", "--ignore-not-found")
+			utils.Kubectl("delete", "configmap", case30ConfigmapName2,
+				"-n", "default", "--ignore-not-found")
 		})
 	})
 	Describe("Test invalid multiline templates", func() {

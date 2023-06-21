@@ -19,13 +19,13 @@ import (
 const (
 	case20PodName                   string = "nginx-pod-e2e20"
 	case20PodWithFinalizer          string = "nginx-pod-cannot-delete"
-	case20ConfigPolicyNameCreate    string = "policy-pod-create"
-	case20ConfigPolicyNameEdit      string = "policy-pod-edit"
-	case20ConfigPolicyNameExisting  string = "policy-pod-already-created"
-	case20ConfigPolicyNameInform    string = "policy-pod-inform"
-	case20ConfigPolicyNameFinalizer string = "policy-pod-create-withfinalizer"
-	case20ConfigPolicyNameChange    string = "policy-pod-change-remediation"
-	case20ConfigPolicyNameMHPDA     string = "policy-pod-mhpda"
+	case20ConfigPolicyNameCreate    string = "policy-pod-create-c20"
+	case20ConfigPolicyNameEdit      string = "policy-pod-edit-c20"
+	case20ConfigPolicyNameExisting  string = "policy-pod-already-created-c20"
+	case20ConfigPolicyNameInform    string = "policy-pod-inform-c20"
+	case20ConfigPolicyNameFinalizer string = "policy-pod-create-withfinalizer-c20"
+	case20ConfigPolicyNameChange    string = "policy-pod-change-remediation-c20"
+	case20ConfigPolicyNameMHPDA     string = "policy-pod-mhpda-c20"
 	case20PodMHPDAName              string = "nginx-pod-e2e20-mhpda"
 	case20PodYaml                   string = "../resources/case20_delete_objects/case20_pod.yaml"
 	case20PolicyYamlCreate          string = "../resources/case20_delete_objects/case20_create_pod.yaml"
@@ -41,8 +41,8 @@ const (
 	case20ConfigPolicyCRDPath string = "../../deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml"
 )
 
-var _ = Describe("Test status fields being set for object deletion", func() {
-	Describe("Create a policy on managed cluster in ns:"+testNamespace, func() {
+var _ = Describe("Test Object deletion", Ordered, func() {
+	Describe("Test status fields being set for object deletion", Ordered, func() {
 		It("should update status fields properly for created objects", func() {
 			By("Creating " + case20ConfigPolicyNameCreate + " on managed")
 			utils.Kubectl("apply", "-f", case20PolicyYamlCreate, "-n", testNamespace)
@@ -151,8 +151,7 @@ var _ = Describe("Test status fields being set for object deletion", func() {
 				return properties
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
 		})
-		It("Cleans up", func() {
-			utils.Kubectl("delete", "pod", case20PodName, "-n", "default")
+		AfterAll(func() {
 			policies := []string{
 				case20ConfigPolicyNameCreate,
 				case20ConfigPolicyNameExisting,
@@ -162,21 +161,23 @@ var _ = Describe("Test status fields being set for object deletion", func() {
 
 			deleteConfigPolicies(policies)
 
-			Consistently(func() interface{} {
+			utils.Kubectl("delete", "pod", case20PodName, "-n", "default", "--ignore-not-found")
+
+			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameCreate, testNamespace, false, defaultTimeoutSeconds)
 
 				return managedPlc
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
 
-			Consistently(func() interface{} {
+			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameExisting, testNamespace, false, defaultTimeoutSeconds)
 
 				return managedPlc
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
 
-			Consistently(func() interface{} {
+			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameEdit, testNamespace, false, defaultTimeoutSeconds)
 
@@ -184,10 +185,7 @@ var _ = Describe("Test status fields being set for object deletion", func() {
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
 		})
 	})
-})
-
-var _ = Describe("Test objects that should be deleted are actually being deleted", func() {
-	Describe("Create a policy on managed cluster in ns:"+testNamespace, func() {
+	Describe("Test objects that should be deleted are actually being deleted", Ordered, func() {
 		It("Should create pod", func() {
 			// create pod
 			By("Creating " + case20PodName + " on default")
@@ -541,7 +539,7 @@ var _ = Describe("Test objects that should be deleted are actually being deleted
 	})
 })
 
-var _ = Describe("Test objects are not deleted when the CRD is removed", Ordered, func() {
+var _ = Describe("Test objects are not deleted when the CRD is removed", Serial, Ordered, func() {
 	AfterAll(func() {
 		deleteConfigPolicies([]string{case20ConfigPolicyNameMHPDA})
 		utils.Kubectl("apply", "-f", case20ConfigPolicyCRDPath)
@@ -699,16 +697,13 @@ var _ = Describe("Clean up old object when configurationpolicy is changed", Orde
 
 var _ = Describe("Object Should not be deleted", Ordered, func() {
 	const (
-		oldPodName             string = "case20-name-changed-pod"
-		newPodName             string = "case20-name-changed-new"
-		configplcName          string = "case20-name-changed"
-		case20ChangeConfigYaml string = "../resources/case20_delete_objects/case20_change_config_policy.yaml"
+		oldPodName             string = "case20-2-name-changed-pod"
+		newPodName             string = "case20-2-name-changed-new"
+		configplcName          string = "case20-2-name-changed"
+		case20ChangeConfigYaml string = "../resources/case20_delete_objects/case20_change_config_policy_not_prune.yaml"
 	)
 	BeforeEach(func() {
 		utils.Kubectl("apply", "-f", case20ChangeConfigYaml, "-n", testNamespace)
-		patch := `[{"op": "remove", "path": "/spec/pruneObjectBehavior"}]`
-		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
-			"--type=json", "-p", patch)
 	})
 	cleanup := func() {
 		policies := []string{

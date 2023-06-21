@@ -24,8 +24,8 @@ const (
 	tlsProfileInformYaml             string = "../resources/case11_apiserver_config/tls_profile_inform.yaml"
 )
 
-var _ = Describe("Test APIServer Config policy", func() {
-	Describe("Test etcd encryption and tls profile", func() {
+var _ = Describe("Test APIServer Config policy", Serial, func() {
+	Describe("Test etcd encryption and tls profile", Ordered, func() {
 		It("should be noncompliant for no encryption", func() {
 			By("Creating " + etcdEncryptionInformYaml + " on managed")
 			utils.Kubectl("apply", "-f", etcdEncryptionInformYaml, "-n", testNamespace)
@@ -122,7 +122,7 @@ var _ = Describe("Test APIServer Config policy", func() {
 				return utils.GetComplianceState(informPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				etcdEncryptionEnforceName,
 				etcdEncryptionInformName,

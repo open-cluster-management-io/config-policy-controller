@@ -27,89 +27,90 @@ jobs:
         # The "minimum" tag is set in the Makefile
         # KinD tags: https://hub.docker.com/r/kindest/node/tags
         kind:
-          - 'minimum'
-          - 'latest'
+          - "minimum"
+          - "latest"
     name: KinD tests
     steps:
-    - name: Checkout Config Policy Controller
-      uses: actions/checkout@v3
-      with:
-        path: config-policy-controller
-        fetch-depth: 0 # Fetch all history for all tags and branches
+      - name: Checkout Config Policy Controller
+        uses: actions/checkout@v3
+        with:
+          path: config-policy-controller
+          fetch-depth: 0 # Fetch all history for all tags and branches
 
-    - name: Set up Go
-      uses: actions/setup-go@v3
-      id: go
-      with:
-        go-version-file: config-policy-controller/go.mod
+      - name: Set up Go
+        uses: actions/setup-go@v3
+        id: go
+        with:
+          go-version-file: config-policy-controller/go.mod
 
-    - name: Verify modules
-      run: |
-        go mod verify
+      - name: Verify modules
+        run: |
+          go mod verify
 
-    - name: Verify format
-      run: |
-        make fmt
-        git diff --exit-code
-        make lint
+      - name: Verify format
+        run: |
+          make fmt
+          git diff --exit-code
+          make lint
 
-    - name: Verify deploy/operator.yaml
-      run: |
-        make generate-operator-yaml
-        git diff --exit-code
+      - name: Verify deploy/operator.yaml
+        run: |
+          make generate-operator-yaml
+          git diff --exit-code
 
-    - name: Unit and Integration Tests
-      run: |
-        make test
+      - name: Unit and Integration Tests
+        run: |
+          make test
 
-    - name: Create K8s KinD Cluster - ${{ matrix.kind }}
-      env:
-        KIND_VERSION: ${{ matrix.kind }}
-      run: |
-        make kind-bootstrap-cluster-dev
+      - name: Create K8s KinD Cluster - ${{ matrix.kind }}
+        env:
+          KIND_VERSION: ${{ matrix.kind }}
+        run: |
+          make kind-bootstrap-cluster-dev
 
-    - name: Ensure Service Account kubeconfig
-      run: |
-        KUBECONFIG=${PWD}/kubeconfig_managed make kind-ensure-sa
+      - name: Ensure Service Account kubeconfig
+        run: |
+          KUBECONFIG=${PWD}/kubeconfig_managed make kind-ensure-sa
 
-    - name: E2E Tests
-      run: |
-        export GOPATH=$(go env GOPATH)
-        KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-coverage
+      - name: E2E Tests
+        run: |
+          kubectl get pod -A
+          export GOPATH=$(go env GOPATH)
+          KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-coverage
 
-    - name: Create K8s KinD Cluster to simulate hosted mode - ${{ matrix.kind }}
-      env:
-        KIND_VERSION: ${{ matrix.kind }}
-      run: |
-        make kind-additional-cluster
+      - name: Create K8s KinD Cluster to simulate hosted mode - ${{ matrix.kind }}
+        env:
+          KIND_VERSION: ${{ matrix.kind }}
+        run: |
+          make kind-additional-cluster
 
-    - name: E2E tests that simulate hosted mode
-      run: |
-        export GOPATH=$(go env GOPATH)
-        KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-hosted-mode-coverage
+      - name: E2E tests that simulate hosted mode
+        run: |
+          export GOPATH=$(go env GOPATH)
+          KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-hosted-mode-coverage
 
-    - name: Verify Deployment Configuration
-      run: |
-        make build-images
-        KUBECONFIG=${PWD}/kubeconfig_managed_e2e make kind-deploy-controller-dev
+      - name: Verify Deployment Configuration
+        run: |
+          make build-images
+          KUBECONFIG=${PWD}/kubeconfig_managed_e2e make kind-deploy-controller-dev
 
-    - name: E2E tests that require the controller running in a cluster
-      run: |
-        export GOPATH=$(go env GOPATH)
-        KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-running-in-cluster
+      - name: E2E tests that require the controller running in a cluster
+        run: |
+          export GOPATH=$(go env GOPATH)
+          KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-running-in-cluster
 
-    - name: Test Coverage Verification
-      if: ${{ github.event_name == 'pull_request' }}
-      run: |
-        make test-coverage
-        make coverage-verify
+      - name: Test Coverage Verification
+        if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          make test-coverage
+          make coverage-verify
 
-    - name: Debug
-      if: ${{ failure() }}
-      run: |
-        make e2e-debug
+      - name: Debug
+        if: ${{ failure() }}
+        run: |
+          make e2e-debug
 
-    - name: Clean up cluster
-      if: ${{ always() }}
-      run: |
-        make kind-delete-cluster
+      - name: Clean up cluster
+        if: ${{ always() }}
+        run: |
+          make kind-delete-cluster

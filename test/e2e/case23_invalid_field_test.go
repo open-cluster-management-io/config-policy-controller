@@ -64,7 +64,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 		Consistently(func() interface{} {
 			compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
 				policyName,
-				"",
+				"Policy updated",
 				msg,
 				defaultTimeoutSeconds)
 

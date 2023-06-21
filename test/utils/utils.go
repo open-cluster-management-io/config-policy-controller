@@ -121,36 +121,6 @@ func GetWithTimeout(
 	return nil
 }
 
-// ListWithTimeout keeps polling to get the object for timeout seconds until wantFound is met
-// (true for found, false for not found)
-func ListWithTimeout(
-	clientHubDynamic dynamic.Interface,
-	gvr schema.GroupVersionResource,
-	opts metav1.ListOptions,
-	size int,
-	wantFound bool,
-	timeout int,
-) *unstructured.UnstructuredList {
-	if timeout < 1 {
-		timeout = 1
-	}
-	var list *unstructured.UnstructuredList
-
-	EventuallyWithOffset(1, func(g Gomega) []unstructured.Unstructured {
-		var err error
-		list, err = clientHubDynamic.Resource(gvr).List(context.TODO(), opts)
-		g.Expect(err).ToNot(HaveOccurred())
-
-		return list.Items
-	}, timeout, 1).Should(HaveLen(size))
-
-	if wantFound {
-		return list
-	}
-
-	return nil
-}
-
 func GetMatchingEvents(
 	client kubernetes.Interface, namespace, objName, reasonRegex, msgRegex string, timeout int,
 ) []corev1.Event {

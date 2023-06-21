@@ -22,7 +22,7 @@ const (
 )
 
 var _ = Describe("Test img vulnerability obj template handling", func() {
-	Describe("Create a clusterserviceversion on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a clusterserviceversion on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case3ConfigPolicyNameCSV + " on managed")
 			utils.Kubectl("apply", "-f", case3PolicyYamlCSV, "-n", testNamespace)

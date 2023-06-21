@@ -21,8 +21,8 @@ const (
 	case2PolicyCheckCompliant    string = "../resources/case2_role_handling/case2_role_check-c.yaml"
 )
 
-var _ = Describe("Test role obj template handling", func() {
-	Describe("Create a policy on managed cluster in ns:"+testNamespace, func() {
+var _ = Describe("Test role obj template handling", Ordered, func() {
+	Describe("Create a policy on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case2PolicyYamlInform + " on managed")
 			utils.Kubectl("apply", "-f", case2PolicyYamlInform, "-n", testNamespace)
@@ -90,7 +90,8 @@ var _ = Describe("Test role obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
+			By("clean up case2")
 			policies := []string{
 				case2ConfigPolicyNameInform,
 				case2ConfigPolicyNameEnforce,
@@ -99,6 +100,7 @@ var _ = Describe("Test role obj template handling", func() {
 				"policy-role-check-moh",
 			}
 			deleteConfigPolicies(policies)
+			utils.Kubectl("delete", "role", "pod-reader-e2e", "-n", "default", "--ignore-not-found")
 		})
 	})
 })

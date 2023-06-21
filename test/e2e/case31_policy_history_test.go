@@ -14,7 +14,7 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = Describe("Test policy history messages when KubeAPI omits values in the returned object", Ordered, func() {
+var _ = Describe("Test policy history messages when KubeAPI omits values in the returned object", func() {
 	doHistoryTest := func(policyName, configPolicyName string) {
 		By("Waiting until the policy is initially compliant")
 		Eventually(func() interface{} {
@@ -153,7 +153,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			ExpectWithOffset(1, configlPlc).To(BeNil())
 		})
 	})
-	Describe("policy message should not be truncated", func() {
+	Describe("policy message should not be truncated", Ordered, func() {
 		const (
 			case31LMPolicy           = "../resources/case31_policy_history/long-message-policy.yaml"
 			case31LMConfigPolicy     = "../resources/case31_policy_history/long-message-config-policy.yaml"
@@ -208,9 +208,11 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			)
 			Expect(configlPlc).To(BeNil())
 			utils.Kubectl("delete", "event",
-				"--field-selector=involvedObject.name="+case31LMPolicyName, "-n", "managed")
+				"--field-selector=involvedObject.name="+case31LMPolicyName,
+				"-n", "managed", "--ignore-not-found")
 			utils.Kubectl("delete", "event",
-				"--field-selector=involvedObject.name="+case31LMConfigPolicy, "-n", "managed")
+				"--field-selector=involvedObject.name="+case31LMConfigPolicy,
+				"-n", "managed", "--ignore-not-found")
 			for i := range [15]int{} {
 				utils.Kubectl("delete", "ns", namespacePrefix+strconv.Itoa(i+1),
 					"--ignore-not-found", "--force", "--grace-period=0")
