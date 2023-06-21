@@ -27,7 +27,7 @@ const (
 	case17CreatedNamespaceName = "case17-test-never"
 )
 
-var _ = Describe("Test evaluation interval", func() {
+var _ = Describe("Test evaluation interval", Ordered, func() {
 	It("Verifies that status.lastEvaluated is properly set", func() {
 		createConfigPolicyWithParent(case17ParentPolicy, case17ParentPolicyName, case17Policy)
 
@@ -140,7 +140,7 @@ var _ = Describe("Test evaluation interval", func() {
 		Expect(lastEvalRefreshed).To(Equal(lastEvaluated))
 	})
 
-	It("Cleans up", func() {
+	AfterAll(func() {
 		utils.Kubectl("delete", "-f", case17ParentPolicy, "-n", testNamespace)
 		utils.Kubectl("delete", "-f", case17Policy, "-n", testNamespace, "--ignore-not-found")
 		utils.Kubectl("delete", "-f", case17PolicyNever, "-n", testNamespace)

@@ -7,7 +7,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -15,6 +14,7 @@ import (
 var _ = Describe("Test config policy evaluation metrics", Ordered, func() {
 	const (
 		policyName = "policy-cfgmap-watch"
+		configMap  = "case28-ConfigMap"
 		policyYaml = "../resources/case28_evaluation_metric/case28_policy.yaml"
 	)
 
@@ -99,9 +99,11 @@ var _ = Describe("Test config policy evaluation metrics", Ordered, func() {
 			"-f", policyYaml,
 			"-n", testNamespace)
 		_, _ = cmd.CombinedOutput()
-		opt := metav1.ListOptions{}
-		utils.ListWithTimeout(
-			clientManagedDynamic, gvrConfigPolicy, opt, 0, false, defaultTimeoutSeconds)
+
+		By("Check configmap removed")
+		utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			configMap, "default", false, defaultTimeoutSeconds)
+
 		Eventually(func() interface{} {
 			return utils.GetMetrics(
 				"config_policy_evaluation_total", fmt.Sprintf(`name=\"%s\"`, policyName))

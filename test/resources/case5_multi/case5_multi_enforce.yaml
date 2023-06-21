@@ -14,7 +14,7 @@ spec:
         apiVersion: v1
         kind: Pod
         metadata:
-          name: nginx-pod-1
+          name: case5-nginx-pod-1
         spec:
           containers:
             - image: nginx:1.7.9
@@ -26,7 +26,7 @@ spec:
         apiVersion: v1
         kind: Pod
         metadata:
-          name: nginx-pod-2
+          name: case5-nginx-pod-2
         spec:
           containers:
             - image: nginx:1.7.9

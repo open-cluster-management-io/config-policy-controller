@@ -26,8 +26,8 @@ const (
 	case1PolicyYamlMultipleCheckMH    string = "../resources/case1_pod_handling/case1_pod_check_multiple_mh.yaml"
 )
 
-var _ = Describe("Test pod obj template handling", func() {
-	Describe("Create a policy on managed cluster in ns:"+testNamespace, func() {
+var _ = Describe("Test pod obj template handling", Ordered, func() {
+	Describe("Create a policy on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case1PolicyYamlInform + " on managed")
 			utils.Kubectl("apply", "-f", case1PolicyYamlInform, "-n", testNamespace)
@@ -145,7 +145,7 @@ var _ = Describe("Test pod obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case1ConfigPolicyNameInform,
 				case1ConfigPolicyNameEnforce,
@@ -159,6 +159,11 @@ var _ = Describe("Test pod obj template handling", func() {
 				"policy-pod-emptycontainerlist",
 			}
 			deleteConfigPolicies(policies)
+
+			By("Delete pods")
+			pods := []string{case1PodName, case1PodName + "-empty", case1PodName + "-multi"}
+			namespaces := []string{testNamespace, "default"}
+			deletePods(pods, namespaces)
 		})
 	})
 })

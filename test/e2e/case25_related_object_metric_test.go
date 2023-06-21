@@ -6,7 +6,6 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -58,18 +57,27 @@ var _ = Describe("Test related object metrics", Ordered, func() {
 			"-f", policyYaml,
 			"-n", testNamespace, "--ignore-not-found")
 		_, _ = cmd.CombinedOutput()
-		opt := metav1.ListOptions{}
-		utils.ListWithTimeout(
-			clientManagedDynamic, gvrConfigPolicy, opt, 0, false, defaultTimeoutSeconds)
+		utils.GetWithTimeout(
+			clientManagedDynamic, gvrConfigPolicy, policy1Name, testNamespace, false, defaultTimeoutSeconds,
+		)
+		utils.GetWithTimeout(
+			clientManagedDynamic, gvrConfigPolicy, policy2Name, testNamespace, false, defaultTimeoutSeconds,
+		)
 		utils.GetWithTimeout(
 			clientManagedDynamic, gvrConfigMap, relatedObject, "default", false, defaultTimeoutSeconds)
 	}
 
 	It("should clean up", cleanup)
+
 	It("should have no common related object metrics after clean up", func() {
 		By("Checking metric endpoint for related object gauges")
 		Eventually(func() interface{} {
-			return utils.GetMetrics("common_related_objects")
+			return utils.GetMetrics("common_related_objects",
+				fmt.Sprintf(`policy=\"%s/%s\"`, testNamespace, policy1Name))
+		}, defaultTimeoutSeconds, 1).Should(Equal([]string{}))
+		Eventually(func() interface{} {
+			return utils.GetMetrics("common_related_objects",
+				fmt.Sprintf(`policy=\"%s/%s\"`, testNamespace, policy2Name))
 		}, defaultTimeoutSeconds, 1).Should(Equal([]string{}))
 	})
 })

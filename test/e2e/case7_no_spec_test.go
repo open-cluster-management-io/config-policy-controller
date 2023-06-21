@@ -88,7 +88,7 @@ func matchToExpected(managedPlc *unstructured.Unstructured) (result bool) {
 }
 
 var _ = Describe("Test cluster version obj template handling", func() {
-	Describe("create scc policy in namespace "+testNamespace, func() {
+	Describe("create scc policy in namespace "+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case7ConfigPolicyName + " on managed")
 			utils.Kubectl("apply", "-f", case7PolicyYaml, "-n", testNamespace)
@@ -179,7 +179,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case7ConfigPolicyName,
 				case7ConfigPolicyNameNull,

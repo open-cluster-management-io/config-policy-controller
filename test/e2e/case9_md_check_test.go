@@ -36,7 +36,7 @@ const (
 )
 
 var _ = Describe("Test pod obj template handling", func() {
-	Describe("Create a pod policy on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a pod policy on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should create a policy properly on the managed cluster", func() {
 			By("Creating " + case9ConfigPolicyNamePod + " on managed")
 			utils.Kubectl("apply", "-f", case9PolicyYamlPod, "-n", testNamespace)
@@ -141,7 +141,7 @@ var _ = Describe("Test pod obj template handling", func() {
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case9ConfigPolicyNamePod,
 				case9ConfigPolicyNameAnno,
@@ -156,7 +156,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			deleteConfigPolicies(policies)
 		})
 	})
-	Describe("Create a namespace policy on managed cluster in ns:"+testNamespace, func() {
+	Describe("Create a namespace policy on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should create a namespace with multiple annotations on the managed cluster", func() {
 			By("Creating " + case9MultiAnnoNSCreate + " on managed")
 			utils.Kubectl("apply", "-f", case9PolicyYamlMultiAnnoNSCreate, "-n", testNamespace)
@@ -199,11 +199,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
 			utils.Kubectl("delete", "configurationpolicy", case9CheckNSMustonlyhave, "-n", testNamespace)
 		})
-		It("should clean up the created namespace", func() {
-			By("Deleting the namespace from " + case9MultiAnnoNSCreate)
-			utils.Kubectl("delete", "ns", "case9-test-multi-annotation")
-		})
-		It("Cleans up", func() {
+		AfterAll(func() {
 			policies := []string{
 				case9MultiAnnoNSCreate,
 				case9CheckNSMusthave,
@@ -211,6 +207,9 @@ var _ = Describe("Test pod obj template handling", func() {
 			}
 
 			deleteConfigPolicies(policies)
+
+			By("Deleting the namespace from " + case9MultiAnnoNSCreate)
+			utils.Kubectl("delete", "ns", "case9-test-multi-annotation")
 		})
 	})
 })

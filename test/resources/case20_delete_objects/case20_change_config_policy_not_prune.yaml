@@ -1,25 +1,22 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: policy-pod-edit-c20
+  name: case20-2-name-changed
+  namespace: managed
 spec:
   remediationAction: enforce
-  namespaceSelector:
-    exclude: ["kube-*"]
-    include: ["default"]
-  pruneObjectBehavior: DeleteIfCreated
   object-templates:
     - complianceType: musthave
       objectDefinition:
         apiVersion: v1
         kind: Pod
         metadata:
-          name: nginx-pod-e2e20
-          labels:
-            test: e2e
+          name: case20-2-name-changed-pod
+          namespace: default
         spec:
           containers:
-            - image: nginx:1.7.9
-              name: nginx
+            - name: nginx
+              imagePullPolicy: Never
+              image: nginx:1.7.9
               ports:
                 - containerPort: 80

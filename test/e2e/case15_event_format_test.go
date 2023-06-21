@@ -32,9 +32,11 @@ const (
 	case15BecomesNonCompliantParentYaml = "../resources/case15_event_format/case15_parent_becomesnoncompliant.yaml"
 	case15BecomesNonCompliantParentName = "parent-becomesnoncompliant"
 	case15PodForNonComplianceYaml       = "../resources/case15_event_format/case15_becomesnoncompliant_pod.yaml"
+	case15PodNoncompliantName           = "case15-becomesnoncompliant"
+	case15PodCompliantName              = "case15-becomescompliant"
 )
 
-var _ = Describe("Testing compliance event formatting", func() {
+var _ = Describe("Testing compliance event formatting", Ordered, func() {
 	It("Records the right events for a policy that is always compliant", func() {
 		createConfigPolicyWithParent(case15AlwaysCompliantParentYaml, case15AlwaysCompliantParentName,
 			case15AlwaysCompliantYaml)
@@ -168,7 +170,7 @@ var _ = Describe("Testing compliance event formatting", func() {
 			"^NonCompliant;", defaultTimeoutSeconds)
 		Expect(nonCompParentEvents).NotTo(BeEmpty())
 	})
-	It("Cleans up", func() {
+	AfterAll(func() {
 		policies := []string{
 			case15AlwaysCompliantParentName,
 			case15NeverCompliantParentName,
@@ -193,11 +195,15 @@ var _ = Describe("Testing compliance event formatting", func() {
 
 		deleteConfigPolicies(configPolicies)
 
-		utils.Kubectl("delete", "-f", case15PodForNonComplianceYaml)
 		err := clientManaged.CoreV1().Pods("default").Delete(
 			context.TODO(), "case15-becomescompliant", metav1.DeleteOptions{})
 		if !k8serrors.IsNotFound(err) {
 			Expect(err).ToNot(HaveOccurred())
 		}
+
+		By("Delete pods")
+		pods := []string{case15PodNoncompliantName, case15PodCompliantName}
+		namespaces := []string{"default"}
+		deletePods(pods, namespaces)
 	})
 })

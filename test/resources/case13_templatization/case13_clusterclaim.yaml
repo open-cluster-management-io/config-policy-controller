@@ -3,4 +3,4 @@ kind: ClusterClaim
 metadata:
   name: testclaim.open-cluster-management.io
 spec:
-  value: testvalue
+  value: c13-pod

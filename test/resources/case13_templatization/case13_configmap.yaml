@@ -3,4 +3,4 @@ kind: ConfigMap
 metadata:
   name: e2e13config
 data:
-  name: testvalue
+  name: c13-pod
