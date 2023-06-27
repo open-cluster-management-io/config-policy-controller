@@ -667,6 +667,24 @@ func TestCreateStatus(t *testing.T) {
 				"toy-story",
 		},
 		{
+			"must not have single object deleted",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: true,
+						reason:    reasonDeleteSuccess,
+					},
+				},
+			},
+			true,
+			"K8s deletion success",
+			"configmaps [buzz] existed, and was deleted successfully in namespace toy-story",
+		},
+		{
 			"unnamed object single error",
 			"configmaps",
 			map[string]*objectTmplEvalResultWithEvent{

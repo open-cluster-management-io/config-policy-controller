@@ -71,6 +71,7 @@ var (
 	reasonWantFoundExists    = "Resource found as expected"
 	reasonWantFoundCreated   = "K8s creation success"
 	reasonUpdateSuccess      = "K8s update success"
+	reasonDeleteSuccess      = "K8s deletion success"
 	reasonWantFoundNoMatch   = "Resource found but does not match"
 	reasonWantFoundDNE       = "Resource not found but should exist"
 	reasonWantNotFoundExists = "Resource found but should not exist"
@@ -2045,7 +2046,7 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 			reason = "K8s deletion error"
 			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
-			reason = "K8s deletion success"
+			reason = reasonDeleteSuccess
 			msg = fmt.Sprintf("%v %v existed, and was deleted successfully", obj.gvr.Resource, idStr)
 			obj.object = nil
 		}
