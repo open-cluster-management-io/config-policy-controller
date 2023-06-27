@@ -1236,11 +1236,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			if statusUpdateNeeded {
 				parentStatusUpdateNeeded = true
 
-				// Doesn't account for state change...
-				if !compliant {
-					plc.Status.ComplianceState = policyv1.NonCompliant
-				}
-
 				// Don't send events on the last batch because the final call to checkRelatedAndUpdate
 				// after all the object templates are processed handles this.
 				if i == len(eventBatches)-1 {
