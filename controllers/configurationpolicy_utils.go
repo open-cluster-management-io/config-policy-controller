@@ -491,6 +491,7 @@ func createStatus(
 		reasonWantFoundExists,
 		reasonWantFoundCreated,
 		reasonUpdateSuccess,
+		reasonDeleteSuccess,
 		reasonWantFoundDNE,
 		reasonWantFoundNoMatch,
 		reasonWantNotFoundDNE,
@@ -575,6 +576,9 @@ func createStatus(
 			case reasonUpdateSuccess:
 				generatedReason = reasonUpdateSuccess
 				generatedMsg = fmt.Sprintf("%s%s was updated successfully", resourceName, namesStr)
+			case reasonDeleteSuccess:
+				generatedReason = reasonDeleteSuccess
+				generatedMsg = fmt.Sprintf("%s%s existed, and was deleted successfully", resourceName, namesStr)
 			case reasonWantFoundDNE:
 				generatedReason = "K8s does not have a `must have` object"
 				compliancyDetailsMsg += fmt.Sprintf("%s%s not found", resourceName, namesStr)
