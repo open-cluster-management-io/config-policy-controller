@@ -461,7 +461,7 @@ func TestCreateStatus(t *testing.T) {
 			},
 			true,
 			"K8s `must have` object already exists",
-			"configmaps [buzz] found as specified, therefore, this object template is compliant in namespace toy-story",
+			"configmaps [buzz] found as specified in namespace toy-story",
 		},
 		{
 			"must have single object compliant cluster-scoped",
@@ -479,7 +479,7 @@ func TestCreateStatus(t *testing.T) {
 			},
 			true,
 			"K8s `must have` object already exists",
-			"namespaces [movies] found as specified, therefore, this object template is compliant",
+			"namespaces [movies] found as specified",
 		},
 		{
 			"must have multiple namespaces single object compliant",
@@ -506,8 +506,7 @@ func TestCreateStatus(t *testing.T) {
 			},
 			true,
 			"K8s `must have` object already exists",
-			"configmaps [buzz] found as specified, therefore, this object template is compliant in namespaces: " +
-				"toy-story, toy-story3",
+			"configmaps [buzz] found as specified in namespaces: toy-story, toy-story3",
 		},
 		{
 			"must have unnamed object compliant",
@@ -534,8 +533,7 @@ func TestCreateStatus(t *testing.T) {
 			},
 			true,
 			"K8s `must have` object already exists",
-			"secrets [bo-peep] found as specified, therefore, this object template is compliant in namespace " +
-				"toy-story4; secrets [buzz] found as specified, therefore, this object template is compliant in " +
+			"secrets [bo-peep] found as specified in namespace toy-story4; secrets [buzz] found as specified in " +
 				"namespace toy-story",
 		},
 		{
@@ -554,7 +552,7 @@ func TestCreateStatus(t *testing.T) {
 			},
 			true,
 			"K8s creation success",
-			"configmaps [buzz] was missing, and was created successfully in namespace toy-story",
+			"configmaps [buzz] was created successfully in namespace toy-story",
 		},
 		{
 			"must have single object created in one namespace and exists in another",
@@ -581,8 +579,8 @@ func TestCreateStatus(t *testing.T) {
 			},
 			true,
 			"K8s `must have` object already exists; K8s creation success",
-			"configmaps [buzz] found as specified, therefore, this object template is compliant in namespace " +
-				"toy-story4; configmaps [buzz] was missing, and was created successfully in namespace toy-story",
+			"configmaps [buzz] found as specified in namespace toy-story4; configmaps [buzz] was created " +
+				"successfully in namespace toy-story",
 		},
 		{
 			"must have single object not found in one of the namespaces",
@@ -663,8 +661,7 @@ func TestCreateStatus(t *testing.T) {
 			},
 			true,
 			"K8s `must not have` object already missing",
-			"configmaps [buzz] missing as expected, therefore, this object template is compliant in namespace " +
-				"toy-story",
+			"configmaps [buzz] missing as expected in namespace toy-story",
 		},
 		{
 			"must not have single object deleted",
@@ -682,7 +679,7 @@ func TestCreateStatus(t *testing.T) {
 			},
 			true,
 			"K8s deletion success",
-			"configmaps [buzz] existed, and was deleted successfully in namespace toy-story",
+			"configmaps [buzz] was deleted successfully in namespace toy-story",
 		},
 		{
 			"unnamed object single error",

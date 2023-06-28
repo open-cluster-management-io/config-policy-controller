@@ -59,8 +59,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 					case4ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetStatusMessage(managedPlc)
-			}, 120, 1).Should(Equal(
-				"clusterversions [version] found as specified, therefore, this object template is compliant"))
+			}, 120, 1).Should(Equal("clusterversions [version] found as specified"))
 		})
 		It("Cleans up", func() {
 			policies := []string{

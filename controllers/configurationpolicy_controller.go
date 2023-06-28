@@ -2028,7 +2028,7 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 		} else {
 			log.V(2).Info("Created missing must have object", "resource", obj.gvr.Resource, "name", obj.name)
 			reason = reasonWantFoundCreated
-			msg = fmt.Sprintf("%v %v was missing, and was created successfully", obj.gvr.Resource, idStr)
+			msg = fmt.Sprintf("%v %v was created successfully", obj.gvr.Resource, idStr)
 
 			var uidIsString bool
 			uid, uidIsString, err = unstructured.NestedString(obj.object.Object, "metadata", "uid")
@@ -2047,7 +2047,7 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
 			reason = reasonDeleteSuccess
-			msg = fmt.Sprintf("%v %v existed, and was deleted successfully", obj.gvr.Resource, idStr)
+			msg = fmt.Sprintf("%v %v was deleted successfully", obj.gvr.Resource, idStr)
 			obj.object = nil
 		}
 	}
