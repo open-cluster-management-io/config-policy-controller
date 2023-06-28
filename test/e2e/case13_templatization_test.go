@@ -223,10 +223,7 @@ var _ = Describe("Test templatization", func() {
 					case13LookupClusterClaim, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetStatusMessage(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal(
-				"pods [testvalue] found as specified, therefore, this object template is compliant in " +
-					"namespace default",
-			))
+			}, defaultTimeoutSeconds, 1).Should(Equal("pods [testvalue] found as specified in namespace default"))
 			utils.Kubectl("delete", "configurationpolicy", case13LookupSecret, "-n", testNamespace)
 			utils.Kubectl("delete", "configurationpolicy", case13LookupClusterClaim, "-n", testNamespace)
 		})

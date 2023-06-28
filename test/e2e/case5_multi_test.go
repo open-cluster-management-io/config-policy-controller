@@ -152,19 +152,15 @@ var _ = Describe("Test multiple obj template handling", func() {
 				case5MultiNSInformConfigPolicyName, 0, defaultTimeoutSeconds, expectedMsg)
 		})
 		It("Should show merged messages when it is multiple namespaces", func() {
-			expectedMsg := "pods [case5-multi-namespace-enforce-pod] found as specified, therefore, this object " +
-				"template is compliant in namespaces: n1, n2, n3"
+			expectedMsg := "pods [case5-multi-namespace-enforce-pod] found as specified in namespaces: n1, n2, n3"
 			utils.Kubectl("apply", "-f", case5EnforceYaml)
 			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
 				case5MultiNSConfigPolicyName, 0, defaultTimeoutSeconds, expectedMsg)
 		})
 		It("Should show 3 merged messages when it is multiple namespaces and multiple obj-template", func() {
-			firstMsg := "pods [case5-multi-obj-temp-pod-11] found as specified, therefore, this object template is " +
-				"compliant in namespaces: n1, n2, n3"
-			secondMsg := "pods [case5-multi-obj-temp-pod-22] found as specified, therefore, this object template is " +
-				"compliant in namespaces: n1, n2, n3"
-			thirdMsg := "pods [case5-multi-obj-temp-pod-33] found as specified, therefore, this object template is " +
-				"compliant in namespaces: n1, n2, n3"
+			firstMsg := "pods [case5-multi-obj-temp-pod-11] found as specified in namespaces: n1, n2, n3"
+			secondMsg := "pods [case5-multi-obj-temp-pod-22] found as specified in namespaces: n1, n2, n3"
+			thirdMsg := "pods [case5-multi-obj-temp-pod-33] found as specified in namespaces: n1, n2, n3"
 			utils.Kubectl("apply", "-f", case5MultiObjTmpYaml)
 			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
 				case5MultiObjNSConfigPolicyName, 0, defaultTimeoutSeconds, firstMsg)

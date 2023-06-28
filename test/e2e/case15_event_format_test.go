@@ -133,7 +133,7 @@ var _ = Describe("Testing compliance event formatting", func() {
 		Expect(compParentEventsPreCreation).NotTo(BeEmpty())
 		compParentEvents := utils.GetMatchingEvents(clientManaged, testNamespace, case15BecomesCompliantParentName,
 			"policy: "+testNamespace+"/"+case15BecomesCompliantName,
-			"^Compliant;.*and was created successfully in namespace default$", defaultTimeoutSeconds)
+			"^Compliant;.*was created successfully in namespace default$", defaultTimeoutSeconds)
 		Expect(compParentEvents).NotTo(BeEmpty())
 	})
 	It("Records events for a policy that becomes noncompliant", func() {
