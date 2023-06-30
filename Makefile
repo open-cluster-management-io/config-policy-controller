@@ -21,14 +21,13 @@ GOOS = $(shell go env GOOS)
 TESTARGS_DEFAULT := -v
 TESTARGS ?= $(TESTARGS_DEFAULT)
 CONTROLLER_NAME = $(shell cat COMPONENT_NAME 2> /dev/null)
-CONTROLLER_NAMESPACE ?= open-cluster-management-agent-addon
 # Handle KinD configuration
 MANAGED_CLUSTER_SUFFIX ?= 
 MANAGED_CLUSTER_NAME ?= managed$(MANAGED_CLUSTER_SUFFIX)
 WATCH_NAMESPACE ?= $(MANAGED_CLUSTER_NAME)
 KIND_NAME ?= test-$(MANAGED_CLUSTER_NAME)
 KIND_CLUSTER_NAME ?= kind-$(KIND_NAME)
-KIND_NAMESPACE ?= $(CONTROLLER_NAMESPACE)
+KIND_NAMESPACE ?= open-cluster-management-agent-addon
 # Test coverage threshold
 export COVERAGE_MIN ?= 75
 COVERAGE_E2E_OUT ?= coverage_e2e.out
@@ -101,7 +100,7 @@ deploy: generate-operator-yaml create-ns
 
 .PHONY: create-ns
 create-ns:
-	-@kubectl create namespace $(CONTROLLER_NAMESPACE)
+	-@kubectl create namespace $(KIND_NAMESPACE)
 	-@kubectl create namespace $(WATCH_NAMESPACE)
 
 # Run against the current locally configured Kubernetes cluster
@@ -162,14 +161,30 @@ kind-deploy-controller: generate-operator-yaml install-resources deploy
 .PHONY: deploy-controller
 deploy-controller: kind-deploy-controller
 
+HOSTED ?= none
+
 .PHONY: kind-deploy-controller-dev
-kind-deploy-controller-dev: kind-deploy-controller build-images
+kind-deploy-controller-dev: 
+	if [ "$(HOSTED)" = "hosted" ]; then\
+		$(MAKE) kind-deploy-controller-dev-addon ;\
+	else\
+		$(MAKE) kind-deploy-controller-dev-normal ;\
+	fi
+
+.PHONY: kind-deploy-controller-dev-normal
+kind-deploy-controller-dev-normal: kind-deploy-controller
 	@echo Pushing image to KinD cluster
 	kind load docker-image $(REGISTRY)/$(IMG):$(TAG) --name $(KIND_NAME)
 	@echo "Patch deployment image"
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"imagePullPolicy\":\"Never\"}]}}}}"
 	kubectl patch deployment $(IMG) -n $(KIND_NAMESPACE) -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"$(IMG)\",\"image\":\"$(REGISTRY)/$(IMG):$(TAG)\"}]}}}}"
 	kubectl rollout status -n $(KIND_NAMESPACE) deployment $(IMG) --timeout=180s
+
+.PHONY: kind-deploy-controller-dev-addon
+kind-deploy-controller-dev-addon:
+	kind load docker-image $(REGISTRY)/$(IMG):$(TAG) --name $(KIND_NAME)
+	kubectl annotate -n $(subst -hosted,,$(KIND_NAMESPACE)) --overwrite managedclusteraddon config-policy-controller\
+		addon.open-cluster-management.io/values='{"global":{"imagePullPolicy": "Never", "imageOverrides":{"config_policy_controller": "$(REGISTRY)/$(IMG):$(TAG)"}}}'
 
 # Specify KIND_VERSION to indicate the version tag of the KinD image
 .PHONY: kind-create-cluster
