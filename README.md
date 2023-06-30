@@ -134,7 +134,7 @@ to learn how to get involved.
       ```
   - Deploy controller to a cluster
 
-    The controller is deployed to a namespace defined in `CONTROLLER_NAMESPACE` and monitors the namepace defined in `WATCH_NAMESPACE` for `ConfigurationPolicy` resources.
+    The controller is deployed to a namespace defined in `KIND_NAMESPACE` and monitors the namepace defined in `WATCH_NAMESPACE` for `ConfigurationPolicy` resources.
 
     1. Deploy the controller and related resources
        ```bash
@@ -143,7 +143,7 @@ to learn how to get involved.
 
        The deployment namespaces are configurable with:
        ```bash
-       export CONTROLLER_NAMESPACE=''  # (defaults to 'open-cluster-management-agent-addon')
+       export KIND_NAMESPACE=''  # (defaults to 'open-cluster-management-agent-addon')
        export WATCH_NAMESPACE=''       # (defaults to 'managed')
        ```
     **NOTE:** Please be aware of the community's [deployment images](https://github.com/open-cluster-management-io/community#deployment-images) special note.
