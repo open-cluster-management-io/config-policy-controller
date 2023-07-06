@@ -197,10 +197,11 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 			// extra check to see if value is a byte value
 			mQty, err := apiRes.ParseQuantity(mVal)
 			if err != nil {
-				oVal := oldObj[i]
-				if oVal == nil {
-					oVal = ""
+				oVal, ok := oldObj[i]
+				if !ok {
+					return false
 				}
+
 				// An error indicates the value is a regular string, so check equality normally
 				if fmt.Sprint(oVal) != fmt.Sprint(mVal) {
 					return false
