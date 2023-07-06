@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: case33-configmap
+  namespace: managed
+  labels:
+    test: "test-label"

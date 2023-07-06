@@ -1,0 +1,17 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case33-empty-labels
+spec:
+  remediationAction: enforce
+  severity: high
+  object-templates:
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: case33-configmap
+        namespace: managed
+        labels:
+          new-label: ""
