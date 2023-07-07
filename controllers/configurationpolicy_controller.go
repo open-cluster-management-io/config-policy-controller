@@ -129,7 +129,7 @@ type ConfigurationPolicyReconciler struct {
 	lock sync.RWMutex
 }
 
-//+kubebuilder:rbac:groups=*,resources=*,verbs=*
+//+kubebuilder:rbac:groups=*,resources=*,verbs=get;list;watch;create;delete;patch;update
 
 // Reconcile currently does nothing except that it removes a policy's metric when the policy is deleted. All the logic
 // is handled in the PeriodicallyExecConfigPolicies method.
