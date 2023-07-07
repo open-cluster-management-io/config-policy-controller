@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: policy-pod-create-wrong-args
+  name: case13-policy-pod-create-wrong-args
 spec:
   remediationAction: enforce
   namespaceSelector:

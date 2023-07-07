@@ -52,7 +52,7 @@ const (
 const (
 	case13Unterminated     string = "policy-pod-create-unterminated"
 	case13UnterminatedYaml string = "../resources/case13_templatization/case13_unterminated.yaml"
-	case13WrongArgs        string = "policy-pod-create-wrong-args"
+	case13WrongArgs        string = "case13-policy-pod-create-wrong-args"
 	case13WrongArgsYaml    string = "../resources/case13_templatization/case13_wrong_args.yaml"
 )
 

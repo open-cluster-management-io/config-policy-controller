@@ -28,7 +28,7 @@ const (
 const (
 	case30Unterminated       string = "case30-configpolicy"
 	case30UnterminatedYaml   string = "../resources/case30_multiline_templatization/case30_unterminated.yaml"
-	case30WrongArgs          string = "policy-pod-create-wrong-args"
+	case30WrongArgs          string = "case30-policy-pod-create-wrong-args"
 	case30WrongArgsYaml      string = "../resources/case30_multiline_templatization/case30_wrong_args.yaml"
 	case30NoObject           string = "case30-configpolicy-no-object"
 	case30NoObjectPolicyYaml string = "../resources/case30_multiline_templatization/case30_no_object.yaml"
