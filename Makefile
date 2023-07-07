@@ -201,7 +201,7 @@ install-resources:
 
 .PHONY: e2e-test
 e2e-test: e2e-dependencies
-	$(GINKGO) -v -p -procs=20 --fail-fast $(E2E_TEST_ARGS) test/e2e
+	$(GINKGO) -v --procs=20 $(E2E_TEST_ARGS) test/e2e
 
 .PHONY: e2e-test-coverage
 e2e-test-coverage: E2E_TEST_ARGS = --json-report=report_e2e.json --label-filter='!hosted-mode && !running-in-cluster' --output-dir=.
