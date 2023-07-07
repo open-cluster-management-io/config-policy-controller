@@ -93,7 +93,7 @@ var _ = Describe("Test multiple obj template handling", func() {
 		})
 	})
 
-	Describe("Check messages when it is multiple namesapces and multiple obj-templates", Ordered, func() {
+	Describe("Check messages when it is multiple namespaces and multiple obj-templates", Ordered, func() {
 		const (
 			case5MultiNamespace1               string = "n1"
 			case5MultiNamespace2               string = "n2"

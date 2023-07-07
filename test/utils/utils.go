@@ -105,7 +105,8 @@ func GetWithTimeout(
 			return err
 		}
 		if !wantFound && err == nil {
-			return fmt.Errorf("expected to return IsNotFound error")
+			return fmt.Errorf("expected '%s/%s' in namespace '%s' to return IsNotFound error",
+				gvr.Resource, name, namespace)
 		}
 		if !wantFound && err != nil && !errors.IsNotFound(err) {
 			return err
