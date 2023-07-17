@@ -1345,7 +1345,14 @@ func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 
 	if !gocmp.Equal(related, oldRelated) {
 		if deleteDetachedObjs {
-			r.cleanUpChildObjects(*plc, related)
+			if failure := r.cleanUpChildObjects(*plc, related); len(failure) == 0 {
+				r.Recorder.Event(
+					plc,
+					eventNormal,
+					"Delete objects",
+					fmt.Sprintf("Clean detached objects in Policy %s/%s", plc.GetNamespace(), plc.GetName()),
+				)
+			}
 		}
 
 		plc.Status.RelatedObjects = related
