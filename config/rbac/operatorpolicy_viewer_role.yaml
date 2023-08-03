@@ -1,0 +1,27 @@
+# permissions for end users to view operatorpolicies.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: operatorpolicy-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: config-policy-controller
+    app.kubernetes.io/part-of: config-policy-controller
+    app.kubernetes.io/managed-by: kustomize
+  name: operatorpolicy-viewer-role
+rules:
+- apiGroups:
+  - policy.open-cluster-management.io
+  resources:
+  - operatorpolicies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - policy.open-cluster-management.io
+  resources:
+  - operatorpolicies/status
+  verbs:
+  - get
