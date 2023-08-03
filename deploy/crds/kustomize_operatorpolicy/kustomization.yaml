@@ -1,0 +1,11 @@
+resources:
+- policy.open-cluster-management.io_operatorpolicies.yaml
+
+# Add validation more complicated than Kubebuilder markers can provide
+patches:
+- path: ns-selector-validation.json
+  target:
+    group: apiextensions.k8s.io
+    version: v1
+    kind: CustomResourceDefinition
+    name: operatorpolicies.policy.open-cluster-management.io

@@ -1,0 +1,24 @@
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  labels:
+    app.kubernetes.io/name: operatorpolicy
+    app.kubernetes.io/instance: operatorpolicy-sample
+    app.kubernetes.io/part-of: config-policy-controller
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: config-policy-controller
+  name: operatorpolicy-sample
+spec:
+  remediationAction: enforce
+  severity: medium
+  complianceType: musthave
+  subscription:
+    channel: stable
+    name: strimzi-kafka-operator
+    namespace: openshift-operators
+    installPlanApproval: Manual
+    source: community-operators
+    sourceNamespace: openshift-marketplace
+    startingCSV: strimzi-cluster-operator.v0.35.0
+  versions:
+    - strimzi-cluster-operator.v0.35.0

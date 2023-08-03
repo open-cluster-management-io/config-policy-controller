@@ -122,10 +122,13 @@ CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 .PHONY: manifests
 manifests: controller-gen kustomize
 	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=config-policy-controller paths="./..." output:crd:artifacts:config=deploy/crds output:rbac:artifacts:config=deploy/rbac
-	mv deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml deploy/crds/kustomize/policy.open-cluster-management.io_configurationpolicies.yaml
+	mv deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml deploy/crds/kustomize_configurationpolicy/policy.open-cluster-management.io_configurationpolicies.yaml
+	mv deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml deploy/crds/kustomize_operatorpolicy/policy.open-cluster-management.io_operatorpolicies.yaml
 	# Add a newline so that the format matches what kubebuilder generates
 	@printf "\n---\n" > deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
-	$(KUSTOMIZE) build deploy/crds/kustomize >> deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
+	@printf "\n---\n" > deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
+	$(KUSTOMIZE) build deploy/crds/kustomize_configurationpolicy >> deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
+	$(KUSTOMIZE) build deploy/crds/kustomize_operatorpolicy >> deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
@@ -189,6 +192,7 @@ install-crds:
 	kubectl apply -f test/crds/oauths.config.openshift.io_crd.yaml
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_policies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
+	kubectl apply -f deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
 
 .PHONY: install-resources
 install-resources:
