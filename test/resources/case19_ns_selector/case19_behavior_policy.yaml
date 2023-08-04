@@ -1,11 +1,17 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: policy-configmap-selector-e2e
+  name: selector-behavior-e2e
 spec:
+  evaluationInterval:
+    compliant: 2h
+    noncompliant: 2h
   namespaceSelector:
-    include:
-      - case19-1-e2e
+    exclude:
+      - "kube-*"
+    matchExpressions:
+      - key: case19b
+        operator: Exists
   remediationAction: inform
   object-templates:
     - complianceType: musthave
