@@ -2818,11 +2818,14 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 			eventType = eventWarning
 		}
 
+		eventMessage := fmt.Sprintf("%s%s", policy.Status.ComplianceState, msg)
+		log.Info("Policy status message", "policy", policy.GetName(), "status", eventMessage)
+
 		r.Recorder.Event(
 			policy,
 			eventType,
 			"Policy updated",
-			fmt.Sprintf("Policy status is %s%s", policy.Status.ComplianceState, msg),
+			fmt.Sprintf("Policy status is %s", eventMessage),
 		)
 	}
 
