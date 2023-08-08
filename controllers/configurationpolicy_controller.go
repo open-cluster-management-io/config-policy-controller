@@ -2166,32 +2166,22 @@ func deleteObject(res dynamic.ResourceInterface, name, namespace string) (delete
 	return true, nil
 }
 
-// mergeSpecs is a wrapper for the recursive function to merge 2 maps. It marshals the objects into JSON
-// to make sure they are valid objects before calling the merge function
+// mergeSpecs is a wrapper for the recursive function to merge 2 maps.
 func mergeSpecs(templateVal, existingVal interface{}, ctype string) (interface{}, error) {
+	// Copy templateVal since it will be modified in mergeSpecsHelper
 	data1, err := json.Marshal(templateVal)
 	if err != nil {
 		return nil, err
 	}
 
-	data2, err := json.Marshal(existingVal)
-	if err != nil {
-		return nil, err
-	}
-
-	var j1, j2 interface{}
+	var j1 interface{}
 
 	err = json.Unmarshal(data1, &j1)
 	if err != nil {
 		return nil, err
 	}
 
-	err = json.Unmarshal(data2, &j2)
-	if err != nil {
-		return nil, err
-	}
-
-	return mergeSpecsHelper(j1, j2, ctype), nil
+	return mergeSpecsHelper(j1, existingVal, ctype), nil
 }
 
 // mergeSpecsHelper is a helper function that takes an object from the existing object and merges in
@@ -2570,6 +2560,8 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	}
 
 	updateSucceeded = false
+	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
+	existingObjectCopy := obj.object.DeepCopy()
 
 	for key := range obj.unstruct.Object {
 		isStatus := key == "status"
@@ -2582,7 +2574,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		// check key for mismatch
 		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(
-			key, obj.unstruct, obj.object, keyComplianceType,
+			key, obj.unstruct, existingObjectCopy, keyComplianceType,
 		)
 		if errorMsg != "" {
 			log.Info(errorMsg)
