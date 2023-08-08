@@ -266,6 +266,9 @@ func main() {
 			os.Exit(1)
 		}
 
+		targetK8sConfig.Burst = int(opts.clientBurst)
+		targetK8sConfig.QPS = opts.clientQPS
+
 		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
 		targetK8sDynamicClient = dynamic.NewForConfigOrDie(targetK8sConfig)
 
@@ -309,7 +312,7 @@ func main() {
 	managerCtx, managerCancel := context.WithCancel(context.Background())
 
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
-	log.V(1).Info("Perodically processing Configuration Policies", "frequency", opts.frequency)
+	log.V(1).Info("Periodically processing Configuration Policies", "frequency", opts.frequency)
 
 	go func() {
 		reconciler.PeriodicallyExecConfigPolicies(terminatingCtx, opts.frequency, mgr.Elected())

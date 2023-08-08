@@ -20,6 +20,7 @@ func TestRunMain(t *testing.T) {
 		args,
 		"--leader-elect=false",
 		fmt.Sprintf("--target-kubeconfig-path=%s", os.Getenv("TARGET_KUBECONFIG_PATH")),
+		"--log-level=1",
 	)
 
 	main()
