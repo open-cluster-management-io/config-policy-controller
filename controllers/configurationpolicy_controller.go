@@ -18,6 +18,7 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	templates "github.com/stolostron/go-template-utils/v3/pkg/templates"
+	watchclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -122,11 +123,37 @@ type ConfigurationPolicyReconciler struct {
 	TargetK8sConfig        *rest.Config
 	// Whether custom metrics collection is enabled
 	EnableMetrics bool
+	// This ensures that the policy can be evaluated "early" if its list of selected namespaces changes.
+	NamespaceSelectorWatcher NamespaceSelectorWatcher
 	discoveryInfo
 	// This is used to fetch and parse OpenAPI documents to perform client-side validation of object definitions.
 	openAPIParser *openapi.CachedOpenAPIParser
 	// A lock when performing actions that are not thread safe (i.e. reassigning object properties).
 	lock sync.RWMutex
+}
+
+type NamespaceSelectorWatcher struct {
+	watchclient.DynamicWatcher
+	TargetWatcher
+}
+
+type TargetWatcher struct {
+	MightBeStale map[string]chan struct{}
+}
+
+func (w *TargetWatcher) Reconcile(
+	_ context.Context, watcher watchclient.ObjectIdentifier,
+) (reconcile.Result, error) {
+	if w.MightBeStale[watcher.Name] == nil {
+		w.MightBeStale[watcher.Name] = make(chan struct{}, 1)
+	}
+
+	select { // send only if channel is empty
+	case w.MightBeStale[watcher.Name] <- struct{}{}:
+	default:
+	}
+
+	return reconcile.Result{}, nil
 }
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
@@ -236,7 +263,7 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 
 				for i := range policiesList.Items {
 					policy := policiesList.Items[i]
-					if !shouldEvaluatePolicy(&policy, cleanupImmediately) {
+					if !r.shouldEvaluatePolicy(&policy, cleanupImmediately) {
 						continue
 					}
 
@@ -346,7 +373,9 @@ func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 // met, then that will also trigger an evaluation. If cleanupImmediately is true, then only policies
 // with finalizers will be ready for evaluation regardless of the last evaluation.
 // cleanupImmediately should be set true when the controller is getting uninstalled.
-func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy, cleanupImmediately bool) bool {
+func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
+	policy *policyv1.ConfigurationPolicy, cleanupImmediately bool,
+) bool {
 	log := log.WithValues("policy", policy.GetName())
 
 	// If it's time to clean up such as when the config-policy-controller is being uninstalled, only evaluate policies
@@ -378,6 +407,14 @@ func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy, cleanupImmediate
 		log.Error(err, "The policy has an invalid status.lastEvaluated value. Will evaluate it now.")
 
 		return true
+	}
+
+	select {
+	case <-r.NamespaceSelectorWatcher.MightBeStale[policy.Name]:
+		log.V(2).Info("There may be an update for this policy's namespaces. Will evaluate it now.")
+
+		return true
+	default:
 	}
 
 	var interval time.Duration
@@ -498,6 +535,12 @@ func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
 				}
 
 				return templateObjs, selectedNamespaces, statusChanged, err
+			}
+
+			// This reconcile will use the most up to date Namespaces, so the selector is not stale.
+			select { // empty the channel if there is something in it
+			case <-r.NamespaceSelectorWatcher.MightBeStale[plc.Name]:
+			default:
 			}
 
 			if len(selectedNamespaces) == 0 {
@@ -1119,6 +1162,10 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		return
 	}
 
+	selectorUsed := false
+	plcHasSelector := plc.Spec.NamespaceSelector.MatchExpressions != nil ||
+		plc.Spec.NamespaceSelector.MatchLabels != nil
+
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		// If the object does not have a namespace specified, use the previously retrieved namespaces
 		// from the NamespaceSelector. If no namespaces are found/specified, use the value from the
@@ -1127,7 +1174,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		// - For namespaced resources, handleObjects() will return a status with a no namespace message if
 		//   it's an empty string or else it will use the namespace defined in the object
 		var relevantNamespaces []string
+
 		if templateObjs[indx].isNamespaced && templateObjs[indx].namespace == "" && len(selectedNamespaces) != 0 {
+			if plcHasSelector {
+				selectorUsed = true
+			}
+
 			relevantNamespaces = selectedNamespaces
 		} else {
 			relevantNamespaces = []string{templateObjs[indx].namespace}
@@ -1251,6 +1303,38 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				)
 				r.addForUpdate(&plc, true)
 			}
+		}
+	}
+
+	watcher := watchclient.ObjectIdentifier{
+		Group:     plc.GroupVersionKind().Group,
+		Version:   plc.GroupVersionKind().Version,
+		Kind:      plc.GroupVersionKind().Kind,
+		Namespace: plc.GetNamespace(),
+		Name:      plc.GetName(),
+	}
+
+	if selectorUsed {
+		labelSel := common.ParseToLabelSelector(plc.Spec.NamespaceSelector)
+
+		selector, err := metav1.LabelSelectorAsSelector(&labelSel)
+		if err != nil {
+			log.Error(err, "Could not parse NamespaceSelector, skipping updating watcher")
+		} else {
+			watched := watchclient.ObjectIdentifier{
+				Group:    "",
+				Version:  "v1",
+				Kind:     "Namespace",
+				Selector: selector.String(),
+			}
+
+			if err := r.NamespaceSelectorWatcher.AddOrUpdateWatcher(watcher, watched); err != nil {
+				log.Error(err, "Could not update watcher, skipping")
+			}
+		}
+	} else {
+		if err := r.NamespaceSelectorWatcher.RemoveWatcher(watcher); err != nil {
+			log.Error(err, "Could not remove watcher, skipping")
 		}
 	}
 

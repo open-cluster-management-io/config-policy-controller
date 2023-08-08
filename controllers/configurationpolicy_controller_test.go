@@ -954,6 +954,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 	}
 
+	r := &ConfigurationPolicyReconciler{}
+
 	for _, test := range tests {
 		test := test
 
@@ -970,7 +972,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 				policy.ObjectMeta.DeletionTimestamp = test.deletionTimestamp
 				policy.ObjectMeta.Finalizers = test.finalizers
 
-				if actual := shouldEvaluatePolicy(policy, test.cleanupImmediately); actual != test.expected {
+				if actual := r.shouldEvaluatePolicy(policy, test.cleanupImmediately); actual != test.expected {
 					t.Fatalf("expected %v but got %v", test.expected, actual)
 				}
 			},

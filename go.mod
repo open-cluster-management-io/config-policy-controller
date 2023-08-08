@@ -12,6 +12,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/stolostron/go-log-utils v0.1.2
 	github.com/stolostron/go-template-utils/v3 v3.2.1
+	github.com/stolostron/kubernetes-dependency-watches v0.4.0
 	github.com/stretchr/testify v1.8.1
 	golang.org/x/mod v0.10.0
 	k8s.io/api v0.27.1
@@ -73,7 +74,6 @@ require (
 	github.com/prometheus/procfs v0.9.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
-	github.com/stolostron/kubernetes-dependency-watches v0.2.1 // indirect
 	github.com/xlab/treeprint v1.1.0 // indirect
 	go.starlark.net v0.0.0-20200306205701-8dd3e2ee1dd5 // indirect
 	go.uber.org/atomic v1.11.0 // indirect

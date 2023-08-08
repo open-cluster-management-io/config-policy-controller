@@ -17,7 +17,7 @@ import (
 var log = ctrl.Log
 
 // Parse *Target.MatchLabels and *Target.MatchExpressions into metav1.LabelSelector for the k8s API
-func parseToLabelSelector(selector policyv1.Target) metav1.LabelSelector {
+func ParseToLabelSelector(selector policyv1.Target) metav1.LabelSelector {
 	// Build LabelSelector from provided MatchLabels and MatchExpressions
 	var labelSelector metav1.LabelSelector
 
@@ -46,7 +46,7 @@ func parseToLabelSelector(selector policyv1.Target) metav1.LabelSelector {
 // GetSelectedNamespaces returns the list of filtered namespaces according to the policy namespace selector.
 func GetSelectedNamespaces(client kubernetes.Interface, selector policyv1.Target) ([]string, error) {
 	// Build LabelSelector from provided MatchLabels and MatchExpressions
-	labelSelector := parseToLabelSelector(selector)
+	labelSelector := ParseToLabelSelector(selector)
 
 	// get all namespaces matching selector
 	allNamespaces, err := GetAllNamespaces(client, labelSelector)

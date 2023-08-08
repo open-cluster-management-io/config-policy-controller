@@ -16,6 +16,7 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/spf13/pflag"
 	"github.com/stolostron/go-log-utils/zaputil"
+	watchclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -275,19 +276,45 @@ func main() {
 		)
 	}
 
+	tWatcher := controllers.TargetWatcher{MightBeStale: make(map[string]chan struct{})}
+
+	dynamicWatcher, err := watchclient.New(targetK8sConfig, &tWatcher, nil)
+	if err != nil {
+		log.Error(err, "Unable to create dynamicWatcher")
+	}
+
+	terminatingCtx := ctrl.SetupSignalHandler()
+
+	// Start the dynamic watcher in a separate goroutine to not block the main goroutine.
+	go func() {
+		if err := dynamicWatcher.Start(terminatingCtx); err != nil {
+			log.Error(err, "Unexpected error from dynamicWatcher")
+			os.Exit(1)
+		}
+	}()
+
+	// Wait until the dynamic watcher has started.
+	<-dynamicWatcher.Started()
+
+	nsSelWatcher := controllers.NamespaceSelectorWatcher{
+		DynamicWatcher: dynamicWatcher,
+		TargetWatcher:  tWatcher,
+	}
+
 	instanceName, _ := os.Hostname() // on an error, instanceName will be empty, which is ok
 
 	reconciler := controllers.ConfigurationPolicyReconciler{
-		Client:                 mgr.GetClient(),
-		DecryptionConcurrency:  opts.decryptionConcurrency,
-		EvaluationConcurrency:  opts.evaluationConcurrency,
-		Scheme:                 mgr.GetScheme(),
-		Recorder:               mgr.GetEventRecorderFor(controllers.ControllerName),
-		InstanceName:           instanceName,
-		TargetK8sClient:        targetK8sClient,
-		TargetK8sDynamicClient: targetK8sDynamicClient,
-		TargetK8sConfig:        targetK8sConfig,
-		EnableMetrics:          opts.enableMetrics,
+		Client:                   mgr.GetClient(),
+		DecryptionConcurrency:    opts.decryptionConcurrency,
+		EvaluationConcurrency:    opts.evaluationConcurrency,
+		Scheme:                   mgr.GetScheme(),
+		Recorder:                 mgr.GetEventRecorderFor(controllers.ControllerName),
+		InstanceName:             instanceName,
+		TargetK8sClient:          targetK8sClient,
+		TargetK8sDynamicClient:   targetK8sDynamicClient,
+		TargetK8sConfig:          targetK8sConfig,
+		EnableMetrics:            opts.enableMetrics,
+		NamespaceSelectorWatcher: nsSelWatcher,
 	}
 	if err = reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")
@@ -305,7 +332,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	terminatingCtx := ctrl.SetupSignalHandler()
 	managerCtx, managerCancel := context.WithCancel(context.Background())
 
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies

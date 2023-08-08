@@ -95,7 +95,7 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 	)
 })
 
-var _ = Describe("Test behavior of namespace selection as namespaces change", Ordered, Label("jkulikau"), func() {
+var _ = Describe("Test behavior of namespace selection as namespaces change", Ordered, func() {
 	const (
 		prereqYaml string = "../resources/case19_ns_selector/case19_behavior_prereq.yaml"
 		policyYaml string = "../resources/case19_ns_selector/case19_behavior_policy.yaml"
@@ -161,9 +161,10 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		Expect(found).To(BeTrue())
 		Expect(err).ToNot(HaveOccurred())
 
-		clientManaged.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
+		_, err = clientManaged.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{Name: "case19b-4-e2e"},
 		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
 
 		Consistently(func() interface{} {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -175,7 +176,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 			Expect(err).ToNot(HaveOccurred())
 
 			return newEvalTime
-		}, "20s", 1).Should(Equal(evalTime))
+		}, "40s", "3s").Should(Equal(evalTime))
 	})
 
 	It("should evaluate when a namespace is labeled to match", func() {
@@ -211,7 +212,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		Expect(found).To(BeTrue())
 		Expect(err).ToNot(HaveOccurred())
 
-		clientManaged.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
+		_, err = clientManaged.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: "kube-case19b-e2e",
 				Labels: map[string]string{
@@ -219,6 +220,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 				},
 			},
 		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
 
 		Eventually(func() interface{} {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
