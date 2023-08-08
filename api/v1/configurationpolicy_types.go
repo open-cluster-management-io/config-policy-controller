@@ -103,7 +103,9 @@ func (t Target) String() string {
 	return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, *t.MatchLabels, *t.MatchExpressions)
 }
 
-// Configures the minimum elapsed time before a ConfigurationPolicy is reevaluated
+// Configures the minimum elapsed time before a ConfigurationPolicy is reevaluated. If the policy
+// spec is changed, or if the list of namespaces selected by the policy changes, the policy may be
+// evaluated regardless of the settings here.
 type EvaluationInterval struct {
 	//+kubebuilder:validation:Pattern=`^(?:(?:(?:[0-9]+(?:.[0-9])?)(?:h|m|s|(?:ms)|(?:us)|(?:ns)))|never)+$`
 	// The minimum elapsed time before a ConfigurationPolicy is reevaluated when in the compliant state. Set this to

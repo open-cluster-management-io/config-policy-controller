@@ -954,6 +954,10 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 	}
 
+	r := &ConfigurationPolicyReconciler{
+		SelectorReconciler: &fakeSR{},
+	}
+
 	for _, test := range tests {
 		test := test
 
@@ -970,12 +974,25 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 				policy.ObjectMeta.DeletionTimestamp = test.deletionTimestamp
 				policy.ObjectMeta.Finalizers = test.finalizers
 
-				if actual := shouldEvaluatePolicy(policy, test.cleanupImmediately); actual != test.expected {
+				if actual := r.shouldEvaluatePolicy(policy, test.cleanupImmediately); actual != test.expected {
 					t.Fatalf("expected %v but got %v", test.expected, actual)
 				}
 			},
 		)
 	}
+}
+
+type fakeSR struct{}
+
+func (r *fakeSR) Get(_ string, _ policyv1.Target) ([]string, error) {
+	return nil, nil
+}
+
+func (r *fakeSR) HasUpdate(_ string) bool {
+	return false
+}
+
+func (r *fakeSR) Stop(_ string) {
 }
 
 func TestShouldHandleSingleKeyFalse(t *testing.T) {
