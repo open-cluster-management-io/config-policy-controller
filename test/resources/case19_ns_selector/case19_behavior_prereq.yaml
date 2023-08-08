@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    case19b: case19b-1-e2e
+  name: case19b-1-e2e
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  labels:
+    case19b: case19b-2-e2e
+  name: case19b-2-e2e

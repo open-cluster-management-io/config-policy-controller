@@ -4,144 +4,348 @@
 package e2e
 
 import (
+	"context"
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case19PolicyName    string = "policy-configmap-selector-e2e"
-	case19PolicyYaml    string = "../resources/case19_ns_selector/case19_cm_policy.yaml"
-	case19TemplatesName string = "configmap-selector-e2e"
-	case19TemplatesKind string = "ConfigMap"
-	case19PrereqYaml    string = "../resources/case19_ns_selector/case19_cm_manifest.yaml"
-	case19PatchPrefix   string = "[{\"op\":\"replace\",\"path\":\"/spec/namespaceSelector\",\"value\":"
-	case19PatchSuffix   string = "}]"
-)
+const nsSelectorPatchFmt = `--patch=[{"op":"replace","path":"/spec/namespaceSelector","value":%s}]`
 
-// Test setup for namespace selection policy tests:
-// - Namespaces `case19-[1-5]-e2e`, each with a `name: <ns-name>` label
-// - Single deployed Configmap `configmap-selector-e2e` in namespace `case19-1-e2e`
-// - Deployed policy should be compliant since it matches the single deployed ConfigMap
-// - Policies are patched so that the namespace doesn't match and should be NonCompliant
-var _ = Describe("Test object namespace selection", Ordered, func() {
-	// NamespaceSelector patches to test
-	resetPatch := "{\"include\":[\"case19-1-e2e\"]}"
-	allPatch := "{\"matchExpressions\":[{\"key\":\"name\",\"operator\":\"Exists\"}]}"
-	patches := map[string]struct {
-		patch   string
-		message string
-	}{
-		"no namespaceSelector specified": {
-			"{}",
-			"namespaced object " + case19TemplatesName + " of kind " + case19TemplatesKind +
-				" has no namespace specified" +
-				" from the policy namespaceSelector nor the object metadata",
-		},
-		"a non-matching LabelSelector": {
-			"{\"matchLabels\":{\"name\":\"not-a-namespace\"}}",
-			"namespaced object " + case19TemplatesName + " of kind " + case19TemplatesKind +
-				" has no namespace specified" +
-				" from the policy namespaceSelector nor the object metadata",
-		},
-		"LabelSelector and exclude": {
-			"{\"exclude\":[\"*-[3-4]-e2e\"],\"matchLabels\":{}," +
-				"\"matchExpressions\":[{\"key\":\"name\",\"operator\":\"Exists\"}]}",
-			"configmaps [configmap-selector-e2e] not found in namespaces: case19-2-e2e, case19-5-e2e",
-		},
-		"empty LabelSelector and include/exclude": {
-			"{\"include\":[\"case19-[2-5]-e2e\"],\"exclude\":[\"*-[3-4]-e2e\"]," +
-				"\"matchLabels\":{},\"matchExpressions\":[]}",
-			"configmaps [configmap-selector-e2e] not found in namespaces: case19-2-e2e, case19-5-e2e",
-		},
-		"LabelSelector": {
-			"{\"matchExpressions\":[{\"key\":\"name\",\"operator\":\"Exists\"}]}",
-			"configmaps [configmap-selector-e2e] not found in namespaces: case19-2-e2e, case19-3-e2e, " +
-				"case19-4-e2e, case19-5-e2e",
-		},
-		"Malformed filepath in include": {
-			"{\"include\":[\"*-[a-z-*\"]}",
-			"Error filtering namespaces with provided namespaceSelector: " +
-				"error parsing 'include' pattern '*-[a-z-*': syntax error in pattern",
-		},
-		"MatchExpressions with incorrect operator": {
-			"{\"matchExpressions\":[{\"key\":\"name\",\"operator\":\"Seriously\"}]}",
-			"Error filtering namespaces with provided namespaceSelector: " +
-				"error parsing namespace LabelSelector: \"Seriously\" is not a valid label selector operator",
-		},
-		"MatchExpressions with missing values": {
-			"{\"matchExpressions\":[{\"key\":\"name\",\"operator\":\"In\",\"values\":[]}]}",
-			"Error filtering namespaces with provided namespaceSelector: " +
-				"error parsing namespace LabelSelector: " +
-				"values: Invalid value: []string(nil): for 'in', 'notin' operators, values set can't be empty",
-		},
-	}
+var _ = Describe("Test results of namespace selection", Ordered, func() {
+	const (
+		prereqYaml string = "../resources/case19_ns_selector/case19_results_prereq.yaml"
+		policyYaml string = "../resources/case19_ns_selector/case19_results_policy.yaml"
+		policyName string = "selector-results-e2e"
 
-	It("creates prerequisite objects", func() {
-		utils.Kubectl("apply", "-f", case19PrereqYaml)
-		// Delete the last namespace so we can use it to test whether
-		// adding a namespace works as the final test
-		utils.Kubectl("delete", "namespace", "case19-6-e2e")
-		utils.Kubectl("apply", "-f", case19PolicyYaml, "-n", testNamespace)
-		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-			case19PolicyName, testNamespace, true, defaultTimeoutSeconds)
-		Expect(plc).NotTo(BeNil())
+		noMatchesMsg string = "namespaced object configmap-selector-e2e of kind ConfigMap has no " +
+			"namespace specified from the policy namespaceSelector nor the object metadata"
+		notFoundMsgFmt  string = "configmaps [configmap-selector-e2e] not found in namespaces: %s"
+		filterErrMsgFmt string = "Error filtering namespaces with provided namespaceSelector: %s"
+	)
+
+	// Test setup for namespace selection policy tests:
+	// - Namespaces `case19a-[1-5]-e2e`, each with a `case19a: <ns-name>` label
+	// - Single deployed Configmap `configmap-selector-e2e` in namespace `case19a-1-e2e`
+	// - Deployed policy should be compliant since it matches the single deployed ConfigMap
+	// - Policies are patched so that the namespace doesn't match and should be NonCompliant
+	BeforeAll(func() {
+		By("Applying prerequisites")
+		utils.Kubectl("apply", "-f", prereqYaml)
+		DeferCleanup(func() {
+			utils.Kubectl("delete", "-f", prereqYaml)
+		})
+
+		utils.Kubectl("apply", "-f", policyYaml, "-n", testNamespace)
+		DeferCleanup(func() {
+			utils.Kubectl("delete", "-f", policyYaml, "-n", testNamespace)
+		})
 	})
 
-	It("should properly handle the namespaceSelector", func() {
-		for name, patch := range patches {
-			By("patching compliant policy " + case19PolicyName + " on the managed cluster")
-			utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", case19PolicyName, "--type=json",
-				"--patch="+case19PatchPrefix+resetPatch+case19PatchSuffix,
-			)
-			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case19PolicyName, testNamespace, true, defaultTimeoutSeconds)
-
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			By("patching with " + name)
-			utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", case19PolicyName, "--type=json",
-				"--patch="+case19PatchPrefix+patch.patch+case19PatchSuffix,
-			)
-			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case19PolicyName, testNamespace, true, defaultTimeoutSeconds)
-
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
-			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case19PolicyName, testNamespace, true, defaultTimeoutSeconds)
-
-				return utils.GetStatusMessage(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal(patch.message))
-		}
-	})
-
-	It("should handle when a matching labeled namespace is added", func() {
-		utils.Kubectl("apply", "-f", case19PrereqYaml)
-		By("patching with a patch for all namespaces")
-		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", case19PolicyName, "--type=json",
-			"--patch="+case19PatchPrefix+allPatch+case19PatchSuffix,
+	DescribeTable("Checking results of different namespaceSelectors", func(patch string, message string) {
+		By("patching policy with the test selector")
+		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
+			fmt.Sprintf(nsSelectorPatchFmt, patch),
 		)
 		Eventually(func() interface{} {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-				case19PolicyName, testNamespace, true, defaultTimeoutSeconds)
+				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(
-			"configmaps [configmap-selector-e2e] not found in namespaces: case19-2-e2e, case19-3-e2e, case19-4-e2e, " +
-				"case19-5-e2e, case19-6-e2e",
-		))
+		}, defaultTimeoutSeconds, 1).Should(Equal(message))
+	},
+		Entry("No namespaceSelector specified",
+			"{}",
+			noMatchesMsg),
+		Entry("LabelSelector and exclude",
+			`{"exclude":["*19a-[3-4]-e2e"],"matchExpressions":[{"key":"case19a","operator":"Exists"}]}`,
+			fmt.Sprintf(notFoundMsgFmt, "case19a-2-e2e, case19a-5-e2e"),
+		),
+		Entry("A non-matching LabelSelector",
+			`{"matchLabels":{"name":"not-a-namespace"}}`,
+			noMatchesMsg),
+		Entry("Empty LabelSelector and include/exclude",
+			`{"include":["case19a-[2-5]-e2e"],"exclude":["*-[3-4]-e2e"],"matchLabels":{},"matchExpressions":[]}`,
+			fmt.Sprintf(notFoundMsgFmt, "case19a-2-e2e, case19a-5-e2e"),
+		),
+		Entry("LabelSelector",
+			`{"matchExpressions":[{"key":"case19a","operator":"Exists"}]}`,
+			fmt.Sprintf(notFoundMsgFmt, "case19a-2-e2e, case19a-3-e2e, case19a-4-e2e, case19a-5-e2e"),
+		),
+		Entry("Malformed filepath in include",
+			`{"include":["*-[a-z-*"]}`,
+			fmt.Sprintf(filterErrMsgFmt, "error parsing 'include' pattern '*-[a-z-*': syntax error in pattern"),
+		),
+		Entry("MatchExpressions with incorrect operator",
+			`{"matchExpressions":[{"key":"name","operator":"Seriously"}]}`,
+			fmt.Sprintf(filterErrMsgFmt, "error parsing namespace LabelSelector: "+
+				`"Seriously" is not a valid label selector operator`),
+		),
+		Entry("MatchExpressions with missing values",
+			`{"matchExpressions":[{"key":"name","operator":"In","values":[]}]}`,
+			fmt.Sprintf(filterErrMsgFmt, "error parsing namespace LabelSelector: "+
+				"values: Invalid value: []string(nil): for 'in', 'notin' operators, values set can't be empty"),
+		),
+	)
+})
+
+var _ = Describe("Test behavior of namespace selection as namespaces change", Ordered, func() {
+	const (
+		prereqYaml string = "../resources/case19_ns_selector/case19_behavior_prereq.yaml"
+		policyYaml string = "../resources/case19_ns_selector/case19_behavior_policy.yaml"
+		policyName string = "selector-behavior-e2e"
+
+		notFoundMsgFmt string = "configmaps [configmap-selector-e2e] not found in namespaces: %s"
+	)
+
+	BeforeAll(func() {
+		By("Applying prerequisites")
+		utils.Kubectl("apply", "-f", prereqYaml)
+		// cleaned up in an AfterAll because that will cover other namespaces created in the tests
+
+		utils.Kubectl("apply", "-f", policyYaml, "-n", testNamespace)
+		DeferCleanup(func() {
+			utils.Kubectl("delete", "-f", policyYaml, "-n", testNamespace)
+		})
+
+		By("Verifying initial compliance message")
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			return utils.GetStatusMessage(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(notFoundMsgFmt,
+			"case19b-1-e2e, case19b-2-e2e")))
 	})
 
 	AfterAll(func() {
-		utils.Kubectl("delete", "-f", case19PrereqYaml)
-		policies := []string{
-			case19PolicyName,
-		}
-		deleteConfigPolicies(policies)
+		utils.Kubectl("delete", "ns", "case19b-1-e2e", "--ignore-not-found")
+		utils.Kubectl("delete", "ns", "case19b-2-e2e", "--ignore-not-found")
+		utils.Kubectl("delete", "ns", "case19b-3-e2e", "--ignore-not-found")
+		utils.Kubectl("delete", "ns", "case19b-4-e2e", "--ignore-not-found")
+		utils.Kubectl("delete", "ns", "kube-case19b-e2e", "--ignore-not-found")
+	})
+
+	It("should evaluate when a matching labeled namespace is added", func() {
+		_, err := clientManaged.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "case19b-3-e2e",
+				Labels: map[string]string{
+					"case19b": "case19b-3-e2e",
+				},
+			},
+		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			return utils.GetStatusMessage(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(notFoundMsgFmt,
+			"case19b-1-e2e, case19b-2-e2e, case19b-3-e2e")))
+	})
+
+	It("should not evaluate early if a non-matching namespace is added", func() {
+		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			policyName, testNamespace, true, defaultTimeoutSeconds)
+
+		evalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+		Expect(evalTime).ToNot(BeEmpty())
+		Expect(found).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
+
+		_, err = clientManaged.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{Name: "case19b-4-e2e"},
+		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		Consistently(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			newEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(newEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+
+			return newEvalTime
+		}, "40s", "3s").Should(Equal(evalTime))
+	})
+
+	It("should evaluate when a namespace is labeled to match", func() {
+		utils.Kubectl("label", "ns", "case19b-4-e2e", "case19b=case19b-4-e2e")
+
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			return utils.GetStatusMessage(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(notFoundMsgFmt,
+			"case19b-1-e2e, case19b-2-e2e, case19b-3-e2e, case19b-4-e2e")))
+	})
+
+	It("should evaluate when a matching namespace label is removed", func() {
+		utils.Kubectl("label", "ns", "case19b-3-e2e", "case19b-")
+
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			return utils.GetStatusMessage(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(notFoundMsgFmt,
+			"case19b-1-e2e, case19b-2-e2e, case19b-4-e2e")))
+	})
+
+	It("should not evaluate when an excluded namespace is added", func() {
+		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			policyName, testNamespace, true, defaultTimeoutSeconds)
+
+		evalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+		Expect(evalTime).ToNot(BeEmpty())
+		Expect(found).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
+
+		_, err = clientManaged.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "kube-case19b-e2e",
+				Labels: map[string]string{
+					"case19b": "kube-case19b-e2e",
+				},
+			},
+		}, metav1.CreateOptions{})
+		Expect(err).ToNot(HaveOccurred())
+
+		Consistently(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			newEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(newEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+
+			return newEvalTime
+		}, "40s", "3s").Should(Equal(evalTime))
+	})
+
+	It("should not evaluate when a matched namespace is changed", func() {
+		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			policyName, testNamespace, true, defaultTimeoutSeconds)
+
+		evalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+		Expect(evalTime).ToNot(BeEmpty())
+		Expect(found).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
+
+		utils.Kubectl("label", "ns", "case19b-1-e2e", "extra-label=hello")
+
+		Consistently(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			newEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(newEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+
+			return newEvalTime
+		}, "40s", "3s").Should(Equal(evalTime))
+	})
+
+	It("should not evaluate early if the namespace selector is empty", func() {
+		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			policyName, testNamespace, true, defaultTimeoutSeconds)
+
+		evalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+		Expect(evalTime).ToNot(BeEmpty())
+		Expect(found).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Patching the configurationpolicy to remove the namespaceSelector")
+		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
+			`--patch=[{"op":"remove","path":"/spec/namespaceSelector"}]`)
+
+		var newEvalTime string
+
+		By("Waiting for the one evaluation after the spec changed")
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			var found bool
+			var err error
+
+			newEvalTime, found, err = unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(newEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+
+			return newEvalTime
+		}, "40s", "3s").ShouldNot(Equal(evalTime))
+
+		By("Verifying it does not evaluate again")
+		Consistently(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			newestEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(newestEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+
+			return newestEvalTime
+		}, "40s", "3s").Should(Equal(newEvalTime))
+	})
+
+	It("should not evaluate early when the namespace selector is not valid", func() {
+		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			policyName, testNamespace, true, defaultTimeoutSeconds)
+
+		evalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+		Expect(evalTime).ToNot(BeEmpty())
+		Expect(found).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Patching the configurationpolicy to remove the namespaceSelector")
+		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
+			fmt.Sprintf(nsSelectorPatchFmt, `{"matchExpressions":[{"key":"name","operator":"Seriously"}]}`))
+
+		var newEvalTime string
+
+		By("Waiting for the one evaluation after the spec changed")
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			var found bool
+			var err error
+
+			newEvalTime, found, err = unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(newEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+
+			return newEvalTime
+		}, "40s", "3s").ShouldNot(Equal(evalTime))
+
+		By("Verifying it does not evaluate again")
+		Consistently(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			newestEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(newestEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+
+			return newestEvalTime
+		}, "40s", "3s").Should(Equal(newEvalTime))
 	})
 })
