@@ -11,6 +11,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/zapr"
@@ -20,6 +21,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
@@ -28,6 +30,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
+	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -202,6 +205,18 @@ func main() {
 		log.Info("Skipping restrictions on the ConfigurationPolicy cache because watchNamespace is empty")
 	}
 
+	nsTransform := func(obj interface{}) (interface{}, error) {
+		ns := obj.(*corev1.Namespace)
+		guttedNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   ns.Name,
+				Labels: ns.Labels,
+			},
+		}
+
+		return guttedNS, nil
+	}
+
 	// Set default manager options
 	options := manager.Options{
 		MetricsBindAddress:     opts.metricsAddr,
@@ -210,7 +225,12 @@ func main() {
 		HealthProbeBindAddress: opts.probeAddr,
 		LeaderElection:         opts.enableLeaderElection,
 		LeaderElectionID:       "config-policy-controller.open-cluster-management.io",
-		NewCache:               cache.BuilderWithOptions(cache.Options{SelectorsByObject: cacheSelectors}),
+		NewCache: cache.BuilderWithOptions(cache.Options{
+			SelectorsByObject: cacheSelectors,
+			TransformByObject: map[client.Object]toolscache.TransformFunc{
+				&corev1.Namespace{}: nsTransform,
+			},
+		}),
 		// Disable the cache for Secrets to avoid a watch getting created when the `policy-encryption-key`
 		// Secret is retrieved. Special cache handling is done by the controller.
 		ClientDisableCacheFor: []client.Object{&corev1.Secret{}},
@@ -252,12 +272,14 @@ func main() {
 	var targetK8sClient kubernetes.Interface
 	var targetK8sDynamicClient dynamic.Interface
 	var targetK8sConfig *rest.Config
+	var nsSelMgr manager.Manager // A separate controller-manager is needed in hosted mode
 
 	if opts.targetKubeConfig == "" {
 		targetK8sConfig = cfg
 		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
 		targetK8sDynamicClient = dynamic.NewForConfigOrDie(targetK8sConfig)
-	} else {
+		nsSelMgr = mgr
+	} else { // "Hosted mode"
 		var err error
 
 		targetK8sConfig, err = clientcmd.BuildConfigFromFlags("", opts.targetKubeConfig)
@@ -272,6 +294,18 @@ func main() {
 		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
 		targetK8sDynamicClient = dynamic.NewForConfigOrDie(targetK8sConfig)
 
+		nsSelMgr, err = manager.New(targetK8sConfig, manager.Options{
+			NewCache: cache.BuilderWithOptions(cache.Options{
+				TransformByObject: map[client.Object]toolscache.TransformFunc{
+					&corev1.Namespace{}: nsTransform,
+				},
+			}),
+		})
+		if err != nil {
+			log.Error(err, "Unable to create manager from target kube config")
+			os.Exit(1)
+		}
+
 		log.Info(
 			"Overrode the target Kubernetes cluster for policy evaluation and enforcement",
 			"path", opts.targetKubeConfig,
@@ -279,6 +313,14 @@ func main() {
 	}
 
 	instanceName, _ := os.Hostname() // on an error, instanceName will be empty, which is ok
+
+	nsSelReconciler := common.NamespaceSelectorReconciler{
+		Client: nsSelMgr.GetClient(),
+	}
+	if err = nsSelReconciler.SetupWithManager(nsSelMgr); err != nil {
+		log.Error(err, "Unable to create controller", "controller", "NamespaceSelector")
+		os.Exit(1)
+	}
 
 	reconciler := controllers.ConfigurationPolicyReconciler{
 		Client:                 mgr.GetClient(),
@@ -290,6 +332,7 @@ func main() {
 		TargetK8sClient:        targetK8sClient,
 		TargetK8sDynamicClient: targetK8sDynamicClient,
 		TargetK8sConfig:        targetK8sConfig,
+		SelectorReconciler:     &nsSelReconciler,
 		EnableMetrics:          opts.enableMetrics,
 	}
 	if err = reconciler.SetupWithManager(mgr); err != nil {
@@ -353,10 +396,44 @@ func main() {
 		log.Info("Addon status reporting is not enabled")
 	}
 
-	log.Info("Starting manager")
+	log.Info("Starting managers")
 
-	if err := mgr.Start(managerCtx); err != nil {
-		log.Error(err, "Problem running manager")
+	var wg sync.WaitGroup
+	var errorExit bool
+
+	wg.Add(1)
+
+	go func() {
+		if err := mgr.Start(managerCtx); err != nil {
+			log.Error(err, "Problem running manager")
+
+			managerCancel()
+
+			errorExit = true
+		}
+
+		wg.Done()
+	}()
+
+	if opts.targetKubeConfig != "" { // "hosted mode"
+		wg.Add(1)
+
+		go func() {
+			if err := nsSelMgr.Start(managerCtx); err != nil {
+				log.Error(err, "Problem running manager")
+
+				managerCancel()
+
+				errorExit = true
+			}
+
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+
+	if errorExit {
 		os.Exit(1)
 	}
 }

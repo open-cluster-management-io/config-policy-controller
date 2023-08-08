@@ -120,6 +120,7 @@ type ConfigurationPolicyReconciler struct {
 	TargetK8sClient        kubernetes.Interface
 	TargetK8sDynamicClient dynamic.Interface
 	TargetK8sConfig        *rest.Config
+	SelectorReconciler     common.SelectorReconciler
 	// Whether custom metrics collection is enabled
 	EnableMetrics bool
 	discoveryInfo
@@ -149,6 +150,8 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 			prometheus.Labels{"policy": fmt.Sprintf("%s/%s", request.Namespace, request.Name)})
 		_ = policyUserErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
 		_ = policySystemErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
+
+		r.SelectorReconciler.Stop(request.Name)
 	}
 
 	return reconcile.Result{}, nil
@@ -236,7 +239,7 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 
 				for i := range policiesList.Items {
 					policy := policiesList.Items[i]
-					if !shouldEvaluatePolicy(&policy, cleanupImmediately) {
+					if !r.shouldEvaluatePolicy(&policy, cleanupImmediately) {
 						continue
 					}
 
@@ -346,7 +349,9 @@ func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 // met, then that will also trigger an evaluation. If cleanupImmediately is true, then only policies
 // with finalizers will be ready for evaluation regardless of the last evaluation.
 // cleanupImmediately should be set true when the controller is getting uninstalled.
-func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy, cleanupImmediately bool) bool {
+func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
+	policy *policyv1.ConfigurationPolicy, cleanupImmediately bool,
+) bool {
 	log := log.WithValues("policy", policy.GetName())
 
 	// If it's time to clean up such as when the config-policy-controller is being uninstalled, only evaluate policies
@@ -356,19 +361,19 @@ func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy, cleanupImmediate
 	}
 
 	if policy.ObjectMeta.DeletionTimestamp != nil {
-		log.V(2).Info("The policy has been deleted and is waiting for object cleanup. Will evaluate it now.")
+		log.V(1).Info("The policy has been deleted and is waiting for object cleanup. Will evaluate it now.")
 
 		return true
 	}
 
 	if policy.Status.LastEvaluatedGeneration != policy.Generation {
-		log.V(2).Info("The policy has been updated. Will evaluate it now.")
+		log.V(1).Info("The policy has been updated. Will evaluate it now.")
 
 		return true
 	}
 
 	if policy.Status.LastEvaluated == "" {
-		log.V(2).Info("The policy's status.lastEvaluated field is not set. Will evaluate it now.")
+		log.V(1).Info("The policy's status.lastEvaluated field is not set. Will evaluate it now.")
 
 		return true
 	}
@@ -387,13 +392,23 @@ func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy, cleanupImmediate
 	} else if policy.Status.ComplianceState == policyv1.NonCompliant && policy.Spec != nil {
 		interval, err = policy.Spec.EvaluationInterval.GetNonCompliantInterval()
 	} else {
-		log.V(2).Info("The policy has an unknown compliance. Will evaluate it now.")
+		log.V(1).Info("The policy has an unknown compliance. Will evaluate it now.")
+
+		return true
+	}
+
+	usesSelector := policy.Spec.NamespaceSelector.MatchLabels != nil ||
+		policy.Spec.NamespaceSelector.MatchExpressions != nil ||
+		len(policy.Spec.NamespaceSelector.Include) != 0
+
+	if usesSelector && r.SelectorReconciler.HasUpdate(policy.Name) {
+		log.V(1).Info("There was an update for this policy's namespaces. Will evaluate it now.")
 
 		return true
 	}
 
 	if errors.Is(err, policyv1.ErrIsNever) {
-		log.Info("Skipping the policy evaluation due to the spec.evaluationInterval value being set to never")
+		log.V(1).Info("Skipping the policy evaluation due to the spec.evaluationInterval value being set to never")
 
 		return false
 	} else if err != nil {
@@ -409,7 +424,7 @@ func shouldEvaluatePolicy(policy *policyv1.ConfigurationPolicy, cleanupImmediate
 
 	nextEvaluation := lastEvaluated.Add(interval)
 	if nextEvaluation.Sub(time.Now().UTC()) > 0 {
-		log.Info("Skipping the policy evaluation due to the policy not reaching the evaluation interval")
+		log.V(1).Info("Skipping the policy evaluation due to the policy not reaching the evaluation interval")
 
 		return false
 	}
@@ -473,11 +488,13 @@ func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
 		selector := plc.Spec.NamespaceSelector
 		// If MatchLabels/MatchExpressions/Include were not provided, return no namespaces
 		if selector.MatchLabels == nil && selector.MatchExpressions == nil && len(selector.Include) == 0 {
+			r.SelectorReconciler.Stop(plc.Name)
+
 			log.Info("namespaceSelector is empty. Skipping namespace retrieval.")
 		} else {
 			// If an error occurred in the NamespaceSelector, update the policy status and abort
 			var err error
-			selectedNamespaces, err = common.GetSelectedNamespaces(r.TargetK8sClient, selector)
+			selectedNamespaces, err = r.SelectorReconciler.Get(plc.Name, plc.Spec.NamespaceSelector)
 			if err != nil {
 				errMsg := "Error filtering namespaces with provided namespaceSelector"
 				log.Error(
