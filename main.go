@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
+	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 	"open-cluster-management.io/config-policy-controller/controllers"
 	"open-cluster-management.io/config-policy-controller/pkg/common"
 	"open-cluster-management.io/config-policy-controller/pkg/triggeruninstall"
@@ -64,6 +65,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 	utilruntime.Must(policyv1.AddToScheme(scheme))
+	utilruntime.Must(policyv1beta1.AddToScheme(scheme))
 	utilruntime.Must(extensionsv1.AddToScheme(scheme))
 	utilruntime.Must(extensionsv1beta1.AddToScheme(scheme))
 }
@@ -335,8 +337,20 @@ func main() {
 		SelectorReconciler:     &nsSelReconciler,
 		EnableMetrics:          opts.enableMetrics,
 	}
+
+	OpReconciler := controllers.OperatorPolicyReconciler{
+		Client:   mgr.GetClient(),
+		Scheme:   mgr.GetScheme(),
+		Recorder: mgr.GetEventRecorderFor(controllers.ControllerName),
+	}
+
 	if err = reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")
+		os.Exit(1)
+	}
+
+	if err = OpReconciler.SetupWithManager(mgr); err != nil {
+		log.Error(err, "Unable to create controller", "controller", "OperatorPolicy")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
@@ -359,6 +373,11 @@ func main() {
 
 	go func() {
 		reconciler.PeriodicallyExecConfigPolicies(terminatingCtx, opts.frequency, mgr.Elected())
+		managerCancel()
+	}()
+
+	go func() {
+		OpReconciler.PeriodicallyExecConfigPolicies(terminatingCtx, opts.frequency, mgr.Elected())
 		managerCancel()
 	}()
 
