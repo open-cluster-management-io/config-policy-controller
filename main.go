@@ -43,6 +43,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
+	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 	"open-cluster-management.io/config-policy-controller/controllers"
 	"open-cluster-management.io/config-policy-controller/pkg/common"
 	"open-cluster-management.io/config-policy-controller/pkg/triggeruninstall"
@@ -64,6 +65,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
 	utilruntime.Must(policyv1.AddToScheme(scheme))
+	utilruntime.Must(policyv1beta1.AddToScheme(scheme))
 	utilruntime.Must(extensionsv1.AddToScheme(scheme))
 	utilruntime.Must(extensionsv1beta1.AddToScheme(scheme))
 }
@@ -82,6 +84,7 @@ type ctrlOpts struct {
 	enableLease           bool
 	enableLeaderElection  bool
 	enableMetrics         bool
+	enableOperatorPolicy  bool
 }
 
 func main() {
@@ -335,10 +338,23 @@ func main() {
 		SelectorReconciler:     &nsSelReconciler,
 		EnableMetrics:          opts.enableMetrics,
 	}
+
+	OpReconciler := controllers.OperatorPolicyReconciler{
+		Client: mgr.GetClient(),
+	}
+
 	if err = reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")
 		os.Exit(1)
 	}
+
+	if opts.enableOperatorPolicy {
+		if err = OpReconciler.SetupWithManager(mgr); err != nil {
+			log.Error(err, "Unable to create controller", "controller", "OperatorPolicy")
+			os.Exit(1)
+		}
+	}
+
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
@@ -361,6 +377,13 @@ func main() {
 		reconciler.PeriodicallyExecConfigPolicies(terminatingCtx, opts.frequency, mgr.Elected())
 		managerCancel()
 	}()
+
+	if opts.enableOperatorPolicy {
+		go func() {
+			OpReconciler.PeriodicallyExecOperatorPolicies(opts.frequency, mgr.Elected())
+			managerCancel()
+		}()
+	}
 
 	// This lease is not related to leader election. This is to report the status of the controller
 	// to the addon framework. This can be seen in the "status" section of the ManagedClusterAddOn
@@ -588,6 +611,13 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		45, // the controller-runtime defaults are 20:30 (qps:burst) - this matches that ratio
 		"The maximum burst before client requests will be throttled. "+
 			"Will scale with concurrency, if not explicitly set.",
+	)
+
+	flags.BoolVar(
+		&opts.enableOperatorPolicy,
+		"enable-operator-policy",
+		false,
+		"Enable operator policy controller",
 	)
 
 	_ = flags.Parse(args)
