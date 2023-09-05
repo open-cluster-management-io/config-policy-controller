@@ -6,9 +6,13 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
+	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -113,24 +117,103 @@ func (r *OperatorPolicyReconciler) PeriodicallyExecOperatorPolicies(freq uint, e
 }
 
 // handleSinglePolicy encapsulates the logic for processing a single operatorPolicy.
-// Currently, this just means setting the status to Compliant and logging the name
-// of the operatorPolicy.
+// Currently, the controller is able to create an OLM Subscription from the operatorPolicy specs,
+// create an OperatorGroup in the ns as the Subscription, set the compliance status, and log the policy.
 //
 // In the future, more reconciliation logic will be added. For reference:
 // https://github.com/JustinKuli/ocm-enhancements/blob/89-operator-policy/enhancements/sig-policy/89-operator-policy-kind/README.md
 func (r *OperatorPolicyReconciler) handleSinglePolicy(
 	policy *policyv1beta1.OperatorPolicy,
 ) error {
-	policy.Status.ComplianceState = policyv1.Compliant
+	OpLog.Info("Handling OperatorPolicy", "policy", policy.Name)
 
-	err := r.updatePolicyStatus(policy)
-	if err != nil {
-		OpLog.Info("error while updating policy status")
+	subscriptionSpec := new(operatorv1alpha1.Subscription)
+	err := r.Get(context.TODO(),
+		types.NamespacedName{Namespace: subscriptionSpec.Namespace, Name: subscriptionSpec.Name},
+		subscriptionSpec)
+	exists := !errors.IsNotFound(err)
+	shouldExist := strings.EqualFold(string(policy.Spec.ComplianceType), string(policyv1.MustHave))
 
-		return err
+	// Object does not exist but it should exist, create object
+	if !exists && shouldExist {
+		if strings.EqualFold(string(policy.Spec.RemediationAction), string(policyv1.Enforce)) {
+			OpLog.Info("creating kind " + subscriptionSpec.Kind + " in ns " + subscriptionSpec.Namespace)
+			subscriptionSpec := buildSubscription(policy, subscriptionSpec)
+			err = r.Create(context.TODO(), subscriptionSpec)
+
+			if err != nil {
+				r.setCompliance(policy, policyv1.NonCompliant)
+				OpLog.Error(err, "Could not handle missing musthave object")
+
+				return err
+			}
+
+			// Currently creates an OperatorGroup for every Subscription
+			// in the same ns, and defaults to targeting all ns.
+			// Future implementations will enable targeting ns based on
+			// installModes supported by the CSV. Also, only one OperatorGroup
+			// should exist in each ns
+			operatorGroup := buildOperatorGroup(policy)
+			err = r.Create(context.TODO(), operatorGroup)
+
+			if err != nil {
+				r.setCompliance(policy, policyv1.NonCompliant)
+				OpLog.Error(err, "Could not handle missing musthave object")
+
+				return err
+			}
+
+			r.setCompliance(policy, policyv1.Compliant)
+
+			return nil
+		}
+
+		// Inform
+		r.setCompliance(policy, policyv1.NonCompliant)
+
+		return nil
 	}
 
-	OpLog.Info("Logging operator policy", "policy", policy.Name)
+	// Object exists but it should not exist, delete object
+	// Deleting related objects will be added in the future
+	if exists && !shouldExist {
+		if strings.EqualFold(string(policy.Spec.RemediationAction), string(policyv1.Enforce)) {
+			OpLog.Info("deleting kind " + subscriptionSpec.Kind + " in ns " + subscriptionSpec.Namespace)
+			err = r.Delete(context.TODO(), subscriptionSpec)
+
+			if err != nil {
+				r.setCompliance(policy, policyv1.NonCompliant)
+				OpLog.Error(err, "Could not handle existing musthave object")
+
+				return err
+			}
+
+			r.setCompliance(policy, policyv1.Compliant)
+
+			return nil
+		}
+
+		// Inform
+		r.setCompliance(policy, policyv1.NonCompliant)
+
+		return nil
+	}
+
+	// Object does not exist and it should not exist, emit success event
+	if !exists && !shouldExist {
+		OpLog.Info("The object does not exist and is compliant with the mustnothave compliance type")
+		// Future implementation: Possibly emit a success event
+
+		return nil
+	}
+
+	// Object exists, now need to validate field to make sure they match
+	if exists {
+		OpLog.Info("The object already exists. Checking fields to verify matching specs")
+		// Future implementation: Verify the specs of the object matches the one on the cluster
+
+		return nil
+	}
 
 	return nil
 }
@@ -175,4 +258,58 @@ func (r *OperatorPolicyReconciler) shouldEvaluatePolicy(
 	}
 
 	return true
+}
+
+// buildSubscription bootstraps the subscription spec defined in the operator policy
+// with the apiversion and kind in preparation for resource creation
+func buildSubscription(
+	policy *policyv1beta1.OperatorPolicy,
+	subscription *operatorv1alpha1.Subscription,
+) *operatorv1alpha1.Subscription {
+	gvk := schema.GroupVersionKind{
+		Group:   "operators.coreos.com",
+		Version: "v1alpha1",
+		Kind:    "Subscription",
+	}
+
+	subscription.SetGroupVersionKind(gvk)
+	subscription.ObjectMeta.Name = policy.Spec.Subscription.Package
+	subscription.ObjectMeta.Namespace = policy.Spec.Subscription.Namespace
+	subscription.Spec = policy.Spec.Subscription.SubscriptionSpec.DeepCopy()
+
+	return subscription
+}
+
+// Sets the compliance of the policy
+func (r *OperatorPolicyReconciler) setCompliance(
+	policy *policyv1beta1.OperatorPolicy,
+	compliance policyv1.ComplianceState,
+) {
+	policy.Status.ComplianceState = compliance
+
+	err := r.updatePolicyStatus(policy)
+	if err != nil {
+		OpLog.Error(err, "error while updating policy status")
+	}
+}
+
+// buildOperatorGroup bootstraps the OperatorGroup spec defined in the operator policy
+// with the apiversion and kind in preparation for resource creation
+func buildOperatorGroup(
+	policy *policyv1beta1.OperatorPolicy,
+) *operatorv1.OperatorGroup {
+	operatorGroup := new(operatorv1.OperatorGroup)
+
+	gvk := schema.GroupVersionKind{
+		Group:   "operators.coreos.com",
+		Version: "v1",
+		Kind:    "OperatorGroup",
+	}
+
+	operatorGroup.SetGroupVersionKind(gvk)
+	operatorGroup.ObjectMeta.SetName(policy.Spec.Subscription.Package + "-operator-group")
+	operatorGroup.ObjectMeta.SetNamespace(policy.Spec.Subscription.Namespace)
+	operatorGroup.Spec.TargetNamespaces = []string{"*"}
+
+	return operatorGroup
 }

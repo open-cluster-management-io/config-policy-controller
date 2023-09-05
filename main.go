@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/go-logr/zapr"
+	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
+	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/spf13/pflag"
 	"github.com/stolostron/go-log-utils/zaputil"
 	appsv1 "k8s.io/api/apps/v1"
@@ -68,6 +70,8 @@ func init() {
 	utilruntime.Must(policyv1beta1.AddToScheme(scheme))
 	utilruntime.Must(extensionsv1.AddToScheme(scheme))
 	utilruntime.Must(extensionsv1beta1.AddToScheme(scheme))
+	utilruntime.Must(operatorv1alpha1.AddToScheme(scheme))
+	utilruntime.Must(operatorv1.AddToScheme(scheme))
 }
 
 type ctrlOpts struct {
