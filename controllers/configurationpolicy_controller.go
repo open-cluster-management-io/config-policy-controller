@@ -1621,27 +1621,6 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	return relatedObjects, result
 }
 
-// generateSingleObjReason is a helper function to create a compliant/noncompliant reason for a named object.
-func generateSingleObjReason(objShouldExist bool, compliant bool, exists bool) string {
-	if objShouldExist {
-		if compliant {
-			return reasonWantFoundExists
-		}
-
-		if exists {
-			return reasonWantFoundNoMatch
-		}
-
-		return reasonWantFoundDNE
-	}
-
-	if compliant {
-		return reasonWantNotFoundDNE
-	}
-
-	return reasonWantNotFoundExists
-}
-
 type singleObject struct {
 	policy      *policyv1.ConfigurationPolicy
 	gvr         schema.GroupVersionResource
@@ -1684,15 +1663,16 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 ) {
 	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name, "index", obj.index)
 
+	result = objectTmplEvalResult{
+		objectNames: []string{obj.name},
+		namespace:   obj.namespace,
+		events:      []objectTmplEvalEvent{},
+	}
+
 	if !exists && obj.shouldExist {
 		// object is missing and will be created, so send noncompliant "does not exist" event regardless of the
 		// remediation action
-		noncompliantReason := generateSingleObjReason(obj.shouldExist, false, exists)
-		result = objectTmplEvalResult{
-			objectNames: []string{obj.name},
-			namespace:   obj.namespace,
-			events:      []objectTmplEvalEvent{{false, noncompliantReason, ""}},
-		}
+		result.events = append(result.events, objectTmplEvalEvent{false, reasonWantFoundDNE, ""})
 
 		// it is a musthave and it does not exist, so it must be created
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
@@ -1728,12 +1708,6 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	}
 
 	if exists && !obj.shouldExist {
-		result = objectTmplEvalResult{
-			objectNames: []string{obj.name},
-			namespace:   obj.namespace,
-			events:      []objectTmplEvalEvent{},
-		}
-
 		// it is a mustnothave but it exist, so it must be deleted
 		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 			completed, reason, msg, _, err := r.enforceByCreatingOrDeleting(obj)
@@ -1743,8 +1717,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 			result.events = append(result.events, objectTmplEvalEvent{completed, reason, msg})
 		} else { // inform
-			reason := generateSingleObjReason(obj.shouldExist, false, exists)
-			result.events = append(result.events, objectTmplEvalEvent{false, reason, ""})
+			result.events = append(result.events, objectTmplEvalEvent{false, reasonWantNotFoundExists, ""})
 		}
 
 		return
@@ -1753,19 +1726,13 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if !exists && !obj.shouldExist {
 		log.V(1).Info("The object does not exist and is compliant with the mustnothave compliance type")
 		// it is a must not have and it does not exist, so it is compliant
-
-		reason := generateSingleObjReason(obj.shouldExist, true, exists)
-		result = objectTmplEvalResult{
-			objectNames: []string{obj.name},
-			namespace:   obj.namespace,
-			events:      []objectTmplEvalEvent{{true, reason, ""}},
-		}
+		result.events = append(result.events, objectTmplEvalEvent{true, reasonWantNotFoundDNE, ""})
 
 		return
 	}
 
 	// object exists and the template requires it, so we need to check specific fields to see if we have a match
-	if exists {
+	if exists && obj.shouldExist {
 		log.V(2).Info("The object already exists. Verifying the object fields match what is desired.")
 
 		compType := strings.ToLower(string(objectT.ComplianceType))
@@ -1777,16 +1744,9 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			obj, compType, mdCompType, remediation,
 		)
 
-		result = objectTmplEvalResult{
-			objectNames: []string{obj.name},
-			namespace:   obj.namespace,
-			events:      []objectTmplEvalEvent{},
-		}
-
 		if triedUpdate && !strings.Contains(msg, "Error validating the object") {
 			// The object was mismatched and was potentially fixed depending on the remediation action
-			tempReason := generateSingleObjReason(obj.shouldExist, false, exists)
-			result.events = append(result.events, objectTmplEvalEvent{false, tempReason, ""})
+			result.events = append(result.events, objectTmplEvalEvent{false, reasonWantFoundNoMatch, ""})
 		}
 
 		duration := time.Now().UTC().Sub(before)
@@ -1813,14 +1773,13 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			}
 
 			result.events = append(result.events, objectTmplEvalEvent{false, resultReason, resultMsg})
-		} else if obj.shouldExist {
+		} else {
 			// it is a must have and it does exist, so it is compliant
 			if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
 				if updatedObj {
 					result.events = append(result.events, objectTmplEvalEvent{true, reasonUpdateSuccess, ""})
 				} else {
-					reason := generateSingleObjReason(obj.shouldExist, true, exists)
-					result.events = append(result.events, objectTmplEvalEvent{true, reason, ""})
+					result.events = append(result.events, objectTmplEvalEvent{true, reasonWantFoundExists, ""})
 				}
 				created := false
 				creationInfo = &policyv1.ObjectProperties{
@@ -1828,8 +1787,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 					UID:             "",
 				}
 			} else {
-				reason := generateSingleObjReason(obj.shouldExist, true, exists)
-				result.events = append(result.events, objectTmplEvalEvent{true, reason, ""})
+				result.events = append(result.events, objectTmplEvalEvent{true, reasonWantFoundExists, ""})
 			}
 		}
 	}
