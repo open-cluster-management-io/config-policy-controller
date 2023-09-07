@@ -1703,7 +1703,18 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			var uid string
 			completed, reason, msg, uid, err := r.enforceByCreatingOrDeleting(obj)
 
-			result.events = append(result.events, objectTmplEvalEvent{completed, reason, msg})
+			hasStatus := false
+			if tmplObj, err := unmarshalFromJSON(objectT.ObjectDefinition.Raw); err == nil {
+				_, hasStatus = tmplObj.Object["status"]
+			}
+
+			if completed && hasStatus {
+				msg += ", the status of the object will be verified in the next evaluation"
+				reason += ", status unchecked"
+				result.events = append(result.events, objectTmplEvalEvent{false, reason, msg})
+			} else {
+				result.events = append(result.events, objectTmplEvalEvent{completed, reason, msg})
+			}
 
 			if err != nil {
 				// violation created for handling error
