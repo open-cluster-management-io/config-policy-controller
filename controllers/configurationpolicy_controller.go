@@ -608,14 +608,10 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 		} else if string(plc.Spec.PruneObjectBehavior) == "DeleteIfCreated" {
 			// if prune behavior is DeleteIfCreated, we need to check whether createdByPolicy
 			// is true and the UID is not stale
-			uid, uidFound, err := unstructured.NestedString(existing.Object, "metadata", "uid")
-
-			if !uidFound || err != nil {
-				log.Error(err, "Tried to pull UID from obj but the field did not exist or was not a string")
-			} else if object.Properties != nil &&
+			if object.Properties != nil &&
 				object.Properties.CreatedByPolicy != nil &&
 				*object.Properties.CreatedByPolicy &&
-				object.Properties.UID == uid {
+				object.Properties.UID == string(existing.GetUID()) {
 				needsDelete = true
 			}
 		}
@@ -2061,13 +2057,7 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 			reason = reasonWantFoundCreated
 			msg = fmt.Sprintf("%v %v was created successfully", obj.gvr.Resource, idStr)
 
-			var uidIsString bool
-			uid, uidIsString, err = unstructured.NestedString(createdObj.Object, "metadata", "uid")
-
-			if !uidIsString || err != nil {
-				log.Error(err, "Tried to set UID in status but the field is not a string")
-			}
-
+			uid = string(createdObj.GetUID())
 			completed = true
 		}
 	} else {
