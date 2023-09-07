@@ -1160,7 +1160,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			continue
 		}
 
-		unstruct, err := unmarshalFromJSON(objectT.ObjectDefinition.Raw)
+		desiredObj, err := unmarshalFromJSON(objectT.ObjectDefinition.Raw)
 		if err != nil {
 			panic(err)
 		}
@@ -1180,7 +1180,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				continue
 			}
 
-			related, result := r.handleObjects(objectT, ns, templateObjs[indx], indx, &plc, mapping, unstruct)
+			related, result := r.handleObjects(objectT, ns, templateObjs[indx], indx, &plc, mapping, desiredObj)
 
 			nsToResults[ns] = result
 
@@ -1463,7 +1463,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	index int,
 	policy *policyv1.ConfigurationPolicy,
 	mapping *meta.RESTMapping,
-	unstruct unstructured.Unstructured,
+	desiredObj unstructured.Unstructured,
 ) (
 	relatedObjects []policyv1.RelatedObject,
 	result objectTmplEvalResult,
@@ -1515,15 +1515,15 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		return nil, result
 	}
 
-	var object *unstructured.Unstructured
+	var existingObj *unstructured.Unstructured
 
 	if objDetails.name != "" { // named object, so checking just for the existence of the specific object
 		// If the object couldn't be retrieved, this will be handled later on.
-		object, _ = getObject(
+		existingObj, _ = getObject(
 			objDetails.isNamespaced, namespace, objDetails.name, mapping.Resource, r.TargetK8sDynamicClient,
 		)
 
-		exists = object != nil
+		exists = existingObj != nil
 
 		objNames = append(objNames, objDetails.name)
 	} else if objDetails.kind != "" { // no name, so we are checking for the existence of any object of this kind
@@ -1531,7 +1531,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
 		objNames = getNamesOfKind(
-			unstruct,
+			desiredObj,
 			mapping.Resource,
 			objDetails.isNamespaced,
 			namespace,
@@ -1560,13 +1560,13 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		singObj := singleObject{
 			policy:      policy,
 			gvr:         mapping.Resource,
-			object:      object,
+			existingObj: existingObj,
 			name:        name,
 			namespace:   namespace,
 			namespaced:  objDetails.isNamespaced,
 			shouldExist: objShouldExist,
 			index:       index,
-			unstruct:    unstruct,
+			desiredObj:  desiredObj,
 		}
 
 		log.V(2).Info("Handling a single object template")
@@ -1649,13 +1649,13 @@ func generateSingleObjReason(objShouldExist bool, compliant bool, exists bool) s
 type singleObject struct {
 	policy      *policyv1.ConfigurationPolicy
 	gvr         schema.GroupVersionResource
-	object      *unstructured.Unstructured
+	existingObj *unstructured.Unstructured
 	name        string
 	namespace   string
 	namespaced  bool
 	shouldExist bool
 	index       int
-	unstruct    unstructured.Unstructured
+	desiredObj  unstructured.Unstructured
 }
 
 type objectTmplEvalResult struct {
@@ -1963,16 +1963,16 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 
 // buildNameList is a helper function to pull names of resources that match an objectTemplate from a list of resources
 func buildNameList(
-	unstruct unstructured.Unstructured, complianceType string, resList *unstructured.UnstructuredList,
+	desiredObj unstructured.Unstructured, complianceType string, resList *unstructured.UnstructuredList,
 ) (kindNameList []string) {
 	for i := range resList.Items {
 		uObj := resList.Items[i]
 		match := true
 
-		for key := range unstruct.Object {
+		for key := range desiredObj.Object {
 			// if any key in the object generates a mismatch, the object does not match the template and we
 			// do not add its name to the list
-			errorMsg, updateNeeded, _, skipped := handleSingleKey(key, unstruct, &uObj, complianceType)
+			errorMsg, updateNeeded, _, skipped := handleSingleKey(key, desiredObj, &uObj, complianceType)
 			if !skipped {
 				if errorMsg != "" || updateNeeded {
 					match = false
@@ -1991,7 +1991,7 @@ func buildNameList(
 // getNamesOfKind returns an array with names of all of the resources found
 // matching the GVK specified.
 func getNamesOfKind(
-	unstruct unstructured.Unstructured,
+	desiredObj unstructured.Unstructured,
 	rsrc schema.GroupVersionResource,
 	namespaced bool,
 	ns string,
@@ -2008,7 +2008,7 @@ func getNamesOfKind(
 			return kindNameList
 		}
 
-		return buildNameList(unstruct, complianceType, resList)
+		return buildNameList(desiredObj, complianceType, resList)
 	}
 
 	res := dclient.Resource(rsrc)
@@ -2020,7 +2020,7 @@ func getNamesOfKind(
 		return kindNameList
 	}
 
-	return buildNameList(unstruct, complianceType, resList)
+	return buildNameList(desiredObj, complianceType, resList)
 }
 
 // enforceByCreatingOrDeleting can handle the situation where a musthave or mustonlyhave object is
@@ -2051,7 +2051,9 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 	if obj.shouldExist {
 		log.Info("Enforcing the policy by creating the object")
 
-		if obj.object, err = r.createObject(res, obj.unstruct); obj.object == nil {
+		var createdObj *unstructured.Unstructured
+
+		if createdObj, err = r.createObject(res, obj.desiredObj); createdObj == nil {
 			reason = "K8s creation error"
 			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", obj.gvr.Resource, idStr, err)
 		} else {
@@ -2060,7 +2062,7 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 			msg = fmt.Sprintf("%v %v was created successfully", obj.gvr.Resource, idStr)
 
 			var uidIsString bool
-			uid, uidIsString, err = unstructured.NestedString(obj.object.Object, "metadata", "uid")
+			uid, uidIsString, err = unstructured.NestedString(createdObj.Object, "metadata", "uid")
 
 			if !uidIsString || err != nil {
 				log.Error(err, "Tried to set UID in status but the field is not a string")
@@ -2077,7 +2079,7 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 		} else {
 			reason = reasonDeleteSuccess
 			msg = fmt.Sprintf("%v %v was deleted successfully", obj.gvr.Resource, idStr)
-			obj.object = nil
+			obj.existingObj = nil
 		}
 	}
 
@@ -2574,7 +2576,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
 	)
 
-	if obj.object == nil {
+	if obj.existingObj == nil {
 		log.Info("Skipping update: Previous object retrieval from the API server failed")
 
 		return false, "", false, false
@@ -2589,9 +2591,9 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 	updateSucceeded = false
 	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
-	existingObjectCopy := obj.object.DeepCopy()
+	existingObjectCopy := obj.existingObj.DeepCopy()
 
-	for key := range obj.unstruct.Object {
+	for key := range obj.desiredObj.Object {
 		isStatus := key == "status"
 
 		// use metadatacompliancetype to evaluate metadata if it is set
@@ -2602,7 +2604,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		// check key for mismatch
 		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(
-			key, obj.unstruct, existingObjectCopy, keyComplianceType,
+			key, obj.desiredObj, existingObjectCopy, keyComplianceType,
 		)
 		if errorMsg != "" {
 			log.Info(errorMsg)
@@ -2623,10 +2625,10 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			mergedAnnotations, _, _ := unstructured.NestedStringMap(mdMap, "annotations")
 			mergedLabels, _, _ := unstructured.NestedStringMap(mdMap, "labels")
 
-			obj.object.SetAnnotations(mergedAnnotations)
-			obj.object.SetLabels(mergedLabels)
+			obj.existingObj.SetAnnotations(mergedAnnotations)
+			obj.existingObj.SetLabels(mergedLabels)
 		} else {
-			obj.object.UnstructuredContent()[key] = mergedObj
+			obj.existingObj.UnstructuredContent()[key] = mergedObj
 		}
 
 		if keyUpdateNeeded {
@@ -2648,18 +2650,18 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		// FieldValidation is supported in k8s 1.25 as beta release
 		// so if the version is below 1.25, we need to use client side validation to validate the object
 		if semver.Compare(r.serverVersion, "v1.25.0") < 0 {
-			if err := r.validateObject(obj.object); err != nil {
+			if err := r.validateObject(obj.existingObj); err != nil {
 				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
 
 				return true, message, updateNeeded, false
 			}
 		}
 
-		_, err := res.Update(context.TODO(), obj.object, metav1.UpdateOptions{
+		_, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
 			FieldValidation: metav1.FieldValidationStrict,
 		})
 		if k8serrors.IsNotFound(err) {
-			message := fmt.Sprintf("`%v` is not present and must be created", obj.object.GetKind())
+			message := fmt.Sprintf("`%v` is not present and must be created", obj.existingObj.GetKind())
 
 			return true, message, updateNeeded, false
 		}
