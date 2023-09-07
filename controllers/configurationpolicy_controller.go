@@ -1738,8 +1738,6 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		compType := strings.ToLower(string(objectT.ComplianceType))
 		mdCompType := strings.ToLower(string(objectT.MetadataComplianceType))
 
-		before := time.Now().UTC()
-
 		throwSpecViolation, msg, triedUpdate, updatedObj := r.checkAndUpdateResource(
 			obj, compType, mdCompType, remediation,
 		)
@@ -1748,19 +1746,6 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			// The object was mismatched and was potentially fixed depending on the remediation action
 			result.events = append(result.events, objectTmplEvalEvent{false, reasonWantFoundNoMatch, ""})
 		}
-
-		duration := time.Now().UTC().Sub(before)
-		seconds := float64(duration) / float64(time.Second)
-		compareObjSecondsCounter.WithLabelValues(
-			obj.policy.Name,
-			obj.namespace,
-			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
-		).Add(seconds)
-		compareObjEvalCounter.WithLabelValues(
-			obj.policy.Name,
-			obj.namespace,
-			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
-		).Inc()
 
 		if throwSpecViolation {
 			var resultReason, resultMsg string
@@ -2523,6 +2508,23 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	log := log.WithValues(
 		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
 	)
+
+	// Time the function, and record it in a metric
+	before := time.Now().UTC()
+	defer func() {
+		duration := time.Now().UTC().Sub(before)
+		seconds := float64(duration) / float64(time.Second)
+		compareObjSecondsCounter.WithLabelValues(
+			obj.policy.Name,
+			obj.namespace,
+			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
+		).Add(seconds)
+		compareObjEvalCounter.WithLabelValues(
+			obj.policy.Name,
+			obj.namespace,
+			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
+		).Inc()
+	}()
 
 	if obj.existingObj == nil {
 		log.Info("Skipping update: Previous object retrieval from the API server failed")
