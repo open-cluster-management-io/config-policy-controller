@@ -1849,6 +1849,20 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 		return nil, result
 	}
 
+	if gvk.Group == "" && gvk.Version == "" {
+		err := fmt.Errorf("object template at index [%v] in policy `%v` missing apiVersion", index, policy.Name)
+
+		log.Error(err, "Can not get mapping for object")
+
+		result = &objectTmplEvalResult{
+			events: []objectTmplEvalEvent{
+				{compliant: false, reason: "K8s object definition error", message: err.Error()},
+			},
+		}
+
+		return nil, result
+	}
+
 	// initializes a mapping between Kind and APIVersion to a resource name
 	r.lock.RLock()
 	mapper := restmapper.NewDiscoveryRESTMapper(r.apiGroups)
