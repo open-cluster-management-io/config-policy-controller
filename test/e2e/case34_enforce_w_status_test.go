@@ -4,13 +4,15 @@
 package e2e
 
 import (
+	"strconv"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = Describe("Test compliance events of enforced policies that define a status", Ordered, func() {
+var _ = Describe("Test compliance events of enforced policies that define a status", func() {
 	const (
 		rsrcPath      = "../resources/case34_enforce_w_status/"
 		policyYAML    = rsrcPath + "policy.yaml"
@@ -60,7 +62,25 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 		}, defaultTimeoutSeconds, 5).ShouldNot(BeEmpty())
 	})
 
-	AfterAll(func() {
+	AfterEach(func() {
+		if CurrentSpecReport().Failed() {
+			events := utils.GetMatchingEvents(clientManaged, testNamespace,
+				policyName, ".*", ".*", defaultTimeoutSeconds)
+
+			By("Test failed, printing compliance events for debugging, event count = " + strconv.Itoa(len(events)))
+			for _, ev := range events {
+				GinkgoWriter.Println("---")
+				GinkgoWriter.Println("Name:", ev.Name)
+				GinkgoWriter.Println("Reason:", ev.Reason)
+				GinkgoWriter.Println("Message:", ev.Message)
+				GinkgoWriter.Println("FirstTimestamp:", ev.FirstTimestamp)
+				GinkgoWriter.Println("LastTimestamp:", ev.LastTimestamp)
+				GinkgoWriter.Println("Count:", ev.Count)
+				GinkgoWriter.Println("Type:", ev.Type)
+				GinkgoWriter.Println("---")
+			}
+		}
+
 		utils.Kubectl("delete", "policy", policyName, "-n", "managed", "--ignore-not-found")
 		configPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			cfgPlcName, "managed", false, defaultTimeoutSeconds,
