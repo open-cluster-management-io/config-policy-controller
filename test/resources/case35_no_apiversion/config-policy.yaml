@@ -1,0 +1,23 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case35-cfgpol
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    blockOwnerDeletion: false
+    controller: true
+    kind: Policy
+    name: case35-parent
+    uid: 08bae967-4262-498a-84e9-d1f0e321b41e # to be replaced!
+spec:
+  remediationAction: enforce
+  severity: low
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        kind: ConfigMap
+        metadata:
+          name: case35-cfgmap
+          namespace: default
+        data:
+          foo: bar
