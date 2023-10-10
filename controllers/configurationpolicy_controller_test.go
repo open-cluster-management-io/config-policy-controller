@@ -271,8 +271,8 @@ func TestConvertPolicyStatusToStringLongMsg(t *testing.T) {
 	assert.Greater(t, len(statusMsg), 1024)
 }
 
-func TestMerge(t *testing.T) {
-	oldList := []interface{}{
+func TestMergeArrays(t *testing.T) {
+	twoFullItems := []interface{}{
 		map[string]interface{}{
 			"a": "apple",
 			"b": "boy",
@@ -282,25 +282,50 @@ func TestMerge(t *testing.T) {
 			"d": "dog",
 		},
 	}
-	newList := []interface{}{
+
+	oneFullItem := []interface{}{
 		map[string]interface{}{
 			"a": "apple",
 			"b": "boy",
 		},
 	}
 
-	merged1 := mergeArrays(newList, oldList, "musthave")
-	assert.Equal(t, checkListsMatch(oldList, merged1), true)
+	assert.Equal(t, twoFullItems, mergeArrays(oneFullItem, twoFullItems, "musthave"),
+		"A musthave with a single item should preserve the larger list")
 
-	merged2 := mergeArrays(newList, oldList, "mustonlyhave")
-	assert.Equal(t, checkListsMatch(newList, merged2), true)
+	assert.Equal(t, oneFullItem, mergeArrays(oneFullItem, twoFullItems, "mustonlyhave"),
+		"A mustonlyhave with a single item should only keep the single item")
 
-	newList2 := []interface{}{
+	oneSmallItem := []interface{}{
 		map[string]interface{}{
 			"b": "boy",
 		},
 	}
-	oldList2 := []interface{}{
+
+	assert.Equal(t, twoFullItems, mergeArrays(oneSmallItem, twoFullItems, "musthave"),
+		"A musthave with a single smaller item should preserve the larger list")
+
+	assert.Equal(t, oneSmallItem, mergeArrays(oneSmallItem, twoFullItems, "mustonlyhave"),
+		"A mustonlyhave with a single smaller item should only keep that smaller single item")
+
+	twoSmallItems := []interface{}{
+		map[string]interface{}{
+			"a": "apple",
+		},
+		map[string]interface{}{
+			"c": "candy",
+		},
+	}
+
+	assert.Equal(t, twoFullItems, mergeArrays(twoSmallItems, twoFullItems, "musthave"),
+		"A musthave with a list of items with some fields removed should preserve the larger list")
+
+	assert.Equal(t, twoSmallItems, mergeArrays(twoSmallItems, twoFullItems, "mustonlyhave"),
+		"A mustonlyhave with a list of items with some fields removed should only keep that new list")
+}
+
+func TestCheckListsMatch(t *testing.T) {
+	twoFullItems := []interface{}{
 		map[string]interface{}{
 			"a": "apple",
 			"b": "boy",
@@ -310,21 +335,43 @@ func TestMerge(t *testing.T) {
 			"d": "dog",
 		},
 	}
-	checkList2 := []interface{}{
-		map[string]interface{}{
-			"a": "apple",
-			"b": "boy",
-		},
+
+	assert.True(t, checkListsMatch(twoFullItems, twoFullItems))
+
+	twoFullItemsDifferentOrder := []interface{}{
 		map[string]interface{}{
 			"c": "candy",
 			"d": "dog",
 		},
+		map[string]interface{}{
+			"a": "apple",
+			"b": "boy",
+		},
 	}
-	merged3 := mergeArrays(newList2, oldList2, "musthave")
 
-	assert.Equal(t, checkListsMatch(checkList2, merged3), true)
+	assert.True(t, checkListsMatch(twoFullItems, twoFullItemsDifferentOrder))
+	assert.True(t, checkListsMatch(twoFullItemsDifferentOrder, twoFullItems))
 
-	newList3 := []interface{}{
+	oneFullItem := []interface{}{
+		map[string]interface{}{
+			"a": "apple",
+			"b": "boy",
+		},
+	}
+
+	assert.False(t, checkListsMatch(twoFullItems, oneFullItem))
+	assert.False(t, checkListsMatch(oneFullItem, twoFullItems))
+
+	oneSmallItem := []interface{}{
+		map[string]interface{}{
+			"b": "boy",
+		},
+	}
+
+	assert.False(t, checkListsMatch(twoFullItems, oneSmallItem))
+	assert.False(t, checkListsMatch(oneSmallItem, twoFullItems))
+
+	twoSmallItems := []interface{}{
 		map[string]interface{}{
 			"a": "apple",
 		},
@@ -332,9 +379,9 @@ func TestMerge(t *testing.T) {
 			"c": "candy",
 		},
 	}
-	merged4 := mergeArrays(newList3, oldList2, "musthave")
 
-	assert.Equal(t, checkListsMatch(checkList2, merged4), true)
+	assert.False(t, checkListsMatch(twoFullItems, twoSmallItems))
+	assert.False(t, checkListsMatch(twoSmallItems, twoFullItems))
 }
 
 func TestAddRelatedObject(t *testing.T) {
