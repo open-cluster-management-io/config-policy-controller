@@ -382,6 +382,32 @@ func TestCheckListsMatch(t *testing.T) {
 
 	assert.False(t, checkListsMatch(twoFullItems, twoSmallItems))
 	assert.False(t, checkListsMatch(twoSmallItems, twoFullItems))
+
+	oneSmallOneBig := []interface{}{
+		map[string]interface{}{
+			"a": "apple",
+		},
+		map[string]interface{}{
+			"c": "candy",
+			"d": "dog",
+		},
+	}
+
+	assert.False(t, checkListsMatch(twoFullItems, oneSmallOneBig))
+	assert.False(t, checkListsMatch(oneSmallOneBig, twoFullItems))
+
+	oneBigOneSmall := []interface{}{
+		map[string]interface{}{
+			"a": "apple",
+			"b": "boy",
+		},
+		map[string]interface{}{
+			"c": "candy",
+		},
+	}
+
+	assert.False(t, checkListsMatch(twoFullItems, oneBigOneSmall))
+	assert.False(t, checkListsMatch(oneBigOneSmall, twoFullItems))
 }
 
 func TestAddRelatedObject(t *testing.T) {
