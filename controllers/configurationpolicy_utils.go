@@ -149,7 +149,7 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}) (areEqual bool)
 	return true
 }
 
-// checFieldsWithSort is a check for maps that uses an arbitrary sort to ensure it is
+// checkFieldsWithSort is a check for maps that uses an arbitrary sort to ensure it is
 // comparing the right values
 func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]interface{}) (matches bool) {
 	// needed to compare lists, since merge messes up the order
@@ -171,12 +171,6 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 			}
 
 			if !checkFieldsWithSort(mVal, oVal) {
-				return false
-			}
-		case []map[string]interface{}:
-			// if field is a list of maps, use checkListFieldsWithSort to check for a match
-			oVal, ok := oldObj[i].([]map[string]interface{})
-			if !ok || !checkListFieldsWithSort(mVal, oVal) {
 				return false
 			}
 		case []interface{}:
@@ -229,68 +223,6 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 
 			if fmt.Sprint(oVal) != fmt.Sprint(mVal) {
 				return false
-			}
-		}
-	}
-
-	return true
-}
-
-// checkListFieldsWithSort is a check for lists of maps that uses an arbitrary sort to ensure it is
-// comparing the right values
-func checkListFieldsWithSort(mergedObj []map[string]interface{}, oldObj []map[string]interface{}) (matches bool) {
-	sort.Slice(oldObj, func(i, j int) bool {
-		return fmt.Sprintf("%v", oldObj[i]) < fmt.Sprintf("%v", oldObj[j])
-	})
-	sort.Slice(mergedObj, func(x, y int) bool {
-		return fmt.Sprintf("%v", mergedObj[x]) < fmt.Sprintf("%v", mergedObj[y])
-	})
-
-	// needed to compare lists, since merge messes up the order
-	for listIdx, mergedItem := range mergedObj {
-		oldItem := oldObj[listIdx]
-
-		for i, mVal := range mergedItem {
-			switch mVal := mVal.(type) {
-			case []interface{}:
-				// if a map in the list contains a nested list, sort and check for equality
-				if oVal, ok := oldItem[i].([]interface{}); ok {
-					return len(mVal) == len(oVal) && checkListsMatch(oVal, mVal)
-				}
-
-				return false
-			case map[string]interface{}:
-				// if a map in the list contains another map, check fields for equality
-				if oVal, ok := oldItem[i].(map[string]interface{}); ok {
-					return len(mVal) == len(oVal) && checkFieldsWithSort(mVal, oVal)
-				}
-
-				return false
-			case string:
-				// extra check to see if value is a byte value
-				mQty, err := apiRes.ParseQuantity(mVal)
-				if err != nil {
-					// An error indicates the value is a regular string, so check equality normally
-					if fmt.Sprint(oldItem[i]) != fmt.Sprint(mVal) {
-						return false
-					}
-				} else {
-					// if the value is a quantity of bytes, convert original
-					oVal, ok := oldItem[i].(string)
-					if !ok {
-						return false
-					}
-
-					oQty, err := apiRes.ParseQuantity(oVal)
-					if err != nil || !oQty.Equal(mQty) {
-						return false
-					}
-				}
-			default:
-				// if the field in the map is not an object, just do a generic check
-				if fmt.Sprint(oldItem[i]) != fmt.Sprint(mVal) {
-					return false
-				}
 			}
 		}
 	}
