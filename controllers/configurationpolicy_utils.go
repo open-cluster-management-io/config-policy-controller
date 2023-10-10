@@ -300,12 +300,17 @@ func checkListFieldsWithSort(mergedObj []map[string]interface{}, oldObj []map[st
 
 // checkListsMatch is a generic list check that uses an arbitrary sort to ensure it is comparing the right values
 func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
-	oVal := append([]interface{}{}, oldVal...)
-	mVal := append([]interface{}{}, mergedVal...)
-
-	if (oVal == nil && mVal != nil) || (oVal != nil && mVal == nil) {
+	if (oldVal == nil && mergedVal != nil) || (oldVal != nil && mergedVal == nil) {
 		return false
 	}
+
+	if len(mergedVal) != len(oldVal) {
+		return false
+	}
+
+	// Make copies of the lists, so we can sort them without mutating this function's inputs
+	oVal := append([]interface{}{}, oldVal...)
+	mVal := append([]interface{}{}, mergedVal...)
 
 	sort.Slice(oVal, func(i, j int) bool {
 		return fmt.Sprintf("%v", oVal[i]) < fmt.Sprintf("%v", oVal[j])
@@ -313,10 +318,6 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 	sort.Slice(mVal, func(x, y int) bool {
 		return fmt.Sprintf("%v", mVal[x]) < fmt.Sprintf("%v", mVal[y])
 	})
-
-	if len(mVal) != len(oVal) {
-		return false
-	}
 
 	for idx, oNestedVal := range oVal {
 		switch oNestedVal := oNestedVal.(type) {
