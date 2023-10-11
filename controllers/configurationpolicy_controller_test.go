@@ -141,89 +141,7 @@ func TestCompareSpecs(t *testing.T) {
 		},
 	}
 
-	assert.Equal(t, reflect.DeepEqual(fmt.Sprint(merged), fmt.Sprint(mergedExpected)), true)
-}
-
-func TestCompareLists(t *testing.T) {
-	rules1 := []interface{}{
-		map[string]interface{}{
-			"apiGroups": []string{
-				"extensions", "apps",
-			},
-			"resources": []string{
-				"deployments",
-			},
-			"verbs": []string{
-				"get", "list", "watch", "create", "delete",
-			},
-		},
-	}
-	rules2 := []interface{}{
-		map[string]interface{}{
-			"apiGroups": []string{
-				"extensions", "apps",
-			},
-			"resources": []string{
-				"deployments",
-			},
-			"verbs": []string{
-				"get", "list",
-			},
-		},
-	}
-
-	merged, err := compareLists(rules2, rules1, "musthave")
-	if err != nil {
-		t.Fatalf("compareSpecs: (%v)", err)
-	}
-
-	mergedExpected := []interface{}{
-		map[string]interface{}{
-			"apiGroups": []string{
-				"extensions", "apps",
-			},
-			"resources": []string{
-				"deployments",
-			},
-			"verbs": []string{
-				"get", "list",
-			},
-		},
-		map[string]interface{}{
-			"apiGroups": []string{
-				"extensions", "apps",
-			},
-			"resources": []string{
-				"deployments",
-			},
-			"verbs": []string{
-				"get", "list", "watch", "create", "delete",
-			},
-		},
-	}
-
-	assert.Equal(t, reflect.DeepEqual(fmt.Sprint(merged), fmt.Sprint(mergedExpected)), true)
-
-	merged, err = compareLists(rules2, rules1, "mustonlyhave")
-	if err != nil {
-		t.Fatalf("compareSpecs: (%v)", err)
-	}
-
-	mergedExpected = []interface{}{
-		map[string]interface{}{
-			"apiGroups": []string{
-				"extensions", "apps",
-			},
-			"resources": []string{
-				"deployments",
-			},
-			"verbs": []string{
-				"get", "list",
-			},
-		},
-	}
-
-	assert.Equal(t, reflect.DeepEqual(fmt.Sprint(merged), fmt.Sprint(mergedExpected)), true)
+	assert.Equal(t, fmt.Sprintf("%+v", mergedExpected), fmt.Sprintf("%+v", merged))
 }
 
 func TestConvertPolicyStatusToString(t *testing.T) {
@@ -271,57 +189,199 @@ func TestConvertPolicyStatusToStringLongMsg(t *testing.T) {
 	assert.Greater(t, len(statusMsg), 1024)
 }
 
-func TestMergeArrays(t *testing.T) {
-	twoFullItems := []interface{}{
-		map[string]interface{}{
-			"a": "apple",
-			"b": "boy",
+func TestMergeArraysMustHave(t *testing.T) {
+	t.Parallel()
+
+	testcases := map[string]struct {
+		desiredList  []interface{}
+		currentList  []interface{}
+		expectedList []interface{}
+	}{
+		"merge array with existing element into array preserves array": {
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
 		},
-		map[string]interface{}{
-			"c": "candy",
-			"d": "dog",
+		"merge array with partial existing element into array preserves existing array": {
+			[]interface{}{
+				map[string]interface{}{"b": "boy"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+		},
+		"merge array with multiple partial existing elements into array preserves existing array": {
+			[]interface{}{
+				map[string]interface{}{"a": "apple"},
+				map[string]interface{}{"c": "candy"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+		},
+		"merge array with existing elements into subset array becomes new array": {
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"b": "boy", "c": "candy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"b": "boy", "c": "candy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+		},
+		"merge two differing single-element arrays becomes array with both elements": {
+			[]interface{}{
+				map[string]interface{}{
+					"apiGroups": []string{"extensions", "apps"},
+					"resources": []string{"deployments"},
+					"verbs":     []string{"get", "list"},
+				},
+			},
+			[]interface{}{
+				map[string]interface{}{
+					"apiGroups": []string{"extensions", "apps"},
+					"resources": []string{"deployments"},
+					"verbs":     []string{"get", "list", "watch", "create", "delete"},
+				},
+			},
+			[]interface{}{
+				map[string]interface{}{
+					"apiGroups": []string{"extensions", "apps"},
+					"resources": []string{"deployments"},
+					"verbs":     []string{"get", "list"},
+				},
+				map[string]interface{}{
+					"apiGroups": []string{"extensions", "apps"},
+					"resources": []string{"deployments"},
+					"verbs":     []string{"get", "list", "watch", "create", "delete"},
+				},
+			},
 		},
 	}
 
-	oneFullItem := []interface{}{
-		map[string]interface{}{
-			"a": "apple",
-			"b": "boy",
+	for testName, test := range testcases {
+		testName := testName
+		test := test
+
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+
+			actualMergedList := mergeArrays(test.desiredList, test.currentList, "musthave")
+			assert.Equal(t, fmt.Sprintf("%+v", test.expectedList), fmt.Sprintf("%+v", actualMergedList))
+			assert.True(t, checkListsMatch(test.expectedList, actualMergedList))
+		})
+	}
+}
+
+func TestMergeArraysMustOnlyHave(t *testing.T) {
+	t.Parallel()
+
+	testcases := map[string]struct {
+		desiredList  []interface{}
+		currentList  []interface{}
+		expectedList []interface{}
+	}{
+		"merge array with one element into array with two becomes new array": {
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+			},
+		},
+		"merge array with partial existing element into array becomes new array": {
+			[]interface{}{
+				map[string]interface{}{"b": "boy"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+			[]interface{}{
+				map[string]interface{}{"b": "boy"},
+			},
+		},
+		"merge array with existing elements into subset array becomes new array": {
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"b": "boy", "c": "candy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+			[]interface{}{
+				map[string]interface{}{"a": "apple", "b": "boy"},
+				map[string]interface{}{"b": "boy", "c": "candy"},
+				map[string]interface{}{"c": "candy", "d": "dog"},
+			},
+		},
+		"merge two differing single-element arrays becomes new array": {
+			[]interface{}{
+				map[string]interface{}{
+					"apiGroups": []string{"extensions", "apps"},
+					"resources": []string{"deployments"},
+					"verbs":     []string{"get", "list"},
+				},
+			},
+			[]interface{}{
+				map[string]interface{}{
+					"apiGroups": []string{"extensions", "apps"},
+					"resources": []string{"deployments"},
+					"verbs":     []string{"get", "list", "watch", "create", "delete"},
+				},
+			},
+			[]interface{}{
+				map[string]interface{}{
+					"apiGroups": []string{"extensions", "apps"},
+					"resources": []string{"deployments"},
+					"verbs":     []string{"get", "list"},
+				},
+			},
 		},
 	}
 
-	assert.Equal(t, twoFullItems, mergeArrays(oneFullItem, twoFullItems, "musthave"),
-		"A musthave with a single item should preserve the larger list")
+	for testName, test := range testcases {
+		testName := testName
+		test := test
 
-	assert.Equal(t, oneFullItem, mergeArrays(oneFullItem, twoFullItems, "mustonlyhave"),
-		"A mustonlyhave with a single item should only keep the single item")
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
 
-	oneSmallItem := []interface{}{
-		map[string]interface{}{
-			"b": "boy",
-		},
+			actualMergedList := mergeArrays(test.desiredList, test.currentList, "mustonlyhave")
+			assert.Equal(t, fmt.Sprintf("%+v", test.expectedList), fmt.Sprintf("%+v", actualMergedList))
+			assert.True(t, checkListsMatch(test.expectedList, actualMergedList))
+		})
 	}
-
-	assert.Equal(t, twoFullItems, mergeArrays(oneSmallItem, twoFullItems, "musthave"),
-		"A musthave with a single smaller item should preserve the larger list")
-
-	assert.Equal(t, oneSmallItem, mergeArrays(oneSmallItem, twoFullItems, "mustonlyhave"),
-		"A mustonlyhave with a single smaller item should only keep that smaller single item")
-
-	twoSmallItems := []interface{}{
-		map[string]interface{}{
-			"a": "apple",
-		},
-		map[string]interface{}{
-			"c": "candy",
-		},
-	}
-
-	assert.Equal(t, twoFullItems, mergeArrays(twoSmallItems, twoFullItems, "musthave"),
-		"A musthave with a list of items with some fields removed should preserve the larger list")
-
-	assert.Equal(t, twoSmallItems, mergeArrays(twoSmallItems, twoFullItems, "mustonlyhave"),
-		"A mustonlyhave with a list of items with some fields removed should only keep that new list")
 }
 
 func TestCheckListsMatch(t *testing.T) {

@@ -2218,24 +2218,23 @@ type countedVal struct {
 }
 
 // mergeArrays is a helper function that takes a list from the existing object and merges in all the data that is
-// different in the template. This way, comparing the merged object to the one that exists on the cluster will tell
-// you whether the existing object is compliant with the template
-func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result []interface{}) {
+// different in the template.
+func mergeArrays(desiredArr []interface{}, existingArr []interface{}, ctype string) (result []interface{}) {
 	if ctype == "mustonlyhave" {
-		return newArr
+		return desiredArr
 	}
 
-	newArrCopy := append([]interface{}{}, newArr...)
+	desiredArrCopy := append([]interface{}{}, desiredArr...)
 	idxWritten := map[int]bool{}
 
-	for i := range newArrCopy {
+	for i := range desiredArrCopy {
 		idxWritten[i] = false
 	}
 
 	// create a set with a key for each unique item in the list
 	oldItemSet := make(map[string]*countedVal)
 
-	for _, val2 := range old {
+	for _, val2 := range existingArr {
 		key := fmt.Sprint(val2)
 
 		if entry, ok := oldItemSet[key]; ok {
@@ -2248,7 +2247,7 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 	seen := map[string]bool{}
 
 	// Iterate both arrays in order to favor the case when the object is already compliant.
-	for _, val2 := range old {
+	for _, val2 := range existingArr {
 		key := fmt.Sprint(val2)
 		if seen[key] {
 			continue
@@ -2259,8 +2258,8 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 		count := 0
 		val2 := oldItemSet[key].value
 		// for each list item in the existing array, iterate through the template array and try to find a match
-		for newArrIdx, val1 := range newArrCopy {
-			if idxWritten[newArrIdx] {
+		for desiredArrIdx, val1 := range desiredArrCopy {
+			if idxWritten[desiredArrIdx] {
 				continue
 			}
 
@@ -2295,8 +2294,8 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 			if sameNamedObjects || equalObjWithSort(mergedObj, val2) {
 				count++
 
-				newArr[newArrIdx] = mergedObj
-				idxWritten[newArrIdx] = true
+				desiredArr[desiredArrIdx] = mergedObj
+				idxWritten[desiredArrIdx] = true
 			}
 
 			// If the result of merging val1 (template) into val2 (existing value) matched val2 for the required count,
@@ -2309,39 +2308,12 @@ func mergeArrays(newArr []interface{}, old []interface{}, ctype string) (result 
 		// to produce the merged array
 		if count < oldItemSet[key].count {
 			for i := 0; i < (oldItemSet[key].count - count); i++ {
-				newArr = append(newArr, val2)
+				desiredArr = append(desiredArr, val2)
 			}
 		}
 	}
 
-	return newArr
-}
-
-// compareLists is a wrapper function that creates a merged list for musthave
-// and returns the template list for mustonlyhave
-func compareLists(newList []interface{}, oldList []interface{}, ctype string) (updatedList []interface{}, err error) {
-	if ctype != "mustonlyhave" {
-		return mergeArrays(newList, oldList, ctype), nil
-	}
-
-	// mustonlyhave scenario: go through existing list and merge everything in order
-	// then add all other template items in order afterward
-	mergedList := []interface{}{}
-
-	for idx, item := range newList {
-		if idx < len(oldList) {
-			newItem, err := mergeSpecs(item, oldList[idx], ctype)
-			if err != nil {
-				return nil, err
-			}
-
-			mergedList = append(mergedList, newItem)
-		} else {
-			mergedList = append(mergedList, item)
-		}
-	}
-
-	return mergedList, nil
+	return desiredArr
 }
 
 // compareSpecs is a wrapper function that creates a merged map for mustHave
@@ -2391,7 +2363,7 @@ func handleSingleKey(
 	case []interface{}:
 		switch existingValue := existingValue.(type) {
 		case []interface{}:
-			mergedValue, err = compareLists(desiredValue, existingValue, complianceType)
+			mergedValue = mergeArrays(desiredValue, existingValue, complianceType)
 		case nil:
 			mergedValue = desiredValue
 		default:
