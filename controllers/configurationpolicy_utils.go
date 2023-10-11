@@ -141,12 +141,8 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}) (areEqual bool)
 			return fmt.Sprint(zero) == fmt.Sprint(oldObj)
 		}
 
-		if !reflect.DeepEqual(fmt.Sprint(mergedObj), fmt.Sprint(oldObj)) {
-			return false
-		}
+		return fmt.Sprint(mergedObj) == fmt.Sprint(oldObj)
 	}
-
-	return true
 }
 
 // checkFieldsWithSort is a check for maps that uses an arbitrary sort to ensure it is
