@@ -375,7 +375,7 @@ func main() {
 	managerCtx, managerCancel := context.WithCancel(context.Background())
 
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
-	log.V(1).Info("Periodically processing Configuration Policies", "frequency", opts.frequency)
+	log.Info("Periodically processing Configuration Policies", "frequency", opts.frequency)
 
 	go func() {
 		reconciler.PeriodicallyExecConfigPolicies(terminatingCtx, opts.frequency, mgr.Elected())

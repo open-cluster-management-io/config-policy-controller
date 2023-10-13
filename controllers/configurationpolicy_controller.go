@@ -226,7 +226,7 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 				policyQueue := make(chan *policyv1.ConfigurationPolicy, len(policiesList.Items))
 				var wg sync.WaitGroup
 
-				log.Info("Processing the policies", "count", len(policiesList.Items))
+				log.V(1).Info("Processing the policies", "count", len(policiesList.Items))
 
 				// Initialize the related object map
 				policyRelatedObjectMap = sync.Map{}
@@ -490,7 +490,7 @@ func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
 		if selector.MatchLabels == nil && selector.MatchExpressions == nil && len(selector.Include) == 0 {
 			r.SelectorReconciler.Stop(plc.Name)
 
-			log.Info("namespaceSelector is empty. Skipping namespace retrieval.")
+			log.V(1).Info("namespaceSelector is empty. Skipping namespace retrieval.")
 		} else {
 			// If an error occurred in the NamespaceSelector, update the policy status and abort
 			var err error
@@ -518,7 +518,7 @@ func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
 			}
 
 			if len(selectedNamespaces) == 0 {
-				log.Info("Fetching namespaces with provided NamespaceSelector returned no namespaces.",
+				log.V(1).Info("Fetching namespaces with provided NamespaceSelector returned no namespaces.",
 					"namespaceSelector", fmt.Sprintf("%+v", selector))
 			}
 		}
@@ -775,7 +775,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 				err = r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 				if err != nil {
-					log.V(1).Error(err, "Error removing finalizer for configuration policy")
+					log.Error(err, "Error removing finalizer for configuration policy")
 
 					return
 				}
@@ -799,7 +799,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 			err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 			if err != nil {
-				log.V(1).Error(err, "Error setting finalizer for configuration policy")
+				log.Error(err, "Error setting finalizer for configuration policy")
 
 				return
 			}
@@ -807,23 +807,23 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		// kick off object deletion if configurationPolicy has been deleted
 		if plc.ObjectMeta.DeletionTimestamp != nil {
-			log.V(1).Info("Config policy has been deleted, handling child objects")
+			log.Info("Config policy has been deleted, handling child objects")
 
 			failures := r.cleanUpChildObjects(plc, nil)
 
 			if len(failures) == 0 {
-				log.V(1).Info("Objects have been successfully cleaned up, removing finalizer")
+				log.Info("Objects have been successfully cleaned up, removing finalizer")
 
 				patch := removeObjFinalizerPatch(&plc, pruneObjectFinalizer)
 
 				err = r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 				if err != nil {
-					log.V(1).Error(err, "Error removing finalizer for configuration policy")
+					log.Error(err, "Error removing finalizer for configuration policy")
 
 					return
 				}
 			} else {
-				log.V(1).Info("Object cleanup failed, some objects have not been deleted from the cluster")
+				log.Info("Object cleanup failed, some objects have not been deleted from the cluster")
 
 				statusChanged := addConditionToStatus(
 					&plc,
@@ -854,7 +854,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 		if err != nil {
-			log.V(1).Error(err, "Error removing finalizer for configuration policy")
+			log.Error(err, "Error removing finalizer for configuration policy")
 
 			return
 		}
@@ -1163,7 +1163,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		// iterate through all namespaces the configurationpolicy is set on
 		for _, ns := range relevantNamespaces {
-			log.Info(
+			log.V(1).Info(
 				"Handling the object template for the relevant namespace",
 				"namespace", ns,
 				"desiredName", templateObjs[indx].name,
@@ -2720,7 +2720,7 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	sendEvent bool,
 ) error {
 	if sendEvent {
-		log.V(1).Info("Sending parent policy compliance event")
+		log.Info("Sending parent policy compliance event")
 
 		// If the compliance event can't be created, then don't update the ConfigurationPolicy
 		// status. As long as that hasn't been updated, everything will be retried next loop.
