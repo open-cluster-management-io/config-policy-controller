@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/yaml"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
@@ -468,6 +469,91 @@ func TestCheckListsMatch(t *testing.T) {
 
 	assert.False(t, checkListsMatch(twoFullItems, oneBigOneSmall))
 	assert.False(t, checkListsMatch(oneBigOneSmall, twoFullItems))
+}
+
+func TestNestedUnsortedLists(t *testing.T) {
+	objDefYaml := `
+kind: FakeOperator
+status:
+  refs:
+    - conditions:
+        - status: "False"
+          type: CatalogSourcesUnhealthy
+      kind: Subscription
+`
+
+	orderOneYaml := `
+kind: FakeOperator
+status:
+  refs:
+    - apiVersion: operators.coreos.com/v1alpha1
+      conditions:
+      - lastTransitionTime: "2023-10-22T06:49:54Z"
+    - apiVersion: operators.coreos.com/v1alpha1
+      conditions:
+        - lastTransitionTime: "2023-10-22T06:40:14Z"
+          status: "False"
+          type: CatalogSourcesUnhealthy
+        - status: "False"
+          type: BundleUnpacking
+      kind: Subscription
+`
+
+	orderTwoYaml := `
+kind: FakeOperator
+status:
+  refs:
+    - apiVersion: operators.coreos.com/v1alpha1
+      conditions:
+      - lastTransitionTime: "2023-10-22T06:49:54Z"
+    - apiVersion: operators.coreos.com/v1alpha1
+      conditions:
+        - status: "False"
+          type: BundleUnpacking
+        - lastTransitionTime: "2023-10-22T06:40:14Z"
+          status: "False"
+          type: CatalogSourcesUnhealthy
+      kind: Subscription
+`
+
+	policyObjDef := make(map[string]interface{})
+
+	err := yaml.UnmarshalStrict([]byte(objDefYaml), &policyObjDef)
+	if err != nil {
+		t.Error(err)
+	}
+
+	orderOneObj := make(map[string]interface{})
+
+	err = yaml.UnmarshalStrict([]byte(orderOneYaml), &orderOneObj)
+	if err != nil {
+		t.Error(err)
+	}
+
+	orderTwoObj := make(map[string]interface{})
+
+	err = yaml.UnmarshalStrict([]byte(orderTwoYaml), &orderTwoObj)
+	if err != nil {
+		t.Error(err)
+	}
+
+	desiredObj := unstructured.Unstructured{Object: policyObjDef}
+	existingObjOrderOne := unstructured.Unstructured{Object: orderOneObj}
+	existingObjOrderTwo := unstructured.Unstructured{Object: orderTwoObj}
+
+	errormsg, updateNeeded, _, _ := handleSingleKey("status", desiredObj, &existingObjOrderOne, "musthave")
+	if len(errormsg) != 0 {
+		t.Error("Got unexpected error message", errormsg)
+	}
+
+	assert.False(t, updateNeeded)
+
+	errormsg, updateNeeded, _, _ = handleSingleKey("status", desiredObj, &existingObjOrderTwo, "musthave")
+	if len(errormsg) != 0 {
+		t.Error("Got unexpected error message", errormsg)
+	}
+
+	assert.False(t, updateNeeded)
 }
 
 func TestAddRelatedObject(t *testing.T) {

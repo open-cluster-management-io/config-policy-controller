@@ -226,6 +226,34 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 	return true
 }
 
+// sortAndSprint sorts any lists in the input, and formats the resulting object as a string
+func sortAndSprint(item interface{}) string {
+	switch item := item.(type) {
+	case map[string]interface{}:
+		sorted := make(map[string]string, len(item))
+
+		for key, val := range item {
+			sorted[key] = sortAndSprint(val)
+		}
+
+		return fmt.Sprintf("%v", sorted)
+	case []interface{}:
+		sorted := make([]string, len(item))
+
+		for i, val := range item {
+			sorted[i] = sortAndSprint(val)
+		}
+
+		sort.Slice(sorted, func(x, y int) bool {
+			return sorted[x] < sorted[y]
+		})
+
+		return fmt.Sprintf("%v", sorted)
+	default:
+		return fmt.Sprintf("%v", item)
+	}
+}
+
 // checkListsMatch is a generic list check that uses an arbitrary sort to ensure it is comparing the right values
 func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 	if (oldVal == nil && mergedVal != nil) || (oldVal != nil && mergedVal == nil) {
@@ -241,10 +269,10 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 	mVal := append([]interface{}{}, mergedVal...)
 
 	sort.Slice(oVal, func(i, j int) bool {
-		return fmt.Sprintf("%v", oVal[i]) < fmt.Sprintf("%v", oVal[j])
+		return sortAndSprint(oVal[i]) < sortAndSprint(oVal[j])
 	})
 	sort.Slice(mVal, func(x, y int) bool {
-		return fmt.Sprintf("%v", mVal[x]) < fmt.Sprintf("%v", mVal[y])
+		return sortAndSprint(mVal[x]) < sortAndSprint(mVal[y])
 	})
 
 	for idx, oNestedVal := range oVal {
