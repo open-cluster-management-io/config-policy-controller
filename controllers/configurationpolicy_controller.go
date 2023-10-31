@@ -110,11 +110,17 @@ type ConfigurationPolicyReconciler struct {
 	// that reads objects from the cache and writes to the apiserver
 	client.Client
 	DecryptionConcurrency uint8
+	// Determines if the target Kubernetes cluster supports dry run update requests. When OpenShift <v4.5
+	// support is dropped, this can be removed as it's always true.
+	DryRunSupported bool
 	// Determines the number of Go routines that can evaluate policies concurrently.
 	EvaluationConcurrency uint8
 	Scheme                *runtime.Scheme
 	Recorder              record.EventRecorder
-	InstanceName          string
+	// processedPolicyCache has the ConfigurationPolicy UID as the key and the values are a *sync.Map with the keys
+	// as object UIDs and the values as cachedEvaluationResult objects.
+	processedPolicyCache sync.Map
+	InstanceName         string
 	// The Kubernetes client to use when evaluating/enforcing policies. Most times, this will be the same cluster
 	// where the controller is running.
 	TargetK8sClient        kubernetes.Interface
@@ -239,6 +245,13 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 
 				for i := range policiesList.Items {
 					policy := policiesList.Items[i]
+
+					// If the ConfigurationPolicy's spec field was updated, clear the cache of the objects that have
+					// been processed.
+					if policy.Status.LastEvaluatedGeneration != policy.Generation {
+						r.processedPolicyCache.Delete(policy.GetUID())
+					}
+
 					if !r.shouldEvaluatePolicy(&policy, cleanupImmediately) {
 						continue
 					}
@@ -965,6 +978,9 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			if templates.HasTemplate(rawData, "", true) {
 				log.V(1).Info("Processing policy templates")
 
+				// If there's a template, we can't rely on the cache results.
+				r.processedPolicyCache.Delete(plc.GetUID())
+
 				resolvedTemplate, tplErr := tmplResolver.ResolveTemplate(rawData, nil, &resolveOptions)
 
 				// If the error is because the padding is invalid, this either means the encrypted value was not
@@ -1493,6 +1509,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			namespace,
 			r.TargetK8sDynamicClient,
 			strings.ToLower(string(objectT.ComplianceType)),
+			// Dry run API requests aren't run on unnamed object templates for performance reasons, so be less
+			// conservative in the comparison algorithm.
+			true,
 		)
 
 		// we do not support enforce on unnamed templates
@@ -1695,12 +1714,21 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if exists && obj.shouldExist {
 		log.V(2).Info("The object already exists. Verifying the object fields match what is desired.")
 
-		compType := strings.ToLower(string(objectT.ComplianceType))
-		mdCompType := strings.ToLower(string(objectT.MetadataComplianceType))
+		var throwSpecViolation, triedUpdate, updatedObj bool
+		var msg string
 
-		throwSpecViolation, msg, triedUpdate, updatedObj := r.checkAndUpdateResource(
-			obj, compType, mdCompType, remediation,
-		)
+		if evaluated, compliant := r.alreadyEvaluated(obj.policy, obj.existingObj); evaluated {
+			log.V(1).Info("Skipping object comparison since the resourceVersion hasn't changed")
+
+			throwSpecViolation = !compliant
+		} else {
+			compType := strings.ToLower(string(objectT.ComplianceType))
+			mdCompType := strings.ToLower(string(objectT.MetadataComplianceType))
+
+			throwSpecViolation, msg, triedUpdate, updatedObj = r.checkAndUpdateResource(
+				obj, compType, mdCompType, remediation,
+			)
+		}
 
 		if triedUpdate && !strings.Contains(msg, "Error validating the object") {
 			// The object was mismatched and was potentially fixed depending on the remediation action
@@ -1876,7 +1904,10 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 
 // buildNameList is a helper function to pull names of resources that match an objectTemplate from a list of resources
 func buildNameList(
-	desiredObj unstructured.Unstructured, complianceType string, resList *unstructured.UnstructuredList,
+	desiredObj unstructured.Unstructured,
+	complianceType string,
+	resList *unstructured.UnstructuredList,
+	zeroValueEqualsNil bool,
 ) (kindNameList []string) {
 	for i := range resList.Items {
 		uObj := resList.Items[i]
@@ -1885,7 +1916,9 @@ func buildNameList(
 		for key := range desiredObj.Object {
 			// if any key in the object generates a mismatch, the object does not match the template and we
 			// do not add its name to the list
-			errorMsg, updateNeeded, _, skipped := handleSingleKey(key, desiredObj, &uObj, complianceType)
+			errorMsg, updateNeeded, _, skipped := handleSingleKey(
+				key, desiredObj, &uObj, complianceType, zeroValueEqualsNil,
+			)
 			if !skipped {
 				if errorMsg != "" || updateNeeded {
 					match = false
@@ -1910,6 +1943,7 @@ func getNamesOfKind(
 	ns string,
 	dclient dynamic.Interface,
 	complianceType string,
+	zeroValueEqualsNil bool,
 ) (kindNameList []string) {
 	if namespaced {
 		res := dclient.Resource(rsrc).Namespace(ns)
@@ -1921,7 +1955,7 @@ func getNamesOfKind(
 			return kindNameList
 		}
 
-		return buildNameList(desiredObj, complianceType, resList)
+		return buildNameList(desiredObj, complianceType, resList, zeroValueEqualsNil)
 	}
 
 	res := dclient.Resource(rsrc)
@@ -1933,7 +1967,7 @@ func getNamesOfKind(
 		return kindNameList
 	}
 
-	return buildNameList(desiredObj, complianceType, resList)
+	return buildNameList(desiredObj, complianceType, resList, zeroValueEqualsNil)
 }
 
 // enforceByCreatingOrDeleting can handle the situation where a musthave or mustonlyhave object is
@@ -2104,7 +2138,7 @@ func deleteObject(res dynamic.ResourceInterface, name, namespace string) (delete
 }
 
 // mergeSpecs is a wrapper for the recursive function to merge 2 maps.
-func mergeSpecs(templateVal, existingVal interface{}, ctype string) (interface{}, error) {
+func mergeSpecs(templateVal, existingVal interface{}, ctype string, zeroValueEqualsNil bool) (interface{}, error) {
 	// Copy templateVal since it will be modified in mergeSpecsHelper
 	data1, err := json.Marshal(templateVal)
 	if err != nil {
@@ -2118,7 +2152,7 @@ func mergeSpecs(templateVal, existingVal interface{}, ctype string) (interface{}
 		return nil, err
 	}
 
-	return mergeSpecsHelper(j1, existingVal, ctype), nil
+	return mergeSpecsHelper(j1, existingVal, ctype, zeroValueEqualsNil), nil
 }
 
 // mergeSpecsHelper is a helper function that takes an object from the existing object and merges in
@@ -2126,7 +2160,7 @@ func mergeSpecs(templateVal, existingVal interface{}, ctype string) (interface{}
 // that exists on the cluster will tell you whether the existing object is compliant with the template.
 // This function uses recursion to check mismatches in nested objects and is the basis for most
 // comparisons the controller makes.
-func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interface{} {
+func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string, zeroValueEqualsNil bool) interface{} {
 	switch templateVal := templateVal.(type) {
 	case map[string]interface{}:
 		existingVal, ok := existingVal.(map[string]interface{})
@@ -2139,7 +2173,7 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interf
 		// merge in missing values from the existing object
 		for k, v2 := range existingVal {
 			if v1, ok := templateVal[k]; ok {
-				templateVal[k] = mergeSpecsHelper(v1, v2, ctype)
+				templateVal[k] = mergeSpecsHelper(v1, v2, ctype, zeroValueEqualsNil)
 			} else {
 				templateVal[k] = v2
 			}
@@ -2154,7 +2188,7 @@ func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string) interf
 		if len(existingVal) > 0 {
 			// if both values are non-empty lists, we need to merge in the extra data in the existing
 			// object to do a proper compare
-			return mergeArrays(templateVal, existingVal, ctype)
+			return mergeArrays(templateVal, existingVal, ctype, zeroValueEqualsNil)
 		}
 	case nil:
 		// if template value is nil, pull data from existing, since the template does not care about it
@@ -2179,7 +2213,9 @@ type countedVal struct {
 
 // mergeArrays is a helper function that takes a list from the existing object and merges in all the data that is
 // different in the template.
-func mergeArrays(desiredArr []interface{}, existingArr []interface{}, ctype string) (result []interface{}) {
+func mergeArrays(
+	desiredArr []interface{}, existingArr []interface{}, ctype string, zeroValueEqualsNil bool,
+) (result []interface{}) {
 	if ctype == "mustonlyhave" {
 		return desiredArr
 	}
@@ -2246,12 +2282,12 @@ func mergeArrays(desiredArr []interface{}, existingArr []interface{}, ctype stri
 				}
 
 				// use map compare helper function to check equality on lists of maps
-				mergedObj, _ = compareSpecs(val1, val2, ctype)
+				mergedObj, _ = compareSpecs(val1, val2, ctype, zeroValueEqualsNil)
 			default:
 				mergedObj = val1
 			}
 			// if a match is found, this field is already in the template, so we can skip it in future checks
-			if sameNamedObjects || equalObjWithSort(mergedObj, val2) {
+			if sameNamedObjects || equalObjWithSort(mergedObj, val2, zeroValueEqualsNil) {
 				count++
 
 				desiredArr[desiredArrIdx] = mergedObj
@@ -2279,13 +2315,13 @@ func mergeArrays(desiredArr []interface{}, existingArr []interface{}, ctype stri
 // compareSpecs is a wrapper function that creates a merged map for mustHave
 // and returns the template map for mustonlyhave
 func compareSpecs(
-	newSpec, oldSpec map[string]interface{}, ctype string,
+	newSpec, oldSpec map[string]interface{}, ctype string, zeroValueEqualsNil bool,
 ) (updatedSpec map[string]interface{}, err error) {
 	if ctype == "mustonlyhave" {
 		return newSpec, nil
 	}
 	// if compliance type is musthave, create merged object to compare on
-	merged, err := mergeSpecs(newSpec, oldSpec, ctype)
+	merged, err := mergeSpecs(newSpec, oldSpec, ctype, zeroValueEqualsNil)
 	if err != nil {
 		return merged.(map[string]interface{}), err
 	}
@@ -2296,7 +2332,11 @@ func compareSpecs(
 // handleSingleKey checks whether a key/value pair in an object template matches with that in the existing
 // resource on the cluster
 func handleSingleKey(
-	key string, desiredObj unstructured.Unstructured, existingObj *unstructured.Unstructured, complianceType string,
+	key string,
+	desiredObj unstructured.Unstructured,
+	existingObj *unstructured.Unstructured,
+	complianceType string,
+	zeroValueEqualsNil bool,
 ) (errormsg string, update bool, merged interface{}, skip bool) {
 	log := log.WithValues("name", existingObj.GetName(), "namespace", existingObj.GetNamespace())
 	var err error
@@ -2323,7 +2363,7 @@ func handleSingleKey(
 	case []interface{}:
 		switch existingValue := existingValue.(type) {
 		case []interface{}:
-			mergedValue = mergeArrays(desiredValue, existingValue, complianceType)
+			mergedValue = mergeArrays(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
 		case nil:
 			mergedValue = desiredValue
 		default:
@@ -2334,7 +2374,7 @@ func handleSingleKey(
 	case map[string]interface{}:
 		switch existingValue := existingValue.(type) {
 		case map[string]interface{}:
-			mergedValue, err = compareSpecs(desiredValue, existingValue, complianceType)
+			mergedValue, err = compareSpecs(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
 		case nil:
 			mergedValue = desiredValue
 		default:
@@ -2387,7 +2427,7 @@ func handleSingleKey(
 	}
 
 	// sort objects before checking equality to ensure they're in the same order
-	if !equalObjWithSort(mergedValue, existingValue) {
+	if !equalObjWithSort(mergedValue, existingValue, zeroValueEqualsNil) {
 		updateNeeded = true
 	}
 
@@ -2441,6 +2481,11 @@ func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unst
 	)
 }
 
+type cachedEvaluationResult struct {
+	resourceVersion string
+	compliant       bool
+}
+
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
 // matches the template and update it if the remediationAction is enforce. UpdateNeeded indicates whether the
 // function tried to update the child object and updateSucceeded indicates whether the update was applied
@@ -2488,6 +2533,9 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	updateSucceeded = false
 	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
 	existingObjectCopy := obj.existingObj.DeepCopy()
+	removeFieldsForComparison(existingObjectCopy)
+
+	var statusMismatch bool
 
 	for key := range obj.desiredObj.Object {
 		isStatus := key == "status"
@@ -2500,7 +2548,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		// check key for mismatch
 		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(
-			key, obj.desiredObj, existingObjectCopy, keyComplianceType,
+			key, obj.desiredObj, existingObjectCopy, keyComplianceType, !r.DryRunSupported,
 		)
 		if errorMsg != "" {
 			log.Info(errorMsg)
@@ -2528,14 +2576,27 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		}
 
 		if keyUpdateNeeded {
-			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
+			isInform := strings.EqualFold(string(remediation), string(policyv1.Inform))
+
+			// If a key didn't match but the cluster supports dry run mode, then continue merging the object
+			// and then run a dry run update request to see if the Kubernetes API agrees with the assesment.
+			if isInform && !r.DryRunSupported {
+				r.setEvaluatedObject(obj.policy, obj.existingObj, false)
+
 				return true, "", false, false
-			} else if isStatus {
+			}
+
+			if isStatus {
 				throwSpecViolation = true
+				statusMismatch = true
+
 				log.Info("Ignoring an update to the object status", "key", key)
 			} else {
 				updateNeeded = true
-				log.Info("Queuing an update for the object due to a value mismatch", "key", key)
+
+				if !isInform {
+					log.Info("Queuing an update for the object due to a value mismatch", "key", key)
+				}
 			}
 		}
 	}
@@ -2553,31 +2614,142 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			}
 		}
 
-		_, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
-			FieldValidation: metav1.FieldValidationStrict,
-		})
-		if k8serrors.IsNotFound(err) {
-			message := fmt.Sprintf("`%v` is not present and must be created", obj.existingObj.GetKind())
+		// If the cluster supports dry run requests, verify that the API server agrees with the local comparison logic.
+		// It's possible the dry run request shows the object does match. This can happen if the ConfigurationPolicy
+		// specifies an empty map and the API server omits it from the return value.
+		if r.DryRunSupported {
+			dryRunUpdatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
+				FieldValidation: metav1.FieldValidationStrict,
+				DryRun:          []string{metav1.DryRunAll},
+			})
+			if err != nil {
+				// If an inform policy and the update is forbidden (i.e. modifying Pod spec fields), then return
+				// noncompliant since that confirms some fields don't match.
+				if k8serrors.IsForbidden(err) {
+					r.setEvaluatedObject(obj.policy, obj.existingObj, false)
 
-			return true, message, updateNeeded, false
-		}
+					return true, "", false, false
+				}
 
-		if err != nil {
-			if strings.Contains(err.Error(), "strict decoding error:") {
-				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
+				message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
+				if message == "" {
+					message = fmt.Sprintf(
+						"Error issuing a dry run update request for the object `%v`, the error is `%v`",
+						obj.name,
+						err,
+					)
+				}
 
 				return true, message, updateNeeded, false
 			}
 
-			message := fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
+			removeFieldsForComparison(dryRunUpdatedObj)
+
+			if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
+				log.Info(
+					"A mismatch was detected but a dry run update didn't make any changes. Assuming the object is " +
+						"compliant.",
+				)
+
+				r.setEvaluatedObject(obj.policy, obj.existingObj, true)
+
+				return false, "", false, false
+			}
+
+			// The object would have been updated, so if it's inform, return as noncompliant.
+			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
+				r.setEvaluatedObject(obj.policy, obj.existingObj, false)
+
+				return true, "", false, false
+			}
+		}
+
+		updatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
+			FieldValidation: metav1.FieldValidationStrict,
+		})
+		if err != nil {
+			message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
+			if message == "" {
+				message = fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
+			}
 
 			return true, message, updateNeeded, false
 		}
 
+		if !statusMismatch {
+			r.setEvaluatedObject(obj.policy, updatedObj, true)
+		}
+
 		updateSucceeded = true
+	} else {
+		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation)
 	}
 
 	return throwSpecViolation, "", updateNeeded, updateSucceeded
+}
+
+func removeFieldsForComparison(obj *unstructured.Unstructured) {
+	unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
+	unstructured.RemoveNestedField(
+		obj.Object, "metadata", "annotations", "kubectl.kubernetes.io/last-applied-configuration",
+	)
+	// The generation might actually bump but the API output might be the same.
+	unstructured.RemoveNestedField(obj.Object, "metadata", "generation")
+}
+
+// setEvaluatedObject updates the cache to indicate that the ConfigurationPolicy has evaluated this
+// object at its current resourceVersion.
+func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
+	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured, compliant bool,
+) {
+	policyMap := &sync.Map{}
+
+	loadedPolicyMap, loaded := r.processedPolicyCache.LoadOrStore(policy.GetUID(), policyMap)
+	if loaded {
+		policyMap = loadedPolicyMap.(*sync.Map)
+	}
+
+	policyMap.Store(
+		currentObject.GetUID(),
+		cachedEvaluationResult{
+			resourceVersion: currentObject.GetResourceVersion(),
+			compliant:       compliant,
+		},
+	)
+}
+
+// alreadyEvaluated will determine if this ConfigurationPolicy has already evaluated this object at its current
+// resourceVersion.
+func (r *ConfigurationPolicyReconciler) alreadyEvaluated(
+	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured,
+) (evaluated bool, compliant bool) {
+	loadedPolicyMap, loaded := r.processedPolicyCache.Load(policy.GetUID())
+	if !loaded {
+		return false, false
+	}
+
+	policyMap := loadedPolicyMap.(*sync.Map)
+
+	result, loaded := policyMap.Load(currentObject.GetUID())
+	if !loaded {
+		return false, false
+	}
+
+	resultTyped := result.(cachedEvaluationResult)
+
+	return resultTyped.resourceVersion == currentObject.GetResourceVersion(), resultTyped.compliant
+}
+
+func getUpdateErrorMsg(err error, kind string, name string) string {
+	if k8serrors.IsNotFound(err) {
+		return fmt.Sprintf("`%v` is not present and must be created", kind)
+	}
+
+	if err != nil && strings.Contains(err.Error(), "strict decoding error:") {
+		return fmt.Sprintf("Error validating the object %s, the error is `%v`", name, err)
+	}
+
+	return ""
 }
 
 // AppendCondition check and appends conditions to the policy status

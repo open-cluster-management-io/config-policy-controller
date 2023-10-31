@@ -1,0 +1,19 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case36-check-node-selector
+spec:
+  remediationAction: inform
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: case36-deployment
+          namespace: default
+        spec:
+          template:
+            spec:
+              # This is omitempty and is type map[string]string, so an empty value will not be returned by the API.
+              nodeSelector: {}
