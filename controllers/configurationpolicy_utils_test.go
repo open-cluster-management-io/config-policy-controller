@@ -116,7 +116,30 @@ func TestCheckFieldsWithSort(t *testing.T) {
 		"resources":       []interface{}{},
 	}
 
-	assert.True(t, checkFieldsWithSort(mergedObj, oldObj))
+	assert.True(t, checkFieldsWithSort(mergedObj, oldObj, false))
+}
+
+func TestCheckFieldsWithSortEmptyMap(t *testing.T) {
+	oldObj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"storage": map[string]interface{}{
+				"s3": map[string]interface{}{
+					"bucket": "some-bucket",
+				},
+			},
+		},
+	}
+	mergedObj := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"storage": map[string]interface{}{
+				"emptyDir": map[string]interface{}{},
+			},
+		},
+	}
+
+	assert.False(t, checkFieldsWithSort(mergedObj, oldObj, false))
+
+	assert.True(t, checkFieldsWithSort(mergedObj, oldObj, true))
 }
 
 func TestEqualObjWithSort(t *testing.T) {
@@ -133,8 +156,8 @@ func TestEqualObjWithSort(t *testing.T) {
 		"resources":       []interface{}{},
 	}
 
-	assert.True(t, equalObjWithSort(mergedObj, oldObj))
-	assert.False(t, equalObjWithSort(mergedObj, nil))
+	assert.True(t, equalObjWithSort(mergedObj, oldObj, true))
+	assert.False(t, equalObjWithSort(mergedObj, nil, true))
 
 	oldObj = map[string]interface{}{
 		"nonResourceURLs": []string{"/version", "/healthz"},
@@ -147,5 +170,30 @@ func TestEqualObjWithSort(t *testing.T) {
 		"resources":       []interface{}{},
 	}
 
-	assert.False(t, equalObjWithSort(mergedObj, oldObj))
+	assert.False(t, equalObjWithSort(mergedObj, oldObj, true))
+}
+
+func TestEqualObjWithSortString(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, equalObjWithSort("", nil, true))
+	assert.False(t, equalObjWithSort("", nil, false))
+	assert.True(t, equalObjWithSort(nil, "", true))
+	assert.False(t, equalObjWithSort(nil, "", false))
+}
+
+func TestEqualObjWithSortEmptyMap(t *testing.T) {
+	t.Parallel()
+
+	oldObj := map[string]interface{}{
+		"cities": map[string]interface{}{},
+	}
+	mergedObj := map[string]interface{}{
+		"cities": map[string]interface{}{
+			"raleigh": map[string]interface{}{},
+		},
+	}
+
+	assert.True(t, equalObjWithSort(mergedObj, oldObj, true))
+	assert.False(t, equalObjWithSort(mergedObj, oldObj, false))
 }

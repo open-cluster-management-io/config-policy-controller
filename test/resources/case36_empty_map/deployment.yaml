@@ -1,0 +1,22 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: case36-deployment
+  namespace: default
+  labels:
+    test: case36-deployment
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      test: case36-deployment
+  template:
+    metadata:
+      labels:
+        test: case36-deployment
+    spec:
+      securityContext: {}
+      containers:
+        - image: nginx:1.7.9
+          imagePullPolicy: Never
+          name: nginx

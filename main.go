@@ -19,6 +19,7 @@ import (
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/spf13/pflag"
 	"github.com/stolostron/go-log-utils/zaputil"
+	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -27,6 +28,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -329,9 +331,28 @@ func main() {
 		os.Exit(1)
 	}
 
+	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(targetK8sConfig)
+
+	serverVersion, err := discoveryClient.ServerVersion()
+	if err != nil {
+		log.Error(err, "unable to detect the managed cluster's Kubernetes version")
+		os.Exit(1)
+	}
+
+	dryRunSupported := semver.Compare(serverVersion.GitVersion, "v1.18.0") >= 0
+	if dryRunSupported {
+		log.Info("The managed cluster supports dry run API requests")
+	} else {
+		log.Info(
+			"The managed cluster does not support dry run API requests. Will assume that empty values are equal to " +
+				"not being set.",
+		)
+	}
+
 	reconciler := controllers.ConfigurationPolicyReconciler{
 		Client:                 mgr.GetClient(),
 		DecryptionConcurrency:  opts.decryptionConcurrency,
+		DryRunSupported:        dryRunSupported,
 		EvaluationConcurrency:  opts.evaluationConcurrency,
 		Scheme:                 mgr.GetScheme(),
 		Recorder:               mgr.GetEventRecorderFor(controllers.ControllerName),

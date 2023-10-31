@@ -106,11 +106,11 @@ func updateRelatedObjectsStatus(
 
 // equalObjWithSort is a wrapper function that calls the correct function to check equality depending on what
 // type the objects to compare are
-func equalObjWithSort(mergedObj interface{}, oldObj interface{}) (areEqual bool) {
+func equalObjWithSort(mergedObj interface{}, oldObj interface{}, zeroValueEqualsNil bool) (areEqual bool) {
 	switch mergedObj := mergedObj.(type) {
 	case map[string]interface{}:
 		if oldObjMap, ok := oldObj.(map[string]interface{}); ok {
-			return checkFieldsWithSort(mergedObj, oldObjMap)
+			return checkFieldsWithSort(mergedObj, oldObjMap, zeroValueEqualsNil)
 		}
 		// this includes the case where oldObj is nil
 		return false
@@ -125,20 +125,22 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}) (areEqual bool)
 
 		return false
 	default: // when mergedObj's type is string, int, bool, or nil
-		if oldObj == nil && mergedObj != nil {
-			// compare the zero value of mergedObj's type to mergedObj
-			ref := reflect.ValueOf(mergedObj)
-			zero := reflect.Zero(ref.Type()).Interface()
+		if zeroValueEqualsNil {
+			if oldObj == nil && mergedObj != nil {
+				// compare the zero value of mergedObj's type to mergedObj
+				ref := reflect.ValueOf(mergedObj)
+				zero := reflect.Zero(ref.Type()).Interface()
 
-			return fmt.Sprint(zero) == fmt.Sprint(mergedObj)
-		}
+				return fmt.Sprint(zero) == fmt.Sprint(mergedObj)
+			}
 
-		if mergedObj == nil && oldObj != nil {
-			// compare the zero value of oldObj's type to oldObj
-			ref := reflect.ValueOf(oldObj)
-			zero := reflect.Zero(ref.Type()).Interface()
+			if mergedObj == nil && oldObj != nil {
+				// compare the zero value of oldObj's type to oldObj
+				ref := reflect.ValueOf(oldObj)
+				zero := reflect.Zero(ref.Type()).Interface()
 
-			return fmt.Sprint(zero) == fmt.Sprint(oldObj)
+				return fmt.Sprint(zero) == fmt.Sprint(oldObj)
+			}
 		}
 
 		return fmt.Sprint(mergedObj) == fmt.Sprint(oldObj)
@@ -147,7 +149,9 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}) (areEqual bool)
 
 // checkFieldsWithSort is a check for maps that uses an arbitrary sort to ensure it is
 // comparing the right values
-func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]interface{}) (matches bool) {
+func checkFieldsWithSort(
+	mergedObj map[string]interface{}, oldObj map[string]interface{}, zeroValueEqualsNil bool,
+) (matches bool) {
 	// needed to compare lists, since merge messes up the order
 	if len(mergedObj) < len(oldObj) {
 		return false
@@ -159,14 +163,14 @@ func checkFieldsWithSort(mergedObj map[string]interface{}, oldObj map[string]int
 			// if field is a map, recurse to check for a match
 			oVal, ok := oldObj[i].(map[string]interface{})
 			if !ok {
-				if len(mVal) == 0 {
+				if zeroValueEqualsNil && len(mVal) == 0 {
 					break
 				}
 
 				return false
 			}
 
-			if !checkFieldsWithSort(mVal, oVal) {
+			if !checkFieldsWithSort(mVal, oVal, zeroValueEqualsNil) {
 				return false
 			}
 		case []interface{}:
@@ -280,7 +284,7 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 		case map[string]interface{}:
 			// if list contains maps, recurse on those maps to check for a match
 			if mVal, ok := mVal[idx].(map[string]interface{}); ok {
-				if !checkFieldsWithSort(mVal, oNestedVal) {
+				if !checkFieldsWithSort(mVal, oNestedVal, true) {
 					return false
 				}
 
