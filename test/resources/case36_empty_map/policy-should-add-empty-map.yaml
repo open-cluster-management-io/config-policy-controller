@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case36-check-selinux-options
+spec:
+  remediationAction: inform
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: case36-deployment
+          namespace: default
+        spec:
+          template:
+            spec:
+              # securityContext defaults to `{}` and seLinuxOptions has omitempty on the API server but is a pointer,
+              # so setting this to an empty object will cause the empty object to be returned by the API.
+              securityContext:
+                seLinuxOptions: {}
