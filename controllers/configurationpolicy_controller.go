@@ -2631,6 +2631,18 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 					return true, "", false, false
 				}
 
+				// If it's a conflict, refetch the object and try again.
+				if k8serrors.IsConflict(err) {
+					log.Info("The object updating during the evaluation. Trying again.")
+
+					rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
+					if getErr == nil {
+						obj.existingObj = rv
+
+						return r.checkAndUpdateResource(obj, complianceType, mdComplianceType, remediation)
+					}
+				}
+
 				message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
 				if message == "" {
 					message = fmt.Sprintf(
@@ -2668,6 +2680,17 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			FieldValidation: metav1.FieldValidationStrict,
 		})
 		if err != nil {
+			if k8serrors.IsConflict(err) {
+				log.Info("The object updating during the evaluation. Trying again.")
+
+				rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
+				if getErr == nil {
+					obj.existingObj = rv
+
+					return r.checkAndUpdateResource(obj, complianceType, mdComplianceType, remediation)
+				}
+			}
+
 			message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
 			if message == "" {
 				message = fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
