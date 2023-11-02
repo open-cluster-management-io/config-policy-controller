@@ -32,3 +32,5 @@ spec:
                   env:
                     - name: DEMO_GREETING
                       value: " \t hello with tricky whitespace \n "
+                  stdin: false
+                  tty: false

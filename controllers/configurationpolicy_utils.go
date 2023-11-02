@@ -280,7 +280,7 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 		case map[string]interface{}:
 			// if list contains maps, recurse on those maps to check for a match
 			if mVal, ok := mVal[idx].(map[string]interface{}); ok {
-				if len(mVal) != len(oNestedVal) || !checkFieldsWithSort(mVal, oNestedVal) {
+				if !checkFieldsWithSort(mVal, oNestedVal) {
 					return false
 				}
 
