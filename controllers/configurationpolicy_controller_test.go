@@ -471,6 +471,34 @@ func TestCheckListsMatch(t *testing.T) {
 	assert.False(t, checkListsMatch(oneBigOneSmall, twoFullItems))
 }
 
+func TestCheckListsMatchDiffMapLength(t *testing.T) {
+	existingObject := []interface{}{
+		map[string]interface{}{
+			"containers": []interface{}{
+				map[string]interface{}{
+					"name":  "my-container",
+					"image": "quay.io/org/test:latest",
+				},
+			},
+		},
+	}
+
+	mergedObject := []interface{}{
+		map[string]interface{}{
+			"containers": []interface{}{
+				map[string]interface{}{
+					"name":  "my-container",
+					"image": "quay.io/org/test:latest",
+					"stdin": false,
+					"tty":   false,
+				},
+			},
+		},
+	}
+
+	assert.True(t, checkListsMatch(existingObject, mergedObject))
+}
+
 func TestNestedUnsortedLists(t *testing.T) {
 	objDefYaml := `
 kind: FakeOperator
