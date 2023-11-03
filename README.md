@@ -122,7 +122,7 @@ to learn how to get involved.
 
 ### Steps for deployment
 
-  - Build container image
+  - (optional) Build container image
     ```bash
     make build-images
     ```
@@ -136,18 +136,15 @@ to learn how to get involved.
 
     The controller is deployed to a namespace defined in `CONTROLLER_NAMESPACE` and monitors the namepace defined in `WATCH_NAMESPACE` for `ConfigurationPolicy` resources.
 
-    1. Create the deployment namespaces
+    1. Deploy the controller and related resources
        ```bash
-       make create-ns
+       make deploy
        ```
+
        The deployment namespaces are configurable with:
        ```bash
        export CONTROLLER_NAMESPACE=''  # (defaults to 'open-cluster-management-agent-addon')
        export WATCH_NAMESPACE=''       # (defaults to 'managed')
-       ```
-    2. Deploy the controller and related resources
-       ```bash
-       make deploy
        ```
     **NOTE:** Please be aware of the community's [deployment images](https://github.com/open-cluster-management-io/community#deployment-images) special note.
 
