@@ -70,28 +70,32 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 		Expect(lastEvaluatedParsed.Before(lastEvalRefreshedParsed)).To(BeTrue())
 
 		By("Verifying that only one event was sent for the configuration policy")
-		events := utils.GetMatchingEvents(
-			clientManaged,
-			testNamespace,
-			case17PolicyName,
-			"",
-			"Policy status is NonCompliant",
-			defaultTimeoutSeconds,
-		)
-		Expect(events).To(HaveLen(1))
-		Expect(events[0].Count).To(Equal(int32(1)))
+		Eventually(func(g Gomega) {
+			events := utils.GetMatchingEvents(
+				clientManaged,
+				testNamespace,
+				case17PolicyName,
+				"",
+				"Policy status is NonCompliant",
+				defaultTimeoutSeconds,
+			)
+			g.Expect(events).To(HaveLen(1))
+			g.Expect(events[0].Count).To(Equal(int32(1)))
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying that only one event was sent for the parent policy")
-		parentEvents := utils.GetMatchingEvents(
-			clientManaged,
-			testNamespace,
-			case17ParentPolicyName,
-			"policy: "+testNamespace+"/"+case17PolicyName,
-			"^NonCompliant;",
-			defaultTimeoutSeconds,
-		)
-		Expect(parentEvents).To(HaveLen(1))
-		Expect(parentEvents[0].Count).To(Equal(int32(1)))
+		Eventually(func(g Gomega) {
+			parentEvents := utils.GetMatchingEvents(
+				clientManaged,
+				testNamespace,
+				case17ParentPolicyName,
+				"policy: "+testNamespace+"/"+case17PolicyName,
+				"^NonCompliant;",
+				defaultTimeoutSeconds,
+			)
+			g.Expect(parentEvents).To(HaveLen(1))
+			g.Expect(parentEvents[0].Count).To(Equal(int32(1)))
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 
 	It("Verifies that a compliant policy is not reevaluated when set to never", func() {

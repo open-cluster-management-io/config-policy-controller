@@ -33,7 +33,7 @@ var _ = Describe("Test a policy with an objectDefinition that is missing apiVers
 		Consistently(func() interface{} {
 			return utils.GetMatchingEvents(clientManaged, testNamespace,
 				policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
-		}, defaultTimeoutSeconds, 5).Should(BeEmpty())
+		}, 30, 5).Should(BeEmpty())
 	})
 
 	AfterEach(func() {

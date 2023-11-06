@@ -73,7 +73,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 			}
 
 			return startTime.After(compPlcEvents[len(compPlcEvents)-1].LastTimestamp.Time)
-		}, defaultTimeoutSeconds, 1).Should(BeTrue())
+		}, 30, 1).Should(BeTrue())
 
 		By("Verifying the message is correct when the " + configMapName + " ConfigMap already exists")
 		configmap := &corev1.ConfigMap{
@@ -118,7 +118,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 			}
 
 			return alreadyExistsStartTime.After(compPlcEvents[len(compPlcEvents)-1].LastTimestamp.Time)
-		}, defaultTimeoutSeconds, 1).Should(BeTrue())
+		}, 30, 1).Should(BeTrue())
 	})
 
 	AfterAll(func() {
