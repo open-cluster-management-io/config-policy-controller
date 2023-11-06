@@ -99,8 +99,8 @@ func GetWithTimeout(
 
 	EventuallyWithOffset(1, func() error {
 		var err error
-		namespace := clientHubDynamic.Resource(gvr).Namespace(namespace)
-		obj, err = namespace.Get(context.TODO(), name, metav1.GetOptions{})
+		obj, err = clientHubDynamic.Resource(gvr).Namespace(namespace).
+			Get(context.TODO(), name, metav1.GetOptions{})
 		if wantFound && err != nil {
 			return err
 		}

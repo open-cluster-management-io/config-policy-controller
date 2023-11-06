@@ -9,6 +9,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -74,8 +75,9 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying that a compliance event was created on the parent policy")
-		compParentEvents := utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
-			fmt.Sprintf("policy: %v/%v", testNamespace, policyName), "^Compliant;", defaultTimeoutSeconds)
-		Expect(compParentEvents).NotTo(BeEmpty())
+		Eventually(func() []v1.Event {
+			return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
+				fmt.Sprintf("policy: %v/%v", testNamespace, policyName), "^Compliant;", defaultTimeoutSeconds)
+		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 	})
 })
