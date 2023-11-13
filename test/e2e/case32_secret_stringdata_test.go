@@ -54,7 +54,7 @@ var _ = Describe("Test converted stringData being decoded before comparison for 
 				"updated", defaultTimeoutSeconds))
 
 			return eventlen
-		}, 30, 2).Should(BeNumerically("<", 1))
+		}, defaultConsistentlyDuration, 2).Should(BeNumerically("<", 1))
 	})
 
 	AfterAll(func() {

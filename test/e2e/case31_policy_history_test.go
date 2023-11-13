@@ -30,7 +30,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 				configPolicyName, configPolicyName, "NonCompliant;", defaultTimeoutSeconds))
 
 			return eventlen
-		}, 30, 5).Should(BeNumerically("<", 2))
+		}, defaultConsistentlyDuration, 5).Should(BeNumerically("<", 2))
 
 		By("Checking the events on the parent policy")
 		// NOTE: pick policy event, these event's reason include ConfigPolicyName
@@ -39,7 +39,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 				policyName, configPolicyName, "NonCompliant;", defaultTimeoutSeconds))
 
 			return eventlen
-		}, 30, 5).Should(BeNumerically("<", 3))
+		}, defaultConsistentlyDuration, 5).Should(BeNumerically("<", 3))
 	}
 
 	const (

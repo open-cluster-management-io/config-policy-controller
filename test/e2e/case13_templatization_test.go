@@ -482,7 +482,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 					case13PruneTmpErr+"-configmap", "default", true, defaultTimeoutSeconds)
 
 				return configmap
-			}, 30, 1).ShouldNot(BeNil())
+			}, defaultConsistentlyDuration, 1).ShouldNot(BeNil())
 
 			By("Change to valid configmap")
 			utils.Kubectl("patch", "configurationpolicy", case13PruneTmpErr, "--type=json", "-p",
@@ -520,7 +520,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 					case13PruneTmpErr+"-configmap", "default", true, defaultTimeoutSeconds)
 
 				return configmap
-			}, 30, 1).ShouldNot(BeNil())
+			}, defaultConsistentlyDuration, 1).ShouldNot(BeNil())
 		})
 		AfterAll(func() {
 			utils.Kubectl("delete", "configurationpolicy", case13PruneTmpErr,

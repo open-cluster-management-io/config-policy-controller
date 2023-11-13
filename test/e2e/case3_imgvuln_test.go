@@ -70,7 +70,7 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 					case3ConfigPolicyNameVuln, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
-			}, 20, 1).Should(Equal("NonCompliant"))
+			}, defaultConsistentlyDuration, 1).Should(Equal("NonCompliant"))
 
 			deleteConfigPolicies([]string{case3ConfigPolicyNameVuln})
 		})
@@ -91,7 +91,7 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 					case3ConfigPolicyNameVulnObj, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
-			}, 20, 1).Should(Equal("NonCompliant"))
+			}, defaultConsistentlyDuration, 1).Should(Equal("NonCompliant"))
 
 			deleteConfigPolicies([]string{case3ConfigPolicyNameVulnObj})
 		})
