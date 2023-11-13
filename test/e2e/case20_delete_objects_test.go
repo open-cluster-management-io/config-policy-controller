@@ -219,7 +219,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
 				return pod
-			}, 30, 1).Should(Not(BeNil()))
+			}, defaultConsistentlyDuration, 1).Should(Not(BeNil()))
 		})
 		It("Should create DeleteIfCreated policy", func() {
 			// delete pod to reset
@@ -284,7 +284,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
 				return pod
-			}, 30, 1).Should(Not(BeNil()))
+			}, defaultConsistentlyDuration, 1).Should(Not(BeNil()))
 		})
 		It("should handle deleteAll properly for created obj", func() {
 			By("Creating " + case20ConfigPolicyNameExisting + " on managed")
@@ -313,7 +313,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 					case20ConfigPolicyNameExisting, testNamespace, false, defaultTimeoutSeconds)
 
 				return managedPlc
-			}, 30, 1).Should(BeNil())
+			}, defaultConsistentlyDuration, 1).Should(BeNil())
 		})
 		It("should handle deleteAll properly for non created obj", func() {
 			By("Creating " + case20PodName + " on default")
@@ -378,13 +378,13 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 					case20PodWithFinalizer, "default", true, defaultTimeoutSeconds)
 
 				return pod
-			}, 30, 1).Should(Not(BeNil()))
+			}, defaultConsistentlyDuration, 1).Should(Not(BeNil()))
 			Consistently(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameFinalizer, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
-			}, 30, 1).Should(Equal("Terminating"))
+			}, defaultConsistentlyDuration, 1).Should(Equal("Terminating"))
 		})
 		It("should finish delete when pod finalizer is removed", func() {
 			utils.Kubectl(
@@ -405,7 +405,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 					case20ConfigPolicyNameFinalizer, testNamespace, false, defaultTimeoutSeconds)
 
 				return managedPlc
-			}, 30, 1).Should(BeNil())
+			}, defaultConsistentlyDuration, 1).Should(BeNil())
 		})
 		It("should handle changing policy from inform to enforce", func() {
 			By("Creating " + case20ConfigPolicyNameChange + " on managed")
@@ -445,7 +445,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 					case20ConfigPolicyNameChange, testNamespace, false, defaultTimeoutSeconds)
 
 				return managedPlc
-			}, 30, 1).Should(BeNil())
+			}, defaultConsistentlyDuration, 1).Should(BeNil())
 		})
 		It("should handle changing policy from enforce to inform", func() {
 			By("Creating " + case20ConfigPolicyNameChange + " on managed")
@@ -735,7 +735,7 @@ var _ = Describe("Object Should not be deleted", Ordered, func() {
 			Expect(oldPod).ShouldNot(BeNil())
 
 			return oldPod
-		}, 20, 1).ShouldNot(BeNil())
+		}, defaultConsistentlyDuration, 1).ShouldNot(BeNil())
 	})
 	It("check pod is not removed when PruneObjectBehavior is none and namespace changed", func() {
 		oldPod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
@@ -755,7 +755,7 @@ var _ = Describe("Object Should not be deleted", Ordered, func() {
 			Expect(oldPod).ShouldNot(BeNil())
 
 			return oldPod
-		}, 20, 1).ShouldNot(BeNil())
+		}, defaultConsistentlyDuration, 1).ShouldNot(BeNil())
 	})
 	It("check pod is not removed when PruneObjectBehavior is DeleteAll and spec changed", func() {
 		By("Add PruneObjectBehavior is DeleteAll")
@@ -784,6 +784,6 @@ var _ = Describe("Object Should not be deleted", Ordered, func() {
 			Expect(oldPod).ShouldNot(BeNil())
 
 			return oldPod
-		}, 20, 1).ShouldNot(BeNil())
+		}, defaultConsistentlyDuration, 1).ShouldNot(BeNil())
 	})
 })

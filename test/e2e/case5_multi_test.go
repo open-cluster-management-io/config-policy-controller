@@ -21,7 +21,7 @@ const (
 	case5ComboYaml               string = "../resources/case5_multi/case5_multi_combo.yaml"
 )
 
-var _ = Describe("Test multiple obj template handling", func() {
+var _ = Describe("Test multiple obj template handling", Ordered, func() {
 	Describe("Create a policy on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case5ConfigPolicyNameInform + " and " + case5ConfigPolicyNameCombo + " on managed")

@@ -4,8 +4,6 @@
 package e2e
 
 import (
-	"time"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
@@ -334,7 +332,7 @@ var _ = Describe("Test list handling for musthave", func() {
 					case12WhitespaceListCreate, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
-			}, time.Second*20, 1).Should(Equal("Compliant"))
+			}, defaultConsistentlyDuration, 1).Should(Equal("Compliant"))
 
 			// Verify that the container list and its environment variable list is correct (there are no duplicates)
 			deploy := utils.GetWithTimeout(clientManagedDynamic, gvrDeployment,
@@ -388,7 +386,7 @@ var _ = Describe("Test list handling for musthave", func() {
 					case12ByteCreate, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
-			}, time.Second*20, 1).Should(Equal("Compliant"))
+			}, defaultConsistentlyDuration, 1).Should(Equal("Compliant"))
 
 			// Verify that the container list and its environment variable list is correct (there are no duplicates)
 			utils.Kubectl("apply", "-f", case12ByteInformYaml, "-n", testNamespace)

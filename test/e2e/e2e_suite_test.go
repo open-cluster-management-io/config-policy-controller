@@ -29,23 +29,24 @@ import (
 )
 
 var (
-	testNamespace         string
-	defaultTimeoutSeconds int
-	kubeconfigManaged     string
-	clientManaged         kubernetes.Interface
-	clientManagedDynamic  dynamic.Interface
-	gvrAPIService         schema.GroupVersionResource
-	gvrConfigPolicy       schema.GroupVersionResource
-	gvrCRD                schema.GroupVersionResource
-	gvrPod                schema.GroupVersionResource
-	gvrRole               schema.GroupVersionResource
-	gvrNS                 schema.GroupVersionResource
-	gvrSCC                schema.GroupVersionResource
-	gvrSecret             schema.GroupVersionResource
-	gvrClusterClaim       schema.GroupVersionResource
-	gvrConfigMap          schema.GroupVersionResource
-	gvrDeployment         schema.GroupVersionResource
-	gvrPolicy             schema.GroupVersionResource
+	testNamespace               string
+	defaultTimeoutSeconds       int
+	defaultConsistentlyDuration int
+	kubeconfigManaged           string
+	clientManaged               kubernetes.Interface
+	clientManagedDynamic        dynamic.Interface
+	gvrAPIService               schema.GroupVersionResource
+	gvrConfigPolicy             schema.GroupVersionResource
+	gvrCRD                      schema.GroupVersionResource
+	gvrPod                      schema.GroupVersionResource
+	gvrRole                     schema.GroupVersionResource
+	gvrNS                       schema.GroupVersionResource
+	gvrSCC                      schema.GroupVersionResource
+	gvrSecret                   schema.GroupVersionResource
+	gvrClusterClaim             schema.GroupVersionResource
+	gvrConfigMap                schema.GroupVersionResource
+	gvrDeployment               schema.GroupVersionResource
+	gvrPolicy                   schema.GroupVersionResource
 
 	defaultImageRegistry string
 )
@@ -107,6 +108,7 @@ var _ = BeforeSuite(func() {
 	defaultImageRegistry = "quay.io/open-cluster-management"
 	testNamespace = "managed"
 	defaultTimeoutSeconds = 60
+	defaultConsistentlyDuration = 25
 	By("Create watch namespace if needed")
 	namespaces := clientManaged.CoreV1().Namespaces()
 	if _, err := namespaces.Get(

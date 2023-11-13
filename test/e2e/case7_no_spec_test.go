@@ -109,7 +109,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 					case7ObjName, true, defaultTimeoutSeconds)
 
 				return matchToExpected(managedObj)
-			}, 30, 1).Should(Equal(true))
+			}, defaultConsistentlyDuration, 1).Should(Equal(true))
 		})
 		It("should handle change field to null", func() {
 			By("Creating " + case7ConfigPolicyNameNull + " on managed")

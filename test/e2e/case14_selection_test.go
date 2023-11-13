@@ -5,7 +5,6 @@ package e2e
 
 import (
 	"context"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -116,7 +115,7 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
-			}, time.Second*20, 1).Should(Equal("NonCompliant"))
+			}, defaultConsistentlyDuration, 1).Should(Equal("NonCompliant"))
 		}
 	})
 
@@ -158,7 +157,7 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
-			}, time.Second*20, 1).Should(Equal("NonCompliant"))
+			}, defaultConsistentlyDuration, 1).Should(Equal("NonCompliant"))
 			By("Checking that " + policy.name + " has the correct relatedObjects")
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policy.name, testNamespace, true, defaultTimeoutSeconds)
