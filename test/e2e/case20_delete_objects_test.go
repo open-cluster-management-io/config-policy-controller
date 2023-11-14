@@ -323,7 +323,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
 				return pod
-			}, 30, 1).Should(Not(BeNil()))
+			}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
 			By("Creating " + case20ConfigPolicyNameExisting + " on managed")
 			utils.Kubectl("apply", "-f", case20PolicyYamlExisting, "-n", testNamespace)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
