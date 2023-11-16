@@ -18,7 +18,7 @@ import (
 	"github.com/go-logr/logr"
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
-	templates "github.com/stolostron/go-template-utils/v4/pkg/templates"
+	templates "github.com/stolostron/go-template-utils/v5/pkg/templates"
 	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -966,7 +966,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		isRawObjTemplate = false
 	}
 
-	tmplResolverCfg.InputIsYAML = isRawObjTemplate
+	resolveOptions.InputIsYAML = isRawObjTemplate
 
 	tmplResolver, err := templates.NewResolver(r.TargetK8sConfig, tmplResolverCfg)
 	if err != nil {
