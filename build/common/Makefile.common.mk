@@ -103,7 +103,7 @@ gosec:
 
 .PHONY: gosec-scan
 gosec-scan: gosec
-	$(GOSEC) -fmt sonarqube -out gosec.json -no-fail -exclude-dir=.go ./...
+	$(GOSEC) -fmt sonarqube -out gosec.json -stdout -exclude-dir=.go -exclude-dir=test ./...
 
 ############################################################
 #  E2E Test
@@ -116,12 +116,12 @@ KIND_CLUSTER_NAME = kind-$(KIND_NAME)
 CONTROLLER_NAMESPACE ?= open-cluster-management-agent-addon
 KIND_VERSION ?= latest
 # Set the Kind version tag
-ifeq ($(KIND_VERSION), minimum)
-	KIND_ARGS = --image kindest/node:v1.19.16
-else ifneq ($(KIND_VERSION), latest)
-	KIND_ARGS = --image kindest/node:$(KIND_VERSION)
-else
-	KIND_ARGS =
+ifdef KIND_VERSION
+  ifeq ($(KIND_VERSION), minimum)
+    KIND_ARGS = --image kindest/node:v1.19.16
+  else ifneq ($(KIND_VERSION), latest)
+    KIND_ARGS = --image kindest/node:$(KIND_VERSION)
+  endif
 endif
 
 .PHONY: kind-create-cluster
