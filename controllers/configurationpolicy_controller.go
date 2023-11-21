@@ -1525,6 +1525,13 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 		if len(objNames) == 0 {
 			exists = false
+		} else if len(objNames) == 1 {
+			// If the object couldn't be retrieved, this will be handled later on.
+			existingObj, _ = getObject(
+				objDetails.isNamespaced, namespace, objNames[0], mapping.Resource, r.TargetK8sDynamicClient,
+			)
+
+			exists = existingObj != nil
 		}
 	}
 
@@ -2746,6 +2753,10 @@ func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
 func (r *ConfigurationPolicyReconciler) alreadyEvaluated(
 	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured,
 ) (evaluated bool, compliant bool) {
+	if policy == nil || currentObject == nil {
+		return false, false
+	}
+
 	loadedPolicyMap, loaded := r.processedPolicyCache.Load(policy.GetUID())
 	if !loaded {
 		return false, false
