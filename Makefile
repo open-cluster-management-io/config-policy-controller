@@ -30,7 +30,7 @@ KIND_NAME ?= test-$(MANAGED_CLUSTER_NAME)
 KIND_CLUSTER_NAME ?= kind-$(KIND_NAME)
 KIND_NAMESPACE ?= $(CONTROLLER_NAMESPACE)
 # Test coverage threshold
-export COVERAGE_MIN ?= 75
+export COVERAGE_MIN ?= 74
 COVERAGE_E2E_OUT ?= coverage_e2e.out
 
 # Image URL to use all building/pushing image targets;

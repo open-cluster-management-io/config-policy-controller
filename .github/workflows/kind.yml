@@ -55,6 +55,7 @@ jobs:
 
       - name: Verify deploy/operator.yaml
         run: |
+          make generate
           make generate-operator-yaml
           git diff --exit-code
 
