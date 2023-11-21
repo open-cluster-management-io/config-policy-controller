@@ -71,7 +71,7 @@ test-coverage: TESTARGS = -json -cover -covermode=atomic -coverprofile=coverage_
 test-coverage: test
 
 .PHONY: gosec-scan
-gosec-scan:
+gosec-scan: GOSEC_ARGS = -exclude-generated
 
 ############################################################
 # build section
