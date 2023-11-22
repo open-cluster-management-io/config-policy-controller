@@ -2410,9 +2410,7 @@ func handleSingleKey(
 	}
 
 	if key == "stringData" && existingObj.GetKind() == "Secret" {
-		// override automatic conversion from stringData to data prior to evaluation
-		existingValue = existingObj.UnstructuredContent()["data"]
-
+		// override automatic conversion from stringData to data before evaluation
 		encodedValue, _, err := unstructured.NestedStringMap(existingObj.Object, "data")
 		if err != nil {
 			message := "Error accessing encoded data"
@@ -2420,8 +2418,10 @@ func handleSingleKey(
 			return message, false, mergedValue, false
 		}
 
-		for k, value := range encodedValue {
-			decodedVal, err := base64.StdEncoding.DecodeString(value)
+		decodedValue := make(map[string]interface{}, len(encodedValue))
+
+		for k, encoded := range encodedValue {
+			decoded, err := base64.StdEncoding.DecodeString(encoded)
 			if err != nil {
 				secretName := existingObj.GetName()
 				message := fmt.Sprintf("Error decoding secret: %s", secretName)
@@ -2429,8 +2429,10 @@ func handleSingleKey(
 				return message, false, mergedValue, false
 			}
 
-			existingValue.(map[string]interface{})[k] = string(decodedVal)
+			decodedValue[k] = string(decoded)
 		}
+
+		existingValue = decodedValue
 	}
 
 	// sort objects before checking equality to ensure they're in the same order
