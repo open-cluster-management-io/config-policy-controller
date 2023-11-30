@@ -278,6 +278,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	terminatingCtx := ctrl.SetupSignalHandler()
+
+	uninstallingCtx, uninstallingCtxCancel := context.WithCancel(terminatingCtx)
+
+	beingUninstalled, err := controllers.IsBeingUninstalled(mgr.GetClient())
+	if err != nil {
+		log.Error(err, "Failed to determine if the controller is being uninstalled at startup. Will assume it's not.")
+	}
+
+	if beingUninstalled {
+		uninstallingCtxCancel()
+	}
+
 	var targetK8sClient kubernetes.Interface
 	var targetK8sDynamicClient dynamic.Interface
 	var targetK8sConfig *rest.Config
@@ -303,16 +316,21 @@ func main() {
 		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
 		targetK8sDynamicClient = dynamic.NewForConfigOrDie(targetK8sConfig)
 
-		nsSelMgr, err = manager.New(targetK8sConfig, manager.Options{
-			NewCache: cache.BuilderWithOptions(cache.Options{
-				TransformByObject: map[client.Object]toolscache.TransformFunc{
-					&corev1.Namespace{}: nsTransform,
-				},
-			}),
-		})
-		if err != nil {
-			log.Error(err, "Unable to create manager from target kube config")
-			os.Exit(1)
+		// The managed cluster's API server is potentially not the same as the hosting cluster and it could be
+		// offline already as part of the uninstall process. In this case, the manager's instantiation will fail.
+		// This controller is not needed in uninstall mode, so just skip it.
+		if !beingUninstalled {
+			nsSelMgr, err = manager.New(targetK8sConfig, manager.Options{
+				NewCache: cache.BuilderWithOptions(cache.Options{
+					TransformByObject: map[client.Object]toolscache.TransformFunc{
+						&corev1.Namespace{}: nsTransform,
+					},
+				}),
+			})
+			if err != nil {
+				log.Error(err, "Unable to create manager from target kube config")
+				os.Exit(1)
+			}
 		}
 
 		log.Info(
@@ -323,12 +341,16 @@ func main() {
 
 	instanceName, _ := os.Hostname() // on an error, instanceName will be empty, which is ok
 
-	nsSelReconciler := common.NamespaceSelectorReconciler{
-		Client: nsSelMgr.GetClient(),
-	}
-	if err = nsSelReconciler.SetupWithManager(nsSelMgr); err != nil {
-		log.Error(err, "Unable to create controller", "controller", "NamespaceSelector")
-		os.Exit(1)
+	var nsSelReconciler common.NamespaceSelectorReconciler
+
+	if !beingUninstalled {
+		nsSelReconciler = common.NamespaceSelectorReconciler{
+			Client: nsSelMgr.GetClient(),
+		}
+		if err = nsSelReconciler.SetupWithManager(nsSelMgr); err != nil {
+			log.Error(err, "Unable to create controller", "controller", "NamespaceSelector")
+			os.Exit(1)
+		}
 	}
 
 	discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(targetK8sConfig)
@@ -362,6 +384,7 @@ func main() {
 		TargetK8sConfig:        targetK8sConfig,
 		SelectorReconciler:     &nsSelReconciler,
 		EnableMetrics:          opts.enableMetrics,
+		UninstallMode:          beingUninstalled,
 	}
 
 	OpReconciler := controllers.OperatorPolicyReconciler{
@@ -392,14 +415,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	terminatingCtx := ctrl.SetupSignalHandler()
 	managerCtx, managerCancel := context.WithCancel(context.Background())
 
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
 	log.Info("Periodically processing Configuration Policies", "frequency", opts.frequency)
 
 	go func() {
-		reconciler.PeriodicallyExecConfigPolicies(terminatingCtx, opts.frequency, mgr.Elected())
+		reconciler.PeriodicallyExecConfigPolicies(terminatingCtx, opts.frequency, mgr.Elected(), uninstallingCtxCancel)
 		managerCancel()
 	}()
 
@@ -467,7 +489,9 @@ func main() {
 		wg.Add(1)
 
 		go func() {
-			if err := nsSelMgr.Start(managerCtx); err != nil {
+			// Use the uninstallingCtx so that this shuts down when the controller is being uninstalled. This is
+			// important since the managed cluster's API server may become unavailable at this time when in hosted mdoe.
+			if err := nsSelMgr.Start(uninstallingCtx); err != nil {
 				log.Error(err, "Problem running manager")
 
 				managerCancel()

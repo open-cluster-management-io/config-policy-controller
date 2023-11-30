@@ -134,6 +134,9 @@ type ConfigurationPolicyReconciler struct {
 	openAPIParser *openapi.CachedOpenAPIParser
 	// A lock when performing actions that are not thread safe (i.e. reassigning object properties).
 	lock sync.RWMutex
+	// When true, the controller has detected it is being uninstalled and only basic cleanup should be performed before
+	// exiting.
+	UninstallMode bool
 }
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
@@ -166,7 +169,7 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 // PeriodicallyExecConfigPolicies loops through all configurationpolicies in the target namespace and triggers
 // template handling for each one. This function drives all the work the configuration policy controller does.
 func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
-	ctx context.Context, freq uint, elected <-chan struct{},
+	ctx context.Context, freq uint, elected <-chan struct{}, uninstallDetected context.CancelFunc,
 ) {
 	log.Info("Waiting for leader election before periodically evaluating configuration policies")
 
@@ -212,11 +215,24 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 			_ = r.refreshDiscoveryInfo()
 		}
 
-		cleanupImmediately, err := r.cleanupImmediately()
-		if err != nil {
-			log.Error(err, "Failed to determine if it's time to cleanup immediately")
+		cleanupImmediately := r.UninstallMode
 
-			skipLoop = true
+		if !r.UninstallMode {
+			uninstalling, crdDeleting, err := r.cleanupImmediately()
+			if !uninstalling && !crdDeleting && err != nil {
+				log.Error(err, "Failed to determine if it's time to cleanup immediately")
+
+				skipLoop = true
+			}
+
+			cleanupImmediately = crdDeleting
+
+			if uninstalling {
+				r.UninstallMode = uninstalling
+				cleanupImmediately = true
+
+				uninstallDetected()
+			}
 		}
 
 		if cleanupImmediately || !skipLoop {
@@ -667,30 +683,27 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 	return deletionFailures
 }
 
-// cleanupImmediately returns true when the cluster is in a state where configurationpolicies should
-// be removed as soon as possible, ignoring the pruneObjectBehavior of the policies. This is the
-// case when the controller is being uninstalled or the CRD is being deleted.
-func (r *ConfigurationPolicyReconciler) cleanupImmediately() (bool, error) {
-	beingUninstalled, beingUninstalledErr := r.isBeingUninstalled()
-	if beingUninstalledErr == nil && beingUninstalled {
-		return true, nil
+// cleanupImmediately returns true (i.e. beingUninstalled or crdDeleting) when the cluster is in a state where
+// configurationpolicies should be removed as soon as possible, ignoring the pruneObjectBehavior of the policies. This
+// is the case when the controller is being uninstalled or the CRD is being deleted.
+func (r *ConfigurationPolicyReconciler) cleanupImmediately() (beingUninstalled bool, crdDeleting bool, err error) {
+	var beingUninstalledErr error
+
+	beingUninstalled, beingUninstalledErr = IsBeingUninstalled(r.Client)
+
+	var defErr error
+
+	crdDeleting, defErr = r.definitionIsDeleting()
+
+	if beingUninstalledErr != nil && defErr != nil {
+		err = fmt.Errorf("%w; %w", beingUninstalledErr, defErr)
+	} else if beingUninstalledErr != nil {
+		err = beingUninstalledErr
+	} else if defErr != nil {
+		err = defErr
 	}
 
-	defDeleting, defErr := r.definitionIsDeleting()
-	if defErr == nil && defDeleting {
-		return true, nil
-	}
-
-	if beingUninstalledErr == nil && defErr == nil {
-		// if either was deleting, we would've already returned.
-		return false, nil
-	}
-
-	// At least one had an unexpected error, so the decision can't be made right now
-	//nolint:errorlint // we can't choose just one of the errors to "correctly" wrap
-	return false, fmt.Errorf(
-		"isBeingUninstalled error: '%v', definitionIsDeleting error: '%v'", beingUninstalledErr, defErr,
-	)
+	return
 }
 
 func (r *ConfigurationPolicyReconciler) definitionIsDeleting() (bool, error) {
@@ -761,18 +774,24 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 	// object handling for when configurationPolicy is deleted
 	if plc.Spec.PruneObjectBehavior == "DeleteIfCreated" || plc.Spec.PruneObjectBehavior == "DeleteAll" {
-		cleanupNow, err := r.cleanupImmediately()
-		if err != nil {
-			log.Error(err, "Error determining whether to cleanup immediately, requeueing policy")
+		var crdDeleting bool
 
-			return
+		if !r.UninstallMode {
+			var err error
+
+			crdDeleting, err = r.definitionIsDeleting()
+			if err != nil {
+				log.Error(err, "Error determining whether to cleanup immediately, requeueing policy")
+
+				return
+			}
 		}
 
-		if cleanupNow {
+		if r.UninstallMode || crdDeleting {
 			if objHasFinalizer(&plc, pruneObjectFinalizer) {
 				patch := removeObjFinalizerPatch(&plc, pruneObjectFinalizer)
 
-				err = r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
+				err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 				if err != nil {
 					log.Error(err, "Error removing finalizer for configuration policy")
 
@@ -815,7 +834,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 				patch := removeObjFinalizerPatch(&plc, pruneObjectFinalizer)
 
-				err = r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
+				err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
 				if err != nil {
 					log.Error(err, "Error removing finalizer for configuration policy")
 
@@ -3043,7 +3062,7 @@ func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) string {
 
 // getDeployment gets the Deployment object associated with this controller. If the controller is running outside of
 // a cluster, no Deployment object or error will be returned.
-func (r *ConfigurationPolicyReconciler) getDeployment() (*appsv1.Deployment, error) {
+func getDeployment(client client.Client) (*appsv1.Deployment, error) {
 	key, err := common.GetOperatorNamespacedName()
 	if err != nil {
 		// Running locally
@@ -3055,15 +3074,15 @@ func (r *ConfigurationPolicyReconciler) getDeployment() (*appsv1.Deployment, err
 	}
 
 	deployment := appsv1.Deployment{}
-	if err := r.Client.Get(context.TODO(), key, &deployment); err != nil {
+	if err := client.Get(context.TODO(), key, &deployment); err != nil {
 		return nil, err
 	}
 
 	return &deployment, nil
 }
 
-func (r *ConfigurationPolicyReconciler) isBeingUninstalled() (bool, error) {
-	deployment, err := r.getDeployment()
+func IsBeingUninstalled(client client.Client) (bool, error) {
+	deployment, err := getDeployment(client)
 	if deployment == nil || err != nil {
 		return false, err
 	}
@@ -3074,7 +3093,7 @@ func (r *ConfigurationPolicyReconciler) isBeingUninstalled() (bool, error) {
 // removeLegacyDeploymentFinalizer removes the policy.open-cluster-management.io/delete-related-objects on the
 // Deployment object. This finalizer is no longer needed on the Deployment object, so it is removed.
 func (r *ConfigurationPolicyReconciler) removeLegacyDeploymentFinalizer() error {
-	deployment, err := r.getDeployment()
+	deployment, err := getDeployment(r.Client)
 	if deployment == nil || err != nil {
 		return err
 	}
