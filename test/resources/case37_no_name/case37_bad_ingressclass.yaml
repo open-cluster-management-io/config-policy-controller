@@ -1,0 +1,6 @@
+apiVersion: networking.k8s.io/v1
+kind: IngressClass
+metadata:
+  name: case37-ingress-class
+spec:
+  controller: alien.giant/web

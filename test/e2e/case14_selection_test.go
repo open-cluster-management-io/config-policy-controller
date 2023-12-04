@@ -164,11 +164,14 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 			// If an object name is specified in the policy, related objects match those in the template.
 			// If an object name is not specified in the policy, related objects match those in the
 			//   cluster as this is not enforceable.
-			if policy.hasObjName {
-				Expect(checkRelated(plc)).Should(HaveLen(len(testNamespaces) + 1))
-			} else {
-				Expect(checkRelated(plc)).Should(HaveLen(len(testNamespaces)))
-			}
+			// When hasObjName = false
+			// compliant: NonCompliant
+			//  metadata:
+			// 	  name: '*'
+			//    namespace: range3
+			// reason: Resource not found but should exist
+			// is attached for range3.
+			Expect(checkRelated(plc)).Should(HaveLen(len(testNamespaces) + 1))
 		}
 	})
 

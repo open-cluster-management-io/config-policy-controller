@@ -1507,6 +1507,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	}
 
 	var existingObj *unstructured.Unstructured
+	var allResourceNames []string
 
 	if objDetails.name != "" { // named object, so checking just for the existence of the specific object
 		// If the object couldn't be retrieved, this will be handled later on.
@@ -1521,7 +1522,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		log.V(1).Info(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
-		objNames = getNamesOfKind(
+		objNames, allResourceNames = getNamesOfKind(
 			desiredObj,
 			mapping.Resource,
 			objDetails.isNamespaced,
@@ -1555,6 +1556,8 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	}
 
 	objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
+
+	shouldAddCondensedRelatedObj := false
 
 	if len(objNames) == 1 {
 		name := objNames[0]
@@ -1598,6 +1601,15 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			} else {
 				resultEvent.compliant = false
 				resultEvent.reason = reasonWantFoundDNE
+				// Length of objNames = 0, complianceType == musthave or mustonlyhave
+				// Find Noncompliant resources to add to the status.relatedObjects for debugging purpose
+				shouldAddCondensedRelatedObj = true
+				if objDetails.kind != "" && objDetails.name == "" {
+					// Change reason to Resource found but does not match
+					if len(allResourceNames) > 0 {
+						resultEvent.reason = reasonWantFoundNoMatch
+					}
+				}
 			}
 		} else {
 			if exists {
@@ -1606,21 +1618,36 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			} else {
 				resultEvent.compliant = true
 				resultEvent.reason = reasonWantNotFoundDNE
+				// Compliant, complianceType == mustnothave
+				// Find resources in the same namespace to add to the status.relatedObjects for debugging purpose
+				shouldAddCondensedRelatedObj = true
 			}
 		}
 
 		result = objectTmplEvalResult{objectNames: objNames, events: []objectTmplEvalEvent{resultEvent}}
 
-		relatedObjects = addRelatedObjects(
-			resultEvent.compliant,
-			mapping.Resource,
-			objDetails.kind,
-			namespace,
-			objDetails.isNamespaced,
-			objNames,
-			resultEvent.reason,
-			nil,
-		)
+		if shouldAddCondensedRelatedObj {
+			// relatedObjs name is *
+			relatedObjects = addCondensedRelatedObjs(
+				mapping.Resource,
+				resultEvent.compliant,
+				objDetails.kind,
+				namespace,
+				objDetails.isNamespaced,
+				resultEvent.reason,
+			)
+		} else {
+			relatedObjects = addRelatedObjects(
+				resultEvent.compliant,
+				mapping.Resource,
+				objDetails.kind,
+				namespace,
+				objDetails.isNamespaced,
+				objNames,
+				resultEvent.reason,
+				nil,
+			)
+		}
 	}
 
 	return relatedObjects, result
@@ -1962,6 +1989,7 @@ func buildNameList(
 
 // getNamesOfKind returns an array with names of all of the resources found
 // matching the GVK specified.
+// allResourceList includes names that are under the same namespace and kind.
 func getNamesOfKind(
 	desiredObj unstructured.Unstructured,
 	rsrc schema.GroupVersionResource,
@@ -1970,30 +1998,31 @@ func getNamesOfKind(
 	dclient dynamic.Interface,
 	complianceType string,
 	zeroValueEqualsNil bool,
-) (kindNameList []string) {
+) (kindNameList []string, allResourceList []string) {
+	var resList *unstructured.UnstructuredList
+	var err error
+
 	if namespaced {
 		res := dclient.Resource(rsrc).Namespace(ns)
 
-		resList, err := res.List(context.TODO(), metav1.ListOptions{})
-		if err != nil {
-			log.Error(err, "Could not list resources", "rsrc", rsrc, "namespaced", namespaced)
+		resList, err = res.List(context.TODO(), metav1.ListOptions{})
+	} else {
+		res := dclient.Resource(rsrc)
 
-			return kindNameList
-		}
-
-		return buildNameList(desiredObj, complianceType, resList, zeroValueEqualsNil)
+		resList, err = res.List(context.TODO(), metav1.ListOptions{})
 	}
 
-	res := dclient.Resource(rsrc)
-
-	resList, err := res.List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		log.Error(err, "Could not list resources", "rsrc", rsrc, "namespaced", namespaced)
 
-		return kindNameList
+		return kindNameList, allResourceList
 	}
 
-	return buildNameList(desiredObj, complianceType, resList, zeroValueEqualsNil)
+	for _, res := range resList.Items {
+		allResourceList = append(allResourceList, res.GetName())
+	}
+
+	return buildNameList(desiredObj, complianceType, resList, zeroValueEqualsNil), allResourceList
 }
 
 // enforceByCreatingOrDeleting can handle the situation where a musthave or mustonlyhave object is
