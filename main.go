@@ -282,13 +282,28 @@ func main() {
 
 	uninstallingCtx, uninstallingCtxCancel := context.WithCancel(terminatingCtx)
 
-	beingUninstalled, err := controllers.IsBeingUninstalled(mgr.GetClient())
+	var beingUninstalled bool
+
+	// Can't use the manager client because the manager isn't started yet.
+	uninstallCheckClient, err := client.New(cfg, client.Options{Scheme: scheme})
 	if err != nil {
 		log.Error(err, "Failed to determine if the controller is being uninstalled at startup. Will assume it's not.")
+	} else {
+		beingUninstalled, err = controllers.IsBeingUninstalled(uninstallCheckClient)
+		if err != nil {
+			log.Error(
+				err,
+				"Failed to determine if the controller is being uninstalled at startup. Will assume it's not.",
+			)
+		}
 	}
 
 	if beingUninstalled {
+		log.Info("The controller is being uninstalled. Will enter uninstall mode.")
+
 		uninstallingCtxCancel()
+	} else {
+		log.V(2).Info("The controller is not being uninstalled. Will continue as normal.")
 	}
 
 	var targetK8sClient kubernetes.Interface
