@@ -65,6 +65,45 @@ func addRelatedObjects(
 	return relatedObjects
 }
 
+// addCondensedRelatedObjs does not include all of relatedObjs.
+// The Name field is "*". The list of objects will be presented on the console.
+func addCondensedRelatedObjs(
+	rsrc schema.GroupVersionResource,
+	compliant bool,
+	kind string,
+	namespace string,
+	namespaced bool,
+	reason string,
+) (relatedObjects []policyv1.RelatedObject) {
+	metadata := policyv1.ObjectMetadata{Name: "*"}
+
+	if namespaced {
+		metadata.Namespace = namespace
+	} else {
+		metadata.Namespace = ""
+	}
+
+	// Initialize the related object from the object handling
+	relatedObject := policyv1.RelatedObject{
+		Reason: reason,
+		Object: policyv1.ObjectResource{
+			APIVersion: rsrc.GroupVersion().String(),
+			Kind:       kind,
+			Metadata:   metadata,
+		},
+	}
+
+	if compliant {
+		relatedObject.Compliant = string(policyv1.Compliant)
+	} else {
+		relatedObject.Compliant = string(policyv1.NonCompliant)
+	}
+
+	relatedObjects = append(relatedObjects, relatedObject)
+
+	return relatedObjects
+}
+
 // unmarshalFromJSON unmarshals raw JSON data into an object
 func unmarshalFromJSON(rawData []byte) (unstructured.Unstructured, error) {
 	var unstruct unstructured.Unstructured
