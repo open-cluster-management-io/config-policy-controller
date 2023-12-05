@@ -163,6 +163,7 @@ spec:
                       x-kubernetes-preserve-unknown-fields: true
                   required:
                   - complianceType
+                  - objectDefinition
                   type: object
                 type: array
               object-templates-raw:
@@ -202,6 +203,8 @@ spec:
                 - critical
                 - Critical
                 type: string
+            required:
+            - remediationAction
             type: object
           status:
             description: ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
