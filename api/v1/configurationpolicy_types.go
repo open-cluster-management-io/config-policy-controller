@@ -152,8 +152,8 @@ func (e EvaluationInterval) GetNonCompliantInterval() (time.Duration, error) {
 
 // ConfigurationPolicySpec defines the desired state of ConfigurationPolicy
 type ConfigurationPolicySpec struct {
-	Severity          Severity          `json:"severity,omitempty"`          // low, medium, high
-	RemediationAction RemediationAction `json:"remediationAction,omitempty"` // enforce, inform
+	Severity          Severity          `json:"severity,omitempty"` // low, medium, high
+	RemediationAction RemediationAction `json:"remediationAction"`  // enforce, inform
 	// 'namespaceSelector' defines the list of namespaces to include/exclude for objects defined in
 	// spec.objectTemplates. All selector rules are ANDed. If 'include' is not provided but
 	// 'matchLabels' and/or 'matchExpressions' are, 'include' will behave as if ['*'] were given. If
@@ -186,7 +186,7 @@ type ObjectTemplate struct {
 
 	// ObjectDefinition defines required fields for the object
 	// +kubebuilder:pruning:PreserveUnknownFields
-	ObjectDefinition runtime.RawExtension `json:"objectDefinition,omitempty"`
+	ObjectDefinition runtime.RawExtension `json:"objectDefinition"`
 }
 
 // ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
