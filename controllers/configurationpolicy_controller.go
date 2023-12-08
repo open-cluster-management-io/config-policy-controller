@@ -198,26 +198,26 @@ func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
 
 		var skipLoop bool
 
-		if len(r.apiResourceList) == 0 || len(r.apiGroups) == 0 {
-			discoveryErr := r.refreshDiscoveryInfo()
-
-			// If there was an error and no API information was received, then skip the loop.
-			if discoveryErr != nil && (len(r.apiResourceList) == 0 || len(r.apiGroups) == 0) {
-				skipLoop = true
-			}
-		}
-
-		// If it's been more than 10 minutes since the last refresh, then refresh the discovery info, but ignore
-		// any errors since the cache can still be used. If a policy encounters an API resource type not in the
-		// cache, the discovery info refresh will be handled there. This periodic refresh is to account for
-		// deleted CRDs or strange edits to the CRD (e.g. converted it from namespaced to not).
-		if time.Since(r.discoveryLastRefreshed) >= waiting {
-			_ = r.refreshDiscoveryInfo()
-		}
-
 		cleanupImmediately := r.UninstallMode
 
 		if !r.UninstallMode {
+			if len(r.apiResourceList) == 0 || len(r.apiGroups) == 0 {
+				discoveryErr := r.refreshDiscoveryInfo()
+
+				// If there was an error and no API information was received, then skip the loop.
+				if discoveryErr != nil && (len(r.apiResourceList) == 0 || len(r.apiGroups) == 0) {
+					skipLoop = true
+				}
+			}
+
+			// If it's been more than 10 minutes since the last refresh, then refresh the discovery info, but ignore
+			// any errors since the cache can still be used. If a policy encounters an API resource type not in the
+			// cache, the discovery info refresh will be handled there. This periodic refresh is to account for
+			// deleted CRDs or strange edits to the CRD (e.g. converted it from namespaced to not).
+			if time.Since(r.discoveryLastRefreshed) >= waiting {
+				_ = r.refreshDiscoveryInfo()
+			}
+
 			uninstalling, crdDeleting, err := r.cleanupImmediately()
 			if !uninstalling && !crdDeleting && err != nil {
 				log.Error(err, "Failed to determine if it's time to cleanup immediately")
