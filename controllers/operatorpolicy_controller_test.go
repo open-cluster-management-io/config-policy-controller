@@ -12,7 +12,6 @@ import (
 )
 
 func TestBuildSubscription(t *testing.T) {
-	testSubscription := new(operatorv1alpha1.Subscription)
 	testPolicy := &policyv1beta1.OperatorPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-policy",
@@ -42,8 +41,8 @@ func TestBuildSubscription(t *testing.T) {
 	}
 
 	// Check values are correctly bootstrapped to the Subscription
-	ret := buildSubscription(testPolicy, testSubscription)
-	assert.Equal(t, ret.GetObjectKind().GroupVersionKind(), desiredGVK)
+	ret := buildSubscription(testPolicy)
+	assert.Equal(t, ret.GroupVersionKind(), desiredGVK)
 	assert.Equal(t, ret.ObjectMeta.Name, "my-operator")
 	assert.Equal(t, ret.ObjectMeta.Namespace, "default")
 	assert.Equal(t, ret.Spec, &testPolicy.Spec.Subscription.SubscriptionSpec)
@@ -80,8 +79,8 @@ func TestBuildOperatorGroup(t *testing.T) {
 
 	// Ensure OperatorGroup values are populated correctly
 	ret := buildOperatorGroup(testPolicy)
-	assert.Equal(t, ret.GetObjectKind().GroupVersionKind(), desiredGVK)
-	assert.Equal(t, ret.ObjectMeta.GetName(), "my-operator-operator-group")
+	assert.Equal(t, ret.GroupVersionKind(), desiredGVK)
+	assert.Equal(t, ret.ObjectMeta.GetName(), "my-operator-default-og")
 	assert.Equal(t, ret.ObjectMeta.GetNamespace(), "default")
-	assert.Equal(t, ret.Spec.TargetNamespaces, []string{"*"})
+	assert.Equal(t, ret.Spec.TargetNamespaces, []string{})
 }

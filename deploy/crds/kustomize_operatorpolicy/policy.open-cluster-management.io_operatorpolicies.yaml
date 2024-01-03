@@ -68,68 +68,66 @@ spec:
                     type: string
                   target:
                     description: Target namespaces of the referent
-                    items:
-                      properties:
-                        namespaces:
-                          description: '''namespaces'' and ''selector'' both define
-                            an array/set of target namespaces that should be affected
-                            on the cluster. Only one of ''namespaces'' or ''selector''
-                            should be specified, and if both are set then ''selector''
-                            will be omitted.'
-                          items:
-                            type: string
-                          type: array
-                        selector:
-                          description: '''namespaces'' and ''selector'' both define
-                            an array/set of target namespaces that should be affected
-                            on the cluster. Only one of ''namespaces'' or ''selector''
-                            should be specified, and if both are set then ''selector''
-                            will be omitted.'
-                          properties:
-                            matchExpressions:
-                              description: matchExpressions is a list of label selector
-                                requirements. The requirements are ANDed.
-                              items:
-                                description: A label selector requirement is a selector
-                                  that contains values, a key, and an operator that
-                                  relates the key and values.
-                                properties:
-                                  key:
-                                    description: key is the label key that the selector
-                                      applies to.
+                    properties:
+                      namespaces:
+                        description: '''namespaces'' and ''selector'' both define
+                          an array/set of target namespaces that should be affected
+                          on the cluster. Only one of ''namespaces'' or ''selector''
+                          should be specified, and if both are set then ''selector''
+                          will be omitted.'
+                        items:
+                          type: string
+                        type: array
+                      selector:
+                        description: '''namespaces'' and ''selector'' both define
+                          an array/set of target namespaces that should be affected
+                          on the cluster. Only one of ''namespaces'' or ''selector''
+                          should be specified, and if both are set then ''selector''
+                          will be omitted.'
+                        properties:
+                          matchExpressions:
+                            description: matchExpressions is a list of label selector
+                              requirements. The requirements are ANDed.
+                            items:
+                              description: A label selector requirement is a selector
+                                that contains values, a key, and an operator that
+                                relates the key and values.
+                              properties:
+                                key:
+                                  description: key is the label key that the selector
+                                    applies to.
+                                  type: string
+                                operator:
+                                  description: operator represents a key's relationship
+                                    to a set of values. Valid operators are In, NotIn,
+                                    Exists and DoesNotExist.
+                                  type: string
+                                values:
+                                  description: values is an array of string values.
+                                    If the operator is In or NotIn, the values array
+                                    must be non-empty. If the operator is Exists or
+                                    DoesNotExist, the values array must be empty.
+                                    This array is replaced during a strategic merge
+                                    patch.
+                                  items:
                                     type: string
-                                  operator:
-                                    description: operator represents a key's relationship
-                                      to a set of values. Valid operators are In,
-                                      NotIn, Exists and DoesNotExist.
-                                    type: string
-                                  values:
-                                    description: values is an array of string values.
-                                      If the operator is In or NotIn, the values array
-                                      must be non-empty. If the operator is Exists
-                                      or DoesNotExist, the values array must be empty.
-                                      This array is replaced during a strategic merge
-                                      patch.
-                                    items:
-                                      type: string
-                                    type: array
-                                required:
-                                - key
-                                - operator
-                                type: object
-                              type: array
-                            matchLabels:
-                              additionalProperties:
-                                type: string
-                              description: matchLabels is a map of {key,value} pairs.
-                                A single {key,value} in the matchLabels map is equivalent
-                                to an element of matchExpressions, whose key field
-                                is "key", the operator is "In", and the values array
-                                contains only "value". The requirements are ANDed.
+                                  type: array
+                              required:
+                              - key
+                              - operator
                               type: object
-                          type: object
-                      type: object
-                    type: array
+                            type: array
+                          matchLabels:
+                            additionalProperties:
+                              type: string
+                            description: matchLabels is a map of {key,value} pairs.
+                              A single {key,value} in the matchLabels map is equivalent
+                              to an element of matchExpressions, whose key field is
+                              "key", the operator is "In", and the values array contains
+                              only "value". The requirements are ANDed.
+                            type: object
+                        type: object
+                    type: object
                 type: object
               remediationAction:
                 description: 'RemediationAction : enforce or inform'
@@ -3189,6 +3187,7 @@ spec:
                 type: array
             required:
             - complianceType
+            - subscription
             type: object
           status:
             description: OperatorPolicyStatus defines the observed state of OperatorPolicy

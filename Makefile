@@ -30,7 +30,7 @@ KIND_NAME ?= test-$(MANAGED_CLUSTER_NAME)
 KIND_CLUSTER_NAME ?= kind-$(KIND_NAME)
 KIND_NAMESPACE ?= $(CONTROLLER_NAMESPACE)
 # Test coverage threshold
-export COVERAGE_MIN ?= 74
+export COVERAGE_MIN ?= 75
 COVERAGE_E2E_OUT ?= coverage_e2e.out
 
 # Image URL to use all building/pushing image targets;
@@ -192,6 +192,10 @@ kind-tests: kind-delete-cluster kind-bootstrap-cluster-dev kind-deploy-controlle
 
 .PHONY: install-crds
 install-crds:
+	@echo installing olm
+	curl -L https://github.com/operator-framework/operator-lifecycle-manager/releases/download/v0.26.0/install.sh -o $(LOCAL_BIN)/install.sh
+	chmod +x $(LOCAL_BIN)/install.sh
+	$(LOCAL_BIN)/install.sh v0.26.0
 	@echo installing crds
 	kubectl apply -f test/crds/clusterversions.config.openshift.io.yaml
 	kubectl apply -f test/crds/securitycontextconstraints.security.openshift.io_crd.yaml
@@ -201,6 +205,7 @@ install-crds:
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_policies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
+	kubectl apply -f https://raw.githubusercontent.com/operator-framework/api/master/crds/operators.coreos.com_olmconfigs.yaml
 
 .PHONY: install-resources
 install-resources:
