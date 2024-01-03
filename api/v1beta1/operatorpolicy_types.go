@@ -55,7 +55,7 @@ type OperatorGroup struct {
 	// Namespace of the referent
 	Namespace string `json:"namespace,omitempty"`
 	// Target namespaces of the referent
-	Target []TargetNsOrSelector `json:"target,omitempty"`
+	Target TargetNsOrSelector `json:"target,omitempty"`
 	// Name of the OLM ServiceAccount that defines permissions for member operators
 	// +optional
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
@@ -104,7 +104,8 @@ type OperatorPolicySpec struct {
 	// +optional
 	OperatorGroup *OperatorGroup `json:"operatorGroup,omitempty"`
 	// Subscription defines an Application that can be installed
-	Subscription SubscriptionSpec `json:"subscription,omitempty"`
+	// +kubebuilder:validation:Required
+	Subscription SubscriptionSpec `json:"subscription"`
 	// Versions is a list of nonempty strings that specifies which installed versions are compliant when
 	// in 'inform' mode, and which installPlans are approved when in 'enforce' mode
 	Versions        []policyv1.NonEmptyString `json:"versions,omitempty"`

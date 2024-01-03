@@ -19,6 +19,7 @@ import (
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/spf13/pflag"
 	"github.com/stolostron/go-log-utils/zaputil"
+	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -403,9 +404,7 @@ func main() {
 		UninstallMode:          beingUninstalled,
 	}
 
-	OpReconciler := controllers.OperatorPolicyReconciler{
-		Client: mgr.GetClient(),
-	}
+	managerCtx, managerCancel := context.WithCancel(context.Background())
 
 	if err = reconciler.SetupWithManager(mgr); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")
@@ -413,7 +412,31 @@ func main() {
 	}
 
 	if opts.enableOperatorPolicy {
-		if err = OpReconciler.SetupWithManager(mgr); err != nil {
+		depReconciler, depEvents := depclient.NewControllerRuntimeSource()
+
+		watcher, err := depclient.New(cfg, depReconciler,
+			&depclient.Options{DisableInitialReconcile: true, EnableCache: true})
+		if err != nil {
+			log.Error(err, "Unable to create dependency watcher")
+			os.Exit(1)
+		}
+
+		go func() {
+			err := watcher.Start(managerCtx)
+			if err != nil {
+				panic(err)
+			}
+		}()
+
+		// Wait until the dynamic watcher has started.
+		<-watcher.Started()
+
+		OpReconciler := controllers.OperatorPolicyReconciler{
+			Client:         mgr.GetClient(),
+			DynamicWatcher: watcher,
+		}
+
+		if err = OpReconciler.SetupWithManager(mgr, depEvents); err != nil {
 			log.Error(err, "Unable to create controller", "controller", "OperatorPolicy")
 			os.Exit(1)
 		}
@@ -431,8 +454,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	managerCtx, managerCancel := context.WithCancel(context.Background())
-
 	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
 	log.Info("Periodically processing Configuration Policies", "frequency", opts.frequency)
 
@@ -440,13 +461,6 @@ func main() {
 		reconciler.PeriodicallyExecConfigPolicies(terminatingCtx, opts.frequency, mgr.Elected(), uninstallingCtxCancel)
 		managerCancel()
 	}()
-
-	if opts.enableOperatorPolicy {
-		go func() {
-			OpReconciler.PeriodicallyExecOperatorPolicies(opts.frequency, mgr.Elected())
-			managerCancel()
-		}()
-	}
 
 	// This lease is not related to leader election. This is to report the status of the controller
 	// to the addon framework. This can be seen in the "status" section of the ManagedClusterAddOn

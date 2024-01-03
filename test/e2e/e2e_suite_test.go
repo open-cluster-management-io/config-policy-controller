@@ -47,8 +47,10 @@ var (
 	gvrConfigMap                schema.GroupVersionResource
 	gvrDeployment               schema.GroupVersionResource
 	gvrPolicy                   schema.GroupVersionResource
-
-	defaultImageRegistry string
+	gvrOperatorPolicy           schema.GroupVersionResource
+	gvrSubscription             schema.GroupVersionResource
+	gvrOperatorGroup            schema.GroupVersionResource
+	defaultImageRegistry        string
 )
 
 func TestE2e(t *testing.T) {
@@ -75,6 +77,21 @@ var _ = BeforeSuite(func() {
 		Group:    "policy.open-cluster-management.io",
 		Version:  "v1",
 		Resource: "configurationpolicies",
+	}
+	gvrOperatorPolicy = schema.GroupVersionResource{
+		Group:    "policy.open-cluster-management.io",
+		Version:  "v1beta1",
+		Resource: "operatorpolicies",
+	}
+	gvrSubscription = schema.GroupVersionResource{
+		Group:    "operators.coreos.com",
+		Version:  "v1alpha1",
+		Resource: "subscriptions",
+	}
+	gvrOperatorGroup = schema.GroupVersionResource{
+		Group:    "operators.coreos.com",
+		Version:  "v1",
+		Resource: "operatorgroups",
 	}
 	gvrAPIService = schema.GroupVersionResource{
 		Group:    "apiregistration.k8s.io",
