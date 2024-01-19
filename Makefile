@@ -190,12 +190,14 @@ kind-delete-cluster:
 .PHONY: kind-tests
 kind-tests: kind-delete-cluster kind-bootstrap-cluster-dev kind-deploy-controller-dev e2e-test
 
+OLM_VERSION := v0.26.0
+
 .PHONY: install-crds
 install-crds:
 	@echo installing olm
-	curl -L https://github.com/operator-framework/operator-lifecycle-manager/releases/download/v0.26.0/install.sh -o $(LOCAL_BIN)/install.sh
+	curl -L https://github.com/operator-framework/operator-lifecycle-manager/releases/download/$(OLM_VERSION)/install.sh -o $(LOCAL_BIN)/install.sh
 	chmod +x $(LOCAL_BIN)/install.sh
-	$(LOCAL_BIN)/install.sh v0.26.0
+	$(LOCAL_BIN)/install.sh $(OLM_VERSION)
 	@echo installing crds
 	kubectl apply -f test/crds/clusterversions.config.openshift.io.yaml
 	kubectl apply -f test/crds/securitycontextconstraints.security.openshift.io_crd.yaml
@@ -205,7 +207,6 @@ install-crds:
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_policies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
-	kubectl apply -f https://raw.githubusercontent.com/operator-framework/api/master/crds/operators.coreos.com_olmconfigs.yaml
 
 .PHONY: install-resources
 install-resources:
