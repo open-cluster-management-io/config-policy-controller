@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	case27ConfigPolicyName string = "policy-cfgmap-create"
+	case27ConfigPolicyName string = "case27-policy-cfgmap-create"
 	case27CreateYaml       string = "../resources/case27_showupdateinstatus/case27-create-cfgmap-policy.yaml"
 	case27UpdateYaml       string = "../resources/case27_showupdateinstatus/case27-update-cfgmap-policy.yaml"
 )

@@ -187,7 +187,19 @@ type ObjectTemplate struct {
 	// ObjectDefinition defines required fields for the object
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ObjectDefinition runtime.RawExtension `json:"objectDefinition"`
+
+	// RecordDiff specifies whether (and where) to log the diff between the object on the
+	// cluster and the objectDefinition in the policy. Defaults to "None".
+	RecordDiff RecordDiff `json:"recordDiff,omitempty"`
 }
+
+// +kubebuilder:validation:Enum=Log;None
+type RecordDiff string
+
+const (
+	RecordDiffLog  RecordDiff = "Log"
+	RecordDiffNone RecordDiff = "None"
+)
 
 // ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
 type ConfigurationPolicyStatus struct {
@@ -210,9 +222,6 @@ type CompliancePerClusterStatus struct {
 
 // ComplianceMap map to hold CompliancePerClusterStatus objects
 type ComplianceMap map[string]*CompliancePerClusterStatus
-
-// ResourceState genric description of a state
-type ResourceState string
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status

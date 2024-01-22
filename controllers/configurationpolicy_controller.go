@@ -1775,11 +1775,8 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 			throwSpecViolation = !compliant
 		} else {
-			compType := strings.ToLower(string(objectT.ComplianceType))
-			mdCompType := strings.ToLower(string(objectT.MetadataComplianceType))
-
 			throwSpecViolation, msg, triedUpdate, updatedObj = r.checkAndUpdateResource(
-				obj, compType, mdCompType, remediation,
+				obj, objectT, remediation,
 			)
 		}
 
@@ -2549,10 +2546,12 @@ type cachedEvaluationResult struct {
 // successfully.
 func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	obj singleObject,
-	complianceType string,
-	mdComplianceType string,
+	objectT *policyv1.ObjectTemplate,
 	remediation policyv1.RemediationAction,
 ) (throwSpecViolation bool, message string, updateNeeded bool, updateSucceeded bool) {
+	complianceType := strings.ToLower(string(objectT.ComplianceType))
+	mdComplianceType := strings.ToLower(string(objectT.MetadataComplianceType))
+
 	log := log.WithValues(
 		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
 	)
@@ -2633,16 +2632,6 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		}
 
 		if keyUpdateNeeded {
-			isInform := strings.EqualFold(string(remediation), string(policyv1.Inform))
-
-			// If a key didn't match but the cluster supports dry run mode, then continue merging the object
-			// and then run a dry run update request to see if the Kubernetes API agrees with the assesment.
-			if isInform && !r.DryRunSupported {
-				r.setEvaluatedObject(obj.policy, obj.existingObj, false)
-
-				return true, "", false, false
-			}
-
 			if isStatus {
 				throwSpecViolation = true
 				statusMismatch = true
@@ -2651,16 +2640,18 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			} else {
 				updateNeeded = true
 
-				if !isInform {
-					log.Info("Queuing an update for the object due to a value mismatch", "key", key)
+				mismatchLog := "Detected value mismatch for object key: " + key
+				// Add a configuration breadcrumb for users that might be looking in the logs for a diff
+				if objectT.RecordDiff != policyv1.RecordDiffLog {
+					mismatchLog += " (Diff disabled. To log the diff, " +
+						"set 'spec.object-tempates[].recordDiff' to 'Log' for this object-template.)"
 				}
+				log.Info(mismatchLog)
 			}
 		}
 	}
 
 	if updateNeeded {
-		log.V(2).Info("Updating the object based on the template definition")
-
 		// FieldValidation is supported in k8s 1.25 as beta release
 		// so if the version is below 1.25, we need to use client side validation to validate the object
 		if semver.Compare(r.serverVersion, "v1.25.0") < 0 {
@@ -2690,13 +2681,13 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 				// If it's a conflict, refetch the object and try again.
 				if k8serrors.IsConflict(err) {
-					log.Info("The object updating during the evaluation. Trying again.")
+					log.Info("The object was updating during the evaluation. Trying again.")
 
 					rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
 					if getErr == nil {
 						obj.existingObj = rv
 
-						return r.checkAndUpdateResource(obj, complianceType, mdComplianceType, remediation)
+						return r.checkAndUpdateResource(obj, objectT, remediation)
 					}
 				}
 
@@ -2725,13 +2716,37 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				return false, "", false, false
 			}
 
-			// The object would have been updated, so if it's inform, return as noncompliant.
-			if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
-				r.setEvaluatedObject(obj.policy, obj.existingObj, false)
+			// Generate and log the diff
+			if objectT.RecordDiff == policyv1.RecordDiffLog {
+				diff, err := generateDiff(existingObjectCopy, dryRunUpdatedObj)
+				if err != nil {
+					log.Info("Failed to generate the diff: " + err.Error())
+				} else {
+					log.Info("Logging the diff:\n" + diff)
+				}
+			}
+		} else if objectT.RecordDiff == policyv1.RecordDiffLog {
+			// Generate and log the diff for when dryrun is unsupported (i.e. OCP v3.11)
+			mergedObjCopy := obj.existingObj.DeepCopy()
+			removeFieldsForComparison(mergedObjCopy)
 
-				return true, "", false, false
+			diff, err := generateDiff(existingObjectCopy, mergedObjCopy)
+			if err != nil {
+				log.Info("Failed to generate the diff: " + err.Error())
+			} else {
+				log.Info("Logging the diff:\n" + diff)
 			}
 		}
+
+		// The object would have been updated, so if it's inform, return as noncompliant.
+		if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
+			r.setEvaluatedObject(obj.policy, obj.existingObj, false)
+
+			return true, "", false, false
+		}
+
+		// If it's not inform (i.e. enforce), update the object
+		log.Info("Updating the object based on the template definition")
 
 		updatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
 			FieldValidation: metav1.FieldValidationStrict,
@@ -2744,7 +2759,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				if getErr == nil {
 					obj.existingObj = rv
 
-					return r.checkAndUpdateResource(obj, complianceType, mdComplianceType, remediation)
+					return r.checkAndUpdateResource(obj, objectT, remediation)
 				}
 			}
 
