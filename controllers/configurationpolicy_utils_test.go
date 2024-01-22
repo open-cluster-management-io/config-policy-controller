@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
@@ -196,4 +197,113 @@ func TestEqualObjWithSortEmptyMap(t *testing.T) {
 
 	assert.True(t, equalObjWithSort(mergedObj, oldObj, true))
 	assert.False(t, equalObjWithSort(mergedObj, oldObj, false))
+}
+
+func TestGenerateDiff(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct {
+		existingObj  map[string]interface{}
+		updatedObj   map[string]interface{}
+		expectedDiff string
+	}{
+		"same object generates no diff": {
+			existingObj: map[string]interface{}{
+				"cities": map[string]interface{}{},
+			},
+			updatedObj: map[string]interface{}{
+				"cities": map[string]interface{}{},
+			},
+		},
+		"object with new child key": {
+			existingObj: map[string]interface{}{
+				"cities": map[string]interface{}{},
+			},
+			updatedObj: map[string]interface{}{
+				"cities": map[string]interface{}{
+					"raleigh": map[string]interface{}{},
+				},
+			},
+			expectedDiff: `
+@@ -1,2 +1,3 @@
+-cities: {}
++cities:
++  raleigh: {}`,
+		},
+		"object with new key": {
+			existingObj: map[string]interface{}{
+				"cities": map[string]interface{}{},
+			},
+			updatedObj: map[string]interface{}{
+				"cities": map[string]interface{}{},
+				"states": map[string]interface{}{},
+			},
+			expectedDiff: `
+@@ -1,2 +1,3 @@
+ cities: {}
++states: {}`,
+		},
+		"array with added item": {
+			existingObj: map[string]interface{}{
+				"cities": []string{
+					"Raleigh",
+				},
+			},
+			updatedObj: map[string]interface{}{
+				"cities": []string{
+					"Raleigh",
+					"Durham",
+				},
+			},
+			expectedDiff: `
+@@ -2,2 +2,3 @@
+ - Raleigh
++- Durham`,
+		},
+		"array with removed item": {
+			existingObj: map[string]interface{}{
+				"cities": []string{
+					"Raleigh",
+					"Durham",
+				},
+			},
+			updatedObj: map[string]interface{}{
+				"cities": []string{
+					"Raleigh",
+				},
+			},
+			expectedDiff: `
+@@ -2,3 +2,2 @@
+ - Raleigh
+-- Durham`,
+		},
+	}
+
+	for testName, test := range tests {
+		test := test
+
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+
+			existingObj := &unstructured.Unstructured{
+				Object: test.existingObj,
+			}
+			updatedObj := &unstructured.Unstructured{
+				Object: test.updatedObj,
+			}
+
+			diff, err := generateDiff(existingObj, updatedObj)
+			if err != nil {
+				t.Fatal(fmt.Errorf("Encountered unexpected error: %w", err))
+			}
+
+			// go-diff adds a trailing newline and whitespace, which gets
+			// chomped when logging, so adding it here just for the test,
+			// along with the common prefix
+			if test.expectedDiff != "" {
+				test.expectedDiff = "---  : existing\n+++  : updated" + test.expectedDiff + "\n \n"
+			}
+			assert.Equal(t, test.expectedDiff, diff)
+		})
+	}
 }

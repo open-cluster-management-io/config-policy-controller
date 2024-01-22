@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: case27-policy-cfgmap-create
+  name: case39-policy-cfgmap-create
 spec:
   remediationAction: enforce
   namespaceSelector:
@@ -9,10 +9,11 @@ spec:
     include: ["default"]
   object-templates:
     - complianceType: musthave
+      recordDiff: Log
       objectDefinition:
         apiVersion: v1
         kind: ConfigMap
         metadata:
-          name: case27-map
+          name: case39-map
         data:
-          fieldToUpdate: "2"
+          fieldToUpdate: "1"

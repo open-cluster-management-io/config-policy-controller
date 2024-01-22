@@ -11,11 +11,13 @@ import (
 	"strings"
 
 	gocmp "github.com/google/go-cmp/cmp"
+	"github.com/pmezard/go-difflib/difflib"
 	apiRes "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
+	"sigs.k8s.io/yaml"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
@@ -675,4 +677,46 @@ func containRelated(related []policyv1.RelatedObject, input policyv1.RelatedObje
 	}
 
 	return false
+}
+
+// generateDiff takes two unstructured objects and returns the diff between the two embedded objects
+func generateDiff(existingObj, updatedObj *unstructured.Unstructured) (string, error) {
+	// Marshal YAML to []byte and parse object names for logging
+	existingYAML, err := yaml.Marshal(existingObj.Object)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal existing object to YAML for diff: %w", err)
+	}
+
+	existingYAMLName := existingObj.GetName() + " : existing"
+	if existingObj.GetNamespace() != "" {
+		existingYAMLName = existingObj.GetNamespace() + "/" + existingYAMLName
+	}
+
+	updatedYAML, err := yaml.Marshal(updatedObj.Object)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal updated object to YAML for diff: %w", err)
+	}
+
+	updatedYAMLName := updatedObj.GetName() + " : updated"
+	if updatedObj.GetNamespace() != "" {
+		updatedYAMLName = updatedObj.GetNamespace() + "/" + updatedYAMLName
+	}
+
+	// Set the diffing configuration
+	// See https://pkg.go.dev/github.com/pmezard/go-difflib/difflib#UnifiedDiff
+	unifiedDiff := difflib.UnifiedDiff{
+		A:        difflib.SplitLines(string(existingYAML)),
+		FromFile: existingYAMLName,
+		B:        difflib.SplitLines(string(updatedYAML)),
+		ToFile:   updatedYAMLName,
+		Context:  1,
+	}
+
+	// Generate and return the diff
+	diff, err := difflib.GetUnifiedDiffString(unifiedDiff)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate diff: %w", err)
+	}
+
+	return diff, nil
 }
