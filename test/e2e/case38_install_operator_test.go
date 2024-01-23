@@ -99,10 +99,12 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			})
 
 			It("Should become Compliant", func() {
-				OpPlc := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy,
-					case38OpPolicyDefaultOgName, case38OpPolicyDefaultOgNS, true, defaultTimeoutSeconds)
+				Eventually(func() interface{} {
+					OpPlc := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy,
+						case38OpPolicyDefaultOgName, case38OpPolicyDefaultOgNS, true, defaultTimeoutSeconds)
 
-				Expect(utils.GetComplianceState(OpPlc)).To(Equal("Compliant"))
+					return utils.GetComplianceState(OpPlc)
+				}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 			})
 
 			It("Should have installed the operator", func() {
