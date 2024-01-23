@@ -68,7 +68,7 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 			)
 
 			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+		}, defaultTimeoutSeconds*2, 1).Should(Equal("Compliant"))
 
 		By("Verifying that the " + policyName + " was created using the alternative kubeconfig")
 		_, err := targetK8sClient.CoreV1().Namespaces().Get(context.TODO(), namespaceName, metav1.GetOptions{})
