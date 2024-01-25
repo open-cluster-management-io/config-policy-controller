@@ -39,8 +39,8 @@ const (
 
 var _ = Describe("Testing compliance event formatting", Ordered, func() {
 	It("Records the right events for a policy that is always compliant", func() {
-		createConfigPolicyWithParent(case15AlwaysCompliantParentYaml, case15AlwaysCompliantParentName,
-			case15AlwaysCompliantYaml)
+		createObjWithParent(case15AlwaysCompliantParentYaml, case15AlwaysCompliantParentName,
+			case15AlwaysCompliantYaml, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15AlwaysCompliantName, testNamespace, true, defaultTimeoutSeconds)
@@ -73,8 +73,8 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		Expect(nonCompParentEvents).To(BeEmpty())
 	})
 	It("Records the right events for a policy that is never compliant", func() {
-		createConfigPolicyWithParent(case15NeverCompliantParentYaml, case15NeverCompliantParentName,
-			case15NeverCompliantYaml)
+		createObjWithParent(case15NeverCompliantParentYaml, case15NeverCompliantParentName,
+			case15NeverCompliantYaml, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15NeverCompliantName, testNamespace, true, defaultTimeoutSeconds)
@@ -107,8 +107,8 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 	})
 	It("Records events for a policy that becomes compliant", func() {
-		createConfigPolicyWithParent(case15BecomesCompliantParentYaml, case15BecomesCompliantParentName,
-			case15BecomesCompliantYaml)
+		createObjWithParent(case15BecomesCompliantParentYaml, case15BecomesCompliantParentName,
+			case15BecomesCompliantYaml, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15BecomesCompliantName, testNamespace, true, defaultTimeoutSeconds)
@@ -147,8 +147,8 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 	})
 	It("Records events for a policy that becomes noncompliant", func() {
-		createConfigPolicyWithParent(case15BecomesNonCompliantParentYaml, case15BecomesNonCompliantParentName,
-			case15BecomesNonCompliantYaml)
+		createObjWithParent(case15BecomesNonCompliantParentYaml, case15BecomesNonCompliantParentName,
+			case15BecomesNonCompliantYaml, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15BecomesNonCompliantName, testNamespace, true, defaultTimeoutSeconds)

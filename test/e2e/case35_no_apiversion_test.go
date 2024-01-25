@@ -21,7 +21,7 @@ var _ = Describe("Test a policy with an objectDefinition that is missing apiVers
 
 	It("Should have the expected events", func() {
 		By("Setting up the policy")
-		createConfigPolicyWithParent(policyYAML, policyName, cfgPlcYAML)
+		createObjWithParent(policyYAML, policyName, cfgPlcYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		By("Checking there is a NonCompliant event on the policy")
 		Eventually(func() interface{} {

@@ -59,7 +59,7 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 	})
 
 	It("should create the namespace using the alternative kubeconfig", func() {
-		createConfigPolicyWithParent(parentPolicyYAML, parentPolicyName, policyYAML)
+		createObjWithParent(parentPolicyYAML, parentPolicyName, policyYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		By("Verifying that the " + policyName + " policy is compliant")
 		Eventually(func() interface{} {

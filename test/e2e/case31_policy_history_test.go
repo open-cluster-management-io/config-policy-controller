@@ -10,6 +10,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -55,7 +56,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 		)
 
 		It("sets up a configuration policy with an omitempty boolean set to false", func() {
-			createConfigPolicyWithParent(policyYAML, policyName, configPolicyYAML)
+			createObjWithParent(policyYAML, policyName, configPolicyYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 		})
 
 		It("checks the policy's history", func() {
@@ -82,7 +83,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 		)
 
 		It("sets up a configuration policy with an omitempty number set to 0", func() {
-			createConfigPolicyWithParent(policyYAML, policyName, configPolicyYAML)
+			createObjWithParent(policyYAML, policyName, configPolicyYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 		})
 
 		It("checks the policy's history", func() {
@@ -109,7 +110,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 		)
 
 		It("sets up a configuration policy with an omitempty number set to 0", func() {
-			createConfigPolicyWithParent(policyYAML, policyName, configPolicyYAML)
+			createObjWithParent(policyYAML, policyName, configPolicyYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 		})
 
 		It("checks the policy's history", func() {
@@ -136,7 +137,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 		)
 
 		It("sets up a configuration policy with struct set to null", func() {
-			createConfigPolicyWithParent(policyYAML, policyName, configPolicyYAML)
+			createObjWithParent(policyYAML, policyName, configPolicyYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 		})
 
 		It("checks the policy's history", func() {
@@ -221,27 +222,29 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 	})
 })
 
-func createConfigPolicyWithParent(parentPolicyYAML, parentPolicyName, configPolicyYAML string) {
-	By("Creating the parent policy")
-	utils.Kubectl("apply", "-f", parentPolicyYAML, "-n", testNamespace)
-	parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
-		parentPolicyName, testNamespace, true, defaultTimeoutSeconds)
+func createObjWithParent(
+	parentYAML, parentName, childYAML, namespace string, parentGVR, childGVR schema.GroupVersionResource,
+) {
+	By("Creating the parent object")
+	utils.Kubectl("apply", "-f", parentYAML, "-n", namespace)
+	parent := utils.GetWithTimeout(clientManagedDynamic, parentGVR,
+		parentName, namespace, true, defaultTimeoutSeconds)
 	Expect(parent).NotTo(BeNil())
 
-	plcDef := utils.ParseYaml(configPolicyYAML)
-	ownerRefs := plcDef.GetOwnerReferences()
+	child := utils.ParseYaml(childYAML)
+	ownerRefs := child.GetOwnerReferences()
 	ownerRefs[0].UID = parent.GetUID()
-	plcDef.SetOwnerReferences(ownerRefs)
+	child.SetOwnerReferences(ownerRefs)
 
-	By("Creating the configuration policy with the owner reference")
+	By("Creating the child object with the owner reference")
 
-	_, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).
-		Create(context.TODO(), plcDef, metav1.CreateOptions{})
+	_, err := clientManagedDynamic.Resource(childGVR).Namespace(namespace).
+		Create(context.TODO(), child, metav1.CreateOptions{})
 	Expect(err).ToNot(HaveOccurred())
 
-	By("Verifying the configuration policy exists")
+	By("Verifying the child object exists")
 
-	plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-		plcDef.GetName(), testNamespace, true, defaultTimeoutSeconds)
+	plc := utils.GetWithTimeout(clientManagedDynamic, childGVR,
+		child.GetName(), namespace, true, defaultTimeoutSeconds)
 	Expect(plc).NotTo(BeNil())
 }
