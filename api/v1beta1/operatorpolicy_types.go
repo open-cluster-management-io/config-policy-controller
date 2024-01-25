@@ -101,6 +101,31 @@ type OperatorPolicyStatus struct {
 	RelatedObjects []policyv1.RelatedObject `json:"relatedObjects"`
 }
 
+func (status OperatorPolicyStatus) RelatedObjsOfKind(kind string) map[int]policyv1.RelatedObject {
+	objs := make(map[int]policyv1.RelatedObject)
+
+	for i, related := range status.RelatedObjects {
+		if related.Object.Kind == kind {
+			objs[i] = related
+		}
+	}
+
+	return objs
+}
+
+// Searches the conditions of the policy, and returns the index and condition matching the
+// given condition Type. It will return -1 as the index if no condition of the specified
+// Type is found.
+func (status OperatorPolicyStatus) GetCondition(condType string) (int, metav1.Condition) {
+	for i, cond := range status.Conditions {
+		if cond.Type == condType {
+			return i, cond
+		}
+	}
+
+	return -1, metav1.Condition{}
+}
+
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
 

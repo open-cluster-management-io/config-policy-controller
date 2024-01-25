@@ -434,6 +434,7 @@ func main() {
 		OpReconciler := controllers.OperatorPolicyReconciler{
 			Client:         mgr.GetClient(),
 			DynamicWatcher: watcher,
+			InstanceName:   instanceName,
 		}
 
 		if err = OpReconciler.SetupWithManager(mgr, depEvents); err != nil {
