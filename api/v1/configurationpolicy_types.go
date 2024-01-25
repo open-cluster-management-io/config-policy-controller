@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // A custom type is required since there is no way to have a kubebuilder marker
@@ -322,6 +323,22 @@ type ObjectResource struct {
 	APIVersion string `json:"apiVersion,omitempty"`
 	// Metadata values from the referent.
 	Metadata ObjectMetadata `json:"metadata,omitempty"`
+}
+
+func ObjectResourceFromObj(obj client.Object) ObjectResource {
+	name := obj.GetName()
+	if name == "" {
+		name = "*"
+	}
+
+	return ObjectResource{
+		Kind:       obj.GetObjectKind().GroupVersionKind().Kind,
+		APIVersion: obj.GetObjectKind().GroupVersionKind().GroupVersion().String(),
+		Metadata: ObjectMetadata{
+			Name:      name,
+			Namespace: obj.GetNamespace(),
+		},
+	}
 }
 
 // ObjectMetadata contains the resource metadata for an object being processed by the policy

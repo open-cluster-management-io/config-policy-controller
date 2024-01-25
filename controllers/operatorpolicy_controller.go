@@ -5,17 +5,21 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"reflect"
 
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/apimachinery/pkg/util/json"
+	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -24,7 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
-	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 )
 
@@ -37,12 +40,11 @@ var (
 	operatorGroupGVK = schema.GroupVersionKind{Group: "operators.coreos.com", Version: "v1", Kind: "OperatorGroup"}
 )
 
-var OpLog = ctrl.Log.WithName(OperatorControllerName)
-
 // OperatorPolicyReconciler reconciles a OperatorPolicy object
 type OperatorPolicyReconciler struct {
 	client.Client
 	DynamicWatcher depclient.DynamicWatcher
+	InstanceName   string
 }
 
 // SetupWithManager sets up the controller with the Manager and will reconcile when the dynamic watcher
@@ -76,21 +78,15 @@ var _ reconcile.Reconciler = &OperatorPolicyReconciler{}
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.4/pkg/reconcile
 func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
+	OpLog := ctrl.LoggerFrom(ctx)
 	policy := &policyv1beta1.OperatorPolicy{}
-
-	watcher := depclient.ObjectIdentifier{
-		Group:     operatorv1.GroupVersion.Group,
-		Version:   operatorv1.GroupVersion.Version,
-		Kind:      "OperatorPolicy",
-		Namespace: req.Namespace,
-		Name:      req.Name,
-	}
+	watcher := opPolIdentifier(req.Namespace, req.Name)
 
 	// Get the applied OperatorPolicy
 	err := r.Get(ctx, req.NamespacedName, policy)
 	if err != nil {
-		if errors.IsNotFound(err) {
-			OpLog.Info("Operator policy could not be found", "name", req.Name, "namespace", req.Namespace)
+		if k8serrors.IsNotFound(err) {
+			OpLog.Info("Operator policy could not be found")
 
 			err = r.DynamicWatcher.RemoveWatcher(watcher)
 			if err != nil {
@@ -108,8 +104,7 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Start query batch for caching and watching related objects
 	err = r.DynamicWatcher.StartQueryBatch(watcher)
 	if err != nil {
-		OpLog.Error(err, "Could not start query batch for the watcher", "watcher", watcher.Name,
-			"watcherKind", watcher.Kind)
+		OpLog.Error(err, "Could not start query batch for the watcher")
 
 		return reconcile.Result{}, err
 	}
@@ -117,179 +112,341 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	defer func() {
 		err := r.DynamicWatcher.EndQueryBatch(watcher)
 		if err != nil {
-			OpLog.Error(err, "Could not end query batch for the watcher", "watcher", watcher.Name,
-				"watcherKind", watcher.Kind)
+			OpLog.Error(err, "Could not end query batch for the watcher")
 		}
 	}()
 
 	// handle the policy
-	OpLog.Info("Reconciling OperatorPolicy", "policy", policy.Name)
+	OpLog.Info("Reconciling OperatorPolicy")
 
-	// (temporary)
+	if err := r.handleOpGroup(ctx, policy); err != nil {
+		OpLog.Error(err, "Error handling OperatorGroup")
+
+		return reconcile.Result{}, err
+	}
+
+	if err := r.handleSubscription(ctx, policy); err != nil {
+		OpLog.Error(err, "Error handling Subscription")
+
+		return reconcile.Result{}, err
+	}
+
+	// FUTURE: more resource checks
+
+	return reconcile.Result{}, nil
+}
+
+func (r *OperatorPolicyReconciler) handleOpGroup(ctx context.Context, policy *policyv1beta1.OperatorPolicy) error {
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	desiredOpGroup, err := buildOperatorGroup(policy)
+	if err != nil {
+		return fmt.Errorf("error building operator group: %w", err)
+	}
+
+	foundOpGroups, err := r.DynamicWatcher.List(
+		watcher, operatorGroupGVK, desiredOpGroup.Namespace, labels.Everything())
+	if err != nil {
+		return fmt.Errorf("error listing OperatorGroups: %w", err)
+	}
+
+	switch len(foundOpGroups) {
+	case 0:
+		// Missing OperatorGroup: report NonCompliance
+		err := r.updateStatus(ctx, policy, missingWantedCond("OperatorGroup"), missingWantedObj(desiredOpGroup))
+		if err != nil {
+			return fmt.Errorf("error updating the status for a missing OperatorGroup: %w", err)
+		}
+
+		if policy.Spec.RemediationAction.IsEnforce() {
+			err = r.Create(ctx, desiredOpGroup)
+			if err != nil {
+				return fmt.Errorf("error creating the OperatorGroup: %w", err)
+			}
+
+			desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Create stripped this information
+
+			// Now the OperatorGroup should match, so report Compliance
+			err = r.updateStatus(ctx, policy, createdCond("OperatorGroup"), createdObj(desiredOpGroup))
+			if err != nil {
+				return fmt.Errorf("error updating the status for a created OperatorGroup: %w", err)
+			}
+		}
+	case 1:
+		opGroup := foundOpGroups[0]
+
+		// Check if what's on the cluster matches what the policy wants (whether it's specified or not)
+
+		emptyNameMatch := desiredOpGroup.Name == "" && opGroup.GetGenerateName() == desiredOpGroup.GenerateName
+
+		if !(opGroup.GetName() == desiredOpGroup.Name || emptyNameMatch) {
+			if policy.Spec.OperatorGroup == nil {
+				// The policy doesn't specify what the OperatorGroup should look like, but what is already
+				// there is not the default one the policy would create.
+				// FUTURE: check if the one operator group is compatible with the desired subscription.
+				// For an initial implementation, assume if an OperatorGroup already exists, then it's a good one.
+				err := r.updateStatus(ctx, policy, opGroupPreexistingCond, matchedObj(&opGroup))
+				if err != nil {
+					return fmt.Errorf("error updating the status for a pre-existing OperatorGroup: %w", err)
+				}
+
+				return nil
+			}
+
+			// There is an OperatorGroup in the namespace that does not match the name of what is in the policy.
+			// Just creating a new one would cause the "TooManyOperatorGroups" failure.
+			// So, just report a NonCompliant status.
+			missing := missingWantedObj(desiredOpGroup)
+			badExisting := mismatchedObj(&opGroup)
+
+			err := r.updateStatus(ctx, policy, mismatchCond("OperatorGroup"), missing, badExisting)
+			if err != nil {
+				return fmt.Errorf("error updating the status for an OperatorGroup with the wrong name: %w", err)
+			}
+
+			return nil
+		}
+
+		// check whether the specs match
+		desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desiredOpGroup)
+		if err != nil {
+			return fmt.Errorf("error converting desired OperatorGroup to an Unstructured: %w", err)
+		}
+
+		merged := opGroup.DeepCopy() // Copy it so that the value in the cache is not changed
+
+		updateNeeded, skipUpdate, err := r.mergeObjects(
+			ctx, desiredUnstruct, merged, string(policy.Spec.ComplianceType),
+		)
+		if err != nil {
+			return fmt.Errorf("error checking if the OperatorGroup needs an update: %w", err)
+		}
+
+		if !updateNeeded {
+			// Everything relevant matches!
+			err := r.updateStatus(ctx, policy, matchesCond("OperatorGroup"), matchedObj(&opGroup))
+			if err != nil {
+				return fmt.Errorf("error updating the status for an OperatorGroup that matches: %w", err)
+			}
+
+			return nil
+		}
+
+		// Specs don't match.
+
+		if policy.Spec.OperatorGroup == nil {
+			// The policy doesn't specify what the OperatorGroup should look like, but what is already
+			// there is not the default one the policy would create.
+			// FUTURE: check if the one operator group is compatible with the desired subscription.
+			// For an initial implementation, assume if an OperatorGroup already exists, then it's a good one.
+			err := r.updateStatus(ctx, policy, opGroupPreexistingCond, matchedObj(&opGroup))
+			if err != nil {
+				return fmt.Errorf("error updating the status for a pre-existing OperatorGroup: %w", err)
+			}
+
+			return nil
+		}
+
+		if policy.Spec.RemediationAction.IsEnforce() && skipUpdate {
+			err = r.updateStatus(ctx, policy, mismatchCondUnfixable("OperatorGroup"), mismatchedObj(&opGroup))
+			if err != nil {
+				return fmt.Errorf("error updating status for an unenforceable mismatched OperatorGroup: %w", err)
+			}
+
+			return nil
+		}
+
+		// The names match, but the specs don't: report NonCompliance
+		err = r.updateStatus(ctx, policy, mismatchCond("OperatorGroup"), mismatchedObj(&opGroup))
+		if err != nil {
+			return fmt.Errorf("error updating the status for an OperatorGroup that does not match: %w", err)
+		}
+
+		if policy.Spec.RemediationAction.IsEnforce() {
+			desiredOpGroup.ResourceVersion = opGroup.GetResourceVersion()
+
+			err := r.Update(ctx, merged)
+			if err != nil {
+				return fmt.Errorf("error updating the OperatorGroup: %w", err)
+			}
+
+			desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Update stripped this information
+
+			// It was updated and should match now, so report Compliance
+			err = r.updateStatus(ctx, policy, updatedCond("OperatorGroup"), updatedObj(desiredOpGroup))
+			if err != nil {
+				return fmt.Errorf("error updating the status after updating the OperatorGroup: %w", err)
+			}
+		}
+	default:
+		// This situation will always lead to a "TooManyOperatorGroups" failure on the CSV.
+		// Consider improving this in the future: perhaps this could suggest one of the OperatorGroups to keep.
+		err := r.updateStatus(ctx, policy, opGroupTooManyCond, opGroupTooManyObjs(foundOpGroups)...)
+		if err != nil {
+			return fmt.Errorf("error updating the status when there are multiple OperatorGroups: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// buildOperatorGroup bootstraps the OperatorGroup spec defined in the operator policy
+// with the apiversion and kind in preparation for resource creation
+func buildOperatorGroup(
+	policy *policyv1beta1.OperatorPolicy,
+) (*operatorv1.OperatorGroup, error) {
+	operatorGroup := new(operatorv1.OperatorGroup)
+
+	operatorGroup.Status.LastUpdated = &metav1.Time{} // without this, some conversions can panic
+	operatorGroup.SetGroupVersionKind(operatorGroupGVK)
+
 	sub := make(map[string]interface{})
 
-	if err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub); err != nil {
-		return reconcile.Result{}, fmt.Errorf("error unmarshalling subscription: %w", err)
-	}
-
-	// Check if specified Subscription exists
-	cachedSubscription, err := r.DynamicWatcher.Get(watcher, subscriptionGVK, sub["namespace"].(string),
-		sub["name"].(string))
+	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
 	if err != nil {
-		OpLog.Error(err, "Could not get subscription", "kind", subscriptionGVK.Kind,
-			"name", sub["name"].(string),
-			"namespace", sub["namespace"].(string))
-
-		return reconcile.Result{}, err
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
 	}
 
-	subExists := cachedSubscription != nil
-
-	// Check if any OperatorGroups exist in the namespace
-	ogNamespace := sub["namespace"].(string)
-
-	if policy.Spec.OperatorGroup != nil {
-		// (temporary)
-		og := make(map[string]interface{})
-
-		if err := json.Unmarshal(policy.Spec.OperatorGroup.Raw, &og); err != nil {
-			return reconcile.Result{}, fmt.Errorf("error unmarshalling operatorgroup: %w", err)
-		}
-
-		ogNamespace = og["namespace"].(string)
+	subNamespace, ok := sub["namespace"].(string)
+	if !ok {
+		return nil, fmt.Errorf("namespace is required in spec.subscription")
 	}
 
-	cachedOperatorGroups, err := r.DynamicWatcher.List(watcher, operatorGroupGVK, ogNamespace, nil)
+	if validationErrs := validation.IsDNS1123Label(subNamespace); len(validationErrs) != 0 {
+		return nil, fmt.Errorf("the namespace specified in spec.subscription is not a valid namespace identifier")
+	}
+
+	// Create a default OperatorGroup if one wasn't specified in the policy
+	if policy.Spec.OperatorGroup == nil {
+		operatorGroup.ObjectMeta.SetNamespace(subNamespace)
+		operatorGroup.ObjectMeta.SetGenerateName(subNamespace + "-") // This matches what the console creates
+		operatorGroup.Spec.TargetNamespaces = []string{}
+
+		return operatorGroup, nil
+	}
+
+	opGroup := make(map[string]interface{})
+
+	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, &opGroup)
 	if err != nil {
-		OpLog.Error(err, "Could not list operator group", "kind", operatorGroupGVK.Kind,
-			"namespace", ogNamespace)
-
-		return reconcile.Result{}, err
+		return nil, fmt.Errorf("error unmarshalling operatorGroup: %w", err)
 	}
 
-	ogExists := len(cachedOperatorGroups) != 0
+	// Fallback to the Subscription namespace if the OperatorGroup namespace is not specified in the policy.
+	ogNamespace := subNamespace
 
-	// Exists indicates if a Subscription or Operatorgroup need to be created
-	exists := subExists && ogExists
-	shouldExist := policy.Spec.ComplianceType.IsMustHave()
-
-	// Case 1: policy has just been applied and related resources have yet to be created
-	if !exists && shouldExist {
-		OpLog.Info("The object does not exist but should exist")
-
-		return r.createPolicyResources(ctx, policy, cachedSubscription, cachedOperatorGroups)
+	if specifiedNS, ok := opGroup["namespace"].(string); ok || specifiedNS == "" {
+		ogNamespace = specifiedNS
 	}
 
-	// Case 2: Resources exist, but should not exist (i.e. mustnothave or deletion)
-	if exists && !shouldExist {
-		// Future implementation: clean up resources and delete watches if mustnothave, otherwise inform
-		OpLog.Info("The object exists but should not exist")
+	name, ok := opGroup["name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("name is required in operatorGroup.spec")
 	}
 
-	// Case 3: Resources do not exist, and should not exist
-	if !exists && !shouldExist {
-		// Future implementation: Possibly emit a success event
-		OpLog.Info("The object does not exist and is compliant with the mustnothave compliance type")
+	spec := new(operatorv1.OperatorGroupSpec)
+
+	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, spec)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
 	}
 
-	// Case 4: Resources exist, and should exist (i.e. update)
-	if exists && shouldExist {
-		// Future implementation: Verify the specs of the object matches the one on the cluster
-		OpLog.Info("The object already exists. Checking fields to verify matching specs")
-	}
+	operatorGroup.ObjectMeta.SetName(name)
+	operatorGroup.ObjectMeta.SetNamespace(ogNamespace)
+	operatorGroup.Spec = *spec
 
-	return reconcile.Result{}, nil
+	return operatorGroup, nil
 }
 
-// createPolicyResources encapsulates the logic for creating resources specified within an operator policy.
-// This should normally happen when the policy is initially applied to the cluster. Creates an OperatorGroup
-// if specified, otherwise defaults to using an allnamespaces OperatorGroup.
-func (r *OperatorPolicyReconciler) createPolicyResources(
-	ctx context.Context,
-	policy *policyv1beta1.OperatorPolicy,
-	cachedSubscription *unstructured.Unstructured,
-	cachedOGList []unstructured.Unstructured,
-) (ctrl.Result, error) {
-	//  Create og, then trigger reconcile
-	if len(cachedOGList) == 0 {
-		if policy.Spec.RemediationAction.IsEnforce() {
-			ogSpec, err := buildOperatorGroup(policy)
-			if err != nil {
-				return reconcile.Result{}, err
-			}
+func (r *OperatorPolicyReconciler) handleSubscription(ctx context.Context, policy *policyv1beta1.OperatorPolicy) error {
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
-			err = r.Create(ctx, ogSpec)
-			if err != nil {
-				OpLog.Error(err, "Error while creating OperatorGroup")
-				r.setCompliance(ctx, policy, policyv1.NonCompliant)
-
-				return reconcile.Result{}, err
-			}
-
-			// Created successfully, requeue result
-			r.setCompliance(ctx, policy, policyv1.NonCompliant)
-
-			return reconcile.Result{Requeue: true}, err
-		} else if policy.Spec.OperatorGroup != nil {
-			// If inform mode, keep going and return at the end without requeue. Before
-			// continuing, should check if required og spec is created to set compliance state
-
-			// Set to non compliant because operatorgroup does not exist on cluster, but
-			// should still go to check subscription
-			r.setCompliance(ctx, policy, policyv1.NonCompliant)
-		}
-	}
-
-	// Create new subscription
-	if cachedSubscription == nil {
-		if policy.Spec.RemediationAction.IsEnforce() {
-			subscriptionSpec, err := buildSubscription(policy)
-			if err != nil {
-				return reconcile.Result{}, err
-			}
-
-			err = r.Create(ctx, subscriptionSpec)
-			if err != nil {
-				OpLog.Error(err, "Could not handle missing musthave object")
-				r.setCompliance(ctx, policy, policyv1.NonCompliant)
-
-				return reconcile.Result{}, err
-			}
-
-			// Future work: Check availability/status of all resources
-			// managed by the OperatorPolicy before setting compliance state
-			r.setCompliance(ctx, policy, policyv1.Compliant)
-
-			return reconcile.Result{}, nil
-		}
-		// inform
-		r.setCompliance(ctx, policy, policyv1.NonCompliant)
-	}
-
-	// Will only reach this if in inform mode
-	return reconcile.Result{}, nil
-}
-
-// updatePolicyStatus updates the status of the operatorPolicy.
-// In the future, a condition should be added as well, and this should generate events.
-func (r *OperatorPolicyReconciler) updatePolicyStatus(
-	ctx context.Context,
-	policy *policyv1beta1.OperatorPolicy,
-) error {
-	updatedStatus := policy.Status
-
-	err := r.Get(ctx, types.NamespacedName{Namespace: policy.Namespace, Name: policy.Name}, policy)
+	desiredSub, err := buildSubscription(policy)
 	if err != nil {
-		OpLog.Info(fmt.Sprintf("Failed to refresh policy; using previously fetched version: %s", err))
-	} else {
-		policy.Status = updatedStatus
+		return fmt.Errorf("error building subscription: %w", err)
 	}
 
-	err = r.Status().Update(ctx, policy)
+	foundSub, err := r.DynamicWatcher.Get(watcher, subscriptionGVK, desiredSub.Namespace, desiredSub.Name)
 	if err != nil {
-		OpLog.Info(fmt.Sprintf("Failed to update policy status: %s", err))
+		return fmt.Errorf("error getting the Subscription: %w", err)
+	}
 
-		return err
+	if foundSub == nil {
+		// Missing Subscription: report NonCompliance
+		err := r.updateStatus(ctx, policy, missingWantedCond("Subscription"), missingWantedObj(desiredSub))
+		if err != nil {
+			return fmt.Errorf("error updating status for a missing Subscription: %w", err)
+		}
+
+		if policy.Spec.RemediationAction.IsEnforce() {
+			err := r.Create(ctx, desiredSub)
+			if err != nil {
+				return fmt.Errorf("error creating the Subscription: %w", err)
+			}
+
+			desiredSub.SetGroupVersionKind(subscriptionGVK) // Create stripped this information
+
+			// Now it should match, so report Compliance
+			err = r.updateStatus(ctx, policy, createdCond("Subscription"), createdObj(desiredSub))
+			if err != nil {
+				return fmt.Errorf("error updating the status for a created Subscription: %w", err)
+			}
+		}
+
+		return nil
+	}
+
+	// Subscription found; check if specs match
+	desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desiredSub)
+	if err != nil {
+		return fmt.Errorf("error converting desired Subscription to an Unstructured: %w", err)
+	}
+
+	merged := foundSub.DeepCopy() // Copy it so that the value in the cache is not changed
+
+	updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, merged, string(policy.Spec.ComplianceType))
+	if err != nil {
+		return fmt.Errorf("error checking if the Subscription needs an update: %w", err)
+	}
+
+	if !updateNeeded {
+		// FUTURE: Check more details about the *status* of the Subscription
+		// For now, just mark it as compliant
+		err := r.updateStatus(ctx, policy, matchesCond("Subscription"), matchedObj(foundSub))
+		if err != nil {
+			return fmt.Errorf("error updating the status for an OperatorGroup that matches: %w", err)
+		}
+
+		return nil
+	}
+
+	// Specs don't match.
+	if policy.Spec.RemediationAction.IsEnforce() && skipUpdate {
+		err = r.updateStatus(ctx, policy, mismatchCondUnfixable("Subscription"), mismatchedObj(foundSub))
+		if err != nil {
+			return fmt.Errorf("error updating status for a mismatched Subscription that can't be enforced: %w", err)
+		}
+
+		return nil
+	}
+
+	err = r.updateStatus(ctx, policy, mismatchCond("Subscription"), mismatchedObj(foundSub))
+	if err != nil {
+		return fmt.Errorf("error updating status for a mismatched Subscription: %w", err)
+	}
+
+	if policy.Spec.RemediationAction.IsEnforce() {
+		err := r.Update(ctx, merged)
+		if err != nil {
+			return fmt.Errorf("error updating the Subscription: %w", err)
+		}
+
+		desiredSub.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
+
+		err = r.updateStatus(ctx, policy, updatedCond("Subscription"), updatedObj(desiredSub))
+		if err != nil {
+			return fmt.Errorf("error updating status after updating the Subscription: %w", err)
+		}
 	}
 
 	return nil
@@ -329,80 +486,58 @@ func buildSubscription(
 	return subscription, nil
 }
 
-// Sets the compliance of the policy
-func (r *OperatorPolicyReconciler) setCompliance(
-	ctx context.Context,
-	policy *policyv1beta1.OperatorPolicy,
-	compliance policyv1.ComplianceState,
-) {
-	policy.Status.ComplianceState = compliance
-
-	err := r.updatePolicyStatus(ctx, policy)
-	if err != nil {
-		OpLog.Error(err, "error while updating policy status")
+func opPolIdentifier(namespace, name string) depclient.ObjectIdentifier {
+	return depclient.ObjectIdentifier{
+		Group:     policyv1beta1.GroupVersion.Group,
+		Version:   policyv1beta1.GroupVersion.Version,
+		Kind:      "OperatorPolicy",
+		Namespace: namespace,
+		Name:      name,
 	}
 }
 
-// buildOperatorGroup bootstraps the OperatorGroup spec defined in the operator policy
-// with the apiversion and kind in preparation for resource creation
-func buildOperatorGroup(
-	policy *policyv1beta1.OperatorPolicy,
-) (*operatorv1.OperatorGroup, error) {
-	operatorGroup := new(operatorv1.OperatorGroup)
+// mergeObjects takes fields from the desired object and sets/merges them on the
+// existing object. It checks and returns whether an update is really necessary
+// with a server-side dry-run.
+func (r *OperatorPolicyReconciler) mergeObjects(
+	ctx context.Context,
+	desired map[string]interface{},
+	existing *unstructured.Unstructured,
+	complianceType string,
+) (updateNeeded, updateIsForbidden bool, err error) {
+	desiredObj := unstructured.Unstructured{Object: desired}
 
-	operatorGroup.Status.LastUpdated = &metav1.Time{} // without this, some conversions can panic
-	operatorGroup.SetGroupVersionKind(operatorGroupGVK)
+	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
+	existingObjectCopy := existing.DeepCopy()
+	removeFieldsForComparison(existingObjectCopy)
 
-	sub := make(map[string]interface{})
-
-	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
+	_, errMsg, updateNeeded, _ := handleKeys(
+		desiredObj, existing, existingObjectCopy, complianceType, "", false,
+	)
+	if errMsg != "" {
+		return updateNeeded, false, errors.New(errMsg)
 	}
 
-	subNamespace, ok := sub["namespace"].(string)
-	if !ok {
-		return nil, fmt.Errorf("namespace is required in spec.subscription")
+	if updateNeeded {
+		err := r.Update(ctx, existing, client.DryRunAll)
+		if err != nil {
+			if k8serrors.IsForbidden(err) {
+				// This indicates the update would make a change, but the change is not allowed,
+				// for example, the changed field might be immutable.
+				// The policy should be marked as noncompliant, but an enforcement update would fail.
+				return true, true, nil
+			}
+
+			return updateNeeded, false, err
+		}
+
+		removeFieldsForComparison(existing)
+
+		if reflect.DeepEqual(existing.Object, existingObjectCopy.Object) {
+			// The dry run indicates that there is not *really* a mismatch.
+			updateNeeded = false
+		}
 	}
 
-	// Create a default OperatorGroup if one wasn't specified in the policy
-	if policy.Spec.OperatorGroup == nil {
-		operatorGroup.ObjectMeta.SetNamespace(subNamespace)
-		operatorGroup.ObjectMeta.SetGenerateName(subNamespace + "-") // This matches what the console creates
-		operatorGroup.Spec.TargetNamespaces = []string{}
-
-		return operatorGroup, nil
-	}
-
-	opGroup := make(map[string]interface{})
-
-	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, &opGroup)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling operatorGroup: %w", err)
-	}
-
-	// Fallback to the Subscription namespace if the OperatorGroup namespace is not specified in the policy.
-	ogNamespace := subNamespace
-
-	if specifiedNS, ok := opGroup["namespace"].(string); ok {
-		ogNamespace = specifiedNS
-	}
-
-	name, ok := opGroup["name"].(string)
-	if !ok {
-		return nil, fmt.Errorf("name is required in operatorGroup.spec")
-	}
-
-	spec := new(operatorv1.OperatorGroupSpec)
-
-	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, spec)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
-	}
-
-	operatorGroup.ObjectMeta.SetName(name)
-	operatorGroup.ObjectMeta.SetNamespace(ogNamespace)
-	operatorGroup.Spec = *spec
-
-	return operatorGroup, nil
+	return updateNeeded, false, nil
 }

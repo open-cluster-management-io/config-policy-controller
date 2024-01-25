@@ -6,6 +6,8 @@ metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.6.1
   creationTimestamp: null
+  labels:
+    policy.open-cluster-management.io/policy-type: template
   name: operatorpolicies.policy.open-cluster-management.io
 spec:
   group: policy.open-cluster-management.io

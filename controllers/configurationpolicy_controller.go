@@ -2586,72 +2586,28 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		res = r.TargetK8sDynamicClient.Resource(obj.gvr)
 	}
 
-	updateSucceeded = false
 	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
 	existingObjectCopy := obj.existingObj.DeepCopy()
 	removeFieldsForComparison(existingObjectCopy)
 
-	var statusMismatch bool
-
-	for key := range obj.desiredObj.Object {
-		isStatus := key == "status"
-
-		// use metadatacompliancetype to evaluate metadata if it is set
-		keyComplianceType := complianceType
-		if key == "metadata" && mdComplianceType != "" {
-			keyComplianceType = mdComplianceType
-		}
-
-		// check key for mismatch
-		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(
-			key, obj.desiredObj, existingObjectCopy, keyComplianceType, !r.DryRunSupported,
-		)
-		if errorMsg != "" {
-			log.Info(errorMsg)
-
-			return true, errorMsg, true, false
-		}
-
-		if mergedObj == nil && skipped {
-			continue
-		}
-
-		// only look at labels and annotations for metadata - configurationPolicies do not update other metadata fields
-		if key == "metadata" {
-			// if it's not the right type, the map will be empty
-			mdMap, _ := mergedObj.(map[string]interface{})
-
-			// if either isn't found, they'll just be empty
-			mergedAnnotations, _, _ := unstructured.NestedStringMap(mdMap, "annotations")
-			mergedLabels, _, _ := unstructured.NestedStringMap(mdMap, "labels")
-
-			obj.existingObj.SetAnnotations(mergedAnnotations)
-			obj.existingObj.SetLabels(mergedLabels)
-		} else {
-			obj.existingObj.UnstructuredContent()[key] = mergedObj
-		}
-
-		if keyUpdateNeeded {
-			if isStatus {
-				throwSpecViolation = true
-				statusMismatch = true
-
-				log.Info("Ignoring an update to the object status", "key", key)
-			} else {
-				updateNeeded = true
-
-				mismatchLog := "Detected value mismatch for object key: " + key
-				// Add a configuration breadcrumb for users that might be looking in the logs for a diff
-				if objectT.RecordDiff != policyv1.RecordDiffLog {
-					mismatchLog += " (Diff disabled. To log the diff, " +
-						"set 'spec.object-tempates[].recordDiff' to 'Log' for this object-template.)"
-				}
-				log.Info(mismatchLog)
-			}
-		}
+	throwSpecViolation, message, updateNeeded, statusMismatch := handleKeys(
+		obj.desiredObj, obj.existingObj, existingObjectCopy, complianceType, mdComplianceType, !r.DryRunSupported,
+	)
+	if message != "" {
+		return true, message, true, false
 	}
 
 	if updateNeeded {
+		mismatchLog := "Detected value mismatch"
+
+		// Add a configuration breadcrumb for users that might be looking in the logs for a diff
+		if objectT.RecordDiff != policyv1.RecordDiffLog {
+			mismatchLog += " (Diff disabled. To log the diff, " +
+				"set 'spec.object-tempates[].recordDiff' to 'Log' for this object-template.)"
+		}
+
+		log.Info(mismatchLog)
+
 		// FieldValidation is supported in k8s 1.25 as beta release
 		// so if the version is below 1.25, we need to use client side validation to validate the object
 		if semver.Compare(r.serverVersion, "v1.25.0") < 0 {
@@ -2781,6 +2737,68 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	}
 
 	return throwSpecViolation, "", updateNeeded, updateSucceeded
+}
+
+// handleKeys goes through all of the fields in the desired object and checks if the existing object
+// matches. When a field is a map or slice, the value in the existing object will be updated with
+// the result of merging its current value with the desired value.
+func handleKeys(
+	desiredObj unstructured.Unstructured,
+	existingObj *unstructured.Unstructured,
+	existingObjectCopy *unstructured.Unstructured,
+	compType string,
+	mdCompType string,
+	zeroValueEqualsNil bool,
+) (throwSpecViolation bool, message string, updateNeeded bool, statusMismatch bool) {
+	for key := range desiredObj.Object {
+		isStatus := key == "status"
+
+		// use metadatacompliancetype to evaluate metadata if it is set
+		keyComplianceType := compType
+		if key == "metadata" && mdCompType != "" {
+			keyComplianceType = mdCompType
+		}
+
+		// check key for mismatch
+		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(
+			key, desiredObj, existingObjectCopy, keyComplianceType, zeroValueEqualsNil,
+		)
+		if errorMsg != "" {
+			log.Info(errorMsg)
+
+			return true, errorMsg, true, statusMismatch
+		}
+
+		if mergedObj == nil && skipped {
+			continue
+		}
+
+		// only look at labels and annotations for metadata - configurationPolicies do not update other metadata fields
+		if key == "metadata" {
+			// if it's not the right type, the map will be empty
+			mdMap, _ := mergedObj.(map[string]interface{})
+
+			// if either isn't found, they'll just be empty
+			mergedAnnotations, _, _ := unstructured.NestedStringMap(mdMap, "annotations")
+			mergedLabels, _, _ := unstructured.NestedStringMap(mdMap, "labels")
+
+			existingObj.SetAnnotations(mergedAnnotations)
+			existingObj.SetLabels(mergedLabels)
+		} else {
+			existingObj.UnstructuredContent()[key] = mergedObj
+		}
+
+		if keyUpdateNeeded {
+			if isStatus {
+				throwSpecViolation = true
+				statusMismatch = true
+			} else {
+				updateNeeded = true
+			}
+		}
+	}
+
+	return
 }
 
 func removeFieldsForComparison(obj *unstructured.Unstructured) {
