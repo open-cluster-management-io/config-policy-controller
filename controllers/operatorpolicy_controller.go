@@ -11,9 +11,11 @@ import (
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/json"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,7 +30,6 @@ import (
 
 const (
 	OperatorControllerName string = "operator-policy-controller"
-	defaultOGSuffix        string = "-default-og"
 )
 
 var (
@@ -124,13 +125,20 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// handle the policy
 	OpLog.Info("Reconciling OperatorPolicy", "policy", policy.Name)
 
+	// (temporary)
+	sub := make(map[string]interface{})
+
+	if err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub); err != nil {
+		return reconcile.Result{}, fmt.Errorf("error unmarshalling subscription: %w", err)
+	}
+
 	// Check if specified Subscription exists
-	cachedSubscription, err := r.DynamicWatcher.Get(watcher, subscriptionGVK, policy.Spec.Subscription.Namespace,
-		policy.Spec.Subscription.SubscriptionSpec.Package)
+	cachedSubscription, err := r.DynamicWatcher.Get(watcher, subscriptionGVK, sub["namespace"].(string),
+		sub["name"].(string))
 	if err != nil {
 		OpLog.Error(err, "Could not get subscription", "kind", subscriptionGVK.Kind,
-			"name", policy.Spec.Subscription.SubscriptionSpec.Package,
-			"namespace", policy.Spec.Subscription.Namespace)
+			"name", sub["name"].(string),
+			"namespace", sub["namespace"].(string))
 
 		return reconcile.Result{}, err
 	}
@@ -138,9 +146,17 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	subExists := cachedSubscription != nil
 
 	// Check if any OperatorGroups exist in the namespace
-	ogNamespace := policy.Spec.Subscription.Namespace
+	ogNamespace := sub["namespace"].(string)
+
 	if policy.Spec.OperatorGroup != nil {
-		ogNamespace = policy.Spec.OperatorGroup.Namespace
+		// (temporary)
+		og := make(map[string]interface{})
+
+		if err := json.Unmarshal(policy.Spec.OperatorGroup.Raw, &og); err != nil {
+			return reconcile.Result{}, fmt.Errorf("error unmarshalling operatorgroup: %w", err)
+		}
+
+		ogNamespace = og["namespace"].(string)
 	}
 
 	cachedOperatorGroups, err := r.DynamicWatcher.List(watcher, operatorGroupGVK, ogNamespace, nil)
@@ -197,9 +213,12 @@ func (r *OperatorPolicyReconciler) createPolicyResources(
 	//  Create og, then trigger reconcile
 	if len(cachedOGList) == 0 {
 		if policy.Spec.RemediationAction.IsEnforce() {
-			ogSpec := buildOperatorGroup(policy)
+			ogSpec, err := buildOperatorGroup(policy)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
 
-			err := r.Create(ctx, ogSpec)
+			err = r.Create(ctx, ogSpec)
 			if err != nil {
 				OpLog.Error(err, "Error while creating OperatorGroup")
 				r.setCompliance(ctx, policy, policyv1.NonCompliant)
@@ -224,9 +243,12 @@ func (r *OperatorPolicyReconciler) createPolicyResources(
 	// Create new subscription
 	if cachedSubscription == nil {
 		if policy.Spec.RemediationAction.IsEnforce() {
-			subscriptionSpec := buildSubscription(policy)
+			subscriptionSpec, err := buildSubscription(policy)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
 
-			err := r.Create(ctx, subscriptionSpec)
+			err = r.Create(ctx, subscriptionSpec)
 			if err != nil {
 				OpLog.Error(err, "Could not handle missing musthave object")
 				r.setCompliance(ctx, policy, policyv1.NonCompliant)
@@ -277,18 +299,34 @@ func (r *OperatorPolicyReconciler) updatePolicyStatus(
 // with the apiversion and kind in preparation for resource creation
 func buildSubscription(
 	policy *policyv1beta1.OperatorPolicy,
-) *operatorv1alpha1.Subscription {
+) (*operatorv1alpha1.Subscription, error) {
 	subscription := new(operatorv1alpha1.Subscription)
 
+	sub := make(map[string]interface{})
+
+	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
+	}
+
+	ns, ok := sub["namespace"].(string)
+	if !ok {
+		return nil, fmt.Errorf("namespace is required in spec.subscription")
+	}
+
+	spec := new(operatorv1alpha1.SubscriptionSpec)
+
+	err = json.Unmarshal(policy.Spec.Subscription.Raw, spec)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
+	}
+
 	subscription.SetGroupVersionKind(subscriptionGVK)
-	subscription.ObjectMeta.Name = policy.Spec.Subscription.Package
-	subscription.ObjectMeta.Namespace = policy.Spec.Subscription.Namespace
-	subscription.Spec = policy.Spec.Subscription.SubscriptionSpec.DeepCopy()
+	subscription.ObjectMeta.Name = spec.Package
+	subscription.ObjectMeta.Namespace = ns
+	subscription.Spec = spec
 
-	OpLog.Info("Creating the subscription", "kind", subscription.Kind,
-		"namespace", subscription.Namespace)
-
-	return subscription
+	return subscription, nil
 }
 
 // Sets the compliance of the policy
@@ -309,25 +347,62 @@ func (r *OperatorPolicyReconciler) setCompliance(
 // with the apiversion and kind in preparation for resource creation
 func buildOperatorGroup(
 	policy *policyv1beta1.OperatorPolicy,
-) *operatorv1.OperatorGroup {
+) (*operatorv1.OperatorGroup, error) {
 	operatorGroup := new(operatorv1.OperatorGroup)
 
-	// Create a default OperatorGroup if one wasn't specified in the policy
-	// Future work: Prevent creating multiple OperatorGroups in the same ns
-	if policy.Spec.OperatorGroup == nil {
-		operatorGroup.SetGroupVersionKind(operatorGroupGVK)
-		operatorGroup.ObjectMeta.SetName(policy.Spec.Subscription.Package + defaultOGSuffix)
-		operatorGroup.ObjectMeta.SetNamespace(policy.Spec.Subscription.Namespace)
-		operatorGroup.Spec.TargetNamespaces = []string{}
-	} else {
-		operatorGroup.SetGroupVersionKind(operatorGroupGVK)
-		operatorGroup.ObjectMeta.SetName(policy.Spec.OperatorGroup.Name)
-		operatorGroup.ObjectMeta.SetNamespace(policy.Spec.OperatorGroup.Namespace)
-		operatorGroup.Spec.TargetNamespaces = policy.Spec.OperatorGroup.Target.Namespace
+	operatorGroup.Status.LastUpdated = &metav1.Time{} // without this, some conversions can panic
+	operatorGroup.SetGroupVersionKind(operatorGroupGVK)
+
+	sub := make(map[string]interface{})
+
+	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
 	}
 
-	OpLog.Info("Creating the operator group", "kind", operatorGroup.Kind,
-		"namespace", operatorGroup.Namespace)
+	subNamespace, ok := sub["namespace"].(string)
+	if !ok {
+		return nil, fmt.Errorf("namespace is required in spec.subscription")
+	}
 
-	return operatorGroup
+	// Create a default OperatorGroup if one wasn't specified in the policy
+	if policy.Spec.OperatorGroup == nil {
+		operatorGroup.ObjectMeta.SetNamespace(subNamespace)
+		operatorGroup.ObjectMeta.SetGenerateName(subNamespace + "-") // This matches what the console creates
+		operatorGroup.Spec.TargetNamespaces = []string{}
+
+		return operatorGroup, nil
+	}
+
+	opGroup := make(map[string]interface{})
+
+	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, &opGroup)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling operatorGroup: %w", err)
+	}
+
+	// Fallback to the Subscription namespace if the OperatorGroup namespace is not specified in the policy.
+	ogNamespace := subNamespace
+
+	if specifiedNS, ok := opGroup["namespace"].(string); ok {
+		ogNamespace = specifiedNS
+	}
+
+	name, ok := opGroup["name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("name is required in operatorGroup.spec")
+	}
+
+	spec := new(operatorv1.OperatorGroupSpec)
+
+	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, spec)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
+	}
+
+	operatorGroup.ObjectMeta.SetName(name)
+	operatorGroup.ObjectMeta.SetNamespace(ogNamespace)
+	operatorGroup.Spec = *spec
+
+	return operatorGroup, nil
 }
