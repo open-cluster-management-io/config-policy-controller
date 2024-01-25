@@ -29,7 +29,8 @@ const (
 
 var _ = Describe("Test evaluation interval", Ordered, func() {
 	It("Verifies that status.lastEvaluated is properly set", func() {
-		createConfigPolicyWithParent(case17ParentPolicy, case17ParentPolicyName, case17Policy)
+		createObjWithParent(case17ParentPolicy, case17ParentPolicyName,
+			case17Policy, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		By("Getting status.lastEvaluated")
 		var managedPlc *unstructured.Unstructured

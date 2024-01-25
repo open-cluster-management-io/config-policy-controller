@@ -26,7 +26,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 
 	It("Should have the expected events", func() {
 		By("Setting up the policy")
-		createConfigPolicyWithParent(policyYAML, policyName, cfgPlcYAML)
+		createObjWithParent(policyYAML, policyName, cfgPlcYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		By("Checking there is a NonCompliant event on the policy")
 		Eventually(func() interface{} {
