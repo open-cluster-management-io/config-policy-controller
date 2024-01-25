@@ -6,6 +6,7 @@ package v1
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -39,6 +40,14 @@ const (
 	// Inform is an remediationAction to only inform
 	Inform RemediationAction = "Inform"
 )
+
+func (ra RemediationAction) IsInform() bool {
+	return strings.EqualFold(string(ra), string(Inform))
+}
+
+func (ra RemediationAction) IsEnforce() bool {
+	return strings.EqualFold(string(ra), string(Enforce))
+}
 
 // ComplianceState shows the state of enforcement
 type ComplianceState string
@@ -276,6 +285,18 @@ const (
 	// MustOnlyHave is an enforcement state to exclusively include a resource
 	MustOnlyHave ComplianceType = "Mustonlyhave"
 )
+
+func (c ComplianceType) IsMustHave() bool {
+	return strings.EqualFold(string(c), string(MustHave))
+}
+
+func (c ComplianceType) IsMustOnlyHave() bool {
+	return strings.EqualFold(string(c), string(MustOnlyHave))
+}
+
+func (c ComplianceType) IsMustNotHave() bool {
+	return strings.EqualFold(string(c), string(MustNotHave))
+}
 
 // MetadataComplianceType describes how to check compliance for the labels/annotations of a given object
 // +kubebuilder:validation:Enum=MustHave;Musthave;musthave;MustOnlyHave;Mustonlyhave;mustonlyhave

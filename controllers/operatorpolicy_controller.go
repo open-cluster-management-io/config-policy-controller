@@ -6,7 +6,6 @@ package controllers
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
@@ -156,7 +155,7 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	// Exists indicates if a Subscription or Operatorgroup need to be created
 	exists := subExists && ogExists
-	shouldExist := strings.EqualFold(string(policy.Spec.ComplianceType), string(policyv1.MustHave))
+	shouldExist := policy.Spec.ComplianceType.IsMustHave()
 
 	// Case 1: policy has just been applied and related resources have yet to be created
 	if !exists && shouldExist {
@@ -197,7 +196,7 @@ func (r *OperatorPolicyReconciler) createPolicyResources(
 ) (ctrl.Result, error) {
 	//  Create og, then trigger reconcile
 	if len(cachedOGList) == 0 {
-		if strings.EqualFold(string(policy.Spec.RemediationAction), string(policyv1.Enforce)) {
+		if policy.Spec.RemediationAction.IsEnforce() {
 			ogSpec := buildOperatorGroup(policy)
 
 			err := r.Create(ctx, ogSpec)
@@ -224,7 +223,7 @@ func (r *OperatorPolicyReconciler) createPolicyResources(
 
 	// Create new subscription
 	if cachedSubscription == nil {
-		if strings.EqualFold(string(policy.Spec.RemediationAction), string(policyv1.Enforce)) {
+		if policy.Spec.RemediationAction.IsEnforce() {
 			subscriptionSpec := buildSubscription(policy)
 
 			err := r.Create(ctx, subscriptionSpec)

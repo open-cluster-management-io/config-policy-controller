@@ -68,7 +68,7 @@ var (
 	plcFmtStr    = "policy: %s"
 )
 
-var (
+const (
 	reasonWantFoundExists    = "Resource found as expected"
 	reasonWantFoundCreated   = "K8s creation success"
 	reasonUpdateSuccess      = "K8s update success"
@@ -547,7 +547,7 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 ) []string {
 	deletionFailures := []string{}
 
-	if !strings.EqualFold(string(plc.Spec.RemediationAction), "enforce") {
+	if !plc.Spec.RemediationAction.IsEnforce() {
 		return deletionFailures
 	}
 
@@ -1535,7 +1535,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		)
 
 		// we do not support enforce on unnamed templates
-		if !strings.EqualFold(string(remediation), "inform") {
+		if !remediation.IsInform() {
 			log.Info(
 				"The object template does not specify a name. Setting the remediation action to inform.",
 				"oldRemediationAction", remediation,
@@ -1555,7 +1555,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		}
 	}
 
-	objShouldExist := !strings.EqualFold(string(objectT.ComplianceType), string(policyv1.MustNotHave))
+	objShouldExist := !objectT.ComplianceType.IsMustNotHave()
 
 	shouldAddCondensedRelatedObj := false
 
@@ -1707,7 +1707,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		result.events = append(result.events, objectTmplEvalEvent{false, reasonWantFoundDNE, ""})
 
 		// it is a musthave and it does not exist, so it must be created
-		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
+		if remediation.IsEnforce() {
 			var uid string
 			completed, reason, msg, uid, err := r.enforceByCreatingOrDeleting(obj)
 
@@ -1741,7 +1741,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 	if exists && !obj.shouldExist {
 		// it is a mustnothave but it exist, so it must be deleted
-		if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
+		if remediation.IsEnforce() {
 			completed, reason, msg, _, err := r.enforceByCreatingOrDeleting(obj)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
@@ -1798,7 +1798,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			result.events = append(result.events, objectTmplEvalEvent{false, resultReason, resultMsg})
 		} else {
 			// it is a must have and it does exist, so it is compliant
-			if strings.EqualFold(string(remediation), string(policyv1.Enforce)) {
+			if remediation.IsEnforce() {
 				if updatedObj {
 					result.events = append(result.events, objectTmplEvalEvent{true, reasonUpdateSuccess, ""})
 				} else {
@@ -2739,7 +2739,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		}
 
 		// The object would have been updated, so if it's inform, return as noncompliant.
-		if strings.EqualFold(string(remediation), string(policyv1.Inform)) {
+		if remediation.IsInform() {
 			r.setEvaluatedObject(obj.policy, obj.existingObj, false)
 
 			return true, "", false, false
