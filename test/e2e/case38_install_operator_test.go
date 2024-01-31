@@ -213,6 +213,8 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			incorrectOpGroupName = "incorrect-operator-group"
 			scopedOpGroupYAML    = "../resources/case38_operator_install/scoped-operator-group.yaml"
 			scopedOpGroupName    = "scoped-operator-group"
+			extraOpGroupYAML     = "../resources/case38_operator_install/extra-operator-group.yaml"
+			extraOpGroupName     = "extra-operator-group"
 		)
 
 		BeforeAll(func() {
@@ -342,6 +344,39 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 					Message: "the OperatorGroup matches what is required by the policy",
 				},
 				"the OperatorGroup was updated to match the policy",
+			)
+		})
+		It("Should become NonCompliant when an extra OperatorGroup is added", func() {
+			utils.Kubectl("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+					},
+					Compliant: "NonCompliant",
+					Reason:    "There is more than one OperatorGroup in this namespace",
+				}, {
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      extraOpGroupName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "There is more than one OperatorGroup in this namespace",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "TooManyOperatorGroups",
+					Message: "there is more than one OperatorGroup in the namespace",
+				},
+				"there is more than one OperatorGroup in the namespace",
 			)
 		})
 	})
