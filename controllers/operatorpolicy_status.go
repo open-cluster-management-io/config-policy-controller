@@ -440,7 +440,7 @@ func opGroupTooManyObjs(opGroups []unstructured.Unstructured) []policyv1.Related
 
 	for i, opGroup := range opGroups {
 		objs[i] = policyv1.RelatedObject{
-			Object:    policyv1.ObjectResourceFromObj(&opGroup),
+			Object:    policyv1.ObjectResourceFromObj(&opGroups[i]),
 			Compliant: string(policyv1.NonCompliant),
 			Reason:    "There is more than one OperatorGroup in this namespace",
 			Properties: &policyv1.ObjectProperties{
