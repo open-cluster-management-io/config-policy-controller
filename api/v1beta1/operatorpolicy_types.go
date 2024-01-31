@@ -96,6 +96,8 @@ type OperatorPolicyStatus struct {
 	// Most recent compliance state of the policy
 	ComplianceState policyv1.ComplianceState `json:"compliant,omitempty"`
 	// Historic details on the condition of the policy
+	// +listType=map
+	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// List of resources processed by the policy
 	RelatedObjects []policyv1.RelatedObject `json:"relatedObjects"`
