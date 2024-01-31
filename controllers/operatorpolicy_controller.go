@@ -35,6 +35,7 @@ import (
 
 const (
 	OperatorControllerName string = "operator-policy-controller"
+	CatalogSourceReady     string = "READY"
 )
 
 var (
@@ -57,6 +58,11 @@ var (
 		Group:   "apps",
 		Version: "v1",
 		Kind:    "Deployment",
+	}
+	catalogSrcGVK = schema.GroupVersionKind{
+		Group:   "operators.coreos.com",
+		Version: "v1alpha1",
+		Kind:    "CatalogSource",
 	}
 )
 
@@ -165,7 +171,81 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return reconcile.Result{}, err
 	}
 
+	// handle catalogsource
+	if err := r.handleCatalogSource(ctx, policy, subscription); err != nil {
+		OpLog.Error(err, "Error handling CatalogSource")
+
+		return reconcile.Result{}, err
+	}
+
 	return reconcile.Result{}, nil
+}
+
+func (r *OperatorPolicyReconciler) handleCatalogSource(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	subscription *operatorv1alpha1.Subscription,
+) error {
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	var catalogName string
+	var catalogNS string
+
+	if subscription == nil {
+		sub, err := buildSubscription(policy)
+		if err != nil {
+			return fmt.Errorf("error building Subscription: %w", err)
+		}
+
+		catalogName = sub.Spec.CatalogSource
+		catalogNS = sub.Spec.CatalogSourceNamespace
+	} else {
+		catalogName = subscription.Spec.CatalogSource
+		catalogNS = subscription.Spec.CatalogSourceNamespace
+	}
+
+	// Check if CatalogSource exists
+	foundCatalogSrc, err := r.DynamicWatcher.Get(watcher, catalogSrcGVK,
+		catalogNS, catalogName)
+	if err != nil {
+		return fmt.Errorf("error getting CatalogSource: %w", err)
+	}
+
+	isMissing := foundCatalogSrc == nil
+	isUnhealthy := isMissing
+
+	if !isMissing {
+		// CatalogSource is found, initiate health check
+		catalogSrcUnstruct := foundCatalogSrc.DeepCopy()
+		catalogSrc := new(operatorv1alpha1.CatalogSource)
+
+		err := runtime.DefaultUnstructuredConverter.
+			FromUnstructured(catalogSrcUnstruct.Object, catalogSrc)
+		if err != nil {
+			return fmt.Errorf("error converting the retrieved CatalogSource to the Go type: %w", err)
+		}
+
+		if catalogSrc.Status.GRPCConnectionState == nil {
+			// Unknown State
+			err := r.updateStatus(ctx, policy, catalogSourceUnknownCond, catalogSrcUnknownObj(catalogName, catalogNS))
+			if err != nil {
+				return fmt.Errorf("error retrieving the status for a CatalogSource: %w", err)
+			}
+
+			return nil
+		}
+
+		CatalogSrcState := catalogSrc.Status.GRPCConnectionState.LastObservedState
+		isUnhealthy = (CatalogSrcState != CatalogSourceReady)
+	}
+
+	err = r.updateStatus(ctx, policy, catalogSourceFindCond(isUnhealthy, isMissing),
+		catalogSourceObj(catalogName, catalogNS, isUnhealthy, isMissing))
+	if err != nil {
+		return fmt.Errorf("error updating the status for a CatalogSource: %w", err)
+	}
+
+	return nil
 }
 
 func (r *OperatorPolicyReconciler) handleOpGroup(ctx context.Context, policy *policyv1beta1.OperatorPolicy) error {
@@ -453,7 +533,7 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 		// For now, just mark it as compliant
 		err := r.updateStatus(ctx, policy, matchesCond("Subscription"), matchedObj(foundSub))
 		if err != nil {
-			return nil, fmt.Errorf("error updating the status for an OperatorGroup that matches: %w", err)
+			return nil, fmt.Errorf("error updating the status for a Subscription that matches: %w", err)
 		}
 
 		return mergedSub, nil
