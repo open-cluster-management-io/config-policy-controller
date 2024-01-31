@@ -496,7 +496,6 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
 		})
-
 		It("Should initially notice the matching Subscription", func() {
 			check(
 				opPolName,
@@ -550,7 +549,6 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			)
 		})
 	})
-
 	Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
@@ -610,7 +608,6 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			)
 		})
 	})
-
 	Describe("Test health checks on OLM resources on OperatorPolicy with failed CSV", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-csv-fail.yaml"
@@ -669,6 +666,148 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 					Message: "No existing operator Deployments",
 				},
 				"No existing operator Deployments",
+			)
+		})
+	})
+	Describe("Test status reporting for CatalogSource", Ordered, func() {
+		const (
+			OpPlcYAML  = "../resources/case38_operator_install/operator-policy-with-group.yaml"
+			OpPlcName  = "oppol-with-group"
+			subName    = "project-quay"
+			catSrcName = "operatorhubio-catalog"
+		)
+
+		BeforeAll(func() {
+			By("Applying creating a ns and the test policy")
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:latest"}]`)
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				OpPlcYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should initially show the CatalogSource is compliant", func() {
+			By("Checking the condition fields")
+			check(
+				OpPlcName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CatalogSource",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      catSrcName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CatalogSourcesFound",
+					Message: "CatalogSource was found",
+				},
+				"CatalogSource was found",
+			)
+		})
+		It("Should remain compliant when policy is enforced", func() {
+			By("Enforcing the policy")
+			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+
+			By("Checking the condition fields")
+			check(
+				OpPlcName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CatalogSource",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      catSrcName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CatalogSourcesFound",
+					Message: "CatalogSource was found",
+				},
+				"CatalogSource was found",
+			)
+		})
+		It("Should become NonCompliant when CatalogSource DNE", func() {
+			By("Patching the policy to reference a CatalogSource that DNE to emulate failure")
+			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/subscription/source", "value": "fakeName"}]`)
+
+			By("Checking the conditions and relatedObj in the policy")
+			check(
+				OpPlcName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CatalogSource",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "fakeName",
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource not found but should exist",
+				}},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionTrue,
+					Reason:  "CatalogSourcesNotFound",
+					Message: "CatalogSource was not found",
+				},
+				"CatalogSource was not found",
+			)
+		})
+		It("Should remain NonCompliant when CatalogSource fails", func() {
+			By("Patching the policy to point to an existing CatalogSource")
+			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/subscription/source", "value": "operatorhubio-catalog"}]`)
+
+			By("Patching the CatalogSource to reference a broken image link")
+			utils.Kubectl("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/fakecatalog:latest"}]`)
+
+			By("Checking the conditions and relatedObj in the policy")
+			check(
+				OpPlcName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CatalogSource",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      catSrcName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource found as expected but is unhealthy",
+				}},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionTrue,
+					Reason:  "CatalogSourcesFoundUnhealthy",
+					Message: "CatalogSource was found but is unhealthy",
+				},
+				"CatalogSource was found but is unhealthy",
 			)
 		})
 	})

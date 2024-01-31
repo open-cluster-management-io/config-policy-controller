@@ -226,6 +226,17 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 	}
 
 	// FUTURE: check additional conditions
+	idx, cond = policy.Status.GetCondition(catalogSrcConditionType)
+	if idx == -1 {
+		messages = append(messages, "the status of the CatalogSource is unknown")
+		foundNonCompliant = true
+	} else {
+		messages = append(messages, cond.Message)
+
+		if cond.Status != metav1.ConditionFalse {
+			foundNonCompliant = true
+		}
+	}
 
 	if foundNonCompliant {
 		return metav1.Condition{
@@ -305,6 +316,7 @@ const (
 	subConditionType        = "SubscriptionCompliant"
 	csvConditionType        = "ClusterServiceVersionCompliant"
 	deploymentConditionType = "DeploymentCompliant"
+	catalogSrcConditionType = "CatalogSourcesUnhealthy"
 )
 
 func condType(kind string) string {
@@ -466,6 +478,88 @@ var noDeploymentsCond = metav1.Condition{
 	Status:  metav1.ConditionTrue,
 	Reason:  "NoRelevantDeployments",
 	Message: "The ClusterServiceVersion is missing, thus meaning there are no relevant deployments",
+}
+
+// catalogSourceFindCond is a conditionally compliant condition with reason
+// based on the `isUnhealthy` and `isMissing` parameters
+func catalogSourceFindCond(isUnhealthy bool, isMissing bool) metav1.Condition {
+	status := metav1.ConditionFalse
+	reason := "CatalogSourcesFound"
+	message := "CatalogSource was found"
+
+	if isUnhealthy {
+		status = metav1.ConditionTrue
+		reason = "CatalogSourcesFoundUnhealthy"
+		message = "CatalogSource was found but is unhealthy"
+	}
+
+	if isMissing {
+		status = metav1.ConditionTrue
+		reason = "CatalogSourcesNotFound"
+		message = "CatalogSource was not found"
+	}
+
+	return metav1.Condition{
+		Type:    "CatalogSourcesUnhealthy",
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	}
+}
+
+// catalogSourceUnknownCond is a NonCompliant condition
+var catalogSourceUnknownCond = metav1.Condition{
+	Type:    "CatalogSourcesUnknownState",
+	Status:  metav1.ConditionTrue,
+	Reason:  "LastObservedUnknown",
+	Message: "Could not determine last observed state of CatalogSource",
+}
+
+// catalogSourceObj returns a conditionally compliant RelatedObject with reason based on the
+// `isUnhealthy` and `isMissing` parameters
+func catalogSourceObj(catalogName string, catalogNS string, isUnhealthy bool, isMissing bool) policyv1.RelatedObject {
+	compliance := string(policyv1.Compliant)
+	reason := reasonWantFoundExists
+
+	if isUnhealthy {
+		compliance = string(policyv1.NonCompliant)
+		reason = reasonWantFoundExists + " but is unhealthy"
+	}
+
+	if isMissing {
+		compliance = string(policyv1.NonCompliant)
+		reason = reasonWantFoundDNE
+	}
+
+	return policyv1.RelatedObject{
+		Object: policyv1.ObjectResource{
+			Kind:       catalogSrcGVK.Kind,
+			APIVersion: catalogSrcGVK.GroupVersion().String(),
+			Metadata: policyv1.ObjectMetadata{
+				Name:      catalogName,
+				Namespace: catalogNS,
+			},
+		},
+		Compliant: compliance,
+		Reason:    reason,
+	}
+}
+
+// catalogSrcUnknownObj returns a NonCompliant RelatedObject with
+// reason = 'Resource found but current state is unknown'
+func catalogSrcUnknownObj(catalogName string, catalogNS string) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object: policyv1.ObjectResource{
+			Kind:       catalogSrcGVK.Kind,
+			APIVersion: catalogSrcGVK.GroupVersion().String(),
+			Metadata: policyv1.ObjectMetadata{
+				Name:      catalogName,
+				Namespace: catalogNS,
+			},
+		},
+		Compliant: string(policyv1.NonCompliant),
+		Reason:    "Resource found but current state is unknown",
+	}
 }
 
 // missingWantedObj returns a NonCompliant RelatedObject with reason = 'Resource not found but should exist'
