@@ -36,8 +36,18 @@ const (
 )
 
 var (
-	subscriptionGVK  = schema.GroupVersionKind{Group: "operators.coreos.com", Version: "v1alpha1", Kind: "Subscription"}
-	operatorGroupGVK = schema.GroupVersionKind{Group: "operators.coreos.com", Version: "v1", Kind: "OperatorGroup"}
+	subscriptionGVK = schema.GroupVersionKind{
+		Group:   "operators.coreos.com",
+		Version: "v1alpha1", Kind: "Subscription",
+	}
+	operatorGroupGVK = schema.GroupVersionKind{
+		Group:   "operators.coreos.com",
+		Version: "v1", Kind: "OperatorGroup",
+	}
+	clusterServiceVersionGVK = schema.GroupVersionKind{
+		Group:   "operators.coreos.com",
+		Version: "v1alpha1", Kind: "ClusterServiceVersion",
+	}
 )
 
 // OperatorPolicyReconciler reconciles a OperatorPolicy object
@@ -132,7 +142,12 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return reconcile.Result{}, err
 	}
 
-	// FUTURE: more resource checks
+	_, err = r.handleCSV(ctx, policy, nil)
+	if err != nil {
+		OpLog.Error(err, "Error handling CSVs")
+
+		return reconcile.Result{}, err
+	}
 
 	return reconcile.Result{}, nil
 }
@@ -493,6 +508,59 @@ func buildSubscription(
 	subscription.Spec = spec
 
 	return subscription, nil
+}
+
+func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	subscription *unstructured.Unstructured,
+) (*operatorv1alpha1.ClusterServiceVersion, error) {
+	// case where subscription is nil
+	if subscription == nil {
+		return nil, nil
+	}
+
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	unstructured := subscription.UnstructuredContent()
+	var sub operatorv1alpha1.Subscription
+
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &sub)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get the CSV related to the object
+	foundCSV, err := r.DynamicWatcher.Get(watcher, clusterServiceVersionGVK, sub.Namespace,
+		sub.Status.CurrentCSV)
+	if err != nil {
+		return nil, err
+	}
+
+	// CSV has not yet been created by OLM
+	if foundCSV == nil {
+		err := r.updateStatus(ctx, policy, missingWantedCond("ClusterServiceVersion"), missingCSVObj(&sub))
+		if err != nil {
+			return nil, fmt.Errorf("error updating the status for a missing ClusterServiceVersion: %w", err)
+		}
+
+		return nil, err
+	}
+
+	// Check CSV most recent condition
+	unstructured = foundCSV.UnstructuredContent()
+	var csv operatorv1alpha1.ClusterServiceVersion
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &csv)
+
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.updateStatus(ctx, policy, buildCSVCond(&csv), existingCSVObj(&csv))
+	if err != nil {
+		return &csv, fmt.Errorf("error updating the status for an existing ClusterServiceVersion: %w", err)
+	}
+
+	return &csv, nil
 }
 
 func opPolIdentifier(namespace, name string) depclient.ObjectIdentifier {
