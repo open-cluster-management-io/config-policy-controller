@@ -17,7 +17,7 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 		opPolTestNS      = "operator-policy-testns"
 		parentPolicyYAML = "../resources/case38_operator_install/parent-policy.yaml"
 		parentPolicyName = "parent-policy"
-		opPolTimeout     = 10
+		opPolTimeout     = 60
 	)
 
 	check := func(
@@ -547,6 +547,44 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 					Message: "the Subscription found on the cluster does not match the policy",
 				},
 				"the Subscription found on the cluster does not match the policy",
+			)
+		})
+	})
+
+	Describe("Test health checks on CSV after installing an operator with OperatorPolicy", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+			opPolName = "oppol-no-group-enforce"
+		)
+		BeforeAll(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should generate conditions and relatedobjects of CSV", func() {
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "ClusterServiceVersion",
+						APIVersion: "operators.coreos.com/v1alpha1",
+					},
+					Compliant: "Compliant",
+					Reason:    "InstallSucceededPhaseSucceeded",
+				}},
+				metav1.Condition{
+					Type:    "CSVCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "InstallSucceededPhaseSucceeded",
+					Message: "ClusterServiceVersion - install strategy completed with no errors",
+				},
+				"ClusterServiceVersion - install strategy completed with no errors",
 			)
 		})
 	})

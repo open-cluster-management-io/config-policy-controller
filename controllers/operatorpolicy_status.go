@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -199,6 +200,18 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		}
 	}
 
+	idx, cond = policy.Status.GetCondition(csvConditionType)
+	if idx == -1 {
+		messages = append(messages, "the status of the ClusterServiceVersion is unknown")
+		foundNonCompliant = true
+	} else {
+		messages = append(messages, cond.Message)
+
+		if cond.Status != metav1.ConditionTrue {
+			foundNonCompliant = true
+		}
+	}
+
 	// FUTURE: check additional conditions
 
 	if foundNonCompliant {
@@ -277,6 +290,7 @@ const (
 	compliantConditionType = "Compliant"
 	opGroupConditionType   = "OperatorGroupCompliant"
 	subConditionType       = "SubscriptionCompliant"
+	csvConditionType       = "CSVCompliant"
 )
 
 func condType(kind string) string {
@@ -285,6 +299,8 @@ func condType(kind string) string {
 		return opGroupConditionType
 	case "Subscription":
 		return subConditionType
+	case "ClusterServiceVersion":
+		return csvConditionType
 	default:
 		panic("Unknown condition type for kind " + kind)
 	}
@@ -353,6 +369,21 @@ func updatedCond(kind string) metav1.Condition {
 		Status:  metav1.ConditionTrue,
 		Reason:  kind + "Updated",
 		Message: "the " + kind + " was updated to match the policy",
+	}
+}
+
+// buildCSVCond takes a csv and returns a shortened version of its most recent Condition
+func buildCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition {
+	status := metav1.ConditionFalse
+	if csv.Status.Phase == operatorv1alpha1.CSVPhaseSucceeded {
+		status = metav1.ConditionTrue
+	}
+
+	return metav1.Condition{
+		Type:    condType(csv.Kind),
+		Status:  status,
+		Reason:  string(csv.Status.Reason) + "Phase" + string(csv.Status.Phase),
+		Message: "ClusterServiceVersion - " + csv.Status.Message,
 	}
 }
 
@@ -440,7 +471,7 @@ func opGroupTooManyObjs(opGroups []unstructured.Unstructured) []policyv1.Related
 
 	for i, opGroup := range opGroups {
 		objs[i] = policyv1.RelatedObject{
-			Object:    policyv1.ObjectResourceFromObj(&opGroups[i]),
+			Object:    policyv1.ObjectResourceFromObj(&opGroup),
 			Compliant: string(policyv1.NonCompliant),
 			Reason:    "There is more than one OperatorGroup in this namespace",
 			Properties: &policyv1.ObjectProperties{
@@ -450,4 +481,42 @@ func opGroupTooManyObjs(opGroups []unstructured.Unstructured) []policyv1.Related
 	}
 
 	return objs
+}
+
+func missingCSVObj(sub *operatorv1alpha1.Subscription) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object: policyv1.ObjectResource{
+			Kind:       clusterServiceVersionGVK.Kind,
+			APIVersion: clusterServiceVersionGVK.GroupVersion().String(),
+			Metadata: policyv1.ObjectMetadata{
+				Name:      sub.Status.CurrentCSV,
+				Namespace: sub.GetNamespace(),
+			},
+		},
+		Compliant: string(policyv1.NonCompliant),
+		Reason:    reasonWantFoundDNE,
+	}
+}
+
+func existingCSVObj(csv *operatorv1alpha1.ClusterServiceVersion) policyv1.RelatedObject {
+	compliance := policyv1.NonCompliant
+	if csv.Status.Phase == operatorv1alpha1.CSVPhaseSucceeded {
+		compliance = policyv1.Compliant
+	}
+
+	return policyv1.RelatedObject{
+		Object: policyv1.ObjectResource{
+			Kind:       clusterServiceVersionGVK.Kind,
+			APIVersion: clusterServiceVersionGVK.GroupVersion().String(),
+			Metadata: policyv1.ObjectMetadata{
+				Name:      csv.Name,
+				Namespace: csv.GetNamespace(),
+			},
+		},
+		Compliant: string(compliance),
+		Reason:    string(csv.Status.Reason) + "Phase" + string(csv.Status.Phase),
+		Properties: &policyv1.ObjectProperties{
+			UID: string(csv.GetUID()),
+		},
+	}
 }
