@@ -125,7 +125,8 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return reconcile.Result{}, err
 	}
 
-	if err := r.handleSubscription(ctx, policy); err != nil {
+	_, err = r.handleSubscription(ctx, policy)
+	if err != nil {
 		OpLog.Error(err, "Error handling Subscription")
 
 		return reconcile.Result{}, err
@@ -358,30 +359,32 @@ func buildOperatorGroup(
 	return operatorGroup, nil
 }
 
-func (r *OperatorPolicyReconciler) handleSubscription(ctx context.Context, policy *policyv1beta1.OperatorPolicy) error {
+func (r *OperatorPolicyReconciler) handleSubscription(
+	ctx context.Context, policy *policyv1beta1.OperatorPolicy,
+) (*operatorv1alpha1.Subscription, error) {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	desiredSub, err := buildSubscription(policy)
 	if err != nil {
-		return fmt.Errorf("error building subscription: %w", err)
+		return nil, fmt.Errorf("error building subscription: %w", err)
 	}
 
 	foundSub, err := r.DynamicWatcher.Get(watcher, subscriptionGVK, desiredSub.Namespace, desiredSub.Name)
 	if err != nil {
-		return fmt.Errorf("error getting the Subscription: %w", err)
+		return nil, fmt.Errorf("error getting the Subscription: %w", err)
 	}
 
 	if foundSub == nil {
 		// Missing Subscription: report NonCompliance
 		err := r.updateStatus(ctx, policy, missingWantedCond("Subscription"), missingWantedObj(desiredSub))
 		if err != nil {
-			return fmt.Errorf("error updating status for a missing Subscription: %w", err)
+			return nil, fmt.Errorf("error updating status for a missing Subscription: %w", err)
 		}
 
 		if policy.Spec.RemediationAction.IsEnforce() {
 			err := r.Create(ctx, desiredSub)
 			if err != nil {
-				return fmt.Errorf("error creating the Subscription: %w", err)
+				return nil, fmt.Errorf("error creating the Subscription: %w", err)
 			}
 
 			desiredSub.SetGroupVersionKind(subscriptionGVK) // Create stripped this information
@@ -389,24 +392,29 @@ func (r *OperatorPolicyReconciler) handleSubscription(ctx context.Context, polic
 			// Now it should match, so report Compliance
 			err = r.updateStatus(ctx, policy, createdCond("Subscription"), createdObj(desiredSub))
 			if err != nil {
-				return fmt.Errorf("error updating the status for a created Subscription: %w", err)
+				return nil, fmt.Errorf("error updating the status for a created Subscription: %w", err)
 			}
 		}
 
-		return nil
+		return desiredSub, nil
 	}
 
 	// Subscription found; check if specs match
 	desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desiredSub)
 	if err != nil {
-		return fmt.Errorf("error converting desired Subscription to an Unstructured: %w", err)
+		return nil, fmt.Errorf("error converting desired Subscription to an Unstructured: %w", err)
 	}
 
 	merged := foundSub.DeepCopy() // Copy it so that the value in the cache is not changed
 
 	updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, merged, string(policy.Spec.ComplianceType))
 	if err != nil {
-		return fmt.Errorf("error checking if the Subscription needs an update: %w", err)
+		return nil, fmt.Errorf("error checking if the Subscription needs an update: %w", err)
+	}
+
+	mergedSub := new(operatorv1alpha1.Subscription)
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(merged.Object, mergedSub); err != nil {
+		return nil, fmt.Errorf("error converting the retrieved Subscription to the go type: %w", err)
 	}
 
 	if !updateNeeded {
@@ -414,42 +422,43 @@ func (r *OperatorPolicyReconciler) handleSubscription(ctx context.Context, polic
 		// For now, just mark it as compliant
 		err := r.updateStatus(ctx, policy, matchesCond("Subscription"), matchedObj(foundSub))
 		if err != nil {
-			return fmt.Errorf("error updating the status for an OperatorGroup that matches: %w", err)
+			return nil, fmt.Errorf("error updating the status for an OperatorGroup that matches: %w", err)
 		}
 
-		return nil
+		return mergedSub, nil
 	}
 
 	// Specs don't match.
 	if policy.Spec.RemediationAction.IsEnforce() && skipUpdate {
 		err = r.updateStatus(ctx, policy, mismatchCondUnfixable("Subscription"), mismatchedObj(foundSub))
 		if err != nil {
-			return fmt.Errorf("error updating status for a mismatched Subscription that can't be enforced: %w", err)
+			return nil, fmt.Errorf(
+				"error updating status for a mismatched Subscription that can't be enforced: %w", err)
 		}
 
-		return nil
+		return mergedSub, nil
 	}
 
 	err = r.updateStatus(ctx, policy, mismatchCond("Subscription"), mismatchedObj(foundSub))
 	if err != nil {
-		return fmt.Errorf("error updating status for a mismatched Subscription: %w", err)
+		return nil, fmt.Errorf("error updating status for a mismatched Subscription: %w", err)
 	}
 
 	if policy.Spec.RemediationAction.IsEnforce() {
 		err := r.Update(ctx, merged)
 		if err != nil {
-			return fmt.Errorf("error updating the Subscription: %w", err)
+			return nil, fmt.Errorf("error updating the Subscription: %w", err)
 		}
 
-		desiredSub.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
+		merged.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
 
-		err = r.updateStatus(ctx, policy, updatedCond("Subscription"), updatedObj(desiredSub))
+		err = r.updateStatus(ctx, policy, updatedCond("Subscription"), updatedObj(merged))
 		if err != nil {
-			return fmt.Errorf("error updating status after updating the Subscription: %w", err)
+			return nil, fmt.Errorf("error updating status after updating the Subscription: %w", err)
 		}
 	}
 
-	return nil
+	return mergedSub, nil
 }
 
 // buildSubscription bootstraps the subscription spec defined in the operator policy
