@@ -13,6 +13,7 @@ import (
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
+	appsv1 "k8s.io/api/apps/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -28,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 )
 
@@ -38,15 +40,23 @@ const (
 var (
 	subscriptionGVK = schema.GroupVersionKind{
 		Group:   "operators.coreos.com",
-		Version: "v1alpha1", Kind: "Subscription",
+		Version: "v1alpha1",
+		Kind:    "Subscription",
 	}
 	operatorGroupGVK = schema.GroupVersionKind{
 		Group:   "operators.coreos.com",
-		Version: "v1", Kind: "OperatorGroup",
+		Version: "v1",
+		Kind:    "OperatorGroup",
 	}
 	clusterServiceVersionGVK = schema.GroupVersionKind{
 		Group:   "operators.coreos.com",
-		Version: "v1alpha1", Kind: "ClusterServiceVersion",
+		Version: "v1alpha1",
+		Kind:    "ClusterServiceVersion",
+	}
+	deploymentGVK = schema.GroupVersionKind{
+		Group:   "apps",
+		Version: "v1",
+		Kind:    "Deployment",
 	}
 )
 
@@ -135,16 +145,22 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return reconcile.Result{}, err
 	}
 
-	_, err = r.handleSubscription(ctx, policy)
+	subscription, err := r.handleSubscription(ctx, policy)
 	if err != nil {
 		OpLog.Error(err, "Error handling Subscription")
 
 		return reconcile.Result{}, err
 	}
 
-	_, err = r.handleCSV(ctx, policy, nil)
+	csv, err := r.handleCSV(ctx, policy, subscription)
 	if err != nil {
 		OpLog.Error(err, "Error handling CSVs")
+
+		return reconcile.Result{}, err
+	}
+
+	if err := r.handleDeployment(ctx, policy, csv); err != nil {
+		OpLog.Error(err, "Error handling Deployments")
 
 		return reconcile.Result{}, err
 	}
@@ -512,33 +528,42 @@ func buildSubscription(
 
 func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
-	subscription *unstructured.Unstructured,
+	sub *operatorv1alpha1.Subscription,
 ) (*operatorv1alpha1.ClusterServiceVersion, error) {
 	// case where subscription is nil
-	if subscription == nil {
-		return nil, nil
+	if sub == nil {
+		// need to report lack of existing CSV
+		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
+		if err != nil {
+			return nil, fmt.Errorf("error updating the status for Deployments: %w", err)
+		}
+
+		return nil, err
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
-	unstructured := subscription.UnstructuredContent()
-	var sub operatorv1alpha1.Subscription
+	// case where subscription status has not been populated yet
+	if sub.Status.InstalledCSV == "" {
+		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
+		if err != nil {
+			return nil, fmt.Errorf("error updating the status for Deployments: %w", err)
+		}
 
-	err := runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &sub)
-	if err != nil {
 		return nil, err
 	}
 
 	// Get the CSV related to the object
 	foundCSV, err := r.DynamicWatcher.Get(watcher, clusterServiceVersionGVK, sub.Namespace,
-		sub.Status.CurrentCSV)
+		sub.Status.InstalledCSV)
 	if err != nil {
 		return nil, err
 	}
 
 	// CSV has not yet been created by OLM
 	if foundCSV == nil {
-		err := r.updateStatus(ctx, policy, missingWantedCond("ClusterServiceVersion"), missingCSVObj(&sub))
+		err := r.updateStatus(ctx, policy,
+			missingWantedCond("ClusterServiceVersion"), missingCSVObj(sub.Name, sub.Namespace))
 		if err != nil {
 			return nil, fmt.Errorf("error updating the status for a missing ClusterServiceVersion: %w", err)
 		}
@@ -547,10 +572,10 @@ func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
 	}
 
 	// Check CSV most recent condition
-	unstructured = foundCSV.UnstructuredContent()
+	unstructured := foundCSV.UnstructuredContent()
 	var csv operatorv1alpha1.ClusterServiceVersion
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &csv)
 
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &csv)
 	if err != nil {
 		return nil, err
 	}
@@ -561,6 +586,73 @@ func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
 	}
 
 	return &csv, nil
+}
+
+func (r *OperatorPolicyReconciler) handleDeployment(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	csv *operatorv1alpha1.ClusterServiceVersion,
+) error {
+	// case where csv is nil
+	if csv == nil {
+		// need to report lack of existing Deployments
+		err := r.updateStatus(ctx, policy, noDeploymentsCond, noExistingDeploymentObj)
+		if err != nil {
+			return fmt.Errorf("error updating the status for Deployments: %w", err)
+		}
+
+		return err
+	}
+
+	OpLog := ctrl.LoggerFrom(ctx)
+
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	var relatedObjects []policyv1.RelatedObject
+	var unavailableDeployments []appsv1.Deployment
+
+	depNum := 0
+
+	for _, dep := range csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs {
+		foundDep, err := r.DynamicWatcher.Get(watcher, deploymentGVK, csv.Namespace, dep.Name)
+		if err != nil {
+			return fmt.Errorf("error getting the Deployment: %w", err)
+		}
+
+		// report missing deployment in relatedObjects list
+		if foundDep == nil {
+			relatedObjects = append(relatedObjects, missingDeploymentObj(dep.Name, csv.Namespace))
+
+			continue
+		}
+
+		unstructured := foundDep.UnstructuredContent()
+		var dep appsv1.Deployment
+
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &dep)
+		if err != nil {
+			OpLog.Error(err, "Unable to convert unstructured Deployment to typed", "Deployment.Name", dep.Name)
+
+			continue
+		}
+
+		// check for unavailable deployments and build relatedObjects list
+		if dep.Status.UnavailableReplicas > 0 {
+			unavailableDeployments = append(unavailableDeployments, dep)
+		}
+
+		depNum++
+
+		relatedObjects = append(relatedObjects, existingDeploymentObj(&dep))
+	}
+
+	err := r.updateStatus(ctx, policy,
+		buildDeploymentCond(depNum > 0, unavailableDeployments), relatedObjects...)
+	if err != nil {
+		return fmt.Errorf("error updating the status for Deployments: %w", err)
+	}
+
+	return nil
 }
 
 func opPolIdentifier(namespace, name string) depclient.ObjectIdentifier {

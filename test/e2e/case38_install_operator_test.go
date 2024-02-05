@@ -17,7 +17,7 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 		opPolTestNS      = "operator-policy-testns"
 		parentPolicyYAML = "../resources/case38_operator_install/parent-policy.yaml"
 		parentPolicyName = "parent-policy"
-		opPolTimeout     = 60
+		opPolTimeout     = 30
 	)
 
 	check := func(
@@ -551,7 +551,7 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 		})
 	})
 
-	Describe("Test health checks on CSV after installing an operator with OperatorPolicy", Ordered, func() {
+	Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
 			opPolName = "oppol-no-group-enforce"
@@ -576,15 +576,99 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 						APIVersion: "operators.coreos.com/v1alpha1",
 					},
 					Compliant: "Compliant",
-					Reason:    "InstallSucceededPhaseSucceeded",
+					Reason:    "InstallSucceeded",
 				}},
 				metav1.Condition{
-					Type:    "CSVCompliant",
+					Type:    "ClusterServiceVersionCompliant",
 					Status:  metav1.ConditionTrue,
-					Reason:  "InstallSucceededPhaseSucceeded",
+					Reason:  "InstallSucceeded",
 					Message: "ClusterServiceVersion - install strategy completed with no errors",
 				},
 				"ClusterServiceVersion - install strategy completed with no errors",
+			)
+		})
+
+		It("Should generate conditions and relatedobjects of Deployments", func() {
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Deployment",
+						APIVersion: "apps/v1",
+					},
+					Compliant: "Compliant",
+					Reason:    "Deployment Available",
+				}},
+				metav1.Condition{
+					Type:    "DeploymentCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeploymentsAvailable",
+					Message: "All operator Deployments have their minimum availability",
+				},
+				"All operator Deployments have their minimum availability",
+			)
+		})
+	})
+
+	Describe("Test health checks on OLM resources on OperatorPolicy with failed CSV", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-csv-fail.yaml"
+			opPolName = "oppol-no-allnamespaces"
+		)
+		BeforeAll(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should generate conditions and relatedobjects of CSV", func() {
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "ClusterServiceVersion",
+						APIVersion: "operators.coreos.com/v1alpha1",
+					},
+					Compliant: "NonCompliant",
+					Reason:    "UnsupportedOperatorGroup",
+				}},
+				metav1.Condition{
+					Type:   "ClusterServiceVersionCompliant",
+					Status: metav1.ConditionFalse,
+					Reason: "UnsupportedOperatorGroup",
+					Message: "ClusterServiceVersion - AllNamespaces InstallModeType not supported," +
+						" cannot configure to watch all namespaces",
+				},
+				"ClusterServiceVersion - AllNamespaces InstallModeType not supported,"+
+					" cannot configure to watch all namespaces",
+			)
+		})
+
+		It("Should generate conditions and relatedobjects of Deployments", func() {
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Deployment",
+						APIVersion: "apps/v1",
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource not found but should exist",
+				}},
+				metav1.Condition{
+					Type:    "DeploymentCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "NoExistingDeployments",
+					Message: "No existing operator Deployments",
+				},
+				"No existing operator Deployments",
 			)
 		})
 	})
