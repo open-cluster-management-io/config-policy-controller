@@ -915,7 +915,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		var err error
 
 		encryptionConfig, usedKeyCache, err = r.getEncryptionConfig(plc, false)
-
 		if err != nil {
 			addTemplateErrorViolation("", err.Error())
 
@@ -1013,8 +1012,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 							"the encryption key cache and try the decryption again",
 					)
 					var encryptionConfig templates.EncryptionConfig
-					encryptionConfig, usedKeyCache, err = r.getEncryptionConfig(plc, true)
 
+					encryptionConfig, usedKeyCache, err = r.getEncryptionConfig(plc, true)
 					if err != nil {
 						addTemplateErrorViolation("", err.Error())
 
@@ -1907,7 +1906,6 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	r.lock.RUnlock()
 
 	mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
-
 	if err != nil {
 		// if the restmapper fails to find a mapping to a resource, generate a violation
 		prefix := "no matches for kind \""
