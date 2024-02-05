@@ -8,6 +8,7 @@ import (
 	"time"
 
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -212,6 +213,18 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		}
 	}
 
+	idx, cond = policy.Status.GetCondition(deploymentConditionType)
+	if idx == -1 {
+		messages = append(messages, "the status of the Deployments are unknown")
+		foundNonCompliant = true
+	} else {
+		messages = append(messages, cond.Message)
+
+		if cond.Status != metav1.ConditionTrue {
+			foundNonCompliant = true
+		}
+	}
+
 	// FUTURE: check additional conditions
 
 	if foundNonCompliant {
@@ -287,10 +300,11 @@ func (r *OperatorPolicyReconciler) emitComplianceEvent(
 }
 
 const (
-	compliantConditionType = "Compliant"
-	opGroupConditionType   = "OperatorGroupCompliant"
-	subConditionType       = "SubscriptionCompliant"
-	csvConditionType       = "CSVCompliant"
+	compliantConditionType  = "Compliant"
+	opGroupConditionType    = "OperatorGroupCompliant"
+	subConditionType        = "SubscriptionCompliant"
+	csvConditionType        = "ClusterServiceVersionCompliant"
+	deploymentConditionType = "DeploymentCompliant"
 )
 
 func condType(kind string) string {
@@ -301,6 +315,8 @@ func condType(kind string) string {
 		return subConditionType
 	case "ClusterServiceVersion":
 		return csvConditionType
+	case "Deployment":
+		return deploymentConditionType
 	default:
 		panic("Unknown condition type for kind " + kind)
 	}
@@ -372,21 +388,6 @@ func updatedCond(kind string) metav1.Condition {
 	}
 }
 
-// buildCSVCond takes a csv and returns a shortened version of its most recent Condition
-func buildCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition {
-	status := metav1.ConditionFalse
-	if csv.Status.Phase == operatorv1alpha1.CSVPhaseSucceeded {
-		status = metav1.ConditionTrue
-	}
-
-	return metav1.Condition{
-		Type:    condType(csv.Kind),
-		Status:  status,
-		Reason:  string(csv.Status.Reason) + "Phase" + string(csv.Status.Phase),
-		Message: "ClusterServiceVersion - " + csv.Status.Message,
-	}
-}
-
 var opGroupPreexistingCond = metav1.Condition{
 	Type:   opGroupConditionType,
 	Status: metav1.ConditionTrue,
@@ -402,6 +403,69 @@ var opGroupTooManyCond = metav1.Condition{
 	Status:  metav1.ConditionFalse,
 	Reason:  "TooManyOperatorGroups",
 	Message: "there is more than one OperatorGroup in the namespace",
+}
+
+// buildCSVCond takes a csv and returns a shortened version of its most recent Condition
+func buildCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition {
+	status := metav1.ConditionFalse
+	if csv.Status.Phase == operatorv1alpha1.CSVPhaseSucceeded {
+		status = metav1.ConditionTrue
+	}
+
+	return metav1.Condition{
+		Type:    condType(csv.Kind),
+		Status:  status,
+		Reason:  string(csv.Status.Reason),
+		Message: "ClusterServiceVersion - " + csv.Status.Message,
+	}
+}
+
+var noCSVCond = metav1.Condition{
+	Type:    csvConditionType,
+	Status:  metav1.ConditionTrue,
+	Reason:  "NoRelevantClusterServiceVersion",
+	Message: "A relevant installed ClusterServiceVersion could not be found",
+}
+
+func buildDeploymentCond(
+	depsExist bool,
+	unavailableDeps []appsv1.Deployment,
+) metav1.Condition {
+	status := metav1.ConditionTrue
+	reason := "DeploymentsAvailable"
+	message := "All operator Deployments have their minimum availability"
+
+	if !depsExist {
+		reason = "NoExistingDeployments"
+		message = "No existing operator Deployments"
+	}
+
+	if len(unavailableDeps) != 0 {
+		status = metav1.ConditionFalse
+		reason = "DeploymentsUnavailable"
+
+		var depNames []string
+		for _, dep := range unavailableDeps {
+			depNames = append(depNames, dep.Name)
+		}
+
+		names := strings.Join(depNames, ", ")
+		message = fmt.Sprintf("Deployments %s do not have their minimum availability", names)
+	}
+
+	return metav1.Condition{
+		Type:    condType(deploymentGVK.Kind),
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	}
+}
+
+var noDeploymentsCond = metav1.Condition{
+	Type:    deploymentConditionType,
+	Status:  metav1.ConditionTrue,
+	Reason:  "NoRelevantDeployments",
+	Message: "The ClusterServiceVersion is missing, thus meaning there are no relevant deployments",
 }
 
 // missingWantedObj returns a NonCompliant RelatedObject with reason = 'Resource not found but should exist'
@@ -483,14 +547,14 @@ func opGroupTooManyObjs(opGroups []unstructured.Unstructured) []policyv1.Related
 	return objs
 }
 
-func missingCSVObj(sub *operatorv1alpha1.Subscription) policyv1.RelatedObject {
+func missingCSVObj(name string, namespace string) policyv1.RelatedObject {
 	return policyv1.RelatedObject{
 		Object: policyv1.ObjectResource{
 			Kind:       clusterServiceVersionGVK.Kind,
 			APIVersion: clusterServiceVersionGVK.GroupVersion().String(),
 			Metadata: policyv1.ObjectMetadata{
-				Name:      sub.Status.CurrentCSV,
-				Namespace: sub.GetNamespace(),
+				Name:      name,
+				Namespace: namespace,
 			},
 		},
 		Compliant: string(policyv1.NonCompliant),
@@ -505,18 +569,71 @@ func existingCSVObj(csv *operatorv1alpha1.ClusterServiceVersion) policyv1.Relate
 	}
 
 	return policyv1.RelatedObject{
-		Object: policyv1.ObjectResource{
-			Kind:       clusterServiceVersionGVK.Kind,
-			APIVersion: clusterServiceVersionGVK.GroupVersion().String(),
-			Metadata: policyv1.ObjectMetadata{
-				Name:      csv.Name,
-				Namespace: csv.GetNamespace(),
-			},
-		},
+		Object:    policyv1.ObjectResourceFromObj(csv),
 		Compliant: string(compliance),
-		Reason:    string(csv.Status.Reason) + "Phase" + string(csv.Status.Phase),
+		Reason:    string(csv.Status.Reason),
 		Properties: &policyv1.ObjectProperties{
 			UID: string(csv.GetUID()),
 		},
 	}
+}
+
+// represents a lack of relevant CSV
+var noExistingCSVObj = policyv1.RelatedObject{
+	Object: policyv1.ObjectResource{
+		Kind:       clusterServiceVersionGVK.Kind,
+		APIVersion: clusterServiceVersionGVK.GroupVersion().String(),
+		Metadata: policyv1.ObjectMetadata{
+			Name: "*",
+		},
+	},
+	Compliant: string(policyv1.UnknownCompliancy),
+	Reason:    "No relevant ClusterServiceVersion found",
+}
+
+func missingDeploymentObj(name string, namespace string) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object: policyv1.ObjectResource{
+			Kind:       deploymentGVK.Kind,
+			APIVersion: deploymentGVK.GroupVersion().String(),
+			Metadata: policyv1.ObjectMetadata{
+				Name:      name,
+				Namespace: namespace,
+			},
+		},
+		Compliant: string(policyv1.NonCompliant),
+		Reason:    reasonWantFoundDNE,
+	}
+}
+
+func existingDeploymentObj(dep *appsv1.Deployment) policyv1.RelatedObject {
+	compliance := policyv1.NonCompliant
+	reason := "Deployment Unavailable"
+
+	if dep.Status.UnavailableReplicas == 0 {
+		compliance = policyv1.Compliant
+		reason = "Deployment Available"
+	}
+
+	return policyv1.RelatedObject{
+		Object:    policyv1.ObjectResourceFromObj(dep),
+		Compliant: string(compliance),
+		Reason:    reason,
+		Properties: &policyv1.ObjectProperties{
+			UID: string(dep.GetUID()),
+		},
+	}
+}
+
+// represents a lack of relevant deployments
+var noExistingDeploymentObj = policyv1.RelatedObject{
+	Object: policyv1.ObjectResource{
+		Kind:       deploymentGVK.Kind,
+		APIVersion: deploymentGVK.GroupVersion().String(),
+		Metadata: policyv1.ObjectMetadata{
+			Name: "*",
+		},
+	},
+	Compliant: string(policyv1.UnknownCompliancy),
+	Reason:    "No relevant deployments found",
 }
