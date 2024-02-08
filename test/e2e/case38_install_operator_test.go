@@ -9,6 +9,7 @@ import (
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
+	"open-cluster-management.io/config-policy-controller/pkg/common"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
@@ -71,9 +72,19 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			g.Expect(actualCondition.Reason).To(Equal(expectedCondition.Reason))
 			g.Expect(actualCondition.Message).To(Equal(expectedCondition.Message))
 
-			g.Expect(utils.GetMatchingEvents(
+			events := utils.GetMatchingEvents(
 				clientManaged, opPolTestNS, parentPolicyName, "", expectedEventMsgSnippet, opPolTimeout,
-			)).NotTo(BeEmpty())
+			)
+			g.Expect(events).NotTo(BeEmpty())
+
+			for _, event := range events {
+				g.Expect(event.Annotations[common.ParentDBIDAnnotation]).To(
+					Equal("124"), common.ParentDBIDAnnotation+" should have the correct value",
+				)
+				g.Expect(event.Annotations[common.PolicyDBIDAnnotation]).To(
+					Equal("64"), common.PolicyDBIDAnnotation+" should have the correct value",
+				)
+			}
 		}
 
 		EventuallyWithOffset(1, checkFunc, opPolTimeout, 3).Should(Succeed())

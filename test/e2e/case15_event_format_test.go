@@ -12,6 +12,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"open-cluster-management.io/config-policy-controller/pkg/common"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
@@ -62,11 +63,27 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		Expect(nonCompPlcEvents).To(BeEmpty())
 
 		By("Checking events on the parent policy")
-		Eventually(func() []v1.Event {
-			return utils.GetMatchingEvents(clientManaged, testNamespace,
-				case15AlwaysCompliantParentName, "policy: "+testNamespace+"/"+
-					case15AlwaysCompliantName, "^Compliant;", defaultTimeoutSeconds)
-		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+		Eventually(func(g Gomega) {
+			events := utils.GetMatchingEvents(
+				clientManaged,
+				testNamespace,
+				case15AlwaysCompliantParentName,
+				"policy: "+testNamespace+"/"+case15AlwaysCompliantName,
+				"^Compliant;",
+				defaultTimeoutSeconds,
+			)
+			g.Expect(events).ToNot(BeEmpty())
+
+			for _, event := range events {
+				g.Expect(event.Annotations[common.ParentDBIDAnnotation]).To(
+					Equal("23"), common.ParentDBIDAnnotation+" should have the correct value",
+				)
+				g.Expect(event.Annotations[common.PolicyDBIDAnnotation]).To(
+					Equal("30"), common.PolicyDBIDAnnotation+" should have the correct value",
+				)
+			}
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
+
 		nonCompParentEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
 			case15AlwaysCompliantParentName, "policy: "+testNamespace+"/"+
 				case15AlwaysCompliantName, "^NonCompliant;", defaultTimeoutSeconds)

@@ -11,7 +11,11 @@ import (
 	"k8s.io/client-go/tools/record"
 )
 
-const UninstallingAnnotation string = "policy.open-cluster-management.io/uninstalling"
+const (
+	UninstallingAnnotation string = "policy.open-cluster-management.io/uninstalling"
+	PolicyDBIDAnnotation   string = "policy.open-cluster-management.io/policy-compliance-db-id"
+	ParentDBIDAnnotation   string = "policy.open-cluster-management.io/parent-policy-compliance-db-id"
+)
 
 // CreateRecorder return recorder
 func CreateRecorder(kubeClient kubernetes.Interface, componentName string) (record.EventRecorder, error) {
