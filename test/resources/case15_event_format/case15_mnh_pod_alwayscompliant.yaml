@@ -2,6 +2,9 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
   name: mnh-pod-alwayscompliant
+  annotations:
+    policy.open-cluster-management.io/parent-policy-compliance-db-id: "23"
+    policy.open-cluster-management.io/policy-compliance-db-id: "30"
   ownerReferences:
     - apiVersion: policy.open-cluster-management.io/v1
       kind: Policy
