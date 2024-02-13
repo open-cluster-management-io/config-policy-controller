@@ -2,10 +2,13 @@ package e2e
 
 import (
 	"encoding/json"
+	"fmt"
+	"regexp"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
@@ -15,10 +18,12 @@ import (
 
 var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, func() {
 	const (
-		opPolTestNS      = "operator-policy-testns"
-		parentPolicyYAML = "../resources/case38_operator_install/parent-policy.yaml"
-		parentPolicyName = "parent-policy"
-		opPolTimeout     = 30
+		opPolTestNS          = "operator-policy-testns"
+		parentPolicyYAML     = "../resources/case38_operator_install/parent-policy.yaml"
+		parentPolicyName     = "parent-policy"
+		eventuallyTimeout    = 10
+		consistentlyDuration = 5
+		olmWaitTimeout       = 45
 	)
 
 	check := func(
@@ -32,7 +37,7 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			GinkgoHelper()
 
 			unstructPolicy := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, polName,
-				opPolTestNS, true, opPolTimeout)
+				opPolTestNS, true, eventuallyTimeout)
 
 			policyJSON, err := json.MarshalIndent(unstructPolicy.Object, "", "  ")
 			g.Expect(err).NotTo(HaveOccurred())
@@ -70,10 +75,11 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			g.Expect(idx).NotTo(Equal(-1))
 			g.Expect(actualCondition.Status).To(Equal(expectedCondition.Status))
 			g.Expect(actualCondition.Reason).To(Equal(expectedCondition.Reason))
-			g.Expect(actualCondition.Message).To(Equal(expectedCondition.Message))
+			g.Expect(actualCondition.Message).To(MatchRegexp(
+				fmt.Sprintf(".*%v.*", regexp.QuoteMeta(expectedCondition.Message))))
 
 			events := utils.GetMatchingEvents(
-				clientManaged, opPolTestNS, parentPolicyName, "", expectedEventMsgSnippet, opPolTimeout,
+				clientManaged, opPolTestNS, parentPolicyName, "", expectedEventMsgSnippet, eventuallyTimeout,
 			)
 			g.Expect(events).NotTo(BeEmpty())
 
@@ -87,8 +93,8 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			}
 		}
 
-		EventuallyWithOffset(1, checkFunc, opPolTimeout, 3).Should(Succeed())
-		ConsistentlyWithOffset(1, checkFunc, 3, 1).Should(Succeed())
+		EventuallyWithOffset(1, checkFunc, eventuallyTimeout, 3).Should(Succeed())
+		ConsistentlyWithOffset(1, checkFunc, consistentlyDuration, 1).Should(Succeed())
 	}
 
 	Describe("Testing OperatorGroup behavior when it is not specified in the policy", Ordered, func() {
@@ -475,14 +481,15 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 							Namespace: opPolTestNS,
 						},
 					},
-					Compliant: "Compliant",
-					Reason:    "Resource found as expected",
+					Compliant: "NonCompliant",
+					Reason:    "ConstraintsNotSatisfiable",
 				}},
 				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "SubscriptionMatches",
-					Message: "the Subscription matches what is required by the policy",
+					Type:   "SubscriptionCompliant",
+					Status: metav1.ConditionFalse,
+					Reason: "ConstraintsNotSatisfiable",
+					Message: "no operators found from catalog operatorhubio-catalog in namespace fake " +
+						"referenced by subscription project-quay",
 				},
 				"the Subscription was updated to match the policy",
 			)
@@ -575,7 +582,20 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
 		})
 
-		It("Should generate conditions and relatedobjects of CSV", func() {
+		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
+			Eventually(func(ctx SpecContext) string {
+				csv, _ := clientManagedDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
+					Get(ctx, "quay-operator.v3.8.13", metav1.GetOptions{})
+
+				if csv == nil {
+					return ""
+				}
+
+				reason, _, _ := unstructured.NestedString(csv.Object, "status", "reason")
+
+				return reason
+			}, olmWaitTimeout, 5, ctx).Should(Equal("InstallSucceeded"))
+
 			check(
 				opPolName,
 				false,
@@ -634,7 +654,14 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
 		})
 
-		It("Should generate conditions and relatedobjects of CSV", func() {
+		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
+			Eventually(func(ctx SpecContext) []unstructured.Unstructured {
+				csvList, _ := clientManagedDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+
+				return csvList.Items
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeEmpty())
+
 			check(
 				opPolName,
 				false,
@@ -819,6 +846,254 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 					Message: "CatalogSource was found but is unhealthy",
 				},
 				"CatalogSource was found but is unhealthy",
+			)
+		})
+	})
+	Describe("Testing InstallPlan approval and status behavior", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-manual-upgrades.yaml"
+			opPolName = "oppol-manual-upgrades"
+			subName   = "strimzi-kafka-operator"
+		)
+
+		var (
+			firstInstallPlanName  string
+			secondInstallPlanName string
+		)
+
+		BeforeAll(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should initially report the ConstraintsNotSatisfiable Subscription", func(ctx SpecContext) {
+			Eventually(func(ctx SpecContext) interface{} {
+				sub, _ := clientManagedDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+					Get(ctx, subName, metav1.GetOptions{})
+
+				if sub == nil {
+					return ""
+				}
+
+				conditions, _, _ := unstructured.NestedSlice(sub.Object, "status", "conditions")
+				for _, cond := range conditions {
+					condMap, ok := cond.(map[string]interface{})
+					if !ok {
+						continue
+					}
+
+					condType, _, _ := unstructured.NestedString(condMap, "type")
+					if condType == "ResolutionFailed" {
+						return condMap["status"]
+					}
+				}
+
+				return nil
+			}, olmWaitTimeout, 5, ctx).Should(Equal("True"))
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      subName,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "ConstraintsNotSatisfiable",
+				}},
+				metav1.Condition{
+					Type:   "SubscriptionCompliant",
+					Status: metav1.ConditionFalse,
+					Reason: "ConstraintsNotSatisfiable",
+					Message: "no operators found with name strimzi-cluster-operator.v0.0.0.1337 in channel " +
+						"strimzi-0.36.x of package strimzi-kafka-operator in the catalog referenced by " +
+						"subscription strimzi-kafka-operator",
+				},
+				"constraints not satisfiable",
+			)
+		})
+		It("Should initially report that no InstallPlans are found", func() {
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "*",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "There are no relevant InstallPlans in this namespace",
+				}},
+				metav1.Condition{
+					Type:    "InstallPlanCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "NoInstallPlansFound",
+					Message: "there are no relevant InstallPlans in the namespace",
+				},
+				"there are no relevant InstallPlans in the namespace",
+			)
+		})
+		It("Should report an available upgrade", func(ctx SpecContext) {
+			goodVersion := "strimzi-cluster-operator.v0.36.0"
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/subscription/startingCSV", "value": "`+goodVersion+`"},`+
+					`{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
+			utils.Kubectl("patch", "subscription.operator", subName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/startingCSV", "value": "`+goodVersion+`"}]`)
+			Eventually(func(ctx SpecContext) int {
+				ipList, _ := clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+
+				return len(ipList.Items)
+			}, olmWaitTimeout, 5, ctx).Should(Equal(1))
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "The InstallPlan is RequiresApproval",
+				}},
+				metav1.Condition{
+					Type:    "InstallPlanCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "InstallPlanRequiresApproval",
+					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.36.0] is available for approval",
+				},
+				"an InstallPlan to update .* is available for approval",
+			)
+		})
+		It("Should do the upgrade when enforced, and stop at the next version", func(ctx SpecContext) {
+			ipList, err := clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+				List(ctx, metav1.ListOptions{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(ipList.Items).To(HaveLen(1))
+
+			firstInstallPlanName = ipList.Items[0].GetName()
+
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+
+			Eventually(func(ctx SpecContext) int {
+				ipList, err = clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+
+				return len(ipList.Items)
+			}, olmWaitTimeout, 5, ctx).Should(Equal(2))
+
+			secondInstallPlanName = ipList.Items[1].GetName()
+			if firstInstallPlanName == secondInstallPlanName {
+				secondInstallPlanName = ipList.Items[0].GetName()
+			}
+
+			Eventually(func(ctx SpecContext) string {
+				ip, _ := clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+					Get(ctx, firstInstallPlanName, metav1.GetOptions{})
+				phase, _, _ := unstructured.NestedString(ip.Object, "status", "phase")
+
+				return phase
+			}, olmWaitTimeout, 5, ctx).Should(Equal("Complete"))
+
+			// This check covers several situations that occur quickly: the first InstallPlan eventually
+			// progresses to Complete after it is approved, and the next InstallPlan is created and
+			// recognized by the policy (but not yet approved).
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      firstInstallPlanName,
+						},
+					},
+					Reason: "The InstallPlan is Complete",
+				}, {
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      secondInstallPlanName,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "The InstallPlan is RequiresApproval",
+				}},
+				metav1.Condition{
+					Type:   "InstallPlanCompliant",
+					Status: metav1.ConditionFalse,
+					Reason: "InstallPlanRequiresApproval",
+					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.36.1] is available for " +
+						"approval but not allowed by the specified versions in the policy",
+				},
+				"the InstallPlan.*36.0.*was approved",
+			)
+		})
+		It("Should approve the next version when it's added to the spec", func(ctx SpecContext) {
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "add", "path": "/spec/versions/-", "value": "strimzi-cluster-operator.v0.36.1"}]`)
+
+			Eventually(func(ctx SpecContext) string {
+				ip, _ := clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+					Get(ctx, secondInstallPlanName, metav1.GetOptions{})
+				phase, _, _ := unstructured.NestedString(ip.Object, "status", "phase")
+
+				return phase
+			}, olmWaitTimeout, 5, ctx).Should(Equal("Complete"))
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      firstInstallPlanName,
+						},
+					},
+					Reason: "The InstallPlan is Complete",
+				}, {
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      secondInstallPlanName,
+						},
+					},
+					Reason: "The InstallPlan is Complete",
+				}},
+				metav1.Condition{
+					Type:    "InstallPlanCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "NoInstallPlansRequiringApproval",
+					Message: "no InstallPlans requiring approval were found",
+				},
+				"the InstallPlan.*36.1.*was approved",
 			)
 		})
 	})

@@ -1,0 +1,26 @@
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: oppol-manual-upgrades
+  annotations:
+    policy.open-cluster-management.io/parent-policy-compliance-db-id: "124"
+    policy.open-cluster-management.io/policy-compliance-db-id: "64"
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    kind: Policy
+    name: parent-policy
+    uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
+spec:
+  remediationAction: enforce
+  severity: medium
+  complianceType: musthave
+  subscription:
+    channel: strimzi-0.36.x
+    installPlanApproval: Manual
+    name: strimzi-kafka-operator
+    namespace: operator-policy-testns
+    source: operatorhubio-catalog
+    sourceNamespace: olm
+    startingCSV: strimzi-cluster-operator.v0.0.0.1337 # shouldn't match a real version
+  versions:
+    - strimzi-cluster-operator.v0.36.0
