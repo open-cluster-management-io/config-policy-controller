@@ -14,6 +14,7 @@ import (
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -63,6 +64,11 @@ var (
 		Group:   "operators.coreos.com",
 		Version: "v1alpha1",
 		Kind:    "CatalogSource",
+	}
+	installPlanGVK = schema.GroupVersionKind{
+		Group:   "operators.coreos.com",
+		Version: "v1alpha1",
+		Kind:    "InstallPlan",
 	}
 )
 
@@ -154,6 +160,12 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	subscription, err := r.handleSubscription(ctx, policy)
 	if err != nil {
 		OpLog.Error(err, "Error handling Subscription")
+
+		return reconcile.Result{}, err
+	}
+
+	if err := r.handleInstallPlan(ctx, policy, subscription); err != nil {
+		OpLog.Error(err, "Error handling InstallPlan")
 
 		return reconcile.Result{}, err
 	}
@@ -447,7 +459,7 @@ func buildOperatorGroup(
 	// Fallback to the Subscription namespace if the OperatorGroup namespace is not specified in the policy.
 	ogNamespace := subNamespace
 
-	if specifiedNS, ok := opGroup["namespace"].(string); ok || specifiedNS == "" {
+	if specifiedNS, ok := opGroup["namespace"].(string); ok && specifiedNS != "" {
 		ogNamespace = specifiedNS
 	}
 
@@ -529,8 +541,28 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 	}
 
 	if !updateNeeded {
-		// FUTURE: Check more details about the *status* of the Subscription
-		// For now, just mark it as compliant
+		subResFailed := mergedSub.Status.GetCondition(operatorv1alpha1.SubscriptionResolutionFailed)
+
+		if subResFailed.Status == corev1.ConditionTrue {
+			cond := metav1.Condition{
+				Type:    subConditionType,
+				Status:  metav1.ConditionFalse,
+				Reason:  subResFailed.Reason,
+				Message: subResFailed.Message,
+			}
+
+			if subResFailed.LastTransitionTime != nil {
+				cond.LastTransitionTime = *subResFailed.LastTransitionTime
+			}
+
+			err := r.updateStatus(ctx, policy, cond, nonCompObj(foundSub, subResFailed.Reason))
+			if err != nil {
+				return nil, fmt.Errorf("error setting the ResolutionFailed status for a Subscription: %w", err)
+			}
+
+			return mergedSub, nil
+		}
+
 		err := r.updateStatus(ctx, policy, matchesCond("Subscription"), matchedObj(foundSub))
 		if err != nil {
 			return nil, fmt.Errorf("error updating the status for a Subscription that matches: %w", err)
@@ -602,6 +634,12 @@ func buildSubscription(
 	subscription.ObjectMeta.Name = spec.Package
 	subscription.ObjectMeta.Namespace = ns
 	subscription.Spec = spec
+
+	// If the policy is in `enforce` mode and the allowed CSVs are restricted,
+	// the InstallPlanApproval will be set to Manual so that upgrades can be controlled.
+	if policy.Spec.RemediationAction.IsEnforce() && len(policy.Spec.Versions) > 0 {
+		subscription.Spec.InstallPlanApproval = operatorv1alpha1.ApprovalManual
+	}
 
 	return subscription, nil
 }
@@ -789,4 +827,212 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	}
 
 	return updateNeeded, false, nil
+}
+
+func (r *OperatorPolicyReconciler) handleInstallPlan(
+	ctx context.Context, policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription,
+) error {
+	if sub == nil {
+		err := r.updateStatus(ctx, policy, noInstallPlansCond, noInstallPlansObj(""))
+		if err != nil {
+			return fmt.Errorf("error updating status when the subscription is nil: %w", err)
+		}
+
+		return nil
+	}
+
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	foundInstallPlans, err := r.DynamicWatcher.List(
+		watcher, installPlanGVK, sub.Namespace, labels.Everything())
+	if err != nil {
+		return fmt.Errorf("error listing InstallPlans: %w", err)
+	}
+
+	ownedInstallPlans := make([]unstructured.Unstructured, 0, len(foundInstallPlans))
+
+	for _, installPlan := range foundInstallPlans {
+		for _, owner := range installPlan.GetOwnerReferences() {
+			match := owner.Name == sub.Name &&
+				owner.Kind == subscriptionGVK.Kind &&
+				owner.APIVersion == subscriptionGVK.GroupVersion().String()
+			if match {
+				ownedInstallPlans = append(ownedInstallPlans, installPlan)
+
+				break
+			}
+		}
+	}
+
+	// InstallPlans are generally kept in order to provide a history of actions on the cluster, but
+	// they can be deleted without impacting the installed operator. So, not finding any should not
+	// be considered a reason for NonCompliance.
+	if len(ownedInstallPlans) == 0 {
+		err := r.updateStatus(ctx, policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace))
+		if err != nil {
+			return fmt.Errorf("error updating status when no relevant InstallPlans were found: %w", err)
+		}
+
+		return nil
+	}
+
+	OpLog := ctrl.LoggerFrom(ctx)
+	relatedInstallPlans := make([]policyv1.RelatedObject, len(ownedInstallPlans))
+	ipsRequiringApproval := make([]unstructured.Unstructured, 0)
+	anyInstalling := false
+	currentPlanFailed := false
+
+	// Construct the relevant relatedObjects, and collect any that might be considered for approval
+	for i, installPlan := range ownedInstallPlans {
+		phase, ok, err := unstructured.NestedString(installPlan.Object, "status", "phase")
+		if !ok && err == nil {
+			err = errors.New("the phase of the InstallPlan was not found")
+		}
+
+		if err != nil {
+			OpLog.Error(err, "Unable to determine the phase of the related InstallPlan",
+				"InstallPlan.Name", installPlan.GetName())
+
+			// The InstallPlan will be added as unknown
+			phase = ""
+		}
+
+		// consider some special phases
+		switch phase {
+		case string(operatorv1alpha1.InstallPlanPhaseRequiresApproval):
+			ipsRequiringApproval = append(ipsRequiringApproval, installPlan)
+		case string(operatorv1alpha1.InstallPlanPhaseInstalling):
+			anyInstalling = true
+		case string(operatorv1alpha1.InstallPlanFailed):
+			// Generally, a failed InstallPlan is not a reason for NonCompliance, because it could be from
+			// an old installation. But if the current InstallPlan is failed, we should alert the user.
+			if sub.Status.InstallPlanRef != nil && sub.Status.InstallPlanRef.Name == installPlan.GetName() {
+				currentPlanFailed = true
+			}
+		}
+
+		relatedInstallPlans[i] = existingInstallPlanObj(&ownedInstallPlans[i], phase)
+	}
+
+	if currentPlanFailed {
+		err := r.updateStatus(ctx, policy, installPlanFailed, relatedInstallPlans...)
+		if err != nil {
+			return fmt.Errorf("error updating status when the current InstallPlan has failed: %w", err)
+		}
+
+		return nil
+	}
+
+	if anyInstalling {
+		err := r.updateStatus(ctx, policy, installPlanInstallingCond, relatedInstallPlans...)
+		if err != nil {
+			return fmt.Errorf("error updating status when an installing InstallPlan was found: %w", err)
+		}
+
+		return nil
+	}
+
+	if len(ipsRequiringApproval) == 0 {
+		err := r.updateStatus(ctx, policy, installPlansNoApprovals, relatedInstallPlans...)
+		if err != nil {
+			return fmt.Errorf("error updating status when InstallPlans were fine: %w", err)
+		}
+
+		return nil
+	}
+
+	allUpgradeVersions := make([]string, len(ipsRequiringApproval))
+
+	for i, installPlan := range ipsRequiringApproval {
+		csvNames, ok, err := unstructured.NestedStringSlice(installPlan.Object,
+			"spec", "clusterServiceVersionNames")
+		if !ok && err == nil {
+			err = errors.New("the clusterServiceVersionNames field of the InstallPlan was not found")
+		}
+
+		if err != nil {
+			OpLog.Error(err, "Unable to determine the csv names of the related InstallPlan",
+				"InstallPlan.Name", installPlan.GetName())
+
+			csvNames = []string{"unknown"}
+		}
+
+		allUpgradeVersions[i] = fmt.Sprintf("%v", csvNames)
+	}
+
+	// Only report this status in `inform` mode, because otherwise it could easily oscillate between this and
+	// another condition below when being enforced.
+	if policy.Spec.RemediationAction.IsInform() {
+		// FUTURE: check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
+		// For now this condition assumes it is set to 'NonCompliant'
+		err := r.updateStatus(ctx, policy, installPlanUpgradeCond(allUpgradeVersions, nil), relatedInstallPlans...)
+		if err != nil {
+			return fmt.Errorf("error updating status when an InstallPlan requiring approval was found: %w", err)
+		}
+
+		return nil
+	}
+
+	approvedVersion := "" // this will only be accurate when there is only one approvable InstallPlan
+	approvableInstallPlans := make([]unstructured.Unstructured, 0)
+
+	for _, installPlan := range ipsRequiringApproval {
+		ipCSVs, ok, err := unstructured.NestedStringSlice(installPlan.Object,
+			"spec", "clusterServiceVersionNames")
+		if !ok && err == nil {
+			err = errors.New("the clusterServiceVersionNames field of the InstallPlan was not found")
+		}
+
+		if err != nil {
+			OpLog.Error(err, "Unable to determine the csv names of the related InstallPlan",
+				"InstallPlan.Name", installPlan.GetName())
+
+			continue
+		}
+
+		if len(ipCSVs) != 1 {
+			continue // Don't automate approving any InstallPlans for multiple CSVs
+		}
+
+		matchingCSV := len(policy.Spec.Versions) == 0 // true if `spec.versions` is not specified
+
+		for _, acceptableCSV := range policy.Spec.Versions {
+			if string(acceptableCSV) == ipCSVs[0] {
+				matchingCSV = true
+
+				break
+			}
+		}
+
+		if matchingCSV {
+			approvedVersion = ipCSVs[0]
+
+			approvableInstallPlans = append(approvableInstallPlans, installPlan)
+		}
+	}
+
+	if len(approvableInstallPlans) != 1 {
+		err := r.updateStatus(ctx, policy,
+			installPlanUpgradeCond(allUpgradeVersions, approvableInstallPlans), relatedInstallPlans...)
+		if err != nil {
+			return fmt.Errorf("error updating status when an InstallPlan can't be automatically approved: %w", err)
+		}
+
+		return nil
+	}
+
+	if err := unstructured.SetNestedField(approvableInstallPlans[0].Object, true, "spec", "approved"); err != nil {
+		return fmt.Errorf("error approving InstallPlan: %w", err)
+	}
+
+	if err := r.Update(ctx, &approvableInstallPlans[0]); err != nil {
+		return fmt.Errorf("error updating approved InstallPlan: %w", err)
+	}
+
+	err = r.updateStatus(ctx, policy, installPlanApprovedCond(approvedVersion), relatedInstallPlans...)
+	if err != nil {
+		return fmt.Errorf("error updating status after approving an InstallPlan: %w", err)
+	}
+
+	return nil
 }

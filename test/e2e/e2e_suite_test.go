@@ -50,6 +50,8 @@ var (
 	gvrOperatorPolicy           schema.GroupVersionResource
 	gvrSubscription             schema.GroupVersionResource
 	gvrOperatorGroup            schema.GroupVersionResource
+	gvrInstallPlan              schema.GroupVersionResource
+	gvrClusterServiceVersion    schema.GroupVersionResource
 	defaultImageRegistry        string
 )
 
@@ -92,6 +94,16 @@ var _ = BeforeSuite(func() {
 		Group:    "operators.coreos.com",
 		Version:  "v1",
 		Resource: "operatorgroups",
+	}
+	gvrInstallPlan = schema.GroupVersionResource{
+		Group:    "operators.coreos.com",
+		Version:  "v1alpha1",
+		Resource: "installplans",
+	}
+	gvrClusterServiceVersion = schema.GroupVersionResource{
+		Group:    "operators.coreos.com",
+		Version:  "v1alpha1",
+		Resource: "clusterserviceversions",
 	}
 	gvrAPIService = schema.GroupVersionResource{
 		Group:    "apiregistration.k8s.io",

@@ -202,6 +202,18 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		}
 	}
 
+	idx, cond = policy.Status.GetCondition(installPlanConditionType)
+	if idx == -1 {
+		messages = append(messages, "the status of the InstallPlan is unknown")
+		foundNonCompliant = true
+	} else {
+		messages = append(messages, cond.Message)
+
+		if cond.Status != metav1.ConditionTrue {
+			foundNonCompliant = true
+		}
+	}
+
 	idx, cond = policy.Status.GetCondition(csvConditionType)
 	if idx == -1 {
 		messages = append(messages, "the status of the ClusterServiceVersion is unknown")
@@ -327,12 +339,13 @@ func (r *OperatorPolicyReconciler) emitComplianceEvent(
 }
 
 const (
-	compliantConditionType  = "Compliant"
-	opGroupConditionType    = "OperatorGroupCompliant"
-	subConditionType        = "SubscriptionCompliant"
-	csvConditionType        = "ClusterServiceVersionCompliant"
-	deploymentConditionType = "DeploymentCompliant"
-	catalogSrcConditionType = "CatalogSourcesUnhealthy"
+	compliantConditionType   = "Compliant"
+	opGroupConditionType     = "OperatorGroupCompliant"
+	subConditionType         = "SubscriptionCompliant"
+	csvConditionType         = "ClusterServiceVersionCompliant"
+	deploymentConditionType  = "DeploymentCompliant"
+	catalogSrcConditionType  = "CatalogSourcesUnhealthy"
+	installPlanConditionType = "InstallPlanCompliant"
 )
 
 func condType(kind string) string {
@@ -416,6 +429,9 @@ func updatedCond(kind string) metav1.Condition {
 	}
 }
 
+// opGroupPreexistingCond is a Compliant condition with Reason 'PreexistingOperatorGroupFound',
+// and Message 'the policy does not specify an OperatorGroup but one already exists in the
+// namespace - assuming that OperatorGroup is correct'
 var opGroupPreexistingCond = metav1.Condition{
 	Type:   opGroupConditionType,
 	Status: metav1.ConditionTrue,
@@ -424,8 +440,8 @@ var opGroupPreexistingCond = metav1.Condition{
 		"assuming that OperatorGroup is correct",
 }
 
-// opGroupTooManyCond is a NonCompliant condition with a Reason like 'TooManyOperatorGroups',
-// and a Message like 'there is more than one OperatorGroup in the namespace'
+// opGroupTooManyCond is a NonCompliant condition with Reason 'TooManyOperatorGroups',
+// and Message 'there is more than one OperatorGroup in the namespace'
 var opGroupTooManyCond = metav1.Condition{
 	Type:    opGroupConditionType,
 	Status:  metav1.ConditionFalse,
@@ -578,6 +594,82 @@ func catalogSrcUnknownObj(catalogName string, catalogNS string) policyv1.Related
 	}
 }
 
+// noInstallPlansCond is a Compliant condition with Reason 'NoInstallPlansFound',
+// and Message 'there are no relevant InstallPlans in the namespace'
+var noInstallPlansCond = metav1.Condition{
+	Type:    installPlanConditionType,
+	Status:  metav1.ConditionTrue,
+	Reason:  "NoInstallPlansFound",
+	Message: "there are no relevant InstallPlans in the namespace",
+}
+
+// installPlanFailed is a NonCompliant condition with Reason 'InstallPlanFailed'
+// and message 'the current InstallPlan has failed'
+var installPlanFailed = metav1.Condition{
+	Type:    installPlanConditionType,
+	Status:  metav1.ConditionFalse,
+	Reason:  "InstallPlanFailed",
+	Message: "the current InstallPlan has failed",
+}
+
+// installPlanInstallingCond is a NonCompliant condition with Reason 'InstallPlansInstalling'
+// and message 'a relevant InstallPlan is actively installing'
+var installPlanInstallingCond = metav1.Condition{
+	Type:    installPlanConditionType,
+	Status:  metav1.ConditionFalse,
+	Reason:  "InstallPlansInstalling",
+	Message: "a relevant InstallPlan is actively installing",
+}
+
+// installPlansNoApprovals is a Compliant condition with Reason 'NoInstallPlansRequiringApproval'
+// and message 'no InstallPlans requiring approval were found'
+var installPlansNoApprovals = metav1.Condition{
+	Type:    installPlanConditionType,
+	Status:  metav1.ConditionTrue,
+	Reason:  "NoInstallPlansRequiringApproval",
+	Message: "no InstallPlans requiring approval were found",
+}
+
+// installPlanUpgradeCond is a NonCompliant condition with Reason 'InstallPlanRequiresApproval'
+// and a message detailing which possible updates are available
+func installPlanUpgradeCond(versions []string, approvableIPs []unstructured.Unstructured) metav1.Condition {
+	// FUTURE: check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
+	// For now this condition assumes it is set to 'NonCompliant'
+	cond := metav1.Condition{
+		Type:   installPlanConditionType,
+		Status: metav1.ConditionFalse,
+		Reason: "InstallPlanRequiresApproval",
+	}
+
+	if len(versions) == 1 {
+		cond.Message = fmt.Sprintf("an InstallPlan to update to %v is available for approval", versions[0])
+	} else {
+		cond.Message = fmt.Sprintf("there are multiple InstallPlans available for approval (%v)",
+			strings.Join(versions, ", or "))
+	}
+
+	if approvableIPs != nil && len(approvableIPs) == 0 {
+		cond.Message += " but not allowed by the specified versions in the policy"
+	}
+
+	if len(approvableIPs) > 1 {
+		cond.Message += " but multiple of those match the versions specified in the policy"
+	}
+
+	return cond
+}
+
+// installPlanApprovedCond is a Compliant condition with Reason 'InstallPlanApproved'
+// and a message like 'the InstallPlan for _____ was approved'
+func installPlanApprovedCond(version string) metav1.Condition {
+	return metav1.Condition{
+		Type:    installPlanConditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  "InstallPlanApproved",
+		Message: fmt.Sprintf("the InstallPlan for %v was approved", version),
+	}
+}
+
 // missingWantedObj returns a NonCompliant RelatedObject with reason = 'Resource not found but should exist'
 func missingWantedObj(obj client.Object) policyv1.RelatedObject {
 	return policyv1.RelatedObject{
@@ -645,7 +737,7 @@ func opGroupTooManyObjs(opGroups []unstructured.Unstructured) []policyv1.Related
 
 	for i, opGroup := range opGroups {
 		objs[i] = policyv1.RelatedObject{
-			Object:    policyv1.ObjectResourceFromObj(&opGroup),
+			Object:    policyv1.ObjectResourceFromObj(&opGroups[i]),
 			Compliant: string(policyv1.NonCompliant),
 			Reason:    "There is more than one OperatorGroup in this namespace",
 			Properties: &policyv1.ObjectProperties{
@@ -735,6 +827,17 @@ func existingDeploymentObj(dep *appsv1.Deployment) policyv1.RelatedObject {
 	}
 }
 
+func nonCompObj(obj client.Object, reason string) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object:    policyv1.ObjectResourceFromObj(obj),
+		Compliant: string(policyv1.NonCompliant),
+		Reason:    reason,
+		Properties: &policyv1.ObjectProperties{
+			UID: string(obj.GetUID()),
+		},
+	}
+}
+
 // represents a lack of relevant deployments
 var noExistingDeploymentObj = policyv1.RelatedObject{
 	Object: policyv1.ObjectResource{
@@ -746,4 +849,48 @@ var noExistingDeploymentObj = policyv1.RelatedObject{
 	},
 	Compliant: string(policyv1.UnknownCompliancy),
 	Reason:    "No relevant deployments found",
+}
+
+// noInstallPlansObj returns a compliant RelatedObject with
+// reason = 'There are no relevant InstallPlans in this namespace'
+func noInstallPlansObj(namespace string) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object: policyv1.ObjectResource{
+			Kind:       installPlanGVK.Kind,
+			APIVersion: installPlanGVK.GroupVersion().String(),
+			Metadata: policyv1.ObjectMetadata{
+				Name:      "*",
+				Namespace: namespace,
+			},
+		},
+		Compliant: string(policyv1.Compliant),
+		Reason:    "There are no relevant InstallPlans in this namespace",
+	}
+}
+
+func existingInstallPlanObj(ip client.Object, phase string) policyv1.RelatedObject {
+	relObj := policyv1.RelatedObject{
+		Object: policyv1.ObjectResourceFromObj(ip),
+		Properties: &policyv1.ObjectProperties{
+			UID: string(ip.GetUID()),
+		},
+	}
+
+	if phase != "" {
+		relObj.Reason = "The InstallPlan is " + phase
+	} else {
+		relObj.Reason = "The InstallPlan is Unknown"
+	}
+
+	switch phase {
+	case string(operatorv1alpha1.InstallPlanPhaseRequiresApproval):
+		// FUTURE: check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
+		// For now, assume it is set to 'NonCompliant'
+		relObj.Compliant = string(policyv1.NonCompliant)
+	case string(operatorv1alpha1.InstallPlanPhaseInstalling):
+		// if it's still installing, then it shouldn't be considered compliant yet.
+		relObj.Compliant = string(policyv1.NonCompliant)
+	}
+
+	return relObj
 }
