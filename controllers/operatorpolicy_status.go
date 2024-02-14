@@ -644,6 +644,7 @@ func opGroupTooManyObjs(opGroups []unstructured.Unstructured) []policyv1.Related
 	objs := make([]policyv1.RelatedObject, len(opGroups))
 
 	for i, opGroup := range opGroups {
+		opGroup := opGroup
 		objs[i] = policyv1.RelatedObject{
 			Object:    policyv1.ObjectResourceFromObj(&opGroup),
 			Compliant: string(policyv1.NonCompliant),

@@ -70,7 +70,6 @@ jobs:
 
       - name: E2E Tests
         run: |
-          kubectl get pod -A
           export GOPATH=$(go env GOPATH)
           KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-coverage
 
@@ -100,6 +99,7 @@ jobs:
         run: |
           make test-coverage
           make coverage-verify
+          make gosec-scan
 
       - name: Debug
         if: ${{ failure() }}
