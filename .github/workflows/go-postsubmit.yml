@@ -5,15 +5,6 @@ on:
     branches:
       - main
       - release-*
-  workflow_dispatch: {}
-
-env:
-  # Common versions
-  GO_REQUIRED_MIN_VERSION: ''
-  GOPATH: '/home/runner/work/config-policy-controller/config-policy-controller/go'
-defaults:
-  run:
-    working-directory: go/src/open-cluster-management.io/config-policy-controller
 
 jobs:
   verify:
@@ -22,13 +13,10 @@ jobs:
     steps:
       - name: checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 1
-          path: go/src/open-cluster-management.io/config-policy-controller
       - name: install Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go/src/open-cluster-management.io/config-policy-controller/go.mod
+          go-version-file: go.mod
       - name: images
         run: make build-images
       - name: push

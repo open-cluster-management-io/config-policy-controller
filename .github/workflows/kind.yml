@@ -13,7 +13,6 @@ on:
 defaults:
   run:
     shell: bash
-    working-directory: config-policy-controller
 
 jobs:
   kind-tests:
@@ -33,15 +32,11 @@ jobs:
     steps:
       - name: Checkout Config Policy Controller
         uses: actions/checkout@v4
-        with:
-          path: config-policy-controller
-          fetch-depth: 0 # Fetch all history for all tags and branches
 
       - name: Set up Go
         uses: actions/setup-go@v5
-        id: go
         with:
-          go-version-file: config-policy-controller/go.mod
+          go-version-file: go.mod
 
       - name: Verify modules
         run: |
