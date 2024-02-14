@@ -193,71 +193,112 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return reconcile.Result{}, nil
 }
 
-func (r *OperatorPolicyReconciler) handleCatalogSource(
-	ctx context.Context,
+// buildSubscription bootstraps the subscription spec defined in the operator policy
+// with the apiversion and kind in preparation for resource creation
+func buildSubscription(
 	policy *policyv1beta1.OperatorPolicy,
-	subscription *operatorv1alpha1.Subscription,
-) error {
-	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+) (*operatorv1alpha1.Subscription, error) {
+	subscription := new(operatorv1alpha1.Subscription)
 
-	var catalogName string
-	var catalogNS string
+	sub := make(map[string]interface{})
 
-	if subscription == nil {
-		sub, err := buildSubscription(policy)
-		if err != nil {
-			return fmt.Errorf("error building Subscription: %w", err)
-		}
-
-		catalogName = sub.Spec.CatalogSource
-		catalogNS = sub.Spec.CatalogSourceNamespace
-	} else {
-		catalogName = subscription.Spec.CatalogSource
-		catalogNS = subscription.Spec.CatalogSourceNamespace
-	}
-
-	// Check if CatalogSource exists
-	foundCatalogSrc, err := r.DynamicWatcher.Get(watcher, catalogSrcGVK,
-		catalogNS, catalogName)
+	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
 	if err != nil {
-		return fmt.Errorf("error getting CatalogSource: %w", err)
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
 	}
 
-	isMissing := foundCatalogSrc == nil
-	isUnhealthy := isMissing
-
-	if !isMissing {
-		// CatalogSource is found, initiate health check
-		catalogSrcUnstruct := foundCatalogSrc.DeepCopy()
-		catalogSrc := new(operatorv1alpha1.CatalogSource)
-
-		err := runtime.DefaultUnstructuredConverter.
-			FromUnstructured(catalogSrcUnstruct.Object, catalogSrc)
-		if err != nil {
-			return fmt.Errorf("error converting the retrieved CatalogSource to the Go type: %w", err)
-		}
-
-		if catalogSrc.Status.GRPCConnectionState == nil {
-			// Unknown State
-			err := r.updateStatus(ctx, policy, catalogSourceUnknownCond, catalogSrcUnknownObj(catalogName, catalogNS))
-			if err != nil {
-				return fmt.Errorf("error retrieving the status for a CatalogSource: %w", err)
-			}
-
-			return nil
-		}
-
-		CatalogSrcState := catalogSrc.Status.GRPCConnectionState.LastObservedState
-		isUnhealthy = (CatalogSrcState != CatalogSourceReady)
+	ns, ok := sub["namespace"].(string)
+	if !ok {
+		return nil, fmt.Errorf("namespace is required in spec.subscription")
 	}
 
-	err = r.updateStatus(ctx, policy, catalogSourceFindCond(isUnhealthy, isMissing),
-		catalogSourceObj(catalogName, catalogNS, isUnhealthy, isMissing))
+	spec := new(operatorv1alpha1.SubscriptionSpec)
+
+	err = json.Unmarshal(policy.Spec.Subscription.Raw, spec)
 	if err != nil {
-		return fmt.Errorf("error updating the status for a CatalogSource: %w", err)
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
 	}
 
-	return nil
+	subscription.SetGroupVersionKind(subscriptionGVK)
+	subscription.ObjectMeta.Name = spec.Package
+	subscription.ObjectMeta.Namespace = ns
+	subscription.Spec = spec
+
+	// If the policy is in `enforce` mode and the allowed CSVs are restricted,
+	// the InstallPlanApproval will be set to Manual so that upgrades can be controlled.
+	if policy.Spec.RemediationAction.IsEnforce() && len(policy.Spec.Versions) > 0 {
+		subscription.Spec.InstallPlanApproval = operatorv1alpha1.ApprovalManual
+	}
+
+	return subscription, nil
+}
+
+// buildOperatorGroup bootstraps the OperatorGroup spec defined in the operator policy
+// with the apiversion and kind in preparation for resource creation
+func buildOperatorGroup(
+	policy *policyv1beta1.OperatorPolicy,
+) (*operatorv1.OperatorGroup, error) {
+	operatorGroup := new(operatorv1.OperatorGroup)
+
+	operatorGroup.Status.LastUpdated = &metav1.Time{} // without this, some conversions can panic
+	operatorGroup.SetGroupVersionKind(operatorGroupGVK)
+
+	sub := make(map[string]interface{})
+
+	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
+	}
+
+	subNamespace, ok := sub["namespace"].(string)
+	if !ok {
+		return nil, fmt.Errorf("namespace is required in spec.subscription")
+	}
+
+	if validationErrs := validation.IsDNS1123Label(subNamespace); len(validationErrs) != 0 {
+		return nil, fmt.Errorf("the namespace specified in spec.subscription is not a valid namespace identifier")
+	}
+
+	// Create a default OperatorGroup if one wasn't specified in the policy
+	if policy.Spec.OperatorGroup == nil {
+		operatorGroup.ObjectMeta.SetNamespace(subNamespace)
+		operatorGroup.ObjectMeta.SetGenerateName(subNamespace + "-") // This matches what the console creates
+		operatorGroup.Spec.TargetNamespaces = []string{}
+
+		return operatorGroup, nil
+	}
+
+	opGroup := make(map[string]interface{})
+
+	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, &opGroup)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling operatorGroup: %w", err)
+	}
+
+	// Fallback to the Subscription namespace if the OperatorGroup namespace is not specified in the policy.
+	ogNamespace := subNamespace
+
+	if specifiedNS, ok := opGroup["namespace"].(string); ok && specifiedNS != "" {
+		ogNamespace = specifiedNS
+	}
+
+	name, ok := opGroup["name"].(string)
+	if !ok {
+		return nil, fmt.Errorf("name is required in operatorGroup.spec")
+	}
+
+	spec := new(operatorv1.OperatorGroupSpec)
+
+	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, spec)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
+	}
+
+	operatorGroup.ObjectMeta.SetName(name)
+	operatorGroup.ObjectMeta.SetNamespace(ogNamespace)
+	operatorGroup.Spec = *spec
+
+	return operatorGroup, nil
 }
 
 func (r *OperatorPolicyReconciler) handleOpGroup(ctx context.Context, policy *policyv1beta1.OperatorPolicy) error {
@@ -414,74 +455,6 @@ func (r *OperatorPolicyReconciler) handleOpGroup(ctx context.Context, policy *po
 	return nil
 }
 
-// buildOperatorGroup bootstraps the OperatorGroup spec defined in the operator policy
-// with the apiversion and kind in preparation for resource creation
-func buildOperatorGroup(
-	policy *policyv1beta1.OperatorPolicy,
-) (*operatorv1.OperatorGroup, error) {
-	operatorGroup := new(operatorv1.OperatorGroup)
-
-	operatorGroup.Status.LastUpdated = &metav1.Time{} // without this, some conversions can panic
-	operatorGroup.SetGroupVersionKind(operatorGroupGVK)
-
-	sub := make(map[string]interface{})
-
-	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
-	}
-
-	subNamespace, ok := sub["namespace"].(string)
-	if !ok {
-		return nil, fmt.Errorf("namespace is required in spec.subscription")
-	}
-
-	if validationErrs := validation.IsDNS1123Label(subNamespace); len(validationErrs) != 0 {
-		return nil, fmt.Errorf("the namespace specified in spec.subscription is not a valid namespace identifier")
-	}
-
-	// Create a default OperatorGroup if one wasn't specified in the policy
-	if policy.Spec.OperatorGroup == nil {
-		operatorGroup.ObjectMeta.SetNamespace(subNamespace)
-		operatorGroup.ObjectMeta.SetGenerateName(subNamespace + "-") // This matches what the console creates
-		operatorGroup.Spec.TargetNamespaces = []string{}
-
-		return operatorGroup, nil
-	}
-
-	opGroup := make(map[string]interface{})
-
-	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, &opGroup)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling operatorGroup: %w", err)
-	}
-
-	// Fallback to the Subscription namespace if the OperatorGroup namespace is not specified in the policy.
-	ogNamespace := subNamespace
-
-	if specifiedNS, ok := opGroup["namespace"].(string); ok && specifiedNS != "" {
-		ogNamespace = specifiedNS
-	}
-
-	name, ok := opGroup["name"].(string)
-	if !ok {
-		return nil, fmt.Errorf("name is required in operatorGroup.spec")
-	}
-
-	spec := new(operatorv1.OperatorGroupSpec)
-
-	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, spec)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
-	}
-
-	operatorGroup.ObjectMeta.SetName(name)
-	operatorGroup.ObjectMeta.SetNamespace(ogNamespace)
-	operatorGroup.Spec = *spec
-
-	return operatorGroup, nil
-}
-
 func (r *OperatorPolicyReconciler) handleSubscription(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy,
 ) (*operatorv1alpha1.Subscription, error) {
@@ -602,231 +575,6 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 	}
 
 	return mergedSub, nil
-}
-
-// buildSubscription bootstraps the subscription spec defined in the operator policy
-// with the apiversion and kind in preparation for resource creation
-func buildSubscription(
-	policy *policyv1beta1.OperatorPolicy,
-) (*operatorv1alpha1.Subscription, error) {
-	subscription := new(operatorv1alpha1.Subscription)
-
-	sub := make(map[string]interface{})
-
-	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
-	}
-
-	ns, ok := sub["namespace"].(string)
-	if !ok {
-		return nil, fmt.Errorf("namespace is required in spec.subscription")
-	}
-
-	spec := new(operatorv1alpha1.SubscriptionSpec)
-
-	err = json.Unmarshal(policy.Spec.Subscription.Raw, spec)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
-	}
-
-	subscription.SetGroupVersionKind(subscriptionGVK)
-	subscription.ObjectMeta.Name = spec.Package
-	subscription.ObjectMeta.Namespace = ns
-	subscription.Spec = spec
-
-	// If the policy is in `enforce` mode and the allowed CSVs are restricted,
-	// the InstallPlanApproval will be set to Manual so that upgrades can be controlled.
-	if policy.Spec.RemediationAction.IsEnforce() && len(policy.Spec.Versions) > 0 {
-		subscription.Spec.InstallPlanApproval = operatorv1alpha1.ApprovalManual
-	}
-
-	return subscription, nil
-}
-
-func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
-	policy *policyv1beta1.OperatorPolicy,
-	sub *operatorv1alpha1.Subscription,
-) (*operatorv1alpha1.ClusterServiceVersion, error) {
-	// case where subscription is nil
-	if sub == nil {
-		// need to report lack of existing CSV
-		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
-		if err != nil {
-			return nil, fmt.Errorf("error updating the status for Deployments: %w", err)
-		}
-
-		return nil, err
-	}
-
-	watcher := opPolIdentifier(policy.Namespace, policy.Name)
-
-	// case where subscription status has not been populated yet
-	if sub.Status.InstalledCSV == "" {
-		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
-		if err != nil {
-			return nil, fmt.Errorf("error updating the status for Deployments: %w", err)
-		}
-
-		return nil, err
-	}
-
-	// Get the CSV related to the object
-	foundCSV, err := r.DynamicWatcher.Get(watcher, clusterServiceVersionGVK, sub.Namespace,
-		sub.Status.InstalledCSV)
-	if err != nil {
-		return nil, err
-	}
-
-	// CSV has not yet been created by OLM
-	if foundCSV == nil {
-		err := r.updateStatus(ctx, policy,
-			missingWantedCond("ClusterServiceVersion"), missingCSVObj(sub.Name, sub.Namespace))
-		if err != nil {
-			return nil, fmt.Errorf("error updating the status for a missing ClusterServiceVersion: %w", err)
-		}
-
-		return nil, err
-	}
-
-	// Check CSV most recent condition
-	unstructured := foundCSV.UnstructuredContent()
-	var csv operatorv1alpha1.ClusterServiceVersion
-
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &csv)
-	if err != nil {
-		return nil, err
-	}
-
-	err = r.updateStatus(ctx, policy, buildCSVCond(&csv), existingCSVObj(&csv))
-	if err != nil {
-		return &csv, fmt.Errorf("error updating the status for an existing ClusterServiceVersion: %w", err)
-	}
-
-	return &csv, nil
-}
-
-func (r *OperatorPolicyReconciler) handleDeployment(
-	ctx context.Context,
-	policy *policyv1beta1.OperatorPolicy,
-	csv *operatorv1alpha1.ClusterServiceVersion,
-) error {
-	// case where csv is nil
-	if csv == nil {
-		// need to report lack of existing Deployments
-		err := r.updateStatus(ctx, policy, noDeploymentsCond, noExistingDeploymentObj)
-		if err != nil {
-			return fmt.Errorf("error updating the status for Deployments: %w", err)
-		}
-
-		return err
-	}
-
-	OpLog := ctrl.LoggerFrom(ctx)
-
-	watcher := opPolIdentifier(policy.Namespace, policy.Name)
-
-	var relatedObjects []policyv1.RelatedObject
-	var unavailableDeployments []appsv1.Deployment
-
-	depNum := 0
-
-	for _, dep := range csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs {
-		foundDep, err := r.DynamicWatcher.Get(watcher, deploymentGVK, csv.Namespace, dep.Name)
-		if err != nil {
-			return fmt.Errorf("error getting the Deployment: %w", err)
-		}
-
-		// report missing deployment in relatedObjects list
-		if foundDep == nil {
-			relatedObjects = append(relatedObjects, missingDeploymentObj(dep.Name, csv.Namespace))
-
-			continue
-		}
-
-		unstructured := foundDep.UnstructuredContent()
-		var dep appsv1.Deployment
-
-		err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &dep)
-		if err != nil {
-			OpLog.Error(err, "Unable to convert unstructured Deployment to typed", "Deployment.Name", dep.Name)
-
-			continue
-		}
-
-		// check for unavailable deployments and build relatedObjects list
-		if dep.Status.UnavailableReplicas > 0 {
-			unavailableDeployments = append(unavailableDeployments, dep)
-		}
-
-		depNum++
-
-		relatedObjects = append(relatedObjects, existingDeploymentObj(&dep))
-	}
-
-	err := r.updateStatus(ctx, policy,
-		buildDeploymentCond(depNum > 0, unavailableDeployments), relatedObjects...)
-	if err != nil {
-		return fmt.Errorf("error updating the status for Deployments: %w", err)
-	}
-
-	return nil
-}
-
-func opPolIdentifier(namespace, name string) depclient.ObjectIdentifier {
-	return depclient.ObjectIdentifier{
-		Group:     policyv1beta1.GroupVersion.Group,
-		Version:   policyv1beta1.GroupVersion.Version,
-		Kind:      "OperatorPolicy",
-		Namespace: namespace,
-		Name:      name,
-	}
-}
-
-// mergeObjects takes fields from the desired object and sets/merges them on the
-// existing object. It checks and returns whether an update is really necessary
-// with a server-side dry-run.
-func (r *OperatorPolicyReconciler) mergeObjects(
-	ctx context.Context,
-	desired map[string]interface{},
-	existing *unstructured.Unstructured,
-	complianceType string,
-) (updateNeeded, updateIsForbidden bool, err error) {
-	desiredObj := unstructured.Unstructured{Object: desired}
-
-	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
-	existingObjectCopy := existing.DeepCopy()
-	removeFieldsForComparison(existingObjectCopy)
-
-	_, errMsg, updateNeeded, _ := handleKeys(
-		desiredObj, existing, existingObjectCopy, complianceType, "", false,
-	)
-	if errMsg != "" {
-		return updateNeeded, false, errors.New(errMsg)
-	}
-
-	if updateNeeded {
-		err := r.Update(ctx, existing, client.DryRunAll)
-		if err != nil {
-			if k8serrors.IsForbidden(err) {
-				// This indicates the update would make a change, but the change is not allowed,
-				// for example, the changed field might be immutable.
-				// The policy should be marked as noncompliant, but an enforcement update would fail.
-				return true, true, nil
-			}
-
-			return updateNeeded, false, err
-		}
-
-		removeFieldsForComparison(existing)
-
-		if reflect.DeepEqual(existing.Object, existingObjectCopy.Object) {
-			// The dry run indicates that there is not *really* a mismatch.
-			updateNeeded = false
-		}
-	}
-
-	return updateNeeded, false, nil
 }
 
 func (r *OperatorPolicyReconciler) handleInstallPlan(
@@ -1035,4 +783,256 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	}
 
 	return nil
+}
+
+func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	sub *operatorv1alpha1.Subscription,
+) (*operatorv1alpha1.ClusterServiceVersion, error) {
+	// case where subscription is nil
+	if sub == nil {
+		// need to report lack of existing CSV
+		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
+		if err != nil {
+			return nil, fmt.Errorf("error updating the status for Deployments: %w", err)
+		}
+
+		return nil, err
+	}
+
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	// case where subscription status has not been populated yet
+	if sub.Status.InstalledCSV == "" {
+		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
+		if err != nil {
+			return nil, fmt.Errorf("error updating the status for Deployments: %w", err)
+		}
+
+		return nil, err
+	}
+
+	// Get the CSV related to the object
+	foundCSV, err := r.DynamicWatcher.Get(watcher, clusterServiceVersionGVK, sub.Namespace,
+		sub.Status.InstalledCSV)
+	if err != nil {
+		return nil, err
+	}
+
+	// CSV has not yet been created by OLM
+	if foundCSV == nil {
+		err := r.updateStatus(ctx, policy,
+			missingWantedCond("ClusterServiceVersion"), missingCSVObj(sub.Name, sub.Namespace))
+		if err != nil {
+			return nil, fmt.Errorf("error updating the status for a missing ClusterServiceVersion: %w", err)
+		}
+
+		return nil, err
+	}
+
+	// Check CSV most recent condition
+	unstructured := foundCSV.UnstructuredContent()
+	var csv operatorv1alpha1.ClusterServiceVersion
+
+	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &csv)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.updateStatus(ctx, policy, buildCSVCond(&csv), existingCSVObj(&csv))
+	if err != nil {
+		return &csv, fmt.Errorf("error updating the status for an existing ClusterServiceVersion: %w", err)
+	}
+
+	return &csv, nil
+}
+
+func (r *OperatorPolicyReconciler) handleDeployment(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	csv *operatorv1alpha1.ClusterServiceVersion,
+) error {
+	// case where csv is nil
+	if csv == nil {
+		// need to report lack of existing Deployments
+		err := r.updateStatus(ctx, policy, noDeploymentsCond, noExistingDeploymentObj)
+		if err != nil {
+			return fmt.Errorf("error updating the status for Deployments: %w", err)
+		}
+
+		return err
+	}
+
+	OpLog := ctrl.LoggerFrom(ctx)
+
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	var relatedObjects []policyv1.RelatedObject
+	var unavailableDeployments []appsv1.Deployment
+
+	depNum := 0
+
+	for _, dep := range csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs {
+		foundDep, err := r.DynamicWatcher.Get(watcher, deploymentGVK, csv.Namespace, dep.Name)
+		if err != nil {
+			return fmt.Errorf("error getting the Deployment: %w", err)
+		}
+
+		// report missing deployment in relatedObjects list
+		if foundDep == nil {
+			relatedObjects = append(relatedObjects, missingDeploymentObj(dep.Name, csv.Namespace))
+
+			continue
+		}
+
+		unstructured := foundDep.UnstructuredContent()
+		var dep appsv1.Deployment
+
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &dep)
+		if err != nil {
+			OpLog.Error(err, "Unable to convert unstructured Deployment to typed", "Deployment.Name", dep.Name)
+
+			continue
+		}
+
+		// check for unavailable deployments and build relatedObjects list
+		if dep.Status.UnavailableReplicas > 0 {
+			unavailableDeployments = append(unavailableDeployments, dep)
+		}
+
+		depNum++
+
+		relatedObjects = append(relatedObjects, existingDeploymentObj(&dep))
+	}
+
+	err := r.updateStatus(ctx, policy,
+		buildDeploymentCond(depNum > 0, unavailableDeployments), relatedObjects...)
+	if err != nil {
+		return fmt.Errorf("error updating the status for Deployments: %w", err)
+	}
+
+	return nil
+}
+
+func (r *OperatorPolicyReconciler) handleCatalogSource(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	subscription *operatorv1alpha1.Subscription,
+) error {
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	var catalogName string
+	var catalogNS string
+
+	if subscription == nil {
+		sub, err := buildSubscription(policy)
+		if err != nil {
+			return fmt.Errorf("error building Subscription: %w", err)
+		}
+
+		catalogName = sub.Spec.CatalogSource
+		catalogNS = sub.Spec.CatalogSourceNamespace
+	} else {
+		catalogName = subscription.Spec.CatalogSource
+		catalogNS = subscription.Spec.CatalogSourceNamespace
+	}
+
+	// Check if CatalogSource exists
+	foundCatalogSrc, err := r.DynamicWatcher.Get(watcher, catalogSrcGVK,
+		catalogNS, catalogName)
+	if err != nil {
+		return fmt.Errorf("error getting CatalogSource: %w", err)
+	}
+
+	isMissing := foundCatalogSrc == nil
+	isUnhealthy := isMissing
+
+	if !isMissing {
+		// CatalogSource is found, initiate health check
+		catalogSrcUnstruct := foundCatalogSrc.DeepCopy()
+		catalogSrc := new(operatorv1alpha1.CatalogSource)
+
+		err := runtime.DefaultUnstructuredConverter.
+			FromUnstructured(catalogSrcUnstruct.Object, catalogSrc)
+		if err != nil {
+			return fmt.Errorf("error converting the retrieved CatalogSource to the Go type: %w", err)
+		}
+
+		if catalogSrc.Status.GRPCConnectionState == nil {
+			// Unknown State
+			err := r.updateStatus(ctx, policy, catalogSourceUnknownCond, catalogSrcUnknownObj(catalogName, catalogNS))
+			if err != nil {
+				return fmt.Errorf("error retrieving the status for a CatalogSource: %w", err)
+			}
+
+			return nil
+		}
+
+		CatalogSrcState := catalogSrc.Status.GRPCConnectionState.LastObservedState
+		isUnhealthy = (CatalogSrcState != CatalogSourceReady)
+	}
+
+	err = r.updateStatus(ctx, policy, catalogSourceFindCond(isUnhealthy, isMissing),
+		catalogSourceObj(catalogName, catalogNS, isUnhealthy, isMissing))
+	if err != nil {
+		return fmt.Errorf("error updating the status for a CatalogSource: %w", err)
+	}
+
+	return nil
+}
+
+func opPolIdentifier(namespace, name string) depclient.ObjectIdentifier {
+	return depclient.ObjectIdentifier{
+		Group:     policyv1beta1.GroupVersion.Group,
+		Version:   policyv1beta1.GroupVersion.Version,
+		Kind:      "OperatorPolicy",
+		Namespace: namespace,
+		Name:      name,
+	}
+}
+
+// mergeObjects takes fields from the desired object and sets/merges them on the
+// existing object. It checks and returns whether an update is really necessary
+// with a server-side dry-run.
+func (r *OperatorPolicyReconciler) mergeObjects(
+	ctx context.Context,
+	desired map[string]interface{},
+	existing *unstructured.Unstructured,
+	complianceType string,
+) (updateNeeded, updateIsForbidden bool, err error) {
+	desiredObj := unstructured.Unstructured{Object: desired}
+
+	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
+	existingObjectCopy := existing.DeepCopy()
+	removeFieldsForComparison(existingObjectCopy)
+
+	_, errMsg, updateNeeded, _ := handleKeys(
+		desiredObj, existing, existingObjectCopy, complianceType, "", false,
+	)
+	if errMsg != "" {
+		return updateNeeded, false, errors.New(errMsg)
+	}
+
+	if updateNeeded {
+		err := r.Update(ctx, existing, client.DryRunAll)
+		if err != nil {
+			if k8serrors.IsForbidden(err) {
+				// This indicates the update would make a change, but the change is not allowed,
+				// for example, the changed field might be immutable.
+				// The policy should be marked as noncompliant, but an enforcement update would fail.
+				return true, true, nil
+			}
+
+			return updateNeeded, false, err
+		}
+
+		removeFieldsForComparison(existing)
+
+		if reflect.DeepEqual(existing.Object, existingObjectCopy.Object) {
+			// The dry run indicates that there is not *really* a mismatch.
+			updateNeeded = false
+		}
+	}
+
+	return updateNeeded, false, nil
 }
