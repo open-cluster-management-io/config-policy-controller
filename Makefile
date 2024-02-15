@@ -125,16 +125,14 @@ clean:
 ############################################################
 # Generate manifests
 ############################################################
-CRD_OPTIONS ?= "crd:trivialVersions=true,preserveUnknownFields=false"
 
 .PHONY: manifests
 manifests: controller-gen kustomize
-	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=config-policy-controller paths="./..." output:crd:artifacts:config=deploy/crds output:rbac:artifacts:config=deploy/rbac
+	$(CONTROLLER_GEN) crd rbac:roleName=config-policy-controller paths="./..." output:crd:artifacts:config=deploy/crds output:rbac:artifacts:config=deploy/rbac
 	mv deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml deploy/crds/kustomize_configurationpolicy/policy.open-cluster-management.io_configurationpolicies.yaml
 	mv deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml deploy/crds/kustomize_operatorpolicy/policy.open-cluster-management.io_operatorpolicies.yaml
-	# Add a newline so that the format matches what kubebuilder generates
-	@printf "\n---\n" > deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
-	@printf "\n---\n" > deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
+	@printf -- "---\n" > deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
+	@printf -- "---\n" > deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
 	$(KUSTOMIZE) build deploy/crds/kustomize_configurationpolicy >> deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
 	$(KUSTOMIZE) build deploy/crds/kustomize_operatorpolicy >> deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
 
