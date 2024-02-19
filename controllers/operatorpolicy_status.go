@@ -178,7 +178,19 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 	foundNonCompliant := false
 	messages := make([]string, 0)
 
-	idx, cond := policy.Status.GetCondition(opGroupConditionType)
+	idx, cond := policy.Status.GetCondition(validPolicyConditionType)
+	if idx == -1 {
+		messages = append(messages, "the validity of the policy is unknown")
+		foundNonCompliant = true
+	} else {
+		messages = append(messages, cond.Message)
+
+		if cond.Status != metav1.ConditionTrue {
+			foundNonCompliant = true
+		}
+	}
+
+	idx, cond = policy.Status.GetCondition(opGroupConditionType)
 	if idx == -1 {
 		messages = append(messages, "the status of the OperatorGroup is unknown")
 		foundNonCompliant = true
@@ -238,7 +250,6 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		}
 	}
 
-	// FUTURE: check additional conditions
 	idx, cond = policy.Status.GetCondition(catalogSrcConditionType)
 	if idx == -1 {
 		messages = append(messages, "the status of the CatalogSource is unknown")
@@ -340,6 +351,7 @@ func (r *OperatorPolicyReconciler) emitComplianceEvent(
 
 const (
 	compliantConditionType   = "Compliant"
+	validPolicyConditionType = "ValidPolicySpec"
 	opGroupConditionType     = "OperatorGroupCompliant"
 	subConditionType         = "SubscriptionCompliant"
 	csvConditionType         = "ClusterServiceVersionCompliant"
@@ -354,12 +366,25 @@ func condType(kind string) string {
 		return opGroupConditionType
 	case "Subscription":
 		return subConditionType
+	case "InstallPlan":
+		return installPlanConditionType
 	case "ClusterServiceVersion":
 		return csvConditionType
 	case "Deployment":
 		return deploymentConditionType
+	case "CatalogSource":
+		return catalogSrcConditionType
 	default:
 		panic("Unknown condition type for kind " + kind)
+	}
+}
+
+func invalidCausingUnknownCond(kind string) metav1.Condition {
+	return metav1.Condition{
+		Type:    condType(kind),
+		Status:  metav1.ConditionUnknown,
+		Reason:  "InvalidPolicySpec",
+		Message: "the status of the " + kind + " could not be determined because the policy is invalid",
 	}
 }
 
@@ -426,6 +451,30 @@ func updatedCond(kind string) metav1.Condition {
 		Status:  metav1.ConditionTrue,
 		Reason:  kind + "Updated",
 		Message: "the " + kind + " was updated to match the policy",
+	}
+}
+
+func validationCond(validationErrors []error) metav1.Condition {
+	if len(validationErrors) == 0 {
+		return metav1.Condition{
+			Type:    validPolicyConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "PolicyValidated",
+			Message: "the policy spec is valid",
+		}
+	}
+
+	msgs := make([]string, len(validationErrors))
+
+	for i, err := range validationErrors {
+		msgs[i] = err.Error()
+	}
+
+	return metav1.Condition{
+		Type:    validPolicyConditionType,
+		Status:  metav1.ConditionFalse,
+		Reason:  "InvalidPolicySpec",
+		Message: strings.Join(msgs, ", "),
 	}
 }
 

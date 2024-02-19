@@ -41,7 +41,7 @@ func TestBuildSubscription(t *testing.T) {
 	}
 
 	// Check values are correctly bootstrapped to the Subscription
-	ret, err := buildSubscription(testPolicy)
+	ret, err := buildSubscription(testPolicy, "my-operators")
 	assert.Equal(t, err, nil)
 	assert.Equal(t, ret.GroupVersionKind(), desiredGVK)
 	assert.Equal(t, ret.ObjectMeta.Name, "my-operator")
@@ -60,7 +60,6 @@ func TestBuildOperatorGroup(t *testing.T) {
 			ComplianceType:    "musthave",
 			Subscription: runtime.RawExtension{
 				Raw: []byte(`{
-					"namespace": "default",
 					"source": "my-catalog",
 					"sourceNamespace": "my-ns",
 					"name": "my-operator",
@@ -78,9 +77,9 @@ func TestBuildOperatorGroup(t *testing.T) {
 	}
 
 	// Ensure OperatorGroup values are populated correctly
-	ret, err := buildOperatorGroup(testPolicy)
+	ret, err := buildOperatorGroup(testPolicy, "my-operators")
 	assert.Equal(t, err, nil)
 	assert.Equal(t, ret.GroupVersionKind(), desiredGVK)
-	assert.Equal(t, ret.ObjectMeta.GetGenerateName(), "default-")
-	assert.Equal(t, ret.ObjectMeta.GetNamespace(), "default")
+	assert.Equal(t, ret.ObjectMeta.GetGenerateName(), "my-operators-")
+	assert.Equal(t, ret.ObjectMeta.GetNamespace(), "my-operators")
 }

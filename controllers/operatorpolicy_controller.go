@@ -75,8 +75,9 @@ var (
 // OperatorPolicyReconciler reconciles a OperatorPolicy object
 type OperatorPolicyReconciler struct {
 	client.Client
-	DynamicWatcher depclient.DynamicWatcher
-	InstanceName   string
+	DynamicWatcher   depclient.DynamicWatcher
+	InstanceName     string
+	DefaultNamespace string
 }
 
 // SetupWithManager sets up the controller with the Manager and will reconcile when the dynamic watcher
@@ -151,13 +152,20 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// handle the policy
 	OpLog.Info("Reconciling OperatorPolicy")
 
-	if err := r.handleOpGroup(ctx, policy); err != nil {
+	desiredSub, desiredOG, err := r.buildResources(ctx, policy)
+	if err != nil {
+		OpLog.Error(err, "Error building desired resources")
+
+		return reconcile.Result{}, err
+	}
+
+	if err := r.handleOpGroup(ctx, policy, desiredOG); err != nil {
 		OpLog.Error(err, "Error handling OperatorGroup")
 
 		return reconcile.Result{}, err
 	}
 
-	subscription, err := r.handleSubscription(ctx, policy)
+	subscription, err := r.handleSubscription(ctx, policy, desiredSub)
 	if err != nil {
 		OpLog.Error(err, "Error handling Subscription")
 
@@ -183,7 +191,6 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return reconcile.Result{}, err
 	}
 
-	// handle catalogsource
 	if err := r.handleCatalogSource(ctx, policy, subscription); err != nil {
 		OpLog.Error(err, "Error handling CatalogSource")
 
@@ -193,10 +200,38 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	return reconcile.Result{}, nil
 }
 
+// buildResources builds desired states for the Subscription and OperatorGroup, and
+// checks if the policy's spec is valid. It returns an error if it couldn't update the
+// validation condition in the policy's status.
+func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *policyv1beta1.OperatorPolicy) (
+	*operatorv1alpha1.Subscription, *operatorv1.OperatorGroup, error,
+) {
+	validationErrors := make([]error, 0)
+
+	sub, subErr := buildSubscription(policy, r.DefaultNamespace)
+	if subErr != nil {
+		validationErrors = append(validationErrors, subErr)
+	}
+
+	opGroupNS := r.DefaultNamespace
+	if sub != nil && sub.Namespace != "" {
+		opGroupNS = sub.Namespace
+	}
+
+	opGroup, ogErr := buildOperatorGroup(policy, opGroupNS)
+	if ogErr != nil {
+		validationErrors = append(validationErrors, ogErr)
+	}
+
+	return sub, opGroup, r.updateStatus(ctx, policy, validationCond(validationErrors))
+}
+
 // buildSubscription bootstraps the subscription spec defined in the operator policy
-// with the apiversion and kind in preparation for resource creation
+// with the apiversion and kind in preparation for resource creation.
+// If an error is returned, it will include details on why the policy spec if invalid and
+// why the desired subscription can't be determined.
 func buildSubscription(
-	policy *policyv1beta1.OperatorPolicy,
+	policy *policyv1beta1.OperatorPolicy, defaultNS string,
 ) (*operatorv1alpha1.Subscription, error) {
 	subscription := new(operatorv1alpha1.Subscription)
 
@@ -204,19 +239,27 @@ func buildSubscription(
 
 	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
 	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
+		return nil, fmt.Errorf("the policy spec.subscription is invalid: %w", err)
 	}
 
 	ns, ok := sub["namespace"].(string)
 	if !ok {
-		return nil, fmt.Errorf("namespace is required in spec.subscription")
+		if defaultNS == "" {
+			return nil, fmt.Errorf("namespace is required in spec.subscription")
+		}
+
+		ns = defaultNS
+	}
+
+	if validationErrs := validation.IsDNS1123Label(ns); len(validationErrs) != 0 {
+		return nil, fmt.Errorf("the namespace '%v' used for the subscription is not a valid namespace identifier", ns)
 	}
 
 	spec := new(operatorv1alpha1.SubscriptionSpec)
 
 	err = json.Unmarshal(policy.Spec.Subscription.Raw, spec)
 	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
+		return nil, fmt.Errorf("the policy spec.subscription is invalid: %w", err)
 	}
 
 	subscription.SetGroupVersionKind(subscriptionGVK)
@@ -236,33 +279,17 @@ func buildSubscription(
 // buildOperatorGroup bootstraps the OperatorGroup spec defined in the operator policy
 // with the apiversion and kind in preparation for resource creation
 func buildOperatorGroup(
-	policy *policyv1beta1.OperatorPolicy,
+	policy *policyv1beta1.OperatorPolicy, namespace string,
 ) (*operatorv1.OperatorGroup, error) {
 	operatorGroup := new(operatorv1.OperatorGroup)
 
 	operatorGroup.Status.LastUpdated = &metav1.Time{} // without this, some conversions can panic
 	operatorGroup.SetGroupVersionKind(operatorGroupGVK)
 
-	sub := make(map[string]interface{})
-
-	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
-	}
-
-	subNamespace, ok := sub["namespace"].(string)
-	if !ok {
-		return nil, fmt.Errorf("namespace is required in spec.subscription")
-	}
-
-	if validationErrs := validation.IsDNS1123Label(subNamespace); len(validationErrs) != 0 {
-		return nil, fmt.Errorf("the namespace specified in spec.subscription is not a valid namespace identifier")
-	}
-
 	// Create a default OperatorGroup if one wasn't specified in the policy
 	if policy.Spec.OperatorGroup == nil {
-		operatorGroup.ObjectMeta.SetNamespace(subNamespace)
-		operatorGroup.ObjectMeta.SetGenerateName(subNamespace + "-") // This matches what the console creates
+		operatorGroup.ObjectMeta.SetNamespace(namespace)
+		operatorGroup.ObjectMeta.SetGenerateName(namespace + "-") // This matches what the console creates
 		operatorGroup.Spec.TargetNamespaces = []string{}
 
 		return operatorGroup, nil
@@ -270,43 +297,46 @@ func buildOperatorGroup(
 
 	opGroup := make(map[string]interface{})
 
-	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, &opGroup)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling operatorGroup: %w", err)
+	if err := json.Unmarshal(policy.Spec.OperatorGroup.Raw, &opGroup); err != nil {
+		return nil, fmt.Errorf("the policy spec.operatorGroup is invalid: %w", err)
 	}
 
-	// Fallback to the Subscription namespace if the OperatorGroup namespace is not specified in the policy.
-	ogNamespace := subNamespace
-
 	if specifiedNS, ok := opGroup["namespace"].(string); ok && specifiedNS != "" {
-		ogNamespace = specifiedNS
+		if specifiedNS != namespace {
+			return nil, fmt.Errorf("the namespace specified in spec.operatorGroup ('%v') must match "+
+				"the namespace used for the subscription ('%v')", specifiedNS, namespace)
+		}
 	}
 
 	name, ok := opGroup["name"].(string)
 	if !ok {
-		return nil, fmt.Errorf("name is required in operatorGroup.spec")
+		return nil, fmt.Errorf("name is required in spec.operatorGroup")
 	}
 
 	spec := new(operatorv1.OperatorGroupSpec)
 
-	err = json.Unmarshal(policy.Spec.OperatorGroup.Raw, spec)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling subscription: %w", err)
+	if err := json.Unmarshal(policy.Spec.OperatorGroup.Raw, spec); err != nil {
+		return nil, fmt.Errorf("the policy spec.operatorGroup is invalid: %w", err)
 	}
 
 	operatorGroup.ObjectMeta.SetName(name)
-	operatorGroup.ObjectMeta.SetNamespace(ogNamespace)
+	operatorGroup.ObjectMeta.SetNamespace(namespace)
 	operatorGroup.Spec = *spec
 
 	return operatorGroup, nil
 }
 
-func (r *OperatorPolicyReconciler) handleOpGroup(ctx context.Context, policy *policyv1beta1.OperatorPolicy) error {
+func (r *OperatorPolicyReconciler) handleOpGroup(
+	ctx context.Context, policy *policyv1beta1.OperatorPolicy, desiredOpGroup *operatorv1.OperatorGroup,
+) error {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
-	desiredOpGroup, err := buildOperatorGroup(policy)
-	if err != nil {
-		return fmt.Errorf("error building operator group: %w", err)
+	if desiredOpGroup == nil {
+		// Note: existing related objects will not be removed by this status update
+		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("OperatorGroup"))
+		if err != nil {
+			return fmt.Errorf("error updating the status when the OperatorGroup could not be determined: %w", err)
+		}
 	}
 
 	foundOpGroups, err := r.DynamicWatcher.List(
@@ -456,13 +486,18 @@ func (r *OperatorPolicyReconciler) handleOpGroup(ctx context.Context, policy *po
 }
 
 func (r *OperatorPolicyReconciler) handleSubscription(
-	ctx context.Context, policy *policyv1beta1.OperatorPolicy,
+	ctx context.Context, policy *policyv1beta1.OperatorPolicy, desiredSub *operatorv1alpha1.Subscription,
 ) (*operatorv1alpha1.Subscription, error) {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
-	desiredSub, err := buildSubscription(policy)
-	if err != nil {
-		return nil, fmt.Errorf("error building subscription: %w", err)
+	if desiredSub == nil {
+		// Note: existing related objects will not be removed by this status update
+		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("Subscription"))
+		if err != nil {
+			return nil, fmt.Errorf("error updating the status when the Subscription could not be determined: %w", err)
+		}
+
+		return nil, nil
 	}
 
 	foundSub, err := r.DynamicWatcher.Get(watcher, subscriptionGVK, desiredSub.Namespace, desiredSub.Name)
@@ -581,9 +616,10 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription,
 ) error {
 	if sub == nil {
-		err := r.updateStatus(ctx, policy, noInstallPlansCond, noInstallPlansObj(""))
+		// Note: existing related objects will not be removed by this status update
+		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("InstallPlan"))
 		if err != nil {
-			return fmt.Errorf("error updating status when the subscription is nil: %w", err)
+			return fmt.Errorf("error updating the status when the InstallPlan could not be determined: %w", err)
 		}
 
 		return nil
@@ -921,21 +957,18 @@ func (r *OperatorPolicyReconciler) handleCatalogSource(
 ) error {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
-	var catalogName string
-	var catalogNS string
-
 	if subscription == nil {
-		sub, err := buildSubscription(policy)
+		// Note: existing related objects will not be removed by this status update
+		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("CatalogSource"))
 		if err != nil {
-			return fmt.Errorf("error building Subscription: %w", err)
+			return fmt.Errorf("error updating the status when the  could not be determined: %w", err)
 		}
 
-		catalogName = sub.Spec.CatalogSource
-		catalogNS = sub.Spec.CatalogSourceNamespace
-	} else {
-		catalogName = subscription.Spec.CatalogSource
-		catalogNS = subscription.Spec.CatalogSourceNamespace
+		return nil
 	}
+
+	catalogName := subscription.Spec.CatalogSource
+	catalogNS := subscription.Spec.CatalogSourceNamespace
 
 	// Check if CatalogSource exists
 	foundCatalogSrc, err := r.DynamicWatcher.Get(watcher, catalogSrcGVK,
