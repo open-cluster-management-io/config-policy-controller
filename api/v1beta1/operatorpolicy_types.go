@@ -100,6 +100,7 @@ type OperatorPolicyStatus struct {
 	// +listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 	// List of resources processed by the policy
+	// +optional
 	RelatedObjects []policyv1.RelatedObject `json:"relatedObjects"`
 }
 

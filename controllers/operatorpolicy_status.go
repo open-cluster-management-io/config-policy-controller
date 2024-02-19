@@ -149,6 +149,10 @@ func (r *OperatorPolicyReconciler) updateStatus(
 	}
 
 	if condChanged || relObjsChanged {
+		if policy.Status.RelatedObjects == nil {
+			policy.Status.RelatedObjects = []policyv1.RelatedObject{}
+		}
+
 		return r.Status().Update(ctx, policy)
 	}
 
