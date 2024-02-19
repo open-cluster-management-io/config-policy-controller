@@ -83,6 +83,7 @@ type ctrlOpts struct {
 	targetKubeConfig      string
 	metricsAddr           string
 	probeAddr             string
+	operatorPolDefaultNS  string
 	clientQPS             float32
 	clientBurst           uint
 	frequency             uint
@@ -432,9 +433,10 @@ func main() {
 		<-watcher.Started()
 
 		OpReconciler := controllers.OperatorPolicyReconciler{
-			Client:         mgr.GetClient(),
-			DynamicWatcher: watcher,
-			InstanceName:   instanceName,
+			Client:           mgr.GetClient(),
+			DynamicWatcher:   watcher,
+			InstanceName:     instanceName,
+			DefaultNamespace: opts.operatorPolDefaultNS,
 		}
 
 		if err = OpReconciler.SetupWithManager(mgr, depEvents); err != nil {
@@ -698,6 +700,13 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		"enable-operator-policy",
 		false,
 		"Enable operator policy controller",
+	)
+
+	flags.StringVar(
+		&opts.operatorPolDefaultNS,
+		"operator-policy-default-namespace",
+		"",
+		"The default namespace to be used by an OperatorPolicy if not specified in the policy.",
 	)
 
 	_ = flags.Parse(args)
