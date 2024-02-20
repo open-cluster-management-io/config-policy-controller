@@ -1,0 +1,31 @@
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: oppol-validity-test
+  annotations:
+    policy.open-cluster-management.io/parent-policy-compliance-db-id: "124"
+    policy.open-cluster-management.io/policy-compliance-db-id: "64"
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    kind: Policy
+    name: parent-policy
+    uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
+spec:
+  remediationAction: inform
+  severity: medium
+  complianceType: musthave
+  operatorGroup: # optional
+    foo: bar
+    name: scoped-operator-group
+    namespace: operator-policy-testns
+    targetNamespaces:
+      - operator-policy-testns
+  subscription:
+    actually: incorrect
+    channel: stable-3.8
+    name: project-quay
+    namespace: nonexist-testns
+    installPlanApproval: Incorrect
+    source: operatorhubio-catalog
+    sourceNamespace: olm
+    startingCSV: quay-operator.v3.8.1
