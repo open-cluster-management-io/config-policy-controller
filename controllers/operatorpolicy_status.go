@@ -643,7 +643,7 @@ var noDeploymentsCond = metav1.Condition{
 
 // catalogSourceFindCond is a conditionally compliant condition with reason
 // based on the `isUnhealthy` and `isMissing` parameters
-func catalogSourceFindCond(isUnhealthy bool, isMissing bool) metav1.Condition {
+func catalogSourceFindCond(isUnhealthy bool, isMissing bool, name string) metav1.Condition {
 	status := metav1.ConditionFalse
 	reason := "CatalogSourcesFound"
 	message := "CatalogSource was found"
@@ -657,7 +657,7 @@ func catalogSourceFindCond(isUnhealthy bool, isMissing bool) metav1.Condition {
 	if isMissing {
 		status = metav1.ConditionTrue
 		reason = "CatalogSourcesNotFound"
-		message = "CatalogSource was not found"
+		message = "CatalogSource '" + name + "' was not found"
 	}
 
 	return metav1.Condition{

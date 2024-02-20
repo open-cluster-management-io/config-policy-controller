@@ -53,22 +53,24 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 				g.Expect(policy.Status.ComplianceState).To(Equal(policyv1.NonCompliant))
 			}
 
-			matchingRelated := policy.Status.RelatedObjsOfKind(expectedRelatedObjs[0].Object.Kind)
-			g.Expect(matchingRelated).To(HaveLen(len(expectedRelatedObjs)))
+			if len(expectedRelatedObjs) != 0 {
+				matchingRelated := policy.Status.RelatedObjsOfKind(expectedRelatedObjs[0].Object.Kind)
+				g.Expect(matchingRelated).To(HaveLen(len(expectedRelatedObjs)))
 
-			for _, expectedRelObj := range expectedRelatedObjs {
-				foundMatchingName := false
-				unnamed := expectedRelObj.Object.Metadata.Name == ""
+				for _, expectedRelObj := range expectedRelatedObjs {
+					foundMatchingName := false
+					unnamed := expectedRelObj.Object.Metadata.Name == ""
 
-				for _, actualRelObj := range matchingRelated {
-					if unnamed || actualRelObj.Object.Metadata.Name == expectedRelObj.Object.Metadata.Name {
-						foundMatchingName = true
-						g.Expect(actualRelObj.Compliant).To(Equal(expectedRelObj.Compliant))
-						g.Expect(actualRelObj.Reason).To(Equal(expectedRelObj.Reason))
+					for _, actualRelObj := range matchingRelated {
+						if unnamed || actualRelObj.Object.Metadata.Name == expectedRelObj.Object.Metadata.Name {
+							foundMatchingName = true
+							g.Expect(actualRelObj.Compliant).To(Equal(expectedRelObj.Compliant))
+							g.Expect(actualRelObj.Reason).To(Equal(expectedRelObj.Reason))
+						}
 					}
-				}
 
-				g.Expect(foundMatchingName).To(BeTrue())
+					g.Expect(foundMatchingName).To(BeTrue())
+				}
 			}
 
 			idx, actualCondition := policy.Status.GetCondition(expectedCondition.Type)
@@ -809,9 +811,9 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 					Type:    "CatalogSourcesUnhealthy",
 					Status:  metav1.ConditionTrue,
 					Reason:  "CatalogSourcesNotFound",
-					Message: "CatalogSource was not found",
+					Message: "CatalogSource 'fakeName' was not found",
 				},
-				"CatalogSource was not found",
+				"CatalogSource 'fakeName' was not found",
 			)
 		})
 		It("Should remain NonCompliant when CatalogSource fails", func() {
@@ -1094,6 +1096,142 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 					Message: "no InstallPlans requiring approval were found",
 				},
 				"the InstallPlan.*36.1.*was approved",
+			)
+		})
+	})
+	Describe("Testing OperatorPolicy validation messages", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-validity-test.yaml"
+			opPolName = "oppol-validity-test"
+			subName   = "project-quay"
+		)
+
+		BeforeAll(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+				utils.Kubectl("delete", "ns", "nonexist-testns")
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should initially report unknown fields", func() {
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionFalse,
+					Reason:  "InvalidPolicySpec",
+					Message: `spec.subscription is invalid: json: unknown field "actually"`,
+				},
+				`the status of the Subscription could not be determined because the policy is invalid`,
+			)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionFalse,
+					Reason:  "InvalidPolicySpec",
+					Message: `spec.operatorGroup is invalid: json: unknown field "foo"`,
+				},
+				`the status of the OperatorGroup could not be determined because the policy is invalid`,
+			)
+		})
+		It("Should report about the invalid installPlanApproval value", func() {
+			// remove the "unknown" fields
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "remove", "path": "/spec/operatorGroup/foo"}, `+
+					`{"op": "remove", "path": "/spec/subscription/actually"}]`)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:   "ValidPolicySpec",
+					Status: metav1.ConditionFalse,
+					Reason: "InvalidPolicySpec",
+					Message: "spec.subscription.installPlanApproval ('Incorrect') is invalid: " +
+						"must be 'Automatic' or 'Manual'",
+				},
+				"NonCompliant",
+			)
+		})
+		It("Should report about the namespaces not matching", func() {
+			// Fix the `installPlanApproval` value
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/subscription/installPlanApproval", "value": "Automatic"}]`)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:   "ValidPolicySpec",
+					Status: metav1.ConditionFalse,
+					Reason: "InvalidPolicySpec",
+					Message: "the namespace specified in spec.operatorGroup ('operator-policy-testns') must match " +
+						"the namespace used for the subscription ('nonexist-testns')",
+				},
+				"NonCompliant",
+			)
+		})
+		It("Should report about the namespace not existing", func() {
+			// Fix the namespace mismatch by removing the operator group spec
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "remove", "path": "/spec/operatorGroup"}]`)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      subName,
+							Namespace: "nonexist-testns",
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource not found but should exist",
+				}},
+				metav1.Condition{
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionFalse,
+					Reason:  "InvalidPolicySpec",
+					Message: "the operator namespace ('nonexist-testns') does not exist",
+				},
+				"NonCompliant",
+			)
+		})
+		It("Should update the status after the namespace is created", func() {
+			utils.Kubectl("create", "namespace", "nonexist-testns")
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      subName,
+							Namespace: "nonexist-testns",
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource not found but should exist",
+				}},
+				metav1.Condition{
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionTrue,
+					Reason:  "PolicyValidated",
+					Message: "the policy spec is valid",
+				},
+				"the policy spec is valid",
 			)
 		})
 	})

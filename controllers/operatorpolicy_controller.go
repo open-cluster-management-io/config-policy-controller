@@ -4,6 +4,7 @@
 package controllers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,11 @@ const (
 )
 
 var (
+	namespaceGVK = schema.GroupVersionKind{
+		Group:   "",
+		Version: "v1",
+		Kind:    "Namespace",
+	}
 	subscriptionGVK = schema.GroupVersionKind{
 		Group:   "operators.coreos.com",
 		Version: "v1alpha1",
@@ -223,6 +229,18 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		validationErrors = append(validationErrors, ogErr)
 	}
 
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
+	if err != nil {
+		return sub, opGroup, fmt.Errorf("error getting operator namespace: %w", err)
+	}
+
+	if gotNamespace == nil {
+		validationErrors = append(validationErrors,
+			fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS))
+	}
+
 	return sub, opGroup, r.updateStatus(ctx, policy, validationCond(validationErrors))
 }
 
@@ -255,10 +273,21 @@ func buildSubscription(
 		return nil, fmt.Errorf("the namespace '%v' used for the subscription is not a valid namespace identifier", ns)
 	}
 
+	// This field is not actually in the subscription spec
+	delete(sub, "namespace")
+
+	subSpec, err := json.Marshal(sub)
+	if err != nil {
+		return nil, fmt.Errorf("the policy spec.subscription is invalid: %w", err)
+	}
+
+	// Use a decoder to find fields that were erroneously set by the user.
+	dec := json.NewDecoder(bytes.NewReader(subSpec))
+	dec.DisallowUnknownFields()
+
 	spec := new(operatorv1alpha1.SubscriptionSpec)
 
-	err = json.Unmarshal(policy.Spec.Subscription.Raw, spec)
-	if err != nil {
+	if err := dec.Decode(spec); err != nil {
 		return nil, fmt.Errorf("the policy spec.subscription is invalid: %w", err)
 	}
 
@@ -266,6 +295,12 @@ func buildSubscription(
 	subscription.ObjectMeta.Name = spec.Package
 	subscription.ObjectMeta.Namespace = ns
 	subscription.Spec = spec
+
+	// This is not validated by the CRD, so validate it here to prevent unexpected behavior.
+	if !(spec.InstallPlanApproval == "Manual" || spec.InstallPlanApproval == "Automatic") {
+		return nil, fmt.Errorf("the policy spec.subscription.installPlanApproval ('%v') is invalid: "+
+			"must be 'Automatic' or 'Manual'", spec.InstallPlanApproval)
+	}
 
 	// If the policy is in `enforce` mode and the allowed CSVs are restricted,
 	// the InstallPlanApproval will be set to Manual so that upgrades can be controlled.
@@ -302,7 +337,7 @@ func buildOperatorGroup(
 	}
 
 	if specifiedNS, ok := opGroup["namespace"].(string); ok && specifiedNS != "" {
-		if specifiedNS != namespace {
+		if specifiedNS != namespace && namespace != "" {
 			return nil, fmt.Errorf("the namespace specified in spec.operatorGroup ('%v') must match "+
 				"the namespace used for the subscription ('%v')", specifiedNS, namespace)
 		}
@@ -313,9 +348,22 @@ func buildOperatorGroup(
 		return nil, fmt.Errorf("name is required in spec.operatorGroup")
 	}
 
+	// These fields are not actually in the operatorGroup spec
+	delete(opGroup, "name")
+	delete(opGroup, "namespace")
+
+	opGroupSpec, err := json.Marshal(opGroup)
+	if err != nil {
+		return nil, fmt.Errorf("the policy spec.operatorGroup is invalid: %w", err)
+	}
+
+	// Use a decoder to find fields that were erroneously set by the user.
+	dec := json.NewDecoder(bytes.NewReader(opGroupSpec))
+	dec.DisallowUnknownFields()
+
 	spec := new(operatorv1.OperatorGroupSpec)
 
-	if err := json.Unmarshal(policy.Spec.OperatorGroup.Raw, spec); err != nil {
+	if err := dec.Decode(spec); err != nil {
 		return nil, fmt.Errorf("the policy spec.operatorGroup is invalid: %w", err)
 	}
 
@@ -331,12 +379,14 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 ) error {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
-	if desiredOpGroup == nil {
+	if desiredOpGroup == nil || desiredOpGroup.Namespace == "" {
 		// Note: existing related objects will not be removed by this status update
 		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("OperatorGroup"))
 		if err != nil {
 			return fmt.Errorf("error updating the status when the OperatorGroup could not be determined: %w", err)
 		}
+
+		return nil
 	}
 
 	foundOpGroups, err := r.DynamicWatcher.List(
@@ -830,7 +880,8 @@ func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
 		// need to report lack of existing CSV
 		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
 		if err != nil {
-			return nil, fmt.Errorf("error updating the status for Deployments: %w", err)
+			return nil, fmt.Errorf("error updating the status for ClusterServiceVersion "+
+				" with nonexistent Subscription: %w", err)
 		}
 
 		return nil, err
@@ -842,7 +893,7 @@ func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
 	if sub.Status.InstalledCSV == "" {
 		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
 		if err != nil {
-			return nil, fmt.Errorf("error updating the status for Deployments: %w", err)
+			return nil, fmt.Errorf("error updating the status for ClusterServiceVersion yet to be installed: %w", err)
 		}
 
 		return nil, err
@@ -893,10 +944,10 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 		// need to report lack of existing Deployments
 		err := r.updateStatus(ctx, policy, noDeploymentsCond, noExistingDeploymentObj)
 		if err != nil {
-			return fmt.Errorf("error updating the status for Deployments: %w", err)
+			return fmt.Errorf("error updating the status for nonexistent Deployments: %w", err)
 		}
 
-		return err
+		return nil
 	}
 
 	OpLog := ctrl.LoggerFrom(ctx)
@@ -961,7 +1012,7 @@ func (r *OperatorPolicyReconciler) handleCatalogSource(
 		// Note: existing related objects will not be removed by this status update
 		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("CatalogSource"))
 		if err != nil {
-			return fmt.Errorf("error updating the status when the  could not be determined: %w", err)
+			return fmt.Errorf("error updating the status for CatalogSource with nonexistent Subscription: %w", err)
 		}
 
 		return nil
@@ -1005,7 +1056,7 @@ func (r *OperatorPolicyReconciler) handleCatalogSource(
 		isUnhealthy = (CatalogSrcState != CatalogSourceReady)
 	}
 
-	err = r.updateStatus(ctx, policy, catalogSourceFindCond(isUnhealthy, isMissing),
+	err = r.updateStatus(ctx, policy, catalogSourceFindCond(isUnhealthy, isMissing, catalogName),
 		catalogSourceObj(catalogName, catalogNS, isUnhealthy, isMissing))
 	if err != nil {
 		return fmt.Errorf("error updating the status for a CatalogSource: %w", err)
