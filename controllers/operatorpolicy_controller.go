@@ -22,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
@@ -158,59 +159,124 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// handle the policy
 	OpLog.Info("Reconciling OperatorPolicy")
 
-	desiredSub, desiredOG, err := r.buildResources(ctx, policy)
+	errs := make([]error, 0)
+
+	conditionsToEmit, conditionChanged, err := r.handleResources(ctx, policy)
+	if err != nil {
+		errs = append(errs, err)
+	}
+
+	if conditionChanged {
+		// Add an event for the "final" state of the policy, otherwise this only has the
+		// "early" events (and possibly has zero events).
+		conditionsToEmit = append(conditionsToEmit, calculateComplianceCondition(policy))
+
+		if err := r.Status().Update(ctx, policy); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	for _, cond := range conditionsToEmit {
+		if err := r.emitComplianceEvent(ctx, policy, cond); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return reconcile.Result{}, utilerrors.NewAggregate(errs)
+}
+
+// handleResources determines the current desired state based on the policy, and
+// determines status details for the policy based on the current state of
+// resources in the cluster. If the policy is enforced, it will make updates
+// on the cluster. This function returns:
+//   - compliance conditions that should be emitted as events, detailing the
+//     state before an action was taken
+//   - whether the policy status needs to be updated, and a new compliance event
+//     should be emitted
+//   - an error, if one is encountered
+func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *policyv1beta1.OperatorPolicy) (
+	earlyComplianceEvents []metav1.Condition, condChanged bool, err error,
+) {
+	OpLog := ctrl.LoggerFrom(ctx)
+
+	earlyComplianceEvents = make([]metav1.Condition, 0)
+
+	desiredSub, desiredOG, changed, err := r.buildResources(policy)
+	condChanged = changed
+
 	if err != nil {
 		OpLog.Error(err, "Error building desired resources")
 
-		return reconcile.Result{}, err
+		return earlyComplianceEvents, condChanged, err
 	}
 
-	if err := r.handleOpGroup(ctx, policy, desiredOG); err != nil {
+	earlyConds, changed, err := r.handleOpGroup(ctx, policy, desiredOG)
+	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
+	condChanged = condChanged || changed
+
+	if err != nil {
 		OpLog.Error(err, "Error handling OperatorGroup")
 
-		return reconcile.Result{}, err
+		return earlyComplianceEvents, condChanged, err
 	}
 
-	subscription, err := r.handleSubscription(ctx, policy, desiredSub)
+	subscription, earlyConds, changed, err := r.handleSubscription(ctx, policy, desiredSub)
+	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
+	condChanged = condChanged || changed
+
 	if err != nil {
 		OpLog.Error(err, "Error handling Subscription")
 
-		return reconcile.Result{}, err
+		return earlyComplianceEvents, condChanged, err
 	}
 
-	if err := r.handleInstallPlan(ctx, policy, subscription); err != nil {
+	changed, err = r.handleInstallPlan(ctx, policy, subscription)
+	condChanged = condChanged || changed
+
+	if err != nil {
 		OpLog.Error(err, "Error handling InstallPlan")
 
-		return reconcile.Result{}, err
+		return earlyComplianceEvents, condChanged, err
 	}
 
-	csv, err := r.handleCSV(ctx, policy, subscription)
+	csv, changed, err := r.handleCSV(policy, subscription)
+	condChanged = condChanged || changed
+
 	if err != nil {
 		OpLog.Error(err, "Error handling CSVs")
 
-		return reconcile.Result{}, err
+		return earlyComplianceEvents, condChanged, err
 	}
 
-	if err := r.handleDeployment(ctx, policy, csv); err != nil {
+	changed, err = r.handleDeployment(ctx, policy, csv)
+	condChanged = condChanged || changed
+
+	if err != nil {
 		OpLog.Error(err, "Error handling Deployments")
 
-		return reconcile.Result{}, err
+		return earlyComplianceEvents, condChanged, err
 	}
 
-	if err := r.handleCatalogSource(ctx, policy, subscription); err != nil {
+	changed, err = r.handleCatalogSource(policy, subscription)
+	condChanged = condChanged || changed
+
+	if err != nil {
 		OpLog.Error(err, "Error handling CatalogSource")
 
-		return reconcile.Result{}, err
+		return earlyComplianceEvents, condChanged, err
 	}
 
-	return reconcile.Result{}, nil
+	return earlyComplianceEvents, condChanged, nil
 }
 
 // buildResources builds desired states for the Subscription and OperatorGroup, and
-// checks if the policy's spec is valid. It returns an error if it couldn't update the
-// validation condition in the policy's status.
-func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *policyv1beta1.OperatorPolicy) (
-	*operatorv1alpha1.Subscription, *operatorv1.OperatorGroup, error,
+// checks if the policy's spec is valid. It returns:
+//   - the built Subscription
+//   - the built OperatorGroup
+//   - whether the status has changed because of the validity condition
+//   - an error if an API call failed
+func (r *OperatorPolicyReconciler) buildResources(policy *policyv1beta1.OperatorPolicy) (
+	*operatorv1alpha1.Subscription, *operatorv1.OperatorGroup, bool, error,
 ) {
 	validationErrors := make([]error, 0)
 
@@ -233,7 +299,7 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 
 	gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
 	if err != nil {
-		return sub, opGroup, fmt.Errorf("error getting operator namespace: %w", err)
+		return sub, opGroup, false, fmt.Errorf("error getting operator namespace: %w", err)
 	}
 
 	if gotNamespace == nil {
@@ -241,7 +307,7 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 			fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS))
 	}
 
-	return sub, opGroup, r.updateStatus(ctx, policy, validationCond(validationErrors))
+	return sub, opGroup, updateStatus(policy, validationCond(validationErrors)), nil
 }
 
 // buildSubscription bootstraps the subscription spec defined in the operator policy
@@ -376,47 +442,46 @@ func buildOperatorGroup(
 
 func (r *OperatorPolicyReconciler) handleOpGroup(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, desiredOpGroup *operatorv1.OperatorGroup,
-) error {
+) ([]metav1.Condition, bool, error) {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	if desiredOpGroup == nil || desiredOpGroup.Namespace == "" {
 		// Note: existing related objects will not be removed by this status update
-		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("OperatorGroup"))
-		if err != nil {
-			return fmt.Errorf("error updating the status when the OperatorGroup could not be determined: %w", err)
-		}
-
-		return nil
+		return nil, updateStatus(policy, invalidCausingUnknownCond("OperatorGroup")), nil
 	}
 
 	foundOpGroups, err := r.DynamicWatcher.List(
 		watcher, operatorGroupGVK, desiredOpGroup.Namespace, labels.Everything())
 	if err != nil {
-		return fmt.Errorf("error listing OperatorGroups: %w", err)
+		return nil, false, fmt.Errorf("error listing OperatorGroups: %w", err)
 	}
 
 	switch len(foundOpGroups) {
 	case 0:
 		// Missing OperatorGroup: report NonCompliance
-		err := r.updateStatus(ctx, policy, missingWantedCond("OperatorGroup"), missingWantedObj(desiredOpGroup))
+		changed := updateStatus(policy, missingWantedCond("OperatorGroup"), missingWantedObj(desiredOpGroup))
+
+		if policy.Spec.RemediationAction.IsInform() {
+			return nil, changed, nil
+		}
+
+		earlyConds := []metav1.Condition{}
+
+		if changed {
+			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
+		}
+
+		err = r.Create(ctx, desiredOpGroup)
 		if err != nil {
-			return fmt.Errorf("error updating the status for a missing OperatorGroup: %w", err)
+			return nil, changed, fmt.Errorf("error creating the OperatorGroup: %w", err)
 		}
 
-		if policy.Spec.RemediationAction.IsEnforce() {
-			err = r.Create(ctx, desiredOpGroup)
-			if err != nil {
-				return fmt.Errorf("error creating the OperatorGroup: %w", err)
-			}
+		desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Create stripped this information
 
-			desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Create stripped this information
+		// Now the OperatorGroup should match, so report Compliance
+		updateStatus(policy, createdCond("OperatorGroup"), createdObj(desiredOpGroup))
 
-			// Now the OperatorGroup should match, so report Compliance
-			err = r.updateStatus(ctx, policy, createdCond("OperatorGroup"), createdObj(desiredOpGroup))
-			if err != nil {
-				return fmt.Errorf("error updating the status for a created OperatorGroup: %w", err)
-			}
-		}
+		return earlyConds, true, nil
 	case 1:
 		opGroup := foundOpGroups[0]
 
@@ -430,12 +495,7 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 				// there is not the default one the policy would create.
 				// FUTURE: check if the one operator group is compatible with the desired subscription.
 				// For an initial implementation, assume if an OperatorGroup already exists, then it's a good one.
-				err := r.updateStatus(ctx, policy, opGroupPreexistingCond, matchedObj(&opGroup))
-				if err != nil {
-					return fmt.Errorf("error updating the status for a pre-existing OperatorGroup: %w", err)
-				}
-
-				return nil
+				return nil, updateStatus(policy, opGroupPreexistingCond, matchedObj(&opGroup)), nil
 			}
 
 			// There is an OperatorGroup in the namespace that does not match the name of what is in the policy.
@@ -444,18 +504,13 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 			missing := missingWantedObj(desiredOpGroup)
 			badExisting := mismatchedObj(&opGroup)
 
-			err := r.updateStatus(ctx, policy, mismatchCond("OperatorGroup"), missing, badExisting)
-			if err != nil {
-				return fmt.Errorf("error updating the status for an OperatorGroup with the wrong name: %w", err)
-			}
-
-			return nil
+			return nil, updateStatus(policy, mismatchCond("OperatorGroup"), missing, badExisting), nil
 		}
 
 		// check whether the specs match
 		desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desiredOpGroup)
 		if err != nil {
-			return fmt.Errorf("error converting desired OperatorGroup to an Unstructured: %w", err)
+			return nil, false, fmt.Errorf("error converting desired OperatorGroup to an Unstructured: %w", err)
 		}
 
 		merged := opGroup.DeepCopy() // Copy it so that the value in the cache is not changed
@@ -464,17 +519,12 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 			ctx, desiredUnstruct, merged, string(policy.Spec.ComplianceType),
 		)
 		if err != nil {
-			return fmt.Errorf("error checking if the OperatorGroup needs an update: %w", err)
+			return nil, false, fmt.Errorf("error checking if the OperatorGroup needs an update: %w", err)
 		}
 
 		if !updateNeeded {
 			// Everything relevant matches!
-			err := r.updateStatus(ctx, policy, matchesCond("OperatorGroup"), matchedObj(&opGroup))
-			if err != nil {
-				return fmt.Errorf("error updating the status for an OperatorGroup that matches: %w", err)
-			}
-
-			return nil
+			return nil, updateStatus(policy, matchesCond("OperatorGroup"), matchedObj(&opGroup)), nil
 		}
 
 		// Specs don't match.
@@ -484,118 +534,103 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 			// there is not the default one the policy would create.
 			// FUTURE: check if the one operator group is compatible with the desired subscription.
 			// For an initial implementation, assume if an OperatorGroup already exists, then it's a good one.
-			err := r.updateStatus(ctx, policy, opGroupPreexistingCond, matchedObj(&opGroup))
-			if err != nil {
-				return fmt.Errorf("error updating the status for a pre-existing OperatorGroup: %w", err)
-			}
-
-			return nil
+			return nil, updateStatus(policy, opGroupPreexistingCond, matchedObj(&opGroup)), nil
 		}
 
 		if policy.Spec.RemediationAction.IsEnforce() && skipUpdate {
-			err = r.updateStatus(ctx, policy, mismatchCondUnfixable("OperatorGroup"), mismatchedObj(&opGroup))
-			if err != nil {
-				return fmt.Errorf("error updating status for an unenforceable mismatched OperatorGroup: %w", err)
-			}
-
-			return nil
+			return nil, updateStatus(policy, mismatchCondUnfixable("OperatorGroup"), mismatchedObj(&opGroup)), nil
 		}
 
 		// The names match, but the specs don't: report NonCompliance
-		err = r.updateStatus(ctx, policy, mismatchCond("OperatorGroup"), mismatchedObj(&opGroup))
+		changed := updateStatus(policy, mismatchCond("OperatorGroup"), mismatchedObj(&opGroup))
+
+		if policy.Spec.RemediationAction.IsInform() {
+			return nil, changed, nil
+		}
+
+		earlyConds := []metav1.Condition{}
+
+		if changed {
+			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
+		}
+
+		desiredOpGroup.ResourceVersion = opGroup.GetResourceVersion()
+
+		err = r.Update(ctx, merged)
 		if err != nil {
-			return fmt.Errorf("error updating the status for an OperatorGroup that does not match: %w", err)
+			return nil, changed, fmt.Errorf("error updating the OperatorGroup: %w", err)
 		}
 
-		if policy.Spec.RemediationAction.IsEnforce() {
-			desiredOpGroup.ResourceVersion = opGroup.GetResourceVersion()
+		desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Update stripped this information
 
-			err := r.Update(ctx, merged)
-			if err != nil {
-				return fmt.Errorf("error updating the OperatorGroup: %w", err)
-			}
+		updateStatus(policy, updatedCond("OperatorGroup"), updatedObj(desiredOpGroup))
 
-			desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Update stripped this information
-
-			// It was updated and should match now, so report Compliance
-			err = r.updateStatus(ctx, policy, updatedCond("OperatorGroup"), updatedObj(desiredOpGroup))
-			if err != nil {
-				return fmt.Errorf("error updating the status after updating the OperatorGroup: %w", err)
-			}
-		}
+		return earlyConds, true, nil
 	default:
 		// This situation will always lead to a "TooManyOperatorGroups" failure on the CSV.
 		// Consider improving this in the future: perhaps this could suggest one of the OperatorGroups to keep.
-		err := r.updateStatus(ctx, policy, opGroupTooManyCond, opGroupTooManyObjs(foundOpGroups)...)
-		if err != nil {
-			return fmt.Errorf("error updating the status when there are multiple OperatorGroups: %w", err)
-		}
+		return nil, updateStatus(policy, opGroupTooManyCond, opGroupTooManyObjs(foundOpGroups)...), nil
 	}
-
-	return nil
 }
 
 func (r *OperatorPolicyReconciler) handleSubscription(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, desiredSub *operatorv1alpha1.Subscription,
-) (*operatorv1alpha1.Subscription, error) {
+) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	if desiredSub == nil {
 		// Note: existing related objects will not be removed by this status update
-		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("Subscription"))
-		if err != nil {
-			return nil, fmt.Errorf("error updating the status when the Subscription could not be determined: %w", err)
-		}
-
-		return nil, nil
+		return nil, nil, updateStatus(policy, invalidCausingUnknownCond("Subscription")), nil
 	}
 
 	foundSub, err := r.DynamicWatcher.Get(watcher, subscriptionGVK, desiredSub.Namespace, desiredSub.Name)
 	if err != nil {
-		return nil, fmt.Errorf("error getting the Subscription: %w", err)
+		return nil, nil, false, fmt.Errorf("error getting the Subscription: %w", err)
 	}
 
 	if foundSub == nil {
 		// Missing Subscription: report NonCompliance
-		err := r.updateStatus(ctx, policy, missingWantedCond("Subscription"), missingWantedObj(desiredSub))
+		changed := updateStatus(policy, missingWantedCond("Subscription"), missingWantedObj(desiredSub))
+
+		if policy.Spec.RemediationAction.IsInform() {
+			return desiredSub, nil, changed, nil
+		}
+
+		earlyConds := []metav1.Condition{}
+
+		if changed {
+			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
+		}
+
+		err := r.Create(ctx, desiredSub)
 		if err != nil {
-			return nil, fmt.Errorf("error updating status for a missing Subscription: %w", err)
+			return nil, nil, changed, fmt.Errorf("error creating the Subscription: %w", err)
 		}
 
-		if policy.Spec.RemediationAction.IsEnforce() {
-			err := r.Create(ctx, desiredSub)
-			if err != nil {
-				return nil, fmt.Errorf("error creating the Subscription: %w", err)
-			}
+		desiredSub.SetGroupVersionKind(subscriptionGVK) // Create stripped this information
 
-			desiredSub.SetGroupVersionKind(subscriptionGVK) // Create stripped this information
+		// Now it should match, so report Compliance
+		updateStatus(policy, createdCond("Subscription"), createdObj(desiredSub))
 
-			// Now it should match, so report Compliance
-			err = r.updateStatus(ctx, policy, createdCond("Subscription"), createdObj(desiredSub))
-			if err != nil {
-				return nil, fmt.Errorf("error updating the status for a created Subscription: %w", err)
-			}
-		}
-
-		return desiredSub, nil
+		return desiredSub, earlyConds, true, nil
 	}
 
 	// Subscription found; check if specs match
 	desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desiredSub)
 	if err != nil {
-		return nil, fmt.Errorf("error converting desired Subscription to an Unstructured: %w", err)
+		return nil, nil, false, fmt.Errorf("error converting desired Subscription to an Unstructured: %w", err)
 	}
 
 	merged := foundSub.DeepCopy() // Copy it so that the value in the cache is not changed
 
 	updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, merged, string(policy.Spec.ComplianceType))
 	if err != nil {
-		return nil, fmt.Errorf("error checking if the Subscription needs an update: %w", err)
+		return nil, nil, false, fmt.Errorf("error checking if the Subscription needs an update: %w", err)
 	}
 
 	mergedSub := new(operatorv1alpha1.Subscription)
 	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(merged.Object, mergedSub); err != nil {
-		return nil, fmt.Errorf("error converting the retrieved Subscription to the go type: %w", err)
+		return nil, nil, false, fmt.Errorf("error converting the retrieved Subscription to the go type: %w", err)
 	}
 
 	if !updateNeeded {
@@ -613,66 +648,49 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 				cond.LastTransitionTime = *subResFailed.LastTransitionTime
 			}
 
-			err := r.updateStatus(ctx, policy, cond, nonCompObj(foundSub, subResFailed.Reason))
-			if err != nil {
-				return nil, fmt.Errorf("error setting the ResolutionFailed status for a Subscription: %w", err)
-			}
-
-			return mergedSub, nil
+			return mergedSub, nil, updateStatus(policy, cond, nonCompObj(foundSub, subResFailed.Reason)), nil
 		}
 
-		err := r.updateStatus(ctx, policy, matchesCond("Subscription"), matchedObj(foundSub))
-		if err != nil {
-			return nil, fmt.Errorf("error updating the status for a Subscription that matches: %w", err)
-		}
-
-		return mergedSub, nil
+		return mergedSub, nil, updateStatus(policy, matchesCond("Subscription"), matchedObj(foundSub)), nil
 	}
 
 	// Specs don't match.
 	if policy.Spec.RemediationAction.IsEnforce() && skipUpdate {
-		err = r.updateStatus(ctx, policy, mismatchCondUnfixable("Subscription"), mismatchedObj(foundSub))
-		if err != nil {
-			return nil, fmt.Errorf(
-				"error updating status for a mismatched Subscription that can't be enforced: %w", err)
-		}
+		changed := updateStatus(policy, mismatchCondUnfixable("Subscription"), mismatchedObj(foundSub))
 
-		return mergedSub, nil
+		return mergedSub, nil, changed, nil
 	}
 
-	err = r.updateStatus(ctx, policy, mismatchCond("Subscription"), mismatchedObj(foundSub))
+	changed := updateStatus(policy, mismatchCond("Subscription"), mismatchedObj(foundSub))
+
+	if policy.Spec.RemediationAction.IsInform() {
+		return mergedSub, nil, changed, nil
+	}
+
+	earlyConds := []metav1.Condition{}
+
+	if changed {
+		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
+	}
+
+	err = r.Update(ctx, merged)
 	if err != nil {
-		return nil, fmt.Errorf("error updating status for a mismatched Subscription: %w", err)
+		return mergedSub, nil, changed, fmt.Errorf("error updating the Subscription: %w", err)
 	}
 
-	if policy.Spec.RemediationAction.IsEnforce() {
-		err := r.Update(ctx, merged)
-		if err != nil {
-			return nil, fmt.Errorf("error updating the Subscription: %w", err)
-		}
+	merged.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
 
-		merged.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
+	updateStatus(policy, updatedCond("Subscription"), updatedObj(merged))
 
-		err = r.updateStatus(ctx, policy, updatedCond("Subscription"), updatedObj(merged))
-		if err != nil {
-			return nil, fmt.Errorf("error updating status after updating the Subscription: %w", err)
-		}
-	}
-
-	return mergedSub, nil
+	return mergedSub, earlyConds, true, nil
 }
 
 func (r *OperatorPolicyReconciler) handleInstallPlan(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription,
-) error {
+) (bool, error) {
 	if sub == nil {
 		// Note: existing related objects will not be removed by this status update
-		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("InstallPlan"))
-		if err != nil {
-			return fmt.Errorf("error updating the status when the InstallPlan could not be determined: %w", err)
-		}
-
-		return nil
+		return updateStatus(policy, invalidCausingUnknownCond("InstallPlan")), nil
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
@@ -680,7 +698,7 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	foundInstallPlans, err := r.DynamicWatcher.List(
 		watcher, installPlanGVK, sub.Namespace, labels.Everything())
 	if err != nil {
-		return fmt.Errorf("error listing InstallPlans: %w", err)
+		return false, fmt.Errorf("error listing InstallPlans: %w", err)
 	}
 
 	ownedInstallPlans := make([]unstructured.Unstructured, 0, len(foundInstallPlans))
@@ -702,12 +720,7 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	// they can be deleted without impacting the installed operator. So, not finding any should not
 	// be considered a reason for NonCompliance.
 	if len(ownedInstallPlans) == 0 {
-		err := r.updateStatus(ctx, policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace))
-		if err != nil {
-			return fmt.Errorf("error updating status when no relevant InstallPlans were found: %w", err)
-		}
-
-		return nil
+		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
 	}
 
 	OpLog := ctrl.LoggerFrom(ctx)
@@ -749,30 +762,15 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	}
 
 	if currentPlanFailed {
-		err := r.updateStatus(ctx, policy, installPlanFailed, relatedInstallPlans...)
-		if err != nil {
-			return fmt.Errorf("error updating status when the current InstallPlan has failed: %w", err)
-		}
-
-		return nil
+		return updateStatus(policy, installPlanFailed, relatedInstallPlans...), nil
 	}
 
 	if anyInstalling {
-		err := r.updateStatus(ctx, policy, installPlanInstallingCond, relatedInstallPlans...)
-		if err != nil {
-			return fmt.Errorf("error updating status when an installing InstallPlan was found: %w", err)
-		}
-
-		return nil
+		return updateStatus(policy, installPlanInstallingCond, relatedInstallPlans...), nil
 	}
 
 	if len(ipsRequiringApproval) == 0 {
-		err := r.updateStatus(ctx, policy, installPlansNoApprovals, relatedInstallPlans...)
-		if err != nil {
-			return fmt.Errorf("error updating status when InstallPlans were fine: %w", err)
-		}
-
-		return nil
+		return updateStatus(policy, installPlansNoApprovals, relatedInstallPlans...), nil
 	}
 
 	allUpgradeVersions := make([]string, len(ipsRequiringApproval))
@@ -799,12 +797,7 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	if policy.Spec.RemediationAction.IsInform() {
 		// FUTURE: check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
 		// For now this condition assumes it is set to 'NonCompliant'
-		err := r.updateStatus(ctx, policy, installPlanUpgradeCond(allUpgradeVersions, nil), relatedInstallPlans...)
-		if err != nil {
-			return fmt.Errorf("error updating status when an InstallPlan requiring approval was found: %w", err)
-		}
-
-		return nil
+		return updateStatus(policy, installPlanUpgradeCond(allUpgradeVersions, nil), relatedInstallPlans...), nil
 	}
 
 	approvedVersion := "" // this will only be accurate when there is only one approvable InstallPlan
@@ -846,75 +839,53 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	}
 
 	if len(approvableInstallPlans) != 1 {
-		err := r.updateStatus(ctx, policy,
+		changed := updateStatus(policy,
 			installPlanUpgradeCond(allUpgradeVersions, approvableInstallPlans), relatedInstallPlans...)
-		if err != nil {
-			return fmt.Errorf("error updating status when an InstallPlan can't be automatically approved: %w", err)
-		}
 
-		return nil
+		return changed, nil
 	}
 
 	if err := unstructured.SetNestedField(approvableInstallPlans[0].Object, true, "spec", "approved"); err != nil {
-		return fmt.Errorf("error approving InstallPlan: %w", err)
+		return false, fmt.Errorf("error approving InstallPlan: %w", err)
 	}
 
 	if err := r.Update(ctx, &approvableInstallPlans[0]); err != nil {
-		return fmt.Errorf("error updating approved InstallPlan: %w", err)
+		return false, fmt.Errorf("error updating approved InstallPlan: %w", err)
 	}
 
-	err = r.updateStatus(ctx, policy, installPlanApprovedCond(approvedVersion), relatedInstallPlans...)
-	if err != nil {
-		return fmt.Errorf("error updating status after approving an InstallPlan: %w", err)
-	}
-
-	return nil
+	return updateStatus(policy, installPlanApprovedCond(approvedVersion), relatedInstallPlans...), nil
 }
 
-func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
+func (r *OperatorPolicyReconciler) handleCSV(
 	policy *policyv1beta1.OperatorPolicy,
 	sub *operatorv1alpha1.Subscription,
-) (*operatorv1alpha1.ClusterServiceVersion, error) {
+) (*operatorv1alpha1.ClusterServiceVersion, bool, error) {
 	// case where subscription is nil
 	if sub == nil {
 		// need to report lack of existing CSV
-		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
-		if err != nil {
-			return nil, fmt.Errorf("error updating the status for ClusterServiceVersion "+
-				" with nonexistent Subscription: %w", err)
-		}
-
-		return nil, err
+		return nil, updateStatus(policy, noCSVCond, noExistingCSVObj), nil
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	// case where subscription status has not been populated yet
 	if sub.Status.InstalledCSV == "" {
-		err := r.updateStatus(ctx, policy, noCSVCond, noExistingCSVObj)
-		if err != nil {
-			return nil, fmt.Errorf("error updating the status for ClusterServiceVersion yet to be installed: %w", err)
-		}
-
-		return nil, err
+		return nil, updateStatus(policy, noCSVCond, noExistingCSVObj), nil
 	}
 
 	// Get the CSV related to the object
 	foundCSV, err := r.DynamicWatcher.Get(watcher, clusterServiceVersionGVK, sub.Namespace,
 		sub.Status.InstalledCSV)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	// CSV has not yet been created by OLM
 	if foundCSV == nil {
-		err := r.updateStatus(ctx, policy,
+		changed := updateStatus(policy,
 			missingWantedCond("ClusterServiceVersion"), missingCSVObj(sub.Name, sub.Namespace))
-		if err != nil {
-			return nil, fmt.Errorf("error updating the status for a missing ClusterServiceVersion: %w", err)
-		}
 
-		return nil, err
+		return nil, changed, nil
 	}
 
 	// Check CSV most recent condition
@@ -923,31 +894,21 @@ func (r *OperatorPolicyReconciler) handleCSV(ctx context.Context,
 
 	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &csv)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	err = r.updateStatus(ctx, policy, buildCSVCond(&csv), existingCSVObj(&csv))
-	if err != nil {
-		return &csv, fmt.Errorf("error updating the status for an existing ClusterServiceVersion: %w", err)
-	}
-
-	return &csv, nil
+	return &csv, updateStatus(policy, buildCSVCond(&csv), existingCSVObj(&csv)), nil
 }
 
 func (r *OperatorPolicyReconciler) handleDeployment(
 	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
 	csv *operatorv1alpha1.ClusterServiceVersion,
-) error {
+) (bool, error) {
 	// case where csv is nil
 	if csv == nil {
 		// need to report lack of existing Deployments
-		err := r.updateStatus(ctx, policy, noDeploymentsCond, noExistingDeploymentObj)
-		if err != nil {
-			return fmt.Errorf("error updating the status for nonexistent Deployments: %w", err)
-		}
-
-		return nil
+		return updateStatus(policy, noDeploymentsCond, noExistingDeploymentObj), nil
 	}
 
 	OpLog := ctrl.LoggerFrom(ctx)
@@ -962,7 +923,7 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 	for _, dep := range csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs {
 		foundDep, err := r.DynamicWatcher.Get(watcher, deploymentGVK, csv.Namespace, dep.Name)
 		if err != nil {
-			return fmt.Errorf("error getting the Deployment: %w", err)
+			return false, fmt.Errorf("error getting the Deployment: %w", err)
 		}
 
 		// report missing deployment in relatedObjects list
@@ -992,30 +953,18 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 		relatedObjects = append(relatedObjects, existingDeploymentObj(&dep))
 	}
 
-	err := r.updateStatus(ctx, policy,
-		buildDeploymentCond(depNum > 0, unavailableDeployments), relatedObjects...)
-	if err != nil {
-		return fmt.Errorf("error updating the status for Deployments: %w", err)
-	}
-
-	return nil
+	return updateStatus(policy, buildDeploymentCond(depNum > 0, unavailableDeployments), relatedObjects...), nil
 }
 
 func (r *OperatorPolicyReconciler) handleCatalogSource(
-	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
 	subscription *operatorv1alpha1.Subscription,
-) error {
+) (bool, error) {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	if subscription == nil {
 		// Note: existing related objects will not be removed by this status update
-		err := r.updateStatus(ctx, policy, invalidCausingUnknownCond("CatalogSource"))
-		if err != nil {
-			return fmt.Errorf("error updating the status for CatalogSource with nonexistent Subscription: %w", err)
-		}
-
-		return nil
+		return updateStatus(policy, invalidCausingUnknownCond("CatalogSource")), nil
 	}
 
 	catalogName := subscription.Spec.CatalogSource
@@ -1025,7 +974,7 @@ func (r *OperatorPolicyReconciler) handleCatalogSource(
 	foundCatalogSrc, err := r.DynamicWatcher.Get(watcher, catalogSrcGVK,
 		catalogNS, catalogName)
 	if err != nil {
-		return fmt.Errorf("error getting CatalogSource: %w", err)
+		return false, fmt.Errorf("error getting CatalogSource: %w", err)
 	}
 
 	isMissing := foundCatalogSrc == nil
@@ -1039,30 +988,24 @@ func (r *OperatorPolicyReconciler) handleCatalogSource(
 		err := runtime.DefaultUnstructuredConverter.
 			FromUnstructured(catalogSrcUnstruct.Object, catalogSrc)
 		if err != nil {
-			return fmt.Errorf("error converting the retrieved CatalogSource to the Go type: %w", err)
+			return false, fmt.Errorf("error converting the retrieved CatalogSource to the Go type: %w", err)
 		}
 
 		if catalogSrc.Status.GRPCConnectionState == nil {
 			// Unknown State
-			err := r.updateStatus(ctx, policy, catalogSourceUnknownCond, catalogSrcUnknownObj(catalogName, catalogNS))
-			if err != nil {
-				return fmt.Errorf("error retrieving the status for a CatalogSource: %w", err)
-			}
+			changed := updateStatus(policy, catalogSourceUnknownCond, catalogSrcUnknownObj(catalogName, catalogNS))
 
-			return nil
+			return changed, nil
 		}
 
 		CatalogSrcState := catalogSrc.Status.GRPCConnectionState.LastObservedState
 		isUnhealthy = (CatalogSrcState != CatalogSourceReady)
 	}
 
-	err = r.updateStatus(ctx, policy, catalogSourceFindCond(isUnhealthy, isMissing, catalogName),
+	changed := updateStatus(policy, catalogSourceFindCond(isUnhealthy, isMissing, catalogName),
 		catalogSourceObj(catalogName, catalogNS, isUnhealthy, isMissing))
-	if err != nil {
-		return fmt.Errorf("error updating the status for a CatalogSource: %w", err)
-	}
 
-	return nil
+	return changed, nil
 }
 
 func opPolIdentifier(namespace, name string) depclient.ObjectIdentifier {

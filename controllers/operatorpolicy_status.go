@@ -21,22 +21,20 @@ import (
 
 // updateStatus takes one condition to update, and related objects for that condition. The related
 // objects given will replace all existing relatedObjects with the same gvk. If a condition is
-// changed, the compliance will be recalculated and a compliance event will be emitted. The
-// condition and related objects can match what is already in the status - in that case, no API
-// calls are made. The `lastTransitionTime` on a condition is not considered when checking if the
-// condition has changed. If not provided, the `lastTransitionTime` will use "now". It also handles
-// preserving the `CreatedByPolicy` property on relatedObjects.
+// changed, the compliance will be recalculated. The condition and related objects can match what is
+// already in the status - in that case, no changes to the policy are made. The `lastTransitionTime`
+// on a condition is not considered when checking if the condition has changed. If not provided, the
+// `lastTransitionTime` will use "now". It also handles preserving the `CreatedByPolicy` property on
+// relatedObjects.
 //
 // This function requires that all given related objects are of the same kind.
 //
-// Note that only changing the related objects will not emit a new compliance event, but will update
-// the status.
-func (r *OperatorPolicyReconciler) updateStatus(
-	ctx context.Context,
+// returns true if the status should be updated and a new compliance event should be emitted.
+func updateStatus(
 	policy *policyv1beta1.OperatorPolicy,
 	updatedCondition metav1.Condition,
 	updatedRelatedObjs ...policyv1.RelatedObject,
-) error {
+) (changed bool) {
 	condChanged := false
 
 	if updatedCondition.LastTransitionTime.IsZero() {
@@ -74,11 +72,6 @@ func (r *OperatorPolicyReconciler) updateStatus(
 			policy.Status.ComplianceState = policyv1.Compliant
 		} else {
 			policy.Status.ComplianceState = policyv1.NonCompliant
-		}
-
-		err := r.emitComplianceEvent(ctx, policy, updatedComplianceCondition)
-		if err != nil {
-			return err
 		}
 	}
 
@@ -152,11 +145,9 @@ func (r *OperatorPolicyReconciler) updateStatus(
 		if policy.Status.RelatedObjects == nil {
 			policy.Status.RelatedObjects = []policyv1.RelatedObject{}
 		}
-
-		return r.Status().Update(ctx, policy)
 	}
 
-	return nil
+	return condChanged || relObjsChanged
 }
 
 func conditionChanged(updatedCondition, existingCondition metav1.Condition) bool {
