@@ -33,16 +33,26 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 		expectedCondition metav1.Condition,
 		expectedEventMsgSnippet string,
 	) {
+		var debugMessage string
+
+		defer func() {
+			if CurrentSpecReport().Failed() {
+				GinkgoWriter.Println(debugMessage)
+			}
+		}()
+
 		checkFunc := func(g Gomega) {
 			GinkgoHelper()
 
 			unstructPolicy := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, polName,
 				opPolTestNS, true, eventuallyTimeout)
 
+			unstructured.RemoveNestedField(unstructPolicy.Object, "metadata", "managedFields")
+
 			policyJSON, err := json.MarshalIndent(unstructPolicy.Object, "", "  ")
 			g.Expect(err).NotTo(HaveOccurred())
 
-			GinkgoWriter.Printf("Debug info for failure.\npolicy JSON: %s\nwanted related objects: %+v\n"+
+			debugMessage = fmt.Sprintf("Debug info for failure.\npolicy JSON: %s\nwanted related objects: %+v\n"+
 				"wanted condition: %+v\n", string(policyJSON), expectedRelatedObjs, expectedCondition)
 
 			policy := policyv1beta1.OperatorPolicy{}
