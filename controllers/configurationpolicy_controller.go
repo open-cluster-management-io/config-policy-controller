@@ -1626,7 +1626,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		result = objectTmplEvalResult{objectNames: objNames, events: []objectTmplEvalEvent{resultEvent}}
 
 		if shouldAddCondensedRelatedObj {
-			// relatedObjs name is *
+			// relatedObjs name is -
 			relatedObjects = addCondensedRelatedObjs(
 				mapping.Resource,
 				resultEvent.compliant,

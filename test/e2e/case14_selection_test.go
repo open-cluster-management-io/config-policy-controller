@@ -167,7 +167,7 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 			// When hasObjName = false
 			// compliant: NonCompliant
 			//  metadata:
-			// 	  name: '*'
+			// 	  name: '-'
 			//    namespace: range3
 			// reason: Resource not found but should exist
 			// is attached for range3.
