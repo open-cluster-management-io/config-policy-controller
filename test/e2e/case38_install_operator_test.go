@@ -135,7 +135,7 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 						Kind:       "OperatorGroup",
 						APIVersion: "operators.coreos.com/v1",
 						Metadata: policyv1.ObjectMetadata{
-							Name:      "*",
+							Name:      "-",
 							Namespace: opPolTestNS,
 						},
 					},
@@ -953,7 +953,7 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 						APIVersion: "operators.coreos.com/v1alpha1",
 						Metadata: policyv1.ObjectMetadata{
 							Namespace: opPolTestNS,
-							Name:      "*",
+							Name:      "-",
 						},
 					},
 					Compliant: "Compliant",

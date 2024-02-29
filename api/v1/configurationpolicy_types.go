@@ -328,7 +328,7 @@ type ObjectResource struct {
 func ObjectResourceFromObj(obj client.Object) ObjectResource {
 	name := obj.GetName()
 	if name == "" {
-		name = "*"
+		name = "-"
 	}
 
 	return ObjectResource{
