@@ -5,36 +5,39 @@ on:
     tags:
       - 'v*.*.*'
 
-env:
-  TAG: ${{ github.ref_name }}
-
-
 jobs:
   release:
     name: release
     runs-on: ubuntu-latest
     steps:
+      - name: Setup environment variables
+        run: |
+          TAG="${{ github.ref_name }}"
+          REPO_NAME="${GITHUB_REPOSITORY#*/}"
+
+          echo "TAG=${TAG}" >> ${GITHUB_ENV}
+          echo "REPO_NAME=${REPO_NAME}" >> ${GITHUB_ENV}
+          echo "IMAGE_PATH=quay.io/open-cluster-management/${REPO_NAME}:${TAG}" >> ${GITHUB_ENV}
       - name: checkout code
         uses: actions/checkout@v4
-      - name: install Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
       - name: build images
         run:  |
           make build-images
       - name: push image
         run: |
           echo ${{ secrets.DOCKER_PASSWORD }} | docker login quay.io --username ${{ secrets.DOCKER_USER }} --password-stdin
-          docker push quay.io/open-cluster-management/config-policy-controller:$TAG
-      - name: generate changelog
-        run: |
-          echo "# config-policy-controller $TAG" > /home/runner/work/changelog.txt
-          echo "- The released image is quay.io/open-cluster-management/config-policy-controller:$TAG" >> /home/runner/work/changelog.txt
+          docker push ${{ env.IMAGE_PATH }}
       - name: publish release
-        uses: softprops/action-gh-release@v0.1.15
-        with:
-          body_path: /home/runner/work/changelog.txt
-          generate_release_notes: true
-          draft: true
-          prerelease: false
+        run: |
+          curl -fsSL -X POST -H "Accept: application/vnd.github+json" -o /dev/null \
+          -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          https://api.github.com/repos/${{ github.repository }}/releases \
+          -d '{
+            "tag_name": "${{ env.TAG }}",
+            "target_commitish": "main",
+            "name": "${{ env.TAG }}",
+            "body": "# ${{ env.REPO_NAME }} ${{ env.TAG }}\n- The released image is ${{ env.IMAGE_PATH }}",
+            "draft": true,
+            "prerelease": false,
+            "generate_release_notes": true
+          }'
