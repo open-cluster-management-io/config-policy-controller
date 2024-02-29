@@ -766,7 +766,7 @@ func noInstallPlansObj(namespace string) policyv1.RelatedObject {
 			Kind:       installPlanGVK.Kind,
 			APIVersion: installPlanGVK.GroupVersion().String(),
 			Metadata: policyv1.ObjectMetadata{
-				Name:      "*",
+				Name:      "-",
 				Namespace: namespace,
 			},
 		},
@@ -839,7 +839,7 @@ var noExistingCSVObj = policyv1.RelatedObject{
 		Kind:       clusterServiceVersionGVK.Kind,
 		APIVersion: clusterServiceVersionGVK.GroupVersion().String(),
 		Metadata: policyv1.ObjectMetadata{
-			Name: "*",
+			Name: "-",
 		},
 	},
 	Compliant: string(policyv1.UnknownCompliancy),
@@ -886,7 +886,7 @@ var noExistingDeploymentObj = policyv1.RelatedObject{
 		Kind:       deploymentGVK.Kind,
 		APIVersion: deploymentGVK.GroupVersion().String(),
 		Metadata: policyv1.ObjectMetadata{
-			Name: "*",
+			Name: "-",
 		},
 	},
 	Compliant: string(policyv1.UnknownCompliancy),
