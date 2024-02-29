@@ -586,8 +586,8 @@ func buildCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition 
 
 var noCSVCond = metav1.Condition{
 	Type:    csvConditionType,
-	Status:  metav1.ConditionTrue,
-	Reason:  "NoRelevantClusterServiceVersion",
+	Status:  metav1.ConditionFalse,
+	Reason:  "RelevantCSVFound",
 	Message: "A relevant installed ClusterServiceVersion could not be found",
 }
 

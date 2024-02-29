@@ -718,6 +718,16 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 				"No existing operator Deployments",
 			)
 		})
+
+		It("Should not have any compliant events", func() {
+			// This test is meant to find an incorrect compliant event that is emitted between some
+			// correct noncompliant events.
+			events := utils.GetMatchingEvents(
+				clientManaged, opPolTestNS, parentPolicyName, "", "^Compliant;", eventuallyTimeout,
+			)
+
+			Expect(events).To(BeEmpty())
+		})
 	})
 	Describe("Test status reporting for CatalogSource", Ordered, func() {
 		const (
