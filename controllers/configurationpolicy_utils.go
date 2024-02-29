@@ -68,7 +68,7 @@ func addRelatedObjects(
 }
 
 // addCondensedRelatedObjs does not include all of relatedObjs.
-// The Name field is "*". The list of objects will be presented on the console.
+// The Name field is "-". The list of objects will be presented on the console.
 func addCondensedRelatedObjs(
 	rsrc schema.GroupVersionResource,
 	compliant bool,
@@ -77,7 +77,7 @@ func addCondensedRelatedObjs(
 	namespaced bool,
 	reason string,
 ) (relatedObjects []policyv1.RelatedObject) {
-	metadata := policyv1.ObjectMetadata{Name: "*"}
+	metadata := policyv1.ObjectMetadata{Name: "-"}
 
 	if namespaced {
 		metadata.Namespace = namespace

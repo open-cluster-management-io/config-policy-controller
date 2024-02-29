@@ -64,11 +64,11 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 			relatedObjectsOne := relatedObjects[0].(map[string]interface{})
 			Expect(relatedObjectsOne["reason"].(string)).Should(Equal("Resource found but does not match"))
 
-			By("Check the name of related object is *")
+			By("Check the name of related object is -")
 			name, _, err := unstructured.NestedString(relatedObjects[0].(map[string]interface{}),
 				"object", "metadata", "name")
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(name).Should(Equal("*"))
+			Expect(name).Should(Equal("-"))
 		})
 		It("should have 1 Compliant relatedObject under the policy's status", func() {
 			By("Apply good ingress")
@@ -109,11 +109,11 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 			reason := relatedObjects[0].(map[string]interface{})["reason"].(string)
 			Expect(reason).Should(Equal("Resource found as expected"))
 
-			By("Check the name of related object is not *")
+			By("Check the name of related object is not -")
 			name, _, err := unstructured.NestedString(relatedObjects[0].(map[string]interface{}),
 				"object", "metadata", "name")
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(name).ShouldNot(Equal("*"))
+			Expect(name).ShouldNot(Equal("-"))
 		})
 		AfterAll(func() {
 			utils.Kubectl("delete", "-f", case37PolicyNSPath, "-n", testNamespace, "--ignore-not-found")
@@ -159,11 +159,11 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 			relatedObjectsOne := relatedObjects[0].(map[string]interface{})
 			Expect(relatedObjectsOne["reason"].(string)).Should(Equal("Resource not found as expected"))
 
-			By("Check the name of related object is *")
+			By("Check the name of related object is -")
 			name, _, err := unstructured.NestedString(relatedObjects[0].(map[string]interface{}),
 				"object", "metadata", "name")
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(name).Should(Equal("*"))
+			Expect(name).Should(Equal("-"))
 		})
 		It("should have 1 Compliant relatedObject under the policy's status", func() {
 			By("Apply a ingress that is not related to policy")
@@ -204,11 +204,11 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 			relatedObjectsOne := relatedObjects[0].(map[string]interface{})
 			Expect(relatedObjectsOne["reason"].(string)).Should(Equal("Resource not found as expected"))
 
-			By("Check the name of related object is *")
+			By("Check the name of related object is -")
 			name, _, err := unstructured.NestedString(relatedObjects[0].(map[string]interface{}),
 				"object", "metadata", "name")
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(name).Should(Equal("*"))
+			Expect(name).Should(Equal("-"))
 		})
 		It("should have 1 NonCompliant relatedObject under the policy's status", func() {
 			By("Apply a ingress")
@@ -249,11 +249,11 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 			reason := relatedObjects[0].(map[string]interface{})["reason"].(string)
 			Expect(reason).Should(Equal("Resource found but should not exist"))
 
-			By("Check the name of related object is not *")
+			By("Check the name of related object is not -")
 			name, _, err := unstructured.NestedString(relatedObjects[0].(map[string]interface{}),
 				"object", "metadata", "name")
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(name).ShouldNot(Equal("*"))
+			Expect(name).ShouldNot(Equal("-"))
 		})
 		AfterAll(func() {
 			utils.Kubectl("delete", "-f", case37PolicyNotHavePath, "-n", testNamespace, "--ignore-not-found")
@@ -321,11 +321,11 @@ var _ = Describe("Test a cluster-scope policy that is missing name ", Ordered, f
 			reason := relatedObjects[0].(map[string]interface{})["reason"].(string)
 			Expect(reason).Should(Equal("Resource found but does not match"))
 
-			By("Check the name of relatedObject is *")
+			By("Check the name of relatedObject is -")
 			name, _, err := unstructured.NestedString(relatedObjects[0].(map[string]interface{}),
 				"object", "metadata", "name")
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(name).Should(Equal("*"))
+			Expect(name).Should(Equal("-"))
 		})
 		AfterEach(func() {
 			utils.Kubectl("delete", "-f", case37PolicyCSPath, "-n", testNamespace, "--ignore-not-found")
@@ -380,11 +380,11 @@ var _ = Describe("Test a cluster-scope policy that is missing name ", Ordered, f
 			reason := relatedObjects[0].(map[string]interface{})["reason"].(string)
 			Expect(reason).Should(Equal("Resource not found as expected"))
 
-			By("Check the name of relatedObject is *")
+			By("Check the name of relatedObject is -")
 			name, _, err := unstructured.NestedString(relatedObjects[0].(map[string]interface{}),
 				"object", "metadata", "name")
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(name).Should(Equal("*"))
+			Expect(name).Should(Equal("-"))
 		})
 		AfterEach(func() {
 			utils.Kubectl("delete", "-f", case37PolicyCSMustnothavePath, "-n", testNamespace, "--ignore-not-found")
