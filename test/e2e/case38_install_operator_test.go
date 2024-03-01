@@ -581,8 +581,10 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 	})
 	Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
 		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			opPolName = "oppol-no-group-enforce"
+			opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+			opPolName        = "oppol-no-group-enforce"
+			opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
+			opPolNoExistName = "oppol-no-exist-enforce"
 		)
 		BeforeAll(func() {
 			utils.Kubectl("create", "ns", opPolTestNS)
@@ -592,6 +594,9 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolNoExistYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
 		})
 
 		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
@@ -648,6 +653,55 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 					Message: "All operator Deployments have their minimum availability",
 				},
 				"All operator Deployments have their minimum availability",
+			)
+		})
+
+		It("Should only be noncompliant if the subscription error relates to the one in the operator policy", func() {
+			By("Checking that " + opPolNoExistName + " is NonCompliant")
+			check(
+				opPolNoExistName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+					},
+					Compliant: "NonCompliant",
+					Reason:    "ConstraintsNotSatisfiable",
+				}},
+				metav1.Condition{
+					Type:   "SubscriptionCompliant",
+					Status: metav1.ConditionFalse,
+					Reason: "ConstraintsNotSatisfiable",
+					Message: "constraints not satisfiable: no operators found in package project-quay-does-not-exist" +
+						" in the catalog referenced by subscription project-quay-does-not-exist, subscription " +
+						"project-quay-does-not-exist exists",
+				},
+				"constraints not satisfiable: no operators found in package project-quay-does-not-exist",
+			)
+
+			// Check if the subscription is still compliant on the operator policy trying to install a valid operator.
+			// This tests that subscription status filtering is working properly since OLM includes the
+			// subscription errors as a condition on all subscriptions in the namespace.
+			By("Checking that " + opPolName + " is still Compliant and unaffected by " + opPolNoExistName)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "SubscriptionMatches",
+					Message: "the Subscription matches what is required by the policy",
+				},
+				"the Subscription matches what is required by the policy",
 			)
 		})
 	})

@@ -1,0 +1,23 @@
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: oppol-no-exist-enforce
+  annotations:
+    policy.open-cluster-management.io/parent-policy-compliance-db-id: "124"
+    policy.open-cluster-management.io/policy-compliance-db-id: "64"
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    kind: Policy
+    name: parent-policy
+    uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
+spec:
+  remediationAction: enforce
+  severity: medium
+  complianceType: musthave
+  subscription:
+    channel: stable-3.8
+    name: project-quay-does-not-exist
+    namespace: operator-policy-testns
+    installPlanApproval: Automatic
+    source: operatorhubio-catalog
+    sourceNamespace: olm
