@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
@@ -636,19 +637,35 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 	if !updateNeeded {
 		subResFailed := mergedSub.Status.GetCondition(operatorv1alpha1.SubscriptionResolutionFailed)
 
+		// OLM includes the status of all subscriptions in the namespace. For example, if you have two subscriptions,
+		// where one is referencing a valid operator and the other isn't, both will have a failed subscription
+		// resolution condition.
 		if subResFailed.Status == corev1.ConditionTrue {
-			cond := metav1.Condition{
-				Type:    subConditionType,
-				Status:  metav1.ConditionFalse,
-				Reason:  subResFailed.Reason,
-				Message: subResFailed.Message,
+			includesSubscription, err := messageIncludesSubscription(mergedSub, subResFailed.Message)
+			if err != nil {
+				log.Info(
+					"Failed to determine if the condition applied to this subscription. Assuming it does.",
+					"error", err.Error(), "subscription", mergedSub.Name, "package", mergedSub.Spec.Package,
+					"message", subResFailed.Message,
+				)
+
+				includesSubscription = true
 			}
 
-			if subResFailed.LastTransitionTime != nil {
-				cond.LastTransitionTime = *subResFailed.LastTransitionTime
-			}
+			if includesSubscription {
+				cond := metav1.Condition{
+					Type:    subConditionType,
+					Status:  metav1.ConditionFalse,
+					Reason:  subResFailed.Reason,
+					Message: subResFailed.Message,
+				}
 
-			return mergedSub, nil, updateStatus(policy, cond, nonCompObj(foundSub, subResFailed.Reason)), nil
+				if subResFailed.LastTransitionTime != nil {
+					cond.LastTransitionTime = *subResFailed.LastTransitionTime
+				}
+
+				return mergedSub, nil, updateStatus(policy, cond, nonCompObj(foundSub, subResFailed.Reason)), nil
+			}
 		}
 
 		return mergedSub, nil, updateStatus(policy, matchesCond("Subscription"), matchedObj(foundSub)), nil
@@ -683,6 +700,31 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 	updateStatus(policy, updatedCond("Subscription"), updatedObj(merged))
 
 	return mergedSub, earlyConds, true, nil
+}
+
+// messageIncludesSubscription checks if the ConstraintsNotSatisfiable message includes the input
+// subscription or package. Some examples that it catches:
+// https://github.com/operator-framework/operator-lifecycle-manager/blob/dc0c564f62d526bae0467d53f439e1c91a17ed8a/pkg/controller/registry/resolver/resolver.go#L257-L267
+// - no operators found from catalog %s in namespace %s referenced by subscription %s
+// - no operators found in package %s in the catalog referenced by subscription %s
+// - no operators found in channel %s of package %s in the catalog referenced by subscription %s
+// - no operators found with name %s in channel %s of package %s in the catalog referenced by subscription %s
+// - multiple name matches for status.installedCSV of subscription %s/%s: %s
+func messageIncludesSubscription(subscription *operatorv1alpha1.Subscription, message string) (bool, error) {
+	safeNs := regexp.QuoteMeta(subscription.Namespace)
+	safeSubName := regexp.QuoteMeta(subscription.Name)
+	safeSubNameWithNs := safeNs + `\/` + safeSubName
+	safePackageName := regexp.QuoteMeta(subscription.Spec.Package)
+	safePackageNameWithNs := safeNs + `\/` + safePackageName
+	// Craft a regex that looks for mention of the subscription or package. Notice that after the package or
+	// subscription name, it must either be the end of the string, white space, or a comma. This so that
+	// "gatekeeper-operator" doesn't erroneously match "gatekeeper-operator-product".
+	regex := fmt.Sprintf(
+		`(?:subscription (?:%s|%s)|package (?:%s|%s))(?:$|\s|,|:)`,
+		safeSubName, safeSubNameWithNs, safePackageName, safePackageNameWithNs,
+	)
+
+	return regexp.MatchString(regex, message)
 }
 
 func (r *OperatorPolicyReconciler) handleInstallPlan(
