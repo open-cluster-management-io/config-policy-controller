@@ -19,7 +19,10 @@ spec:
   - name: v1beta1
     schema:
       openAPIV3Schema:
-        description: OperatorPolicy is the Schema for the operatorpolicies API
+        description: |-
+          OperatorPolicy is the schema for the operatorpolicies API. You can use the operator policy to
+          manage operators by providing automation for their management and reporting on the status across
+          the various operator objects.
         properties:
           apiVersion:
             description: |-
@@ -39,20 +42,21 @@ spec:
           metadata:
             type: object
           spec:
-            description: OperatorPolicySpec defines the desired state of OperatorPolicy
+            description: OperatorPolicySpec defines the desired state of a particular
+              operator on the cluster.
             properties:
               complianceConfig:
                 default: {}
                 description: |-
                   ComplianceConfig defines how resource statuses affect the OperatorPolicy status and compliance.
-                  When set to Compliant, the condition does not impact the OperatorPolicy compliance.
-                  When set to NonCompliant, the condition causes the OperatorPolicy to become NonCompliant.
+                  When set to Compliant, the condition does not impact the OperatorPolicy compliance. When set to
+                  NonCompliant, the condition causes the OperatorPolicy to become NonCompliant.
                 properties:
                   catalogSourceUnhealthy:
                     default: Compliant
                     description: |-
-                      Specifies how the CatalogSourceUnhealthy typed condition should affect
-                      overall policy compliance. Defaults to 'Compliant'
+                      CatalogSourceUnhealthy specifies how the CatalogSourceUnhealthy typed condition should affect
+                      overall policy compliance. The default value is `Compliant`.
                     enum:
                     - Compliant
                     - NonCompliant
@@ -60,8 +64,8 @@ spec:
                   deploymentsUnavailable:
                     default: NonCompliant
                     description: |-
-                      Specifies how the DeploymentCompliant typed condition should affect
-                      overall policy compliance. Defaults to 'NonCompliant'
+                      DeploymentsUnavailable specifies how the DeploymentCompliant typed condition should affect
+                      overall policy compliance. The default value is `NonCompliant`.
                     enum:
                     - Compliant
                     - NonCompliant
@@ -69,29 +73,33 @@ spec:
                   upgradesAvailable:
                     default: Compliant
                     description: |-
-                      Specifies how the InstallPlanCompliant typed condition should affect
-                      overall policy compliance. Defaults to 'Compliant'
+                      UpgradesAvailable specifies how the InstallPlanCompliant typed condition should affect overall
+                      policy compliance. The default value is `Compliant`.
                     enum:
                     - Compliant
                     - NonCompliant
                     type: string
                 type: object
               complianceType:
-                description: ComplianceType describes whether we must or must not
-                  have a given resource
+                description: |-
+                  ComplianceType describes how objects on the cluster should be compared with the object definition
+                  of the configuration policy. The supported options are `MustHave`, `MustOnlyHave`, or
+                  `MustNotHave`.
                 enum:
                 - musthave
                 - mustnothave
                 type: string
               operatorGroup:
                 description: |-
-                  Include the name, namespace, and any `spec` fields for the OperatorGroup.
-                  For more info, see `kubectl explain operatorgroup.spec` or
-                  https://olm.operatorframework.io/docs/concepts/crds/operatorgroup/
+                  OperatorGroup specifies which `OperatorGroup` to inspect. Include the name, namespace, and any
+                  `spec` fields for the operator group. For more info, see `kubectl explain operatorgroups.spec`
+                  or view https://olm.operatorframework.io/docs/concepts/crds/operatorgroup/.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               remediationAction:
-                description: 'RemediationAction : enforce or inform'
+                description: |-
+                  RemediationAction is the remediation of the policy. The parameter values are `enforce` and
+                  `inform`.
                 enum:
                 - Inform
                 - inform
@@ -101,47 +109,73 @@ spec:
               removalBehavior:
                 default: {}
                 description: |-
-                  RemovalBehavior defines what resources will be removed by enforced mustnothave policies.
-                  When in inform mode, any resources that would be deleted if the policy was enforced will
-                  be causes for NonCompliance, but resources that would be kept will be considered Compliant.
+                  Use RemovalBehavior to define what resources need to be removed when enforcing `mustnothave`
+                  policies. When in `inform` mode, any resources that are deleted if the policy is set to
+                  `enforce` makes the policy noncompliant, but resources that are kept are compliant.
                 properties:
                   clusterServiceVersions:
+                    allOf:
+                    - enum:
+                      - Keep
+                      - Delete
+                      - DeleteIfUnused
+                    - enum:
+                      - Keep
+                      - Delete
                     default: Delete
-                    description: Specifies whether to delete the ClusterServiceVersion;
-                      defaults to 'Delete'
-                    enum:
-                    - Keep
-                    - Delete
+                    description: |-
+                      Use the `clusterServiceVersions` parameter to specify whether to delete the
+                      ClusterServiceVersion. The default value is `Delete`.
                     type: string
                   customResourceDefinitions:
+                    allOf:
+                    - enum:
+                      - Keep
+                      - Delete
+                      - DeleteIfUnused
+                    - enum:
+                      - Keep
+                      - Delete
                     default: Keep
                     description: |-
-                      Specifies whether to delete any CustomResourceDefinitions associated with the operator;
-                      defaults to 'Keep' because deleting them should be done deliberately
-                    enum:
-                    - Keep
-                    - Delete
+                      Use the customResourceDefinitions parameter to specify whether to delete any
+                      CustomResourceDefinitions associated with the operator. The default value is `Keep`, because
+                      deleting them should be done deliberately.
                     type: string
                   operatorGroups:
+                    allOf:
+                    - enum:
+                      - Keep
+                      - Delete
+                      - DeleteIfUnused
+                    - enum:
+                      - Keep
+                      - DeleteIfUnused
                     default: DeleteIfUnused
                     description: |-
-                      Specifies whether to delete the OperatorGroup; defaults to 'DeleteIfUnused' which
-                      will only delete the OperatorGroup if there is not another resource using it.
-                    enum:
-                    - Keep
-                    - DeleteIfUnused
+                      Use the `operatorGroups` parameter to specify whether to delete the OperatorGroup. The default
+                      value is `DeleteIfUnused`, which only deletes the OperatorGroup if there is not another
+                      resource using it.
                     type: string
                   subscriptions:
+                    allOf:
+                    - enum:
+                      - Keep
+                      - Delete
+                      - DeleteIfUnused
+                    - enum:
+                      - Keep
+                      - Delete
                     default: Delete
-                    description: Specifies whether to delete the Subscription; defaults
-                      to 'Delete'
-                    enum:
-                    - Keep
-                    - Delete
+                    description: |-
+                      Use the `subscriptions` parameter to specify whether to delete the Subscription. The default
+                      value is `Delete`.
                     type: string
                 type: object
               severity:
-                description: 'Severity : low, medium, high, or critical'
+                description: |-
+                  Severity is a user-defined severity for when an object is noncompliant with this configuration
+                  policy. The supported options are `low`, `medium`, `high`, and `critical`.
                 enum:
                 - low
                 - Low
@@ -154,9 +188,10 @@ spec:
                 type: string
               subscription:
                 description: |-
-                  Include the namespace, and any `spec` fields for the Subscription.
-                  For more info, see `kubectl explain subscription.spec` or
-                  https://olm.operatorframework.io/docs/concepts/crds/subscription/
+                  Subscription specifies which operator `Subscription` resource to inspect. Include the
+                  namespace, and any `spec` fields for the Subscription. For more info, see `kubectl explain
+                  subscriptions.operators.coreos.com.spec` or view
+                  https://olm.operatorframework.io/docs/concepts/crds/subscription/.
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               upgradeApproval:
@@ -171,8 +206,8 @@ spec:
                 type: string
               versions:
                 description: |-
-                  Versions is a list of nonempty strings that specifies which installed versions are compliant when
-                  in 'inform' mode, and which installPlans are approved when in 'enforce' mode
+                  Versions is a list of non-empty strings that specifies which installed versions are compliant
+                  when in `inform` mode and which `InstallPlans` are approved when in `enforce` mode.
                 items:
                   minLength: 1
                   type: string
@@ -183,13 +218,22 @@ spec:
             - upgradeApproval
             type: object
           status:
-            description: OperatorPolicyStatus defines the observed state of OperatorPolicy
+            description: |-
+              OperatorPolicyStatus is the observed state of the operators from the specifications given in the
+              operator policy.
             properties:
               compliant:
-                description: Most recent compliance state of the policy
+                description: ComplianceState reports the most recent compliance state
+                  of the operator policy.
+                enum:
+                - Compliant
+                - Pending
+                - NonCompliant
+                - Terminating
                 type: string
               conditions:
-                description: Historic details on the condition of the policy
+                description: Conditions includes historic details on the condition
+                  of the operator policy.
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -269,52 +313,56 @@ spec:
                   type: string
                 type: array
               relatedObjects:
-                description: List of resources processed by the policy
+                description: RelatedObjects reports a list of resources associated
+                  with the operator policy.
                 items:
-                  description: RelatedObject is the list of objects matched by this
-                    Policy resource.
+                  description: RelatedObject contains the details of an object matched
+                    by the policy.
                   properties:
                     compliant:
+                      description: Compliant represents whether the related object
+                        is compliant with the definition of the policy.
                       type: string
                     object:
-                      description: ObjectResource is an object identified by the policy
-                        as a resource that needs to be validated.
+                      description: ObjectResource contains the identifying fields
+                        of the related object.
                       properties:
                         apiVersion:
-                          description: API version of the referent.
+                          description: API version of the related object.
                           type: string
                         kind:
-                          description: |-
-                            Kind of the referent. More info:
-                            https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                          description: Kind of the related object.
                           type: string
                         metadata:
-                          description: Metadata values from the referent.
+                          description: ObjectMetadata contains the metadata for an
+                            object matched by the configuration policy.
                           properties:
                             name:
-                              description: |-
-                                Name of the referent. More info:
-                                https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              description: Name of the related object.
                               type: string
                             namespace:
-                              description: |-
-                                Namespace of the referent. More info:
-                                https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                              description: Namespace of the related object.
                               type: string
                           type: object
                       type: object
                     properties:
+                      description: Properties are additional properties of the related
+                        object relevant to the configuration policy.
                       properties:
                         createdByPolicy:
-                          description: Whether the object was created by the parent
-                            policy
+                          description: |-
+                            CreatedByPolicy reports whether the object was created by the configuration policy, which is
+                            important when pruning is configured.
                           type: boolean
                         uid:
-                          description: Store object UID to help track object ownership
-                            for deletion
+                          description: |-
+                            UID stores the object UID to help track object ownership for deletion when pruning is
+                            configured.
                           type: string
                       type: object
                     reason:
+                      description: Reason is a human-readable message of why the related
+                        object has a particular compliance.
                       type: string
                   type: object
                 type: array

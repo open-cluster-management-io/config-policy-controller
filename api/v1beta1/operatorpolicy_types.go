@@ -12,29 +12,21 @@ import (
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
-// ComplianceConfigAction : Compliant or NonCompliant
-// +kubebuilder:validation:Enum=Compliant;NonCompliant
-type ComplianceConfigAction string
-
-// RemovalAction : Keep, Delete, or DeleteIfUnused
+// RemovalAction is the behavior when the operator policy is removed. The supported options are
+// `Keep`, `Delete`, or `DeleteIfUnused`.
+//
+// +kubebuilder:validation:Enum=Keep;Delete;DeleteIfUnused
 type RemovalAction string
 
 const (
-	// Compliant is a ComplianceConfigAction that only shows the status message and
-	// does not affect the overall compliance
-	Compliant ComplianceConfigAction = "Compliant"
-	// NonCompliant is a ComplianceConfigAction that shows the status message and sets
-	// the overall compliance when the condition is met
-	NonCompliant ComplianceConfigAction = "NonCompliant"
-)
-
-const (
-	// Keep is a RemovalBehavior indicating that the controller may not delete a type
+	// Keep is a RemovalBehavior indicating that the controller may not delete a type.
 	Keep RemovalAction = "Keep"
-	// Delete is a RemovalBehavior indicating that the controller may delete a type
+
+	// Delete is a RemovalBehavior indicating that the controller may delete a type.
 	Delete RemovalAction = "Delete"
-	// DeleteIfUnused is a RemovalBehavior indicating that the controller may delete
-	// a type only if is not being used by another subscription
+
+	// DeleteIfUnused is a RemovalBehavior indicating that the controller may delete a type only if it
+	// is not being used by another subscription.
 	DeleteIfUnused RemovalAction = "DeleteIfUnused"
 )
 
@@ -51,32 +43,40 @@ func (ra RemovalAction) IsDeleteIfUnused() bool {
 }
 
 type RemovalBehavior struct {
+	// Use the `operatorGroups` parameter to specify whether to delete the OperatorGroup. The default
+	// value is `DeleteIfUnused`, which only deletes the OperatorGroup if there is not another
+	// resource using it.
+	//
 	//+kubebuilder:default=DeleteIfUnused
 	//+kubebuilder:validation:Enum=Keep;DeleteIfUnused
-	// Specifies whether to delete the OperatorGroup; defaults to 'DeleteIfUnused' which
-	// will only delete the OperatorGroup if there is not another resource using it.
 	OperatorGroups RemovalAction `json:"operatorGroups,omitempty"`
 
+	// Use the `subscriptions` parameter to specify whether to delete the Subscription. The default
+	// value is `Delete`.
+	//
 	//+kubebuilder:default=Delete
 	//+kubebuilder:validation:Enum=Keep;Delete
-	// Specifies whether to delete the Subscription; defaults to 'Delete'
 	Subscriptions RemovalAction `json:"subscriptions,omitempty"`
 
+	// Use the `clusterServiceVersions` parameter to specify whether to delete the
+	// ClusterServiceVersion. The default value is `Delete`.
+	//
 	//+kubebuilder:default=Delete
 	//+kubebuilder:validation:Enum=Keep;Delete
-	// Specifies whether to delete the ClusterServiceVersion; defaults to 'Delete'
 	CSVs RemovalAction `json:"clusterServiceVersions,omitempty"`
 
+	// Use the customResourceDefinitions parameter to specify whether to delete any
+	// CustomResourceDefinitions associated with the operator. The default value is `Keep`, because
+	// deleting them should be done deliberately.
+	//
 	//+kubebuilder:default=Keep
 	//+kubebuilder:validation:Enum=Keep;Delete
-	// Specifies whether to delete any CustomResourceDefinitions associated with the operator;
-	// defaults to 'Keep' because deleting them should be done deliberately
 	CRDs RemovalAction `json:"customResourceDefinitions,omitempty"`
 }
 
-// ApplyDefaults ensures that unset fields in a RemovalBehavior behave as if they were
-// set to the default values. In a cluster, kubernetes API validation should ensure that
-// there are no unset values, and should apply the default values itself.
+// ApplyDefaults ensures that unset fields in a RemovalBehavior behave as if they were set to the
+// default values. In a cluster, Kubernetes API validation should ensure that there are no unset
+// values and should apply the default values itself.
 func (rb RemovalBehavior) ApplyDefaults() RemovalBehavior {
 	withDefaults := *rb.DeepCopy()
 
@@ -99,77 +99,108 @@ func (rb RemovalBehavior) ApplyDefaults() RemovalBehavior {
 	return withDefaults
 }
 
-// ComplianceConfig defines how resource statuses affect the OperatorPolicy compliance
+// ComplianceConfigAction configures how a status condition is reported when the involved operators
+// are out of compliance with the operator policy. Options are `Compliant` or `NonCompliant`.
+//
+// +kubebuilder:validation:Enum=Compliant;NonCompliant
+type ComplianceConfigAction string
+
+const (
+	// Compliant is a ComplianceConfigAction that only shows the status message and does not affect
+	// the overall compliance.
+	Compliant ComplianceConfigAction = "Compliant"
+
+	// NonCompliant is a ComplianceConfigAction that shows the status message and sets the overall
+	// compliance when the condition is met.
+	NonCompliant ComplianceConfigAction = "NonCompliant"
+)
+
+// ComplianceConfig defines how resource statuses affect the overall operator policy status and
+// compliance.
 type ComplianceConfig struct {
+	// CatalogSourceUnhealthy specifies how the CatalogSourceUnhealthy typed condition should affect
+	// overall policy compliance. The default value is `Compliant`.
+	//
 	//+kubebuilder:default=Compliant
-	// Specifies how the CatalogSourceUnhealthy typed condition should affect
-	// overall policy compliance. Defaults to 'Compliant'
 	CatalogSourceUnhealthy ComplianceConfigAction `json:"catalogSourceUnhealthy,omitempty"`
+	// DeploymentsUnavailable specifies how the DeploymentCompliant typed condition should affect
+	// overall policy compliance. The default value is `NonCompliant`.
+	//
 	//+kubebuilder:default=NonCompliant
-	// Specifies how the DeploymentCompliant typed condition should affect
-	// overall policy compliance. Defaults to 'NonCompliant'
 	DeploymentsUnavailable ComplianceConfigAction `json:"deploymentsUnavailable,omitempty"`
+	// UpgradesAvailable specifies how the InstallPlanCompliant typed condition should affect overall
+	// policy compliance. The default value is `Compliant`.
+	//
 	//+kubebuilder:default=Compliant
-	// Specifies how the InstallPlanCompliant typed condition should affect
-	// overall policy compliance. Defaults to 'Compliant'
 	UpgradesAvailable ComplianceConfigAction `json:"upgradesAvailable,omitempty"`
 }
 
-// OperatorPolicySpec defines the desired state of OperatorPolicy
+// OperatorPolicySpec defines the desired state of a particular operator on the cluster.
 type OperatorPolicySpec struct {
-	Severity          policyv1.Severity          `json:"severity,omitempty"`          // low, medium, high
-	RemediationAction policyv1.RemediationAction `json:"remediationAction,omitempty"` // inform, enforce
-	ComplianceType    policyv1.ComplianceType    `json:"complianceType"`              // musthave, mustnothave
+	Severity          policyv1.Severity          `json:"severity,omitempty"`
+	RemediationAction policyv1.RemediationAction `json:"remediationAction,omitempty"`
+	ComplianceType    policyv1.ComplianceType    `json:"complianceType"`
 
-	// Include the name, namespace, and any `spec` fields for the OperatorGroup.
-	// For more info, see `kubectl explain operatorgroup.spec` or
-	// https://olm.operatorframework.io/docs/concepts/crds/operatorgroup/
+	// OperatorGroup specifies which `OperatorGroup` to inspect. Include the name, namespace, and any
+	// `spec` fields for the operator group. For more info, see `kubectl explain operatorgroups.spec`
+	// or view https://olm.operatorframework.io/docs/concepts/crds/operatorgroup/.
+	//
 	//+kubebuilder:pruning:PreserveUnknownFields
 	//+optional
 	OperatorGroup *runtime.RawExtension `json:"operatorGroup,omitempty"`
 
-	// Include the namespace, and any `spec` fields for the Subscription.
-	// For more info, see `kubectl explain subscription.spec` or
-	// https://olm.operatorframework.io/docs/concepts/crds/subscription/
+	// Subscription specifies which operator `Subscription` resource to inspect. Include the
+	// namespace, and any `spec` fields for the Subscription. For more info, see `kubectl explain
+	// subscriptions.operators.coreos.com.spec` or view
+	// https://olm.operatorframework.io/docs/concepts/crds/subscription/.
+	//
 	//+kubebuilder:validation:Required
 	//+kubebuilder:pruning:PreserveUnknownFields
 	Subscription runtime.RawExtension `json:"subscription"`
 
-	// Versions is a list of nonempty strings that specifies which installed versions are compliant when
-	// in 'inform' mode, and which installPlans are approved when in 'enforce' mode
+	// Versions is a list of non-empty strings that specifies which installed versions are compliant
+	// when in `inform` mode and which `InstallPlans` are approved when in `enforce` mode.
 	Versions []policyv1.NonEmptyString `json:"versions,omitempty"`
 
+	// Use RemovalBehavior to define what resources need to be removed when enforcing `mustnothave`
+	// policies. When in `inform` mode, any resources that are deleted if the policy is set to
+	// `enforce` makes the policy noncompliant, but resources that are kept are compliant.
+	//
 	//+kubebuilder:default={}
-	// RemovalBehavior defines what resources will be removed by enforced mustnothave policies.
-	// When in inform mode, any resources that would be deleted if the policy was enforced will
-	// be causes for NonCompliance, but resources that would be kept will be considered Compliant.
 	RemovalBehavior RemovalBehavior `json:"removalBehavior,omitempty"`
 
-	//+kubebuilder:validation:Required
-	//+kubebuilder:validation:Enum=None;Automatic
 	// UpgradeApproval determines whether 'upgrade' InstallPlans for the operator will be approved
 	// by the controller when the policy is enforced and in 'musthave' mode. The initial InstallPlan
 	// approval is not affected by this setting. This setting has no effect when the policy is in
 	// 'mustnothave' mode. Allowed values are "None" or "Automatic".
+	//
+	//+kubebuilder:validation:Required
+	//+kubebuilder:validation:Enum=None;Automatic
 	UpgradeApproval string `json:"upgradeApproval"`
 
-	//+kubebuilder:default={}
 	// ComplianceConfig defines how resource statuses affect the OperatorPolicy status and compliance.
-	// When set to Compliant, the condition does not impact the OperatorPolicy compliance.
-	// When set to NonCompliant, the condition causes the OperatorPolicy to become NonCompliant.
+	// When set to Compliant, the condition does not impact the OperatorPolicy compliance. When set to
+	// NonCompliant, the condition causes the OperatorPolicy to become NonCompliant.
+	//
+	//+kubebuilder:default={}
 	ComplianceConfig ComplianceConfig `json:"complianceConfig,omitempty"`
 }
 
-// OperatorPolicyStatus defines the observed state of OperatorPolicy
+// OperatorPolicyStatus is the observed state of the operators from the specifications given in the
+// operator policy.
 type OperatorPolicyStatus struct {
-	// Most recent compliance state of the policy
+	// ComplianceState reports the most recent compliance state of the operator policy.
 	ComplianceState policyv1.ComplianceState `json:"compliant,omitempty"`
-	// Historic details on the condition of the policy
-	// +listType=map
-	// +listMapKey=type
+
+	// Conditions includes historic details on the condition of the operator policy.
+	//
+	//+listType=map
+	//+listMapKey=type
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
-	// List of resources processed by the policy
-	// +optional
+
+	// RelatedObjects reports a list of resources associated with the operator policy.
+	//
+	//+optional
 	RelatedObjects []policyv1.RelatedObject `json:"relatedObjects"`
 
 	// The resolved name.namespace of the subscription
@@ -180,6 +211,8 @@ type OperatorPolicyStatus struct {
 	OverlappingPolicies []string `json:"overlappingPolicies,omitempty"`
 }
 
+// RelatedObjsOfKind iterates over the related objects in the status and returns a map of the index
+// in the array to the related object that has the given kind.
 func (status OperatorPolicyStatus) RelatedObjsOfKind(kind string) map[int]policyv1.RelatedObject {
 	objs := make(map[int]policyv1.RelatedObject)
 
@@ -192,9 +225,9 @@ func (status OperatorPolicyStatus) RelatedObjsOfKind(kind string) map[int]policy
 	return objs
 }
 
-// Searches the conditions of the policy, and returns the index and condition matching the
-// given condition Type. It will return -1 as the index if no condition of the specified
-// Type is found.
+// GetCondition iterates over the status conditions of the policy and returns the index and
+// condition matching the given condition Type. It will return -1 as the index if no condition of
+// the specified Type is found.
 func (status OperatorPolicyStatus) GetCondition(condType string) (int, metav1.Condition) {
 	for i, cond := range status.Conditions {
 		if cond.Type == condType {
@@ -205,10 +238,12 @@ func (status OperatorPolicyStatus) GetCondition(condType string) (int, metav1.Co
 	return -1, metav1.Condition{}
 }
 
-//+kubebuilder:object:root=true
-//+kubebuilder:subresource:status
-
-// OperatorPolicy is the Schema for the operatorpolicies API
+// OperatorPolicy is the schema for the operatorpolicies API. You can use the operator policy to
+// manage operators by providing automation for their management and reporting on the status across
+// the various operator objects.
+//
+// +kubebuilder:object:root=true
+// +kubebuilder:subresource:status
 type OperatorPolicy struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -217,9 +252,9 @@ type OperatorPolicy struct {
 	Status OperatorPolicyStatus `json:"status,omitempty"`
 }
 
-//+kubebuilder:object:root=true
-
-// OperatorPolicyList contains a list of OperatorPolicy
+// OperatorPolicyList contains a list of operator policies.
+//
+// +kubebuilder:object:root=true
 type OperatorPolicyList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
