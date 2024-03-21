@@ -19,7 +19,10 @@ spec:
   - name: v1beta1
     schema:
       openAPIV3Schema:
-        description: OperatorPolicy is the Schema for the operatorpolicies API
+        description: |-
+          OperatorPolicy is the Schema for the operatorpolicies API. Operator policy eases the management
+          of OLM operators by providing automation for their management and reporting on the status across
+          the various operator objects.
         properties:
           apiVersion:
             description: |-
@@ -39,23 +42,27 @@ spec:
           metadata:
             type: object
           spec:
-            description: OperatorPolicySpec defines the desired state of OperatorPolicy
+            description: OperatorPolicySpec defines the desired state of a particular
+              operator on the cluster.
             properties:
               complianceType:
-                description: ComplianceType describes whether we must or must not
-                  have a given resource
+                description: |-
+                  ComplianceType describes how objects on the cluster should be compared with the configuration
+                  policy's object definition. Options are "MustHave", "MustOnlyHave", or "MustNotHave".
                 enum:
                 - musthave
                 type: string
               operatorGroup:
                 description: |-
-                  Include the name, namespace, and any `spec` fields for the OperatorGroup.
-                  For more info, see `kubectl explain operatorgroup.spec` or
-                  https://olm.operatorframework.io/docs/concepts/crds/operatorgroup/
+                  OperatorGroup specifies the OperatorGroup to be handled. Include the name, namespace, and any
+                  `spec` fields for the OperatorGroup. For more info, see `kubectl explain operatorgroups.spec`
+                  or view https://olm.operatorframework.io/docs/concepts/crds/operatorgroup/
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               remediationAction:
-                description: 'RemediationAction : enforce or inform'
+                description: |-
+                  RemediationAction specifies the remediation of the policy. The parameter values are enforce and
+                  inform.
                 enum:
                 - Inform
                 - inform
@@ -63,7 +70,9 @@ spec:
                 - enforce
                 type: string
               severity:
-                description: 'Severity : low, medium, high, or critical'
+                description: |-
+                  Severity is a user-defined severity for when an object is found out of compliance with this
+                  configuration policy. Accepted values are low, medium, high, and critical.
                 enum:
                 - low
                 - Low
@@ -76,15 +85,16 @@ spec:
                 type: string
               subscription:
                 description: |-
-                  Include the namespace, and any `spec` fields for the Subscription.
-                  For more info, see `kubectl explain subscription.spec` or
+                  Subscription specifies the operator Subscription to be handled. Include the namespace, and any
+                  `spec` fields for the Subscription. For more info, see `kubectl explain
+                  subscriptions.operators.coreos.com.spec` or view
                   https://olm.operatorframework.io/docs/concepts/crds/subscription/
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               versions:
                 description: |-
-                  Versions is a list of nonempty strings that specifies which installed versions are compliant when
-                  in 'inform' mode, and which installPlans are approved when in 'enforce' mode
+                  Versions is a list of nonempty strings that specifies which installed versions are compliant
+                  when in 'inform' mode and which InstallPlans are approved when in 'enforce' mode.
                 items:
                   minLength: 1
                   type: string
@@ -94,13 +104,22 @@ spec:
             - subscription
             type: object
           status:
-            description: OperatorPolicyStatus defines the observed state of OperatorPolicy
+            description: |-
+              OperatorPolicyStatus reports the observed state of the operators resulting from the
+              specifications given in the operator policy.
             properties:
               compliant:
-                description: Most recent compliance state of the policy
+                description: ComplianceState reports the most recent compliance state
+                  of the operator policy.
+                enum:
+                - Compliant
+                - Pending
+                - NonCompliant
+                - Terminating
                 type: string
               conditions:
-                description: Historic details on the condition of the policy
+                description: Conditions reports historic details on the condition
+                  of the operator policy.
                 items:
                   description: "Condition contains details for one aspect of the current
                     state of this API Resource.\n---\nThis struct is intended for
@@ -173,52 +192,57 @@ spec:
                 - type
                 x-kubernetes-list-type: map
               relatedObjects:
-                description: List of resources processed by the policy
+                description: RelatedObjects reports a list of resources associated
+                  with the operator policy.
                 items:
-                  description: RelatedObject is the list of objects matched by this
-                    Policy resource.
+                  description: RelatedObject contains the details of an object matched
+                    by the configuration policy.
                   properties:
                     compliant:
+                      description: |-
+                        Compliant is whether the related object is compliant with the configuration policy's
+                        definition(s).
                       type: string
                     object:
-                      description: ObjectResource is an object identified by the policy
-                        as a resource that needs to be validated.
+                      description: ObjectResource contains the identifying fields
+                        of the related object.
                       properties:
                         apiVersion:
-                          description: API version of the referent.
+                          description: API version of the related object.
                           type: string
                         kind:
-                          description: |-
-                            Kind of the referent. More info:
-                            https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+                          description: Kind of the related object.
                           type: string
                         metadata:
-                          description: Metadata values from the referent.
+                          description: ObjectMetadata contains the metadata for an
+                            object matched by the configuration policy.
                           properties:
                             name:
-                              description: |-
-                                Name of the referent. More info:
-                                https://kubernetes.io/docs/concepts/overview/working-with-objects/names/#names
+                              description: Name of the related object.
                               type: string
                             namespace:
-                              description: |-
-                                Namespace of the referent. More info:
-                                https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/
+                              description: Namespace of the related object.
                               type: string
                           type: object
                       type: object
                     properties:
+                      description: Properties are additional properties of the related
+                        object relevant to the configuration policy.
                       properties:
                         createdByPolicy:
-                          description: Whether the object was created by the parent
-                            policy
+                          description: |-
+                            CreatedByPolicy reports whether the object was created by the configuration policy, which is
+                            important when pruning is configured.
                           type: boolean
                         uid:
-                          description: Store object UID to help track object ownership
-                            for deletion
+                          description: |-
+                            UID stores the object UID to help track object ownership for deletion when pruning is
+                            configured.
                           type: string
                       type: object
                     reason:
+                      description: Reason is a human-readable message of why the related
+                        object has a particular compliance.
                       type: string
                   type: object
                 type: array
