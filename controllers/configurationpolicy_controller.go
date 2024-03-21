@@ -2628,6 +2628,8 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				// If an inform policy and the update is forbidden (i.e. modifying Pod spec fields), then return
 				// noncompliant since that confirms some fields don't match.
 				if k8serrors.IsForbidden(err) {
+					log.Info(fmt.Sprintf("Dry run update failed with error: %s", err.Error()))
+
 					r.setEvaluatedObject(obj.policy, obj.existingObj, false)
 
 					return true, "", false, false
