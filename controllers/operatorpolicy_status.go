@@ -473,6 +473,22 @@ func validationCond(validationErrors []error) metav1.Condition {
 	}
 }
 
+// subResFailedCond takes a failed SubscriptionCondition and converts it to a generic Condition
+func subResFailedCond(subFailedCond operatorv1alpha1.SubscriptionCondition) metav1.Condition {
+	cond := metav1.Condition{
+		Type:    subConditionType,
+		Status:  metav1.ConditionFalse,
+		Reason:  subFailedCond.Reason,
+		Message: subFailedCond.Message,
+	}
+
+	if subFailedCond.LastTransitionTime != nil {
+		cond.LastTransitionTime = *subFailedCond.LastTransitionTime
+	}
+
+	return cond
+}
+
 // opGroupPreexistingCond is a Compliant condition with Reason 'PreexistingOperatorGroupFound',
 // and Message 'the policy does not specify an OperatorGroup but one already exists in the
 // namespace - assuming that OperatorGroup is correct'
