@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"slices"
+	"strings"
 
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
@@ -653,19 +655,17 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 			}
 
 			if includesSubscription {
-				cond := metav1.Condition{
-					Type:    subConditionType,
-					Status:  metav1.ConditionFalse,
-					Reason:  subResFailed.Reason,
-					Message: subResFailed.Message,
+				// a "constraints not satisfiable" message has nondeterministic clauses, and thus
+				// need to be sorted in order to check that they are not duplicates of the current message.
+				if constraintMessageMatch(policy, &subResFailed) {
+					return mergedSub, nil, false, nil
 				}
 
-				if subResFailed.LastTransitionTime != nil {
-					cond.LastTransitionTime = *subResFailed.LastTransitionTime
-				}
-
-				return mergedSub, nil, updateStatus(policy, cond, nonCompObj(foundSub, subResFailed.Reason)), nil
+				return mergedSub, nil, updateStatus(
+					policy, subResFailedCond(subResFailed), nonCompObj(foundSub, subResFailed.Reason)), nil
 			}
+
+			return mergedSub, nil, false, nil
 		}
 
 		return mergedSub, nil, updateStatus(policy, matchesCond("Subscription"), matchedObj(foundSub)), nil
@@ -725,6 +725,37 @@ func messageIncludesSubscription(subscription *operatorv1alpha1.Subscription, me
 	)
 
 	return regexp.MatchString(regex, message)
+}
+
+// constraintMessageMatch checks if the ConstraintsNotSatisfiable message is actually different
+// from the old one by sorting the clauses of the message
+func constraintMessageMatch(policy *policyv1beta1.OperatorPolicy, cond *operatorv1alpha1.SubscriptionCondition) bool {
+	const cnfPrefix = "constraints not satisfiable: "
+
+	var policyMessage, subMessage string
+
+	for _, statusCond := range policy.Status.Conditions {
+		if strings.Contains(statusCond.Message, cnfPrefix) {
+			policyMessage = statusCond.Message
+		}
+	}
+
+	if policyMessage == "" || !strings.Contains(cond.Message, cnfPrefix) {
+		return false
+	}
+
+	policyMessage = strings.TrimPrefix(policyMessage, cnfPrefix)
+	subMessage = strings.TrimPrefix(cond.Message, cnfPrefix)
+
+	// The ConstraintsNotSatisfiable message is always formatted as follows:
+	// constraints not satisfiable: clause1, clause2, clause3 ...
+	policyMessageSlice := strings.Split(policyMessage, ", ")
+	slices.Sort(policyMessageSlice)
+
+	subMessageSlice := strings.Split(subMessage, ", ")
+	slices.Sort(subMessageSlice)
+
+	return reflect.DeepEqual(policyMessageSlice, subMessageSlice)
 }
 
 func (r *OperatorPolicyReconciler) handleInstallPlan(

@@ -3,7 +3,10 @@ package e2e
 import (
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"regexp"
+	"slices"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -84,11 +87,30 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 			}
 
 			idx, actualCondition := policy.Status.GetCondition(expectedCondition.Type)
+
 			g.Expect(idx).NotTo(Equal(-1))
 			g.Expect(actualCondition.Status).To(Equal(expectedCondition.Status))
 			g.Expect(actualCondition.Reason).To(Equal(expectedCondition.Reason))
-			g.Expect(actualCondition.Message).To(MatchRegexp(
-				fmt.Sprintf(".*%v.*", regexp.QuoteMeta(expectedCondition.Message))))
+
+			const cnfPrefix = "constraints not satisfiable: "
+			if strings.Contains(actualCondition.Message, cnfPrefix) &&
+				strings.Contains(expectedCondition.Message, cnfPrefix) {
+				// need to sort message before checking
+
+				expectedMessage := strings.TrimPrefix(expectedCondition.Message, cnfPrefix)
+				actualMessage := strings.TrimPrefix(actualCondition.Message, cnfPrefix)
+
+				expectedMessageSlice := strings.Split(expectedMessage, ", ")
+				slices.Sort(expectedMessageSlice)
+
+				actualMessageSlice := strings.Split(actualMessage, ", ")
+				slices.Sort(actualMessageSlice)
+
+				g.Expect(reflect.DeepEqual(expectedMessageSlice, actualMessageSlice)).To(BeTrue())
+			} else {
+				g.Expect(actualCondition.Message).To(MatchRegexp(
+					fmt.Sprintf(".*%v.*", regexp.QuoteMeta(expectedCondition.Message))))
+			}
 
 			events := utils.GetMatchingEvents(
 				clientManaged, opPolTestNS, parentPolicyName, "", expectedEventMsgSnippet, eventuallyTimeout,
