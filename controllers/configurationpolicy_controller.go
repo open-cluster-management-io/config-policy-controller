@@ -2982,6 +2982,7 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 		"Updating configurationPolicy status", "status", policy.Status.ComplianceState, "policy", policy.GetName(),
 	)
 
+	evaluatedUID := policy.UID
 	updatedStatus := policy.Status
 
 	maxRetries := 3
@@ -2991,6 +2992,19 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 			log.Info(fmt.Sprintf("Failed to refresh policy; using previously fetched version: %s", err))
 		} else {
 			policy.Status = updatedStatus
+
+			// If the UID has changed, then the policy has been deleted and created again. Do not update the status,
+			// because it was calculated based on a previous version. If sendEvent is true, that event might be useful
+			// and it can be emitted. By leaving the status blank, the policy will be reevaluated and send a new event.
+			if evaluatedUID != policy.UID {
+				log.Info("The ConfigurationPolicy was recreated after it was evaluated. Skipping the status update.")
+
+				// Reset the original UID so that if there are more status updates (i.e. batches), the status on the
+				// API server is never updated.
+				policy.UID = evaluatedUID
+
+				break
+			}
 		}
 
 		err = r.Status().Update(context.TODO(), policy)
