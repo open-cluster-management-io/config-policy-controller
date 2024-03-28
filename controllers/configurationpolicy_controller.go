@@ -2982,6 +2982,7 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 		"Updating configurationPolicy status", "status", policy.Status.ComplianceState, "policy", policy.GetName(),
 	)
 
+	evaluatedUID := policy.UID
 	updatedStatus := policy.Status
 
 	maxRetries := 3
@@ -2991,6 +2992,17 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 			log.Info(fmt.Sprintf("Failed to refresh policy; using previously fetched version: %s", err))
 		} else {
 			policy.Status = updatedStatus
+
+			// If the policy was recreated after it was retrieved from the cache, there could be no compliance
+			// set on the parent policy. Updating the status here may prevent a compliance event from being generated on
+			// future evaluations so skipping the status update is very important. If sendEvent was true, there is still
+			// value to send the compliance event to the parent policy so that this history is not lost before the
+			// policy was recreated.
+			if evaluatedUID != policy.UID {
+				log.Info("The ConfigurationPolicy was recreated after it was evaluated. Skipping the status update.")
+
+				break
+			}
 		}
 
 		err = r.Status().Update(context.TODO(), policy)
