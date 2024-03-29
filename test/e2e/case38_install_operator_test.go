@@ -29,6 +29,11 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 		olmWaitTimeout       = 45
 	)
 
+	// checks that the policy has the proper compliance, that the relatedObjects of a given
+	// type exactly match the list given (no extras or omissions), that the condition is present,
+	// and that an event was emitted that matches the given snippet.
+	// It initially checks these in an Eventually, so they don't have to be true yet,
+	// but it follows up with a Consistently, so they do need to be the "final" state.
 	check := func(
 		polName string,
 		wantNonCompliant bool,
