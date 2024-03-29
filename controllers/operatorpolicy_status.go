@@ -252,6 +252,7 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 	} else {
 		messages = append(messages, cond.Message)
 
+		// Note: the CatalogSource condition has a different polarity
 		if cond.Status != metav1.ConditionFalse {
 			foundNonCompliant = true
 		}
@@ -276,6 +277,9 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 	}
 }
 
+// emitComplianceEvent creates a compliance event on the parent policy (if there is
+// one) based on the given compliance condition. It returns an error if creating the
+// event fails.
 func (r *OperatorPolicyReconciler) emitComplianceEvent(
 	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
@@ -374,6 +378,8 @@ func condType(kind string) string {
 	}
 }
 
+// invalidCausingUnknownCond returns a NonCompliant condition, with Reason 'InvalidPolicySpec'
+// and a Message like 'the status of the ____ could not be determined because the policy is invalid'
 func invalidCausingUnknownCond(kind string) metav1.Condition {
 	return metav1.Condition{
 		Type:    condType(kind),
@@ -438,7 +444,7 @@ func mismatchCondUnfixable(kind string) metav1.Condition {
 	}
 }
 
-// updatedCond returns a Compliant condition, with a Reason like'____Updated',
+// updatedCond returns a Compliant condition, with a Reason like '____Updated',
 // and a Message like 'the ____ was updated to match the policy'
 func updatedCond(kind string) metav1.Condition {
 	return metav1.Condition{
@@ -449,6 +455,10 @@ func updatedCond(kind string) metav1.Condition {
 	}
 }
 
+// validationCond returns a condition based on the errors passed in...
+// If no errors are passed, it will be Compliant, with Reason 'PolicyValidated'.
+// If errors are passed in, it is NonCompliant, with Reason 'InvalidPolicySpec',
+// and a Message combining all of the errors.
 func validationCond(validationErrors []error) metav1.Condition {
 	if len(validationErrors) == 0 {
 		return metav1.Condition{
@@ -600,13 +610,17 @@ func buildCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition 
 	}
 }
 
+// noCSVCond is a NonCompliant condition with Reason 'RelevantCSVNotFound'
 var noCSVCond = metav1.Condition{
 	Type:    csvConditionType,
 	Status:  metav1.ConditionFalse,
-	Reason:  "RelevantCSVFound",
+	Reason:  "RelevantCSVNotFound",
 	Message: "A relevant installed ClusterServiceVersion could not be found",
 }
 
+// buildDeploymentCond creates a Condition for deployments. If any are not at their
+// minimum availability, the condition will be NonCompliant, and the message will
+// list the unavailable deployments.
 func buildDeploymentCond(
 	depsExist bool,
 	unavailableDeps []appsv1.Deployment,
@@ -641,6 +655,8 @@ func buildDeploymentCond(
 	}
 }
 
+// noDeploymentsCond is a Compliant condition with Reason 'NoRelevantDeployments',
+// and a message saying that the CSV is missing.
 var noDeploymentsCond = metav1.Condition{
 	Type:    deploymentConditionType,
 	Status:  metav1.ConditionTrue,
@@ -743,6 +759,8 @@ func updatedObj(obj client.Object) policyv1.RelatedObject {
 	}
 }
 
+// nonCompObj returns a NonCompliant RelatedObject with the given reason.
+// It includes the UID of the given object.
 func nonCompObj(obj client.Object, reason string) policyv1.RelatedObject {
 	return policyv1.RelatedObject{
 		Object:    policyv1.ObjectResourceFromObj(obj),
@@ -791,6 +809,10 @@ func noInstallPlansObj(namespace string) policyv1.RelatedObject {
 	}
 }
 
+// existingInstallPlanObj returns a RelatedObject for the InstallPlan, with a reason
+// like 'The InstallPlan is ____' based on the phase. Usually the object will not
+// have a compliance associated with it, but if it requires approval or is actively
+// installing, then it will be NonCompliant.
 func existingInstallPlanObj(ip client.Object, phase string) policyv1.RelatedObject {
 	relObj := policyv1.RelatedObject{
 		Object: policyv1.ObjectResourceFromObj(ip),
@@ -818,6 +840,8 @@ func existingInstallPlanObj(ip client.Object, phase string) policyv1.RelatedObje
 	return relObj
 }
 
+// missingCSVObj returns a NonCompliant RelatedObject for the ClusterServiceVersion,
+// with Reason 'Resource not found but should exist'
 func missingCSVObj(name string, namespace string) policyv1.RelatedObject {
 	return policyv1.RelatedObject{
 		Object: policyv1.ObjectResource{
@@ -833,6 +857,9 @@ func missingCSVObj(name string, namespace string) policyv1.RelatedObject {
 	}
 }
 
+// existingCSVObj returns a RelatedObject for the ClusterServiceVersion, with a
+// Reason that reflects the CSV's status, and will only be Compliant if the CSV
+// is in the Succeeded phase.
 func existingCSVObj(csv *operatorv1alpha1.ClusterServiceVersion) policyv1.RelatedObject {
 	compliance := policyv1.NonCompliant
 	if csv.Status.Phase == operatorv1alpha1.CSVPhaseSucceeded {
@@ -862,6 +889,8 @@ var noExistingCSVObj = policyv1.RelatedObject{
 	Reason:    "No relevant ClusterServiceVersion found",
 }
 
+// missingDeploymentObj returns a NonCompliant RelatedObject for a Deployment,
+// with Reason 'Resource not found but should exist'
 func missingDeploymentObj(name string, namespace string) policyv1.RelatedObject {
 	return policyv1.RelatedObject{
 		Object: policyv1.ObjectResource{
@@ -877,6 +906,8 @@ func missingDeploymentObj(name string, namespace string) policyv1.RelatedObject 
 	}
 }
 
+// existingDeploymentObj returns a RelatedObject for a Deployment, which will
+// be Compliant if there are no unavailable replicas on the deployment.
 func existingDeploymentObj(dep *appsv1.Deployment) policyv1.RelatedObject {
 	compliance := policyv1.NonCompliant
 	reason := "Deployment Unavailable"
