@@ -43,11 +43,11 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 	) {
 		var debugMessage string
 
-		defer func() {
+		DeferCleanup(func() {
 			if CurrentSpecReport().Failed() {
 				GinkgoWriter.Println(debugMessage)
 			}
-		}()
+		})
 
 		checkFunc := func(g Gomega) {
 			GinkgoHelper()
@@ -1197,6 +1197,103 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 					Message: "no InstallPlans requiring approval were found",
 				},
 				"the InstallPlan.*36.1.*was approved",
+			)
+		})
+	})
+	Describe("Testing CustomResourceDefinition reporting", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-authorino.yaml"
+			opPolName = "oppol-authorino"
+		)
+		BeforeAll(func() {
+			utils.Kubectl("delete", "crd", "--selector=olm.managed=true")
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should initially not report on CRDs because they won't exist yet", func(ctx SpecContext) {
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "No relevant CustomResourceDefinitions found",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "RelevantCRDNotFound",
+					Message: "No CRDs were found for the operator",
+				},
+				"No CRDs were found for the operator",
+			)
+		})
+
+		It("Should generate conditions and relatedobjects of CRD", func(ctx SpecContext) {
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			By("Waiting for a CRD to appear, which should indicate the operator is installing")
+			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+					"authconfigs.authorino.kuadrant.io", metav1.GetOptions{})
+
+				return crd
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			By("Waiting for the policy to become compliant, indicating the operator is installed")
+			Eventually(func(g Gomega) string {
+				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
+					opPolTestNS, true, eventuallyTimeout)
+				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+
+				return compliance
+			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "authconfigs.authorino.kuadrant.io",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}, {
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "authorinos.operator.authorino.kuadrant.io",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "RelevantCRDFound",
+					Message: "There are CRDs present for the operator",
+				},
+				"There are CRDs present for the operator",
 			)
 		})
 	})
