@@ -233,6 +233,18 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		}
 	}
 
+	idx, cond = policy.Status.GetCondition(crdConditionType)
+	if idx == -1 {
+		messages = append(messages, "the status of the CustomResourceDefinitions is unknown")
+		foundNonCompliant = true
+	} else {
+		messages = append(messages, cond.Message)
+
+		if cond.Status != metav1.ConditionTrue {
+			foundNonCompliant = true
+		}
+	}
+
 	idx, cond = policy.Status.GetCondition(deploymentConditionType)
 	if idx == -1 {
 		messages = append(messages, "the status of the Deployments are unknown")
@@ -354,6 +366,7 @@ const (
 	opGroupConditionType     = "OperatorGroupCompliant"
 	subConditionType         = "SubscriptionCompliant"
 	csvConditionType         = "ClusterServiceVersionCompliant"
+	crdConditionType         = "CustomResourceDefinitionCompliant"
 	deploymentConditionType  = "DeploymentCompliant"
 	catalogSrcConditionType  = "CatalogSourcesUnhealthy"
 	installPlanConditionType = "InstallPlanCompliant"
@@ -369,6 +382,8 @@ func condType(kind string) string {
 		return installPlanConditionType
 	case "ClusterServiceVersion":
 		return csvConditionType
+	case "CustomResourceDefinition":
+		return crdConditionType
 	case "Deployment":
 		return deploymentConditionType
 	case "CatalogSource":
@@ -616,6 +631,22 @@ var noCSVCond = metav1.Condition{
 	Status:  metav1.ConditionFalse,
 	Reason:  "RelevantCSVNotFound",
 	Message: "A relevant installed ClusterServiceVersion could not be found",
+}
+
+// noCRDCond is a Compliant condition for when no CRDs are found
+var noCRDCond = metav1.Condition{
+	Type:    crdConditionType,
+	Status:  metav1.ConditionTrue,
+	Reason:  "RelevantCRDNotFound",
+	Message: "No CRDs were found for the operator",
+}
+
+// crdFoundCond is a Compliant condition for when CRDs are found
+var crdFoundCond = metav1.Condition{
+	Type:    crdConditionType,
+	Status:  metav1.ConditionTrue,
+	Reason:  "RelevantCRDFound",
+	Message: "There are CRDs present for the operator",
 }
 
 // buildDeploymentCond creates a Condition for deployments. If any are not at their
@@ -887,6 +918,21 @@ var noExistingCSVObj = policyv1.RelatedObject{
 	},
 	Compliant: string(policyv1.UnknownCompliancy),
 	Reason:    "No relevant ClusterServiceVersion found",
+}
+
+// noExistingCRDObj is a Compliant RelatedObject for CustomResourceDefinitions,
+// with Reason 'No relevant CustomResourceDefinitions found'. It is considered
+// compliant because not all operators will have CRDs.
+var noExistingCRDObj = policyv1.RelatedObject{
+	Object: policyv1.ObjectResource{
+		Kind:       customResourceDefinitionGVK.Kind,
+		APIVersion: customResourceDefinitionGVK.GroupVersion().String(),
+		Metadata: policyv1.ObjectMetadata{
+			Name: "-",
+		},
+	},
+	Compliant: string(policyv1.Compliant),
+	Reason:    "No relevant CustomResourceDefinitions found",
 }
 
 // missingDeploymentObj returns a NonCompliant RelatedObject for a Deployment,

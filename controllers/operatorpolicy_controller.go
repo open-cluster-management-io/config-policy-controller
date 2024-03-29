@@ -65,6 +65,11 @@ var (
 		Version: "v1alpha1",
 		Kind:    "ClusterServiceVersion",
 	}
+	customResourceDefinitionGVK = schema.GroupVersionKind{
+		Group:   "apiextensions.k8s.io",
+		Version: "v1",
+		Kind:    "CustomResourceDefinition",
+	}
 	deploymentGVK = schema.GroupVersionKind{
 		Group:   "apps",
 		Version: "v1",
@@ -247,6 +252,16 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 
 	if err != nil {
 		OpLog.Error(err, "Error handling CSVs")
+
+		return earlyComplianceEvents, condChanged, err
+	}
+
+	earlyConds, changed, err = r.handleCRDs(ctx, policy, subscription)
+	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
+	condChanged = condChanged || changed
+
+	if err != nil {
+		OpLog.Error(err, "Error handling CustomResourceDefinitions")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -940,37 +955,38 @@ func (r *OperatorPolicyReconciler) handleCSV(
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+	selector := subLabelSelector(sub)
 
-	// case where subscription status has not been populated yet
-	if sub.Status.InstalledCSV == "" {
-		return nil, updateStatus(policy, noCSVCond, noExistingCSVObj), nil
-	}
-
-	// Get the CSV related to the object
-	foundCSV, err := r.DynamicWatcher.Get(watcher, clusterServiceVersionGVK, sub.Namespace,
-		sub.Status.InstalledCSV)
+	csvList, err := r.DynamicWatcher.List(watcher, clusterServiceVersionGVK, sub.Namespace, selector)
 	if err != nil {
-		return nil, false, err
+		return nil, false, fmt.Errorf("error listing CSVs: %w", err)
 	}
+
+	var foundCSV *operatorv1alpha1.ClusterServiceVersion
+
+	for _, csv := range csvList {
+		if csv.GetName() == sub.Status.InstalledCSV {
+			matchedCSV := operatorv1alpha1.ClusterServiceVersion{}
+
+			err = runtime.DefaultUnstructuredConverter.FromUnstructured(csv.UnstructuredContent(), &matchedCSV)
+			if err != nil {
+				return nil, false, err
+			}
+
+			foundCSV = &matchedCSV
+		}
+	}
+
 
 	// CSV has not yet been created by OLM
 	if foundCSV == nil {
 		changed := updateStatus(policy,
 			missingWantedCond("ClusterServiceVersion"), missingCSVObj(sub.Name, sub.Namespace))
 
-		return nil, changed, nil
+		return foundCSV, changed, nil
 	}
 
-	// Check CSV most recent condition
-	unstructured := foundCSV.UnstructuredContent()
-	var csv operatorv1alpha1.ClusterServiceVersion
-
-	err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &csv)
-	if err != nil {
-		return nil, false, err
-	}
-
-	return &csv, updateStatus(policy, buildCSVCond(&csv), existingCSVObj(&csv)), nil
+	return foundCSV, updateStatus(policy, buildCSVCond(foundCSV), existingCSVObj(foundCSV)), nil
 }
 
 func (r *OperatorPolicyReconciler) handleDeployment(
@@ -1027,6 +1043,36 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 	}
 
 	return updateStatus(policy, buildDeploymentCond(depNum > 0, unavailableDeployments), relatedObjects...), nil
+}
+
+func (r *OperatorPolicyReconciler) handleCRDs(
+	_ context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	sub *operatorv1alpha1.Subscription,
+) ([]metav1.Condition, bool, error) {
+	if sub == nil {
+		return nil, updateStatus(policy, noCRDCond, noExistingCRDObj), nil
+	}
+
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+	selector := subLabelSelector(sub)
+
+	crdList, err := r.DynamicWatcher.List(watcher, customResourceDefinitionGVK, sub.Namespace, selector)
+	if err != nil {
+		return nil, false, fmt.Errorf("error listing CRDs: %w", err)
+	}
+
+	if len(crdList) == 0 {
+		return nil, updateStatus(policy, noCRDCond, noExistingCRDObj), nil
+	}
+
+	relatedCRDs := make([]policyv1.RelatedObject, len(crdList))
+
+	for i := range crdList {
+		relatedCRDs[i] = matchedObj(&crdList[i])
+	}
+
+	return nil, updateStatus(policy, crdFoundCond, relatedCRDs...), nil
 }
 
 func (r *OperatorPolicyReconciler) handleCatalogSource(
@@ -1135,4 +1181,21 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	}
 
 	return updateNeeded, false, nil
+}
+
+// subLabelSelector returns a selector that matches a label that OLM adds to resources
+// that are related to a Subscription. It can be used to find those resources even
+// after the Subscription or CSV is deleted.
+func subLabelSelector(sub *operatorv1alpha1.Subscription) labels.Selector {
+	sel, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
+		MatchExpressions: []metav1.LabelSelectorRequirement{{
+			Key:      fmt.Sprintf("operators.coreos.com/%v.%v", sub.Name, sub.Namespace),
+			Operator: metav1.LabelSelectorOpExists,
+		}},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	return sel
 }
