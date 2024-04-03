@@ -2750,7 +2750,11 @@ func handleKeys(
 	mdCompType string,
 	zeroValueEqualsNil bool,
 ) (throwSpecViolation bool, message string, updateNeeded bool, statusMismatch bool) {
+	handledKeys := map[string]bool{}
+
+	// Iterate over keys of the desired object to compare with the existing object on the cluster
 	for key := range desiredObj.Object {
+		handledKeys[key] = true
 		isStatus := key == "status"
 
 		// use metadatacompliancetype to evaluate metadata if it is set
@@ -2795,6 +2799,20 @@ func handleKeys(
 			} else {
 				updateNeeded = true
 			}
+		}
+	}
+
+	// If the complianceType is "mustonlyhave", then compare the existing object's keys,
+	// skipping over: previously compared keys, metadata, and status.
+	if compType == "mustonlyhave" {
+		for key := range existingObj.Object {
+			if handledKeys[key] || key == "status" || key == "metadata" {
+				continue
+			}
+
+			delete(existingObj.Object, key)
+
+			updateNeeded = true
 		}
 	}
 
