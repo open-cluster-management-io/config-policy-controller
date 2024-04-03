@@ -40,6 +40,7 @@ var (
 	gvrCRD                      schema.GroupVersionResource
 	gvrPod                      schema.GroupVersionResource
 	gvrRole                     schema.GroupVersionResource
+	gvrRoleBinding              schema.GroupVersionResource
 	gvrNS                       schema.GroupVersionResource
 	gvrSCC                      schema.GroupVersionResource
 	gvrSecret                   schema.GroupVersionResource
@@ -75,6 +76,11 @@ var _ = BeforeSuite(func() {
 	gvrNS = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
 	gvrConfigMap = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
 	gvrRole = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "roles"}
+	gvrRoleBinding = schema.GroupVersionResource{
+		Group:    "rbac.authorization.k8s.io",
+		Version:  "v1",
+		Resource: "rolebindings",
+	}
 	gvrConfigPolicy = schema.GroupVersionResource{
 		Group:    "policy.open-cluster-management.io",
 		Version:  "v1",
