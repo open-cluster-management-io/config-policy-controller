@@ -155,9 +155,7 @@ func Kubectl(args ...string) {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		// in case of failure, print command output (including error)
-		//nolint:forbidigo
-		fmt.Printf("%s\n", output)
-		Fail(fmt.Sprintf("Error: %v", err))
+		Fail(fmt.Sprintf("Error running 'kubectl %s'\n: %s: %v", strings.Join(cmd.Args, " "), output, err), 1)
 	}
 }
 
