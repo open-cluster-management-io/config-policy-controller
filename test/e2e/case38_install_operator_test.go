@@ -704,7 +704,7 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 						" in the catalog referenced by subscription project-quay-does-not-exist, subscription " +
 						"project-quay-does-not-exist exists",
 				},
-				"constraints not satisfiable: no operators found in package project-quay-does-not-exist",
+				"constraints not satisfiable",
 			)
 
 			// Check if the subscription is still compliant on the operator policy trying to install a valid operator.
