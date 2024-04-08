@@ -238,7 +238,8 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
-	changed, err = r.handleInstallPlan(ctx, policy, subscription)
+	earlyConds, changed, err = r.handleInstallPlan(ctx, policy, subscription)
+	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
 	condChanged = condChanged || changed
 
 	if err != nil {
@@ -247,11 +248,12 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
-	csv, changed, err := r.handleCSV(policy, subscription)
+	csv, earlyConds, changed, err := r.handleCSV(ctx, policy, subscription)
+	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
 	condChanged = condChanged || changed
 
 	if err != nil {
-		OpLog.Error(err, "Error handling CSVs")
+		OpLog.Error(err, "Error handling ClusterServiceVersions")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -287,12 +289,14 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 	return earlyComplianceEvents, condChanged, nil
 }
 
-// buildResources builds desired states for the Subscription and OperatorGroup, and
+// buildResources builds 'musthave' desired states for the Subscription and OperatorGroup, and
 // checks if the policy's spec is valid. It returns:
 //   - the built Subscription
 //   - the built OperatorGroup
 //   - whether the status has changed because of the validity condition
 //   - an error if an API call failed
+//
+// The built objects can be used to find relevant objects for a 'mustnothave' policy.
 func (r *OperatorPolicyReconciler) buildResources(policy *policyv1beta1.OperatorPolicy) (
 	*operatorv1alpha1.Subscription, *operatorv1.OperatorGroup, bool, error,
 ) {
@@ -474,6 +478,19 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 		return nil, false, fmt.Errorf("error listing OperatorGroups: %w", err)
 	}
 
+	if policy.Spec.ComplianceType.IsMustHave() {
+		return r.musthaveOpGroup(ctx, policy, desiredOpGroup, foundOpGroups)
+	}
+
+	return r.mustnothaveOpGroup(ctx, policy, desiredOpGroup, foundOpGroups)
+}
+
+func (r *OperatorPolicyReconciler) musthaveOpGroup(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	desiredOpGroup *operatorv1.OperatorGroup,
+	foundOpGroups []unstructured.Unstructured,
+) ([]metav1.Condition, bool, error) {
 	switch len(foundOpGroups) {
 	case 0:
 		// Missing OperatorGroup: report NonCompliance
@@ -489,7 +506,7 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 		}
 
-		err = r.Create(ctx, desiredOpGroup)
+		err := r.Create(ctx, desiredOpGroup)
 		if err != nil {
 			return nil, changed, fmt.Errorf("error creating the OperatorGroup: %w", err)
 		}
@@ -591,6 +608,89 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 	}
 }
 
+func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	desiredOpGroup *operatorv1.OperatorGroup,
+	foundOpGroups []unstructured.Unstructured,
+) ([]metav1.Condition, bool, error) {
+	if len(foundOpGroups) == 0 {
+		// Missing OperatorGroup: report Compliance
+		changed := updateStatus(policy, missingNotWantedCond("OperatorGroup"), missingNotWantedObj(desiredOpGroup))
+
+		return nil, changed, nil
+	}
+
+	foundOpGroupName := ""
+
+	for _, opGroup := range foundOpGroups {
+		emptyNameMatch := desiredOpGroup.Name == "" && opGroup.GetGenerateName() == desiredOpGroup.GenerateName
+
+		if opGroup.GetName() == desiredOpGroup.Name || emptyNameMatch {
+			foundOpGroupName = opGroup.GetName()
+
+			break
+		}
+	}
+
+	if foundOpGroupName == "" {
+		// no found OperatorGroup matches what the policy is looking for, report Compliance.
+		changed := updateStatus(policy, missingNotWantedCond("OperatorGroup"), missingNotWantedObj(desiredOpGroup))
+
+		return nil, changed, nil
+	}
+
+	desiredOpGroup.SetName(foundOpGroupName)
+
+	removalBehavior := policy.Spec.RemovalBehavior.ApplyDefaults()
+
+	if removalBehavior.OperatorGroups.IsKeep() {
+		changed := updateStatus(policy, keptCond("OperatorGroup"), leftoverObj(desiredOpGroup))
+
+		return nil, changed, nil
+	}
+
+	// The found OperatorGroup matches what is *not* wanted by the policy. Report NonCompliance.
+	changed := updateStatus(policy, foundNotWantedCond("OperatorGroup"), foundNotWantedObj(desiredOpGroup))
+
+	if policy.Spec.RemediationAction.IsInform() {
+		return nil, changed, nil
+	}
+
+	if removalBehavior.OperatorGroups.IsDeleteIfUnused() {
+		// Check the namespace for any subscriptions, including the sub for this mustnothave policy,
+		// since deleting the OperatorGroup before that could cause problems
+		watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+		foundSubscriptions, err := r.DynamicWatcher.List(
+			watcher, subscriptionGVK, desiredOpGroup.Namespace, labels.Everything())
+		if err != nil {
+			return nil, false, fmt.Errorf("error listing Subscriptions: %w", err)
+		}
+
+		if len(foundSubscriptions) != 0 {
+			return nil, changed, nil
+		}
+	}
+
+	earlyConds := []metav1.Condition{}
+
+	if changed {
+		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
+	}
+
+	err := r.Delete(ctx, desiredOpGroup)
+	if err != nil {
+		return earlyConds, changed, fmt.Errorf("error deleting the OperatorGroup: %w", err)
+	}
+
+	desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Delete stripped this information
+
+	updateStatus(policy, deletedCond("OperatorGroup"), deletedObj(desiredOpGroup))
+
+	return earlyConds, true, nil
+}
+
 func (r *OperatorPolicyReconciler) handleSubscription(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, desiredSub *operatorv1alpha1.Subscription,
 ) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
@@ -606,6 +706,19 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 		return nil, nil, false, fmt.Errorf("error getting the Subscription: %w", err)
 	}
 
+	if policy.Spec.ComplianceType.IsMustHave() {
+		return r.musthaveSubscription(ctx, policy, desiredSub, foundSub)
+	}
+
+	return r.mustnothaveSubscription(ctx, policy, desiredSub, foundSub)
+}
+
+func (r *OperatorPolicyReconciler) musthaveSubscription(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	desiredSub *operatorv1alpha1.Subscription,
+	foundSub *unstructured.Unstructured,
+) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
 	if foundSub == nil {
 		// Missing Subscription: report NonCompliance
 		changed := updateStatus(policy, missingWantedCond("Subscription"), missingWantedObj(desiredSub))
@@ -717,6 +830,53 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 	return mergedSub, earlyConds, true, nil
 }
 
+func (r *OperatorPolicyReconciler) mustnothaveSubscription(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	desiredSub *operatorv1alpha1.Subscription,
+	foundUnstructSub *unstructured.Unstructured,
+) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
+	if foundUnstructSub == nil {
+		// Missing Subscription: report Compliance
+		changed := updateStatus(policy, missingNotWantedCond("Subscription"), missingNotWantedObj(desiredSub))
+
+		return desiredSub, nil, changed, nil
+	}
+
+	foundSub := new(operatorv1alpha1.Subscription)
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(foundUnstructSub.Object, foundSub); err != nil {
+		return nil, nil, false, fmt.Errorf("error converting the retrieved Subscription to the go type: %w", err)
+	}
+
+	if policy.Spec.RemovalBehavior.ApplyDefaults().Subscriptions.IsKeep() {
+		changed := updateStatus(policy, keptCond("Subscription"), leftoverObj(foundSub))
+
+		return foundSub, nil, changed, nil
+	}
+
+	// Subscription found, not wanted: report NonCompliance.
+	changed := updateStatus(policy, foundNotWantedCond("Subscription"), foundNotWantedObj(foundSub))
+
+	if policy.Spec.RemediationAction.IsInform() {
+		return foundSub, nil, changed, nil
+	}
+
+	earlyConds := []metav1.Condition{}
+
+	if changed {
+		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
+	}
+
+	err := r.Delete(ctx, foundUnstructSub)
+	if err != nil {
+		return foundSub, earlyConds, changed, fmt.Errorf("error deleting the Subscription: %w", err)
+	}
+
+	updateStatus(policy, deletedCond("Subscription"), deletedObj(desiredSub))
+
+	return foundSub, earlyConds, true, nil
+}
+
 // messageIncludesSubscription checks if the ConstraintsNotSatisfiable message includes the input
 // subscription or package. Some examples that it catches:
 // https://github.com/operator-framework/operator-lifecycle-manager/blob/dc0c564f62d526bae0467d53f439e1c91a17ed8a/pkg/controller/registry/resolver/resolver.go#L257-L267
@@ -775,10 +935,10 @@ func constraintMessageMatch(policy *policyv1beta1.OperatorPolicy, cond *operator
 
 func (r *OperatorPolicyReconciler) handleInstallPlan(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription,
-) (bool, error) {
+) ([]metav1.Condition, bool, error) {
 	if sub == nil {
 		// Note: existing related objects will not be removed by this status update
-		return updateStatus(policy, invalidCausingUnknownCond("InstallPlan")), nil
+		return nil, updateStatus(policy, invalidCausingUnknownCond("InstallPlan")), nil
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
@@ -786,12 +946,20 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	foundInstallPlans, err := r.DynamicWatcher.List(
 		watcher, installPlanGVK, sub.Namespace, labels.Everything())
 	if err != nil {
-		return false, fmt.Errorf("error listing InstallPlans: %w", err)
+		return nil, false, fmt.Errorf("error listing InstallPlans: %w", err)
 	}
 
 	ownedInstallPlans := make([]unstructured.Unstructured, 0, len(foundInstallPlans))
+	selector := subLabelSelector(sub)
 
 	for _, installPlan := range foundInstallPlans {
+		// sometimes the OwnerReferences aren't correct, but the label should be
+		if selector.Matches(labels.Set(installPlan.GetLabels())) {
+			ownedInstallPlans = append(ownedInstallPlans, installPlan)
+
+			break
+		}
+
 		for _, owner := range installPlan.GetOwnerReferences() {
 			match := owner.Name == sub.Name &&
 				owner.Kind == subscriptionGVK.Kind &&
@@ -806,16 +974,32 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 
 	// InstallPlans are generally kept in order to provide a history of actions on the cluster, but
 	// they can be deleted without impacting the installed operator. So, not finding any should not
-	// be considered a reason for NonCompliance.
+	// be considered a reason for NonCompliance, regardless of musthave or mustnothave.
 	if len(ownedInstallPlans) == 0 {
-		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
+		return nil, updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
 	}
 
+	if policy.Spec.ComplianceType.IsMustHave() {
+		changed, err := r.musthaveInstallPlan(ctx, policy, sub, ownedInstallPlans)
+
+		return nil, changed, err
+	}
+
+	return r.mustnothaveInstallPlan(ctx, policy, ownedInstallPlans)
+}
+
+func (r *OperatorPolicyReconciler) musthaveInstallPlan(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	sub *operatorv1alpha1.Subscription,
+	ownedInstallPlans []unstructured.Unstructured,
+) (bool, error) {
 	OpLog := ctrl.LoggerFrom(ctx)
-	relatedInstallPlans := make([]policyv1.RelatedObject, len(ownedInstallPlans))
+	relatedInstallPlans := make([]policyv1.RelatedObject, 0, len(ownedInstallPlans))
 	ipsRequiringApproval := make([]unstructured.Unstructured, 0)
 	anyInstalling := false
 	currentPlanFailed := false
+	selector := subLabelSelector(sub)
 
 	// Construct the relevant relatedObjects, and collect any that might be considered for approval
 	for i, installPlan := range ownedInstallPlans {
@@ -835,7 +1019,11 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 		// consider some special phases
 		switch phase {
 		case string(operatorv1alpha1.InstallPlanPhaseRequiresApproval):
-			ipsRequiringApproval = append(ipsRequiringApproval, installPlan)
+			// only consider InstallPlans with this label for approval - this label is supposed to
+			// indicate the "current" InstallPlan for this subscription.
+			if selector.Matches(labels.Set(installPlan.GetLabels())) {
+				ipsRequiringApproval = append(ipsRequiringApproval, installPlan)
+			}
 		case string(operatorv1alpha1.InstallPlanPhaseInstalling):
 			anyInstalling = true
 		case string(operatorv1alpha1.InstallPlanFailed):
@@ -846,7 +1034,7 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 			}
 		}
 
-		relatedInstallPlans[i] = existingInstallPlanObj(&ownedInstallPlans[i], phase)
+		relatedInstallPlans = append(relatedInstallPlans, existingInstallPlanObj(&ownedInstallPlans[i], phase))
 	}
 
 	if currentPlanFailed {
@@ -861,9 +1049,9 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 		return updateStatus(policy, installPlansNoApprovals, relatedInstallPlans...), nil
 	}
 
-	allUpgradeVersions := make([]string, len(ipsRequiringApproval))
+	allUpgradeVersions := make([]string, 0, len(ipsRequiringApproval))
 
-	for i, installPlan := range ipsRequiringApproval {
+	for _, installPlan := range ipsRequiringApproval {
 		csvNames, ok, err := unstructured.NestedStringSlice(installPlan.Object,
 			"spec", "clusterServiceVersionNames")
 		if !ok && err == nil {
@@ -877,7 +1065,7 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 			csvNames = []string{"unknown"}
 		}
 
-		allUpgradeVersions[i] = fmt.Sprintf("%v", csvNames)
+		allUpgradeVersions = append(allUpgradeVersions, fmt.Sprintf("%v", csvNames))
 	}
 
 	// Only report this status in `inform` mode, because otherwise it could easily oscillate between this and
@@ -944,14 +1132,65 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	return updateStatus(policy, installPlanApprovedCond(approvedVersion), relatedInstallPlans...), nil
 }
 
+func (r *OperatorPolicyReconciler) mustnothaveInstallPlan(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	ownedInstallPlans []unstructured.Unstructured,
+) ([]metav1.Condition, bool, error) {
+	relatedInstallPlans := make([]policyv1.RelatedObject, 0, len(ownedInstallPlans))
+
+	if policy.Spec.RemovalBehavior.ApplyDefaults().InstallPlan.IsKeep() {
+		for i := range ownedInstallPlans {
+			relatedInstallPlans = append(relatedInstallPlans, leftoverObj(&ownedInstallPlans[i]))
+		}
+
+		return nil, updateStatus(policy, keptCond("InstallPlan"), relatedInstallPlans...), nil
+	}
+
+	for i := range ownedInstallPlans {
+		relatedInstallPlans = append(relatedInstallPlans, foundNotWantedObj(&ownedInstallPlans[i]))
+	}
+
+	changed := updateStatus(policy, foundNotWantedCond("InstallPlan"), relatedInstallPlans...)
+
+	if policy.Spec.RemediationAction.IsInform() {
+		return nil, changed, nil
+	}
+
+	earlyConds := []metav1.Condition{}
+
+	if changed {
+		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
+	}
+
+	deletedInstallPlans := make([]policyv1.RelatedObject, 0, len(ownedInstallPlans))
+
+	for i := range ownedInstallPlans {
+		err := r.Delete(ctx, &ownedInstallPlans[i])
+		if err != nil {
+			changed := updateStatus(policy, foundNotWantedCond("InstallPlan"), deletedInstallPlans...)
+
+			return earlyConds, changed, fmt.Errorf("error deleting the InstallPlan: %w", err)
+		}
+
+		ownedInstallPlans[i].SetGroupVersionKind(installPlanGVK) // Delete stripped this information
+		deletedInstallPlans = append(deletedInstallPlans, deletedObj(&ownedInstallPlans[i]))
+	}
+
+	updateStatus(policy, deletedCond("InstallPlan"), deletedInstallPlans...)
+
+	return earlyConds, true, nil
+}
+
 func (r *OperatorPolicyReconciler) handleCSV(
+	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
 	sub *operatorv1alpha1.Subscription,
-) (*operatorv1alpha1.ClusterServiceVersion, bool, error) {
+) (*operatorv1alpha1.ClusterServiceVersion, []metav1.Condition, bool, error) {
 	// case where subscription is nil
 	if sub == nil {
 		// need to report lack of existing CSV
-		return nil, updateStatus(policy, noCSVCond, noExistingCSVObj), nil
+		return nil, nil, updateStatus(policy, noCSVCond, noExistingCSVObj), nil
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
@@ -959,7 +1198,7 @@ func (r *OperatorPolicyReconciler) handleCSV(
 
 	csvList, err := r.DynamicWatcher.List(watcher, clusterServiceVersionGVK, sub.Namespace, selector)
 	if err != nil {
-		return nil, false, fmt.Errorf("error listing CSVs: %w", err)
+		return nil, nil, false, fmt.Errorf("error listing CSVs: %w", err)
 	}
 
 	var foundCSV *operatorv1alpha1.ClusterServiceVersion
@@ -970,23 +1209,88 @@ func (r *OperatorPolicyReconciler) handleCSV(
 
 			err = runtime.DefaultUnstructuredConverter.FromUnstructured(csv.UnstructuredContent(), &matchedCSV)
 			if err != nil {
-				return nil, false, err
+				return nil, nil, false, err
 			}
 
 			foundCSV = &matchedCSV
+
+			break
 		}
 	}
 
+	if policy.Spec.ComplianceType.IsMustNotHave() {
+		earlyConds, changed, err := r.mustnothaveCSV(ctx, policy, csvList, sub.Namespace)
+
+		return foundCSV, earlyConds, changed, err
+	}
 
 	// CSV has not yet been created by OLM
 	if foundCSV == nil {
 		changed := updateStatus(policy,
 			missingWantedCond("ClusterServiceVersion"), missingCSVObj(sub.Name, sub.Namespace))
 
-		return foundCSV, changed, nil
+		return foundCSV, nil, changed, nil
 	}
 
-	return foundCSV, updateStatus(policy, buildCSVCond(foundCSV), existingCSVObj(foundCSV)), nil
+	return foundCSV, nil, updateStatus(policy, buildCSVCond(foundCSV), existingCSVObj(foundCSV)), nil
+}
+
+func (r *OperatorPolicyReconciler) mustnothaveCSV(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	csvList []unstructured.Unstructured,
+	namespace string,
+) ([]metav1.Condition, bool, error) {
+	if len(csvList) == 0 {
+		changed := updateStatus(policy, missingNotWantedCond("ClusterServiceVersion"),
+			missingNotWantedCSVObj(namespace))
+
+		return nil, changed, nil
+	}
+
+	relatedCSVs := make([]policyv1.RelatedObject, 0, len(csvList))
+
+	if policy.Spec.RemovalBehavior.ApplyDefaults().CSVs.IsKeep() {
+		for i := range csvList {
+			relatedCSVs = append(relatedCSVs, leftoverObj(&csvList[i]))
+		}
+
+		return nil, updateStatus(policy, keptCond("ClusterServiceVersion"), relatedCSVs...), nil
+	}
+
+	for i := range csvList {
+		relatedCSVs = append(relatedCSVs, foundNotWantedObj(&csvList[i]))
+	}
+
+	changed := updateStatus(policy, foundNotWantedCond("ClusterServiceVersion"), relatedCSVs...)
+
+	if policy.Spec.RemediationAction.IsInform() {
+		return nil, changed, nil
+	}
+
+	earlyConds := []metav1.Condition{}
+
+	if changed {
+		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
+	}
+
+	deletedCSVs := make([]policyv1.RelatedObject, 0, len(csvList))
+
+	for i := range csvList {
+		err := r.Delete(ctx, &csvList[i])
+		if err != nil {
+			changed := updateStatus(policy, foundNotWantedCond("ClusterServiceVersion"), deletedCSVs...)
+
+			return earlyConds, changed, fmt.Errorf("error deleting ClusterServiceVersion: %w", err)
+		}
+
+		csvList[i].SetGroupVersionKind(clusterServiceVersionGVK)
+		deletedCSVs = append(deletedCSVs, deletedObj(&csvList[i]))
+	}
+
+	updateStatus(policy, deletedCond("ClusterServiceVersion"), deletedCSVs...)
+
+	return earlyConds, true, nil
 }
 
 func (r *OperatorPolicyReconciler) handleDeployment(
@@ -994,6 +1298,10 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 	policy *policyv1beta1.OperatorPolicy,
 	csv *operatorv1alpha1.ClusterServiceVersion,
 ) (bool, error) {
+	if policy.Spec.ComplianceType.IsMustNotHave() {
+		return updateStatus(policy, notApplicableCond("Deployment")), nil
+	}
+
 	// case where csv is nil
 	if csv == nil {
 		// need to report lack of existing Deployments
@@ -1046,7 +1354,7 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 }
 
 func (r *OperatorPolicyReconciler) handleCRDs(
-	_ context.Context,
+	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
 	sub *operatorv1alpha1.Subscription,
 ) ([]metav1.Condition, bool, error) {
@@ -1062,23 +1370,75 @@ func (r *OperatorPolicyReconciler) handleCRDs(
 		return nil, false, fmt.Errorf("error listing CRDs: %w", err)
 	}
 
+	// Same condition for musthave and mustnothave
 	if len(crdList) == 0 {
 		return nil, updateStatus(policy, noCRDCond, noExistingCRDObj), nil
 	}
 
-	relatedCRDs := make([]policyv1.RelatedObject, len(crdList))
+	relatedCRDs := make([]policyv1.RelatedObject, 0, len(crdList))
 
-	for i := range crdList {
-		relatedCRDs[i] = matchedObj(&crdList[i])
+	if policy.Spec.ComplianceType.IsMustHave() {
+		for i := range crdList {
+			relatedCRDs = append(relatedCRDs, matchedObj(&crdList[i]))
+		}
+
+		return nil, updateStatus(policy, crdFoundCond, relatedCRDs...), nil
 	}
 
-	return nil, updateStatus(policy, crdFoundCond, relatedCRDs...), nil
+	if policy.Spec.RemovalBehavior.ApplyDefaults().CRDs.IsKeep() {
+		for i := range crdList {
+			relatedCRDs = append(relatedCRDs, leftoverObj(&crdList[i]))
+		}
+
+		return nil, updateStatus(policy, keptCond("CustomResourceDefinition"), relatedCRDs...), nil
+	}
+
+	for i := range crdList {
+		relatedCRDs = append(relatedCRDs, foundNotWantedObj(&crdList[i]))
+	}
+
+	changed := updateStatus(policy, foundNotWantedCond("CustomResourceDefinition"), relatedCRDs...)
+
+	if policy.Spec.RemediationAction.IsInform() {
+		return nil, changed, nil
+	}
+
+	earlyConds := []metav1.Condition{}
+
+	if changed {
+		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
+	}
+
+	deletedCRDs := make([]policyv1.RelatedObject, 0, len(crdList))
+
+	for i := range crdList {
+		err := r.Delete(ctx, &crdList[i])
+		if err != nil {
+			changed := updateStatus(policy, foundNotWantedCond("CustomResourceDefinition"), deletedCRDs...)
+
+			return earlyConds, changed, fmt.Errorf("error deleting the CRD: %w", err)
+		}
+
+		crdList[i].SetGroupVersionKind(customResourceDefinitionGVK)
+		deletedCRDs = append(deletedCRDs, deletedObj(&crdList[i]))
+	}
+
+	updateStatus(policy, deletedCond("CustomResourceDefinition"), deletedCRDs...)
+
+	return earlyConds, true, nil
 }
 
 func (r *OperatorPolicyReconciler) handleCatalogSource(
 	policy *policyv1beta1.OperatorPolicy,
 	subscription *operatorv1alpha1.Subscription,
 ) (bool, error) {
+	if policy.Spec.ComplianceType.IsMustNotHave() {
+		cond := notApplicableCond("CatalogSource")
+		cond.Status = metav1.ConditionFalse // CatalogSource condition has the opposite polarity
+
+		return updateStatus(policy, cond), nil
+	}
+
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	if subscription == nil {

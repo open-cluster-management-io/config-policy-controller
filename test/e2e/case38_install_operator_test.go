@@ -19,14 +19,14 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, func() {
+var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 	const (
 		opPolTestNS          = "operator-policy-testns"
 		parentPolicyYAML     = "../resources/case38_operator_install/parent-policy.yaml"
 		parentPolicyName     = "parent-policy"
 		eventuallyTimeout    = 10
 		consistentlyDuration = 5
-		olmWaitTimeout       = 45
+		olmWaitTimeout       = 60
 	)
 
 	// checks that the policy has the proper compliance, that the relatedObjects of a given
@@ -1431,6 +1431,836 @@ var _ = Describe("Test installing an operator from OperatorPolicy", Ordered, fun
 				},
 				"the policy spec is valid",
 			)
+		})
+	})
+	Describe("Testing general OperatorPolicy mustnothave behavior", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
+			opPolName = "oppol-mustnothave"
+			subName   = "project-quay"
+		)
+
+		BeforeAll(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			utils.Kubectl("delete", "crd", "--selector=olm.managed=true")
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should be Compliant and report all the things are correctly missing", func() {
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource not found as expected",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "OperatorGroupNotPresent",
+					Message: "the OperatorGroup is not present",
+				},
+				`the OperatorGroup is not present`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "project-quay",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource not found as expected",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "SubscriptionNotPresent",
+					Message: "the Subscription is not present",
+				},
+				`the Subscription is not present`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "There are no relevant InstallPlans in this namespace",
+				}},
+				metav1.Condition{
+					Type:    "InstallPlanCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "NoInstallPlansFound",
+					Message: "there are no relevant InstallPlans in the namespace",
+				},
+				`there are no relevant InstallPlans in the namespace`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "ClusterServiceVersion",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource not found as expected",
+				}},
+				metav1.Condition{
+					Type:    "ClusterServiceVersionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "ClusterServiceVersionNotPresent",
+					Message: "the ClusterServiceVersion is not present",
+				},
+				`the ClusterServiceVersion is not present`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "DeploymentCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeploymentNotApplicable",
+					Message: "MustNotHave policies ignore kind Deployment",
+				},
+				`MustNotHave policies ignore kind Deployment`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "No relevant CustomResourceDefinitions found",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "RelevantCRDNotFound",
+					Message: "No CRDs were found for the operator",
+				},
+				`No CRDs were found for the operator`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CatalogSourceNotApplicable",
+					Message: "MustNotHave policies ignore kind CatalogSource",
+				},
+				`MustNotHave policies ignore kind CatalogSource`,
+			)
+
+			// The `check` function doesn't check that it is compliant, only that each piece is compliant
+			pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
+				opPolTestNS, true, eventuallyTimeout)
+			compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(compliance).To(Equal("Compliant"))
+		})
+		It("Should be NonCompliant and report resources when the operator is installed", func(ctx SpecContext) {
+			// Make it musthave and enforced, to install the operator
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+
+			By("Waiting for a CRD to appear, which should indicate the operator is installing")
+			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+					"quayregistries.quay.redhat.com", metav1.GetOptions{})
+
+				return crd
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			By("Waiting for the policy to become compliant, indicating the operator is installed")
+			Eventually(func(g Gomega) string {
+				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
+					opPolTestNS, true, eventuallyTimeout)
+				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+
+				return compliance
+			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+
+			// Revert to the original mustnothave policy
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"},`+
+					`{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
+
+			By("Checking the OperatorPolicy status")
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource found but should not exist",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "OperatorGroupPresent",
+					Message: "the OperatorGroup is present",
+				},
+				`the OperatorGroup is present`,
+			)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "project-quay",
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource found but should not exist",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "SubscriptionPresent",
+					Message: "the Subscription is present",
+				},
+				`the Subscription is present`,
+			)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource found but should not exist",
+				}},
+				metav1.Condition{
+					Type:    "InstallPlanCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "InstallPlanPresent",
+					Message: "the InstallPlan is present",
+				},
+				`the InstallPlan is present`,
+			)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "ClusterServiceVersion",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource found but should not exist",
+				}},
+				metav1.Condition{
+					Type:    "ClusterServiceVersionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "ClusterServiceVersionPresent",
+					Message: "the ClusterServiceVersion is present",
+				},
+				`the ClusterServiceVersion is present`,
+			)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "quayecosystems.redhatcop.redhat.io",
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource found but should not exist",
+				}, {
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "quayregistries.quay.redhat.com",
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource found but should not exist",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CustomResourceDefinitionPresent",
+					Message: "the CustomResourceDefinition is present",
+				},
+				`the CustomResourceDefinition is present`,
+			)
+		})
+
+		// These are the same for inform and enforce, so just write them once
+		keptChecks := func() {
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Reason: "The OperatorGroup is attached to a mustnothave policy, but does not need to be removed",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "OperatorGroupKept",
+					Message: "the policy specifies to keep the OperatorGroup",
+				},
+				`the policy specifies to keep the OperatorGroup`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "project-quay",
+						},
+					},
+					Reason: "The Subscription is attached to a mustnothave policy, but does not need to be removed",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "SubscriptionKept",
+					Message: "the policy specifies to keep the Subscription",
+				},
+				`the policy specifies to keep the Subscription`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Reason: "The InstallPlan is attached to a mustnothave policy, but does not need to be removed",
+				}},
+				metav1.Condition{
+					Type:    "InstallPlanCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "InstallPlanKept",
+					Message: "the policy specifies to keep the InstallPlan",
+				},
+				`the policy specifies to keep the InstallPlan`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "ClusterServiceVersion",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Reason: "The ClusterServiceVersion is attached to a mustnothave policy, " +
+						"but does not need to be removed",
+				}},
+				metav1.Condition{
+					Type:    "ClusterServiceVersionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "ClusterServiceVersionKept",
+					Message: "the policy specifies to keep the ClusterServiceVersion",
+				},
+				`the policy specifies to keep the ClusterServiceVersion`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "quayecosystems.redhatcop.redhat.io",
+						},
+					},
+					Reason: "The CustomResourceDefinition is attached to a mustnothave policy, but " +
+						"does not need to be removed",
+				}, {
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "quayregistries.quay.redhat.com",
+						},
+					},
+					Reason: "The CustomResourceDefinition is attached to a mustnothave policy, but " +
+						"does not need to be removed",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "CustomResourceDefinitionKept",
+					Message: "the policy specifies to keep the CustomResourceDefinition",
+				},
+				`the policy specifies to keep the CustomResourceDefinition`,
+			)
+		}
+		It("Should report resources differently when told to keep them", func(ctx SpecContext) {
+			// Change the removal behaviors from Delete to Keep
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "Keep"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Keep"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Keep"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/installPlans", "value": "Keep"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Keep"}]`)
+			By("Checking the OperatorPolicy status")
+			keptChecks()
+		})
+		It("Should not remove anything when enforced while set to Keep everything", func(ctx SpecContext) {
+			// Enforce the policy
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			By("Checking the OperatorPolicy status")
+			keptChecks()
+
+			By("Checking that certain (named) resources are still there")
+			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.8.13",
+				opPolTestNS, true, eventuallyTimeout)
+			utils.GetWithTimeout(clientManagedDynamic, gvrSubscription, subName,
+				opPolTestNS, true, eventuallyTimeout)
+			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayecosystems.redhatcop.redhat.io",
+				"", true, eventuallyTimeout)
+			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayregistries.quay.redhat.com",
+				"", true, eventuallyTimeout)
+		})
+		It("Should remove things when enforced while set to Delete everything", func(ctx SpecContext) {
+			// Change the removal behaviors from Keep to Delete
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "Delete"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Delete"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Delete"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/installPlans", "value": "Delete"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Delete"}]`)
+
+			By("Checking that certain (named) resources are not there, indicating the removal was completed")
+			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.8.13",
+				opPolTestNS, false, eventuallyTimeout)
+			utils.GetWithTimeout(clientManagedDynamic, gvrSubscription, subName,
+				opPolTestNS, false, eventuallyTimeout)
+			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayecosystems.redhatcop.redhat.io",
+				"", false, eventuallyTimeout)
+			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayregistries.quay.redhat.com",
+				"", false, eventuallyTimeout)
+
+			By("Checking the OperatorPolicy status")
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource not found as expected",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "OperatorGroupNotPresent",
+					Message: "the OperatorGroup is not present",
+				},
+				`the OperatorGroup was deleted`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "project-quay",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource not found as expected",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "SubscriptionNotPresent",
+					Message: "the Subscription is not present",
+				},
+				`the Subscription was deleted`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "There are no relevant InstallPlans in this namespace",
+				}},
+				metav1.Condition{
+					Type:    "InstallPlanCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "NoInstallPlansFound",
+					Message: "there are no relevant InstallPlans in the namespace",
+				},
+				`the InstallPlan was deleted`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "ClusterServiceVersion",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource not found as expected",
+				}},
+				metav1.Condition{
+					Type:    "ClusterServiceVersionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "ClusterServiceVersionNotPresent",
+					Message: "the ClusterServiceVersion is not present",
+				},
+				`the ClusterServiceVersion was deleted`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "No relevant CustomResourceDefinitions found",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "RelevantCRDNotFound",
+					Message: "No CRDs were found for the operator",
+				},
+				`the CustomResourceDefinition was deleted`,
+			)
+
+			// the checks don't verify that the policy is compliant, do that now:
+			pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
+				opPolTestNS, true, eventuallyTimeout)
+			compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(compliance).To(Equal("Compliant"))
+		})
+	})
+	Describe("Testing mustnothave behavior for an operator group that is different than the specified one", func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-with-group.yaml"
+			opPolName = "oppol-with-group"
+			subName   = "project-quay"
+		)
+
+		BeforeEach(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("should not report an operator group that does not match the spec", func() {
+			// create the extra operator group
+			utils.Kubectl("apply", "-f", "../resources/case38_operator_install/incorrect-operator-group.yaml",
+				"-n", opPolTestNS)
+			// change the operator policy to mustnothave
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "scoped-operator-group",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource not found as expected",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "OperatorGroupNotPresent",
+					Message: "the OperatorGroup is not present",
+				},
+				"the OperatorGroup is not present",
+			)
+		})
+	})
+	Describe("Testing mustnothave behavior of operator groups in DeleteIfUnused mode", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
+			otherYAML = "../resources/case38_operator_install/operator-policy-authorino.yaml"
+			opPolName = "oppol-mustnothave"
+			subName   = "project-quay"
+		)
+
+		BeforeEach(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			utils.Kubectl("delete", "crd", "--selector=olm.managed=true")
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("should delete the operator group when there is only one subscription", func(ctx SpecContext) {
+			// enforce it as a musthave in order to install the operator
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"}]`)
+
+			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
+			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+					"quayregistries.quay.redhat.com", metav1.GetOptions{})
+
+				return crd
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			By("Waiting for the policy to become compliant, indicating the operator is installed")
+			Eventually(func(g Gomega) string {
+				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
+					opPolTestNS, true, eventuallyTimeout)
+				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+
+				return compliance
+			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+
+			By("Verifying that an operator group exists")
+			Eventually(func(g Gomega) []unstructured.Unstructured {
+				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+
+				return list.Items
+			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
+
+			// revert it to mustnothave
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+			By("Verifying that the operator group was removed")
+			Eventually(func(g Gomega) []unstructured.Unstructured {
+				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+
+				return list.Items
+			}, eventuallyTimeout, 3, ctx).Should(BeEmpty())
+		})
+
+		It("should not delete the operator group when there is another subscription", func(ctx SpecContext) {
+			// enforce it as a musthave in order to install the operator
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"}]`)
+
+			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
+			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+					"quayregistries.quay.redhat.com", metav1.GetOptions{})
+
+				return crd
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			By("Waiting for the policy to become compliant, indicating the operator is installed")
+			Eventually(func(g Gomega) string {
+				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
+					opPolTestNS, true, eventuallyTimeout)
+				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+
+				return compliance
+			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+
+			By("Verifying that an operator group exists")
+			Eventually(func(g Gomega) []unstructured.Unstructured {
+				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+
+				return list.Items
+			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
+
+			By("Creating another operator policy in the namespace")
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				otherYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+
+			// enforce the other policy
+			utils.Kubectl("patch", "operatorpolicy", "oppol-authorino", "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+
+			By("Waiting for a CRD to appear, which should indicate the other operator was successfully installed.")
+			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+					"authconfigs.authorino.kuadrant.io", metav1.GetOptions{})
+
+				return crd
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			// revert main policy to mustnothave
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+			By("Verifying the operator group was not removed")
+			Consistently(func(g Gomega) []unstructured.Unstructured {
+				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+
+				return list.Items
+			}, consistentlyDuration, 3, ctx).ShouldNot(BeEmpty())
+		})
+	})
+	Describe("Testing defaulted values in an OperatorPolicy", func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-authorino.yaml"
+			opPolName = "oppol-authorino"
+			subName   = "authorino-operator"
+		)
+
+		BeforeEach(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should have applied defaults to the removalBehavior field", func(ctx SpecContext) {
+			policy, err := clientManagedDynamic.Resource(gvrOperatorPolicy).Namespace(opPolTestNS).
+				Get(ctx, opPolName, metav1.GetOptions{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(policy).NotTo(BeNil())
+
+			remBehavior, found, err := unstructured.NestedStringMap(policy.Object, "spec", "removalBehavior")
+			Expect(found).To(BeTrue())
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(remBehavior).To(HaveKeyWithValue("operatorGroups", "DeleteIfUnused"))
+			Expect(remBehavior).To(HaveKeyWithValue("subscriptions", "Delete"))
+			Expect(remBehavior).To(HaveKeyWithValue("clusterServiceVersions", "Delete"))
+			Expect(remBehavior).To(HaveKeyWithValue("installPlans", "Keep"))
+			Expect(remBehavior).To(HaveKeyWithValue("customResourceDefinitions", "Keep"))
 		})
 	})
 })
