@@ -68,6 +68,58 @@ spec:
                 - Enforce
                 - enforce
                 type: string
+              removalBehavior:
+                default: {}
+                description: |-
+                  RemovalBehavior defines what resources will be removed by enforced mustnothave policies.
+                  When in inform mode, any resources that would be deleted if the policy was enforced will
+                  be causes for NonCompliance, but resources that would be kept will be considered Compliant.
+                properties:
+                  clusterServiceVersions:
+                    default: Delete
+                    description: Specifies whether to delete the ClusterServiceVersion;
+                      defaults to 'Delete'
+                    enum:
+                    - Keep
+                    - Delete
+                    type: string
+                  customResourceDefinitions:
+                    default: Keep
+                    description: |-
+                      Specifies whether to delete any CustomResourceDefinitions associated with the operator;
+                      defaults to 'Keep' because deleting them should be done deliberately
+                    enum:
+                    - Keep
+                    - Delete
+                    type: string
+                  installPlans:
+                    default: Keep
+                    description: |-
+                      Specifies whether to delete any InstallPlans associated with the operator; defaults
+                      to 'Keep' because those objects are only for history
+                    enum:
+                    - Keep
+                    - Delete
+                    type: string
+                  operatorGroups:
+                    default: DeleteIfUnused
+                    description: |-
+                      Specifies whether to delete the OperatorGroup; defaults to 'DeleteIfUnused' which
+                      will only delete the OperatorGroup if there is not another Subscription using it.
+                    enum:
+                    - Keep
+                    - Delete
+                    - DeleteIfUnused
+                    type: string
+                  subscriptions:
+                    default: Delete
+                    description: Specifies whether to delete the Subscription; defaults
+                      to 'Delete'
+                    enum:
+                    - Keep
+                    - Delete
+                    type: string
+                type: object
               severity:
                 description: 'Severity : low, medium, high, or critical'
                 enum:

@@ -415,7 +415,29 @@ func missingWantedCond(kind string) metav1.Condition {
 	}
 }
 
-// createdCond returns a Compliant condition, with a Reason like'____Created',
+// missingNotWantedCond returns a Compliant condition with a Reason like '____NotPresent'
+// and a Message like 'the ____ is not present'
+func missingNotWantedCond(kind string) metav1.Condition {
+	return metav1.Condition{
+		Type:    condType(kind),
+		Status:  metav1.ConditionTrue,
+		Reason:  kind + "NotPresent",
+		Message: "the " + kind + " is not present",
+	}
+}
+
+// foundNotWantedCond returns a NonCompliant condition with a Reason like '____Present'
+// and a Message like 'the ____ is present'
+func foundNotWantedCond(kind string) metav1.Condition {
+	return metav1.Condition{
+		Type:    condType(kind),
+		Status:  metav1.ConditionFalse,
+		Reason:  kind + "Present",
+		Message: "the " + kind + " is present",
+	}
+}
+
+// createdCond returns a Compliant condition, with a Reason like '____Created',
 // and a Message like 'the ____ required by the policy was created'
 func createdCond(kind string) metav1.Condition {
 	return metav1.Condition{
@@ -423,6 +445,28 @@ func createdCond(kind string) metav1.Condition {
 		Status:  metav1.ConditionTrue,
 		Reason:  kind + "Created",
 		Message: "the " + kind + " required by the policy was created",
+	}
+}
+
+// deletedCond returns a Compliant condition, with a Reason like '____Deleted',
+// and a Message like 'the ____ was deleted'
+func deletedCond(kind string) metav1.Condition {
+	return metav1.Condition{
+		Type:    condType(kind),
+		Status:  metav1.ConditionTrue,
+		Reason:  kind + "Deleted",
+		Message: "the " + kind + " was deleted",
+	}
+}
+
+// keptCond returns a Compliant condition, with a Reason like '____Kept',
+// and a Message like 'the policy specifies to keep the ____'
+func keptCond(kind string) metav1.Condition {
+	return metav1.Condition{
+		Type:    condType(kind),
+		Status:  metav1.ConditionTrue,
+		Reason:  kind + "Kept",
+		Message: "the policy specifies to keep the " + kind,
 	}
 }
 
@@ -512,6 +556,17 @@ func subResFailedCond(subFailedCond operatorv1alpha1.SubscriptionCondition) meta
 	}
 
 	return cond
+}
+
+// notApplicableCond returns a Compliant condition, with a Reason like '____NotApplicable',
+// and a Message like 'MustNotHave policies ignore kind ____'
+func notApplicableCond(kind string) metav1.Condition {
+	return metav1.Condition{
+		Type:    condType(kind),
+		Status:  metav1.ConditionTrue,
+		Reason:  kind + "NotApplicable",
+		Message: "MustNotHave policies ignore kind " + kind,
+	}
 }
 
 // opGroupPreexistingCond is a Compliant condition with Reason 'PreexistingOperatorGroupFound',
@@ -739,6 +794,27 @@ func missingWantedObj(obj client.Object) policyv1.RelatedObject {
 	}
 }
 
+// missingNotWantedObj returns a Compliant RelatedObject with reason = 'Resource not found as expected'
+func missingNotWantedObj(obj client.Object) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object:    policyv1.ObjectResourceFromObj(obj),
+		Compliant: string(policyv1.Compliant),
+		Reason:    reasonWantNotFoundDNE,
+	}
+}
+
+// foundNotWantedObj returns a NonCompliant RelatedObject with reason = 'Resource found but should not exist'
+func foundNotWantedObj(obj client.Object) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object:    policyv1.ObjectResourceFromObj(obj),
+		Compliant: string(policyv1.NonCompliant),
+		Reason:    reasonWantNotFoundExists,
+		Properties: &policyv1.ObjectProperties{
+			UID: string(obj.GetUID()),
+		},
+	}
+}
+
 // createdObj returns a Compliant RelatedObject with reason = 'K8s creation success'
 func createdObj(obj client.Object) policyv1.RelatedObject {
 	created := true
@@ -751,6 +827,15 @@ func createdObj(obj client.Object) policyv1.RelatedObject {
 			CreatedByPolicy: &created,
 			UID:             string(obj.GetUID()),
 		},
+	}
+}
+
+// deletedObj returns a Compliant RelatedObject with reason = 'K8s deletion success'
+func deletedObj(obj client.Object) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object:    policyv1.ObjectResourceFromObj(obj),
+		Compliant: string(policyv1.Compliant),
+		Reason:    reasonDeleteSuccess,
 	}
 }
 
@@ -803,21 +888,36 @@ func nonCompObj(obj client.Object, reason string) policyv1.RelatedObject {
 	}
 }
 
+// leftoverObj returns a RelatedObject for an object related to a
+// mustnothave policy which specifies to keep this kind of object.
+// The object does not have a compliance associated with it.
+func leftoverObj(obj client.Object) policyv1.RelatedObject {
+	kind := obj.GetObjectKind().GroupVersionKind().Kind
+
+	return policyv1.RelatedObject{
+		Object: policyv1.ObjectResourceFromObj(obj),
+		Properties: &policyv1.ObjectProperties{
+			UID: string(obj.GetUID()),
+		},
+		Reason: "The " + kind + " is attached to a mustnothave policy, but does not need to be removed",
+	}
+}
+
 // opGroupTooManyObjs returns a list of NonCompliant RelatedObjects, each with
 // reason = 'There is more than one OperatorGroup in this namespace'
 func opGroupTooManyObjs(opGroups []unstructured.Unstructured) []policyv1.RelatedObject {
-	objs := make([]policyv1.RelatedObject, len(opGroups))
+	objs := make([]policyv1.RelatedObject, 0, len(opGroups))
 
 	for i, opGroup := range opGroups {
 		opGroup := opGroup
-		objs[i] = policyv1.RelatedObject{
+		objs = append(objs, policyv1.RelatedObject{
 			Object:    policyv1.ObjectResourceFromObj(&opGroups[i]),
 			Compliant: string(policyv1.NonCompliant),
 			Reason:    "There is more than one OperatorGroup in this namespace",
 			Properties: &policyv1.ObjectProperties{
 				UID: string(opGroup.GetUID()),
 			},
-		}
+		})
 	}
 
 	return objs
@@ -885,6 +985,23 @@ func missingCSVObj(name string, namespace string) policyv1.RelatedObject {
 		},
 		Compliant: string(policyv1.NonCompliant),
 		Reason:    reasonWantFoundDNE,
+	}
+}
+
+// missingNotWantedCSVObj returns a Compliant RelatedObject for the ClusterServiceVersion,
+// with Reason 'Resource not found as expected'
+func missingNotWantedCSVObj(namespace string) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object: policyv1.ObjectResource{
+			Kind:       clusterServiceVersionGVK.Kind,
+			APIVersion: clusterServiceVersionGVK.GroupVersion().String(),
+			Metadata: policyv1.ObjectMetadata{
+				Name:      "-",
+				Namespace: namespace,
+			},
+		},
+		Compliant: string(policyv1.Compliant),
+		Reason:    reasonWantNotFoundDNE,
 	}
 }
 

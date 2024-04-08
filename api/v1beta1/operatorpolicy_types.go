@@ -4,6 +4,8 @@
 package v1beta1
 
 import (
+	"strings"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 
@@ -15,7 +17,6 @@ import (
 type StatusConfigAction string
 
 // RemovalAction : Keep, Delete, or DeleteIfUnused
-// +kubebuilder:validation:Enum=Keep;Delete;DeleteIfUnused
 type RemovalAction string
 
 const (
@@ -36,20 +37,75 @@ const (
 	DeleteIfUnused RemovalAction = "DeleteIfUnused"
 )
 
-// RemovalBehavior defines resource behavior when policy is removed
+func (ra RemovalAction) IsKeep() bool {
+	return strings.EqualFold(string(ra), string(Keep))
+}
+
+func (ra RemovalAction) IsDelete() bool {
+	return strings.EqualFold(string(ra), string(Delete))
+}
+
+func (ra RemovalAction) IsDeleteIfUnused() bool {
+	return strings.EqualFold(string(ra), string(DeleteIfUnused))
+}
+
 type RemovalBehavior struct {
-	// Kind OperatorGroup
+	//+kubebuilder:default=DeleteIfUnused
+	//+kubebuilder:validation:Enum=Keep;Delete;DeleteIfUnused
+	// Specifies whether to delete the OperatorGroup; defaults to 'DeleteIfUnused' which
+	// will only delete the OperatorGroup if there is not another Subscription using it.
 	OperatorGroups RemovalAction `json:"operatorGroups,omitempty"`
-	// Kind Subscription
+
+	//+kubebuilder:default=Delete
+	//+kubebuilder:validation:Enum=Keep;Delete
+	// Specifies whether to delete the Subscription; defaults to 'Delete'
 	Subscriptions RemovalAction `json:"subscriptions,omitempty"`
-	// Kind ClusterServiceVersion
+
+	//+kubebuilder:default=Delete
+	//+kubebuilder:validation:Enum=Keep;Delete
+	// Specifies whether to delete the ClusterServiceVersion; defaults to 'Delete'
 	CSVs RemovalAction `json:"clusterServiceVersions,omitempty"`
-	// Kind InstallPlan
+
+	//+kubebuilder:default=Keep
+	//+kubebuilder:validation:Enum=Keep;Delete
+	// Specifies whether to delete any InstallPlans associated with the operator; defaults
+	// to 'Keep' because those objects are only for history
 	InstallPlan RemovalAction `json:"installPlans,omitempty"`
-	// Kind CustomResourceDefinitions
+
+	//+kubebuilder:default=Keep
+	//+kubebuilder:validation:Enum=Keep;Delete
+	// Specifies whether to delete any CustomResourceDefinitions associated with the operator;
+	// defaults to 'Keep' because deleting them should be done deliberately
 	CRDs RemovalAction `json:"customResourceDefinitions,omitempty"`
-	// Kind APIServiceDefinitions
-	APIServiceDefinitions RemovalAction `json:"apiServiceDefinitions,omitempty"`
+}
+
+// ApplyDefaults ensures that unset fields in a RemovalBehavior behave as if they were
+// set to the default values. In a cluster, kubernetes API validation should ensure that
+// there are no unset values, and should apply the default values itself.
+func (rb RemovalBehavior) ApplyDefaults() RemovalBehavior {
+	withDefaults := *rb.DeepCopy()
+
+	if withDefaults.OperatorGroups == "" {
+		withDefaults.OperatorGroups = DeleteIfUnused
+	}
+
+	if withDefaults.Subscriptions == "" {
+		withDefaults.Subscriptions = Delete
+	}
+
+	if withDefaults.CSVs == "" {
+		withDefaults.CSVs = Delete
+	}
+
+	if withDefaults.InstallPlan == "" {
+		withDefaults.InstallPlan = Keep
+	}
+
+	if withDefaults.CRDs == "" {
+		withDefaults.CRDs = Keep
+	}
+
+	return withDefaults
 }
 
 // StatusConfig defines how resource statuses affect the OperatorPolicy status and compliance
@@ -64,7 +120,7 @@ type StatusConfig struct {
 type OperatorPolicySpec struct {
 	Severity          policyv1.Severity          `json:"severity,omitempty"`          // low, medium, high
 	RemediationAction policyv1.RemediationAction `json:"remediationAction,omitempty"` // inform, enforce
-	ComplianceType    policyv1.ComplianceType    `json:"complianceType"`              // musthave
+	ComplianceType    policyv1.ComplianceType    `json:"complianceType"`              // musthave, mustnothave
 
 	// Include the name, namespace, and any `spec` fields for the OperatorGroup.
 	// For more info, see `kubectl explain operatorgroup.spec` or
@@ -84,11 +140,11 @@ type OperatorPolicySpec struct {
 	// in 'inform' mode, and which installPlans are approved when in 'enforce' mode
 	Versions []policyv1.NonEmptyString `json:"versions,omitempty"`
 
-	// FUTURE
-	//nolint:dupword
-	// RemovalBehavior RemovalBehavior           `json:"removalBehavior,omitempty"`
-	//nolint:dupword
-	// StatusConfig    StatusConfig              `json:"statusConfig,omitempty"`
+	//+kubebuilder:default={}
+	// RemovalBehavior defines what resources will be removed by enforced mustnothave policies.
+	// When in inform mode, any resources that would be deleted if the policy was enforced will
+	// be causes for NonCompliance, but resources that would be kept will be considered Compliant.
+	RemovalBehavior RemovalBehavior `json:"removalBehavior,omitempty"`
 }
 
 // OperatorPolicyStatus defines the observed state of OperatorPolicy
