@@ -1902,8 +1902,58 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayregistries.quay.redhat.com",
 				"", true, eventuallyTimeout)
 		})
-		It("Should remove things when enforced while set to Delete everything", func(ctx SpecContext) {
-			// Change the removal behaviors from Keep to Delete
+		It("Should report a special status when the resources are stuck", func(ctx SpecContext) {
+			By("Adding a finalizer to each of the resources")
+			pol, err := clientManagedDynamic.Resource(gvrOperatorPolicy).
+				Namespace(opPolTestNS).Get(ctx, opPolName, metav1.GetOptions{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(pol).NotTo(BeNil())
+
+			relatedObjects, found, err := unstructured.NestedSlice(pol.Object, "status", "relatedObjects")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+
+			var opGroupName, installPlanName, csvName string
+			crdNames := make([]string, 0)
+
+			for _, relatedObject := range relatedObjects {
+				relatedObj, ok := relatedObject.(map[string]interface{})
+				Expect(ok).To(BeTrue())
+
+				objKind, found, err := unstructured.NestedString(relatedObj, "object", "kind")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+
+				objName, found, err := unstructured.NestedString(relatedObj, "object", "metadata", "name")
+				Expect(err).NotTo(HaveOccurred())
+				Expect(found).To(BeTrue())
+
+				switch objKind {
+				case "OperatorGroup":
+					opGroupName = objName
+				case "Subscription":
+					// just do the finalizer; we already know the subscription name
+				case "ClusterServiceVersion":
+					csvName = objName
+				case "InstallPlan":
+					installPlanName = objName
+				case "CustomResourceDefinition":
+					crdNames = append(crdNames, objName)
+				default:
+					// skip adding / removing the finalizer for other types
+					continue
+				}
+
+				utils.Kubectl("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
+					`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
+				DeferCleanup(func() {
+					By("removing the finalizer from " + objKind + " " + objName)
+					utils.Kubectl("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
+						`[{"op": "remove", "path": "/metadata/finalizers"}]`)
+				})
+			}
+
+			By("Setting the removal behaviors to Delete")
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "Delete"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Delete"},`+
@@ -1911,6 +1961,126 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					`{"op": "replace", "path": "/spec/removalBehavior/installPlans", "value": "Delete"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Delete"}]`)
 
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      opGroupName,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "The object is being deleted but has not been removed yet",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "OperatorGroupDeleting",
+					Message: "the OperatorGroup has a deletion timestamp",
+				},
+				`the OperatorGroup was deleted`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "project-quay",
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "The object is being deleted but has not been removed yet",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "SubscriptionDeleting",
+					Message: "the Subscription has a deletion timestamp",
+				},
+				`the Subscription was deleted`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      installPlanName,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "The object is being deleted but has not been removed yet",
+				}},
+				metav1.Condition{
+					Type:    "InstallPlanCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "InstallPlanDeleting",
+					Message: "the InstallPlan has a deletion timestamp",
+				},
+				`the InstallPlan was deleted`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "ClusterServiceVersion",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      csvName,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "The object is being deleted but has not been removed yet",
+				}},
+				metav1.Condition{
+					Type:    "ClusterServiceVersionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "ClusterServiceVersionDeleting",
+					Message: "the ClusterServiceVersion has a deletion timestamp",
+				},
+				`the ClusterServiceVersion was deleted`,
+			)
+			desiredCRDObjects := make([]policyv1.RelatedObject, 0)
+			for _, name := range crdNames {
+				desiredCRDObjects = append(desiredCRDObjects, policyv1.RelatedObject{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: name,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "The object is being deleted but has not been removed yet",
+				})
+			}
+			check(
+				opPolName,
+				false,
+				desiredCRDObjects,
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CustomResourceDefinitionDeleting",
+					Message: "the CustomResourceDefinition has a deletion timestamp",
+				},
+				`the CustomResourceDefinition was deleted`,
+			)
+		})
+		It("Should report things as gone after the finalizers are removed", func() {
 			By("Checking that certain (named) resources are not there, indicating the removal was completed")
 			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.8.13",
 				opPolTestNS, false, eventuallyTimeout)

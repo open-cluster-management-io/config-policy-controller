@@ -459,6 +459,17 @@ func deletedCond(kind string) metav1.Condition {
 	}
 }
 
+// deletingCond returns a NonCompliant condition, with a Reason like '____Deleting',
+// and a Message like 'the ____ has a deletion timestamp'
+func deletingCond(kind string) metav1.Condition {
+	return metav1.Condition{
+		Type:    condType(kind),
+		Status:  metav1.ConditionFalse,
+		Reason:  kind + "Deleting",
+		Message: "the " + kind + " has a deletion timestamp",
+	}
+}
+
 // keptCond returns a Compliant condition, with a Reason like '____Kept',
 // and a Message like 'the policy specifies to keep the ____'
 func keptCond(kind string) metav1.Condition {
@@ -836,6 +847,14 @@ func deletedObj(obj client.Object) policyv1.RelatedObject {
 		Object:    policyv1.ObjectResourceFromObj(obj),
 		Compliant: string(policyv1.Compliant),
 		Reason:    reasonDeleteSuccess,
+	}
+}
+
+func deletingObj(obj client.Object) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object:    policyv1.ObjectResourceFromObj(obj),
+		Compliant: string(policyv1.NonCompliant),
+		Reason:    "The object is being deleted but has not been removed yet",
 	}
 }
 
