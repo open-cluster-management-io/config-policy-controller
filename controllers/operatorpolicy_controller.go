@@ -348,6 +348,17 @@ func buildSubscription(
 		return nil, fmt.Errorf("the policy spec.subscription is invalid: %w", err)
 	}
 
+	name, ok := sub["name"].(string)
+	if !ok || name == "" {
+		return nil, fmt.Errorf("name is required in spec.subscription")
+	}
+
+	if validationErrs := validation.IsDNS1123Label(name); len(validationErrs) != 0 {
+		return nil, fmt.Errorf(
+			"the name '%v' used for the subscription is invalid: %s", name, strings.Join(validationErrs, ", "),
+		)
+	}
+
 	ns, ok := sub["namespace"].(string)
 	if !ok {
 		if defaultNS == "" {

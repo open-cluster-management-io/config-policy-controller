@@ -50,6 +50,65 @@ func TestBuildSubscription(t *testing.T) {
 	assert.Equal(t, ret.ObjectMeta.Namespace, "default")
 }
 
+func TestBuildSubscriptionInvalidNames(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name     string
+		expected string
+	}{
+		{
+			name:     "",
+			expected: "name is required in spec.subscription",
+		},
+		{
+			name: "wrong$s",
+			expected: "the name 'wrong$s' used for the subscription is invalid: a lowercase RFC 1123 label must " +
+				"consist of lower case alphanumeric characters or '-', and must start and end with an alphanumeric " +
+				"character (e.g. 'my-name',  or '123-abc', regex used for validation is " +
+				"'[a-z0-9]([-a-z0-9]*[a-z0-9])?')",
+		},
+	}
+
+	for _, test := range testCases {
+		test := test
+
+		t.Run(
+			"name="+test.name,
+			func(t *testing.T) {
+				t.Parallel()
+
+				testPolicy := &policyv1beta1.OperatorPolicy{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      "my-policy",
+						Namespace: "default",
+					},
+					Spec: policyv1beta1.OperatorPolicySpec{
+						Severity:          "low",
+						RemediationAction: "enforce",
+						ComplianceType:    "musthave",
+						Subscription: runtime.RawExtension{
+							Raw: []byte(`{
+								"namespace": "default",
+								"source": "my-catalog",
+								"sourceNamespace": "my-ns",
+								"name": "` + test.name + `",
+								"channel": "stable",
+								"startingCSV": "my-operator-v1",
+								"installPlanApproval": "Automatic"
+							}`),
+						},
+					},
+				}
+
+				// Check values are correctly bootstrapped to the Subscription
+				_, err := buildSubscription(testPolicy, "my-operators")
+				assert.Equal(t, err.Error(), test.expected)
+			},
+		)
+	}
+}
+
 func TestBuildOperatorGroup(t *testing.T) {
 	testPolicy := &policyv1beta1.OperatorPolicy{
 		ObjectMeta: metav1.ObjectMeta{
