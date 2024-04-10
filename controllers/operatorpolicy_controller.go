@@ -632,13 +632,15 @@ func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
 		return nil, changed, nil
 	}
 
-	foundOpGroupName := ""
+	var foundOpGroupName string
+	var foundOpGroup *unstructured.Unstructured
 
 	for _, opGroup := range foundOpGroups {
 		emptyNameMatch := desiredOpGroup.Name == "" && opGroup.GetGenerateName() == desiredOpGroup.GenerateName
 
 		if opGroup.GetName() == desiredOpGroup.Name || emptyNameMatch {
 			foundOpGroupName = opGroup.GetName()
+			foundOpGroup = opGroup.DeepCopy()
 
 			break
 		}
@@ -682,6 +684,11 @@ func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
 		if len(foundSubscriptions) != 0 {
 			return nil, changed, nil
 		}
+	}
+
+	if foundOpGroup.GetDeletionTimestamp() != nil {
+		// No "early" condition because that would cause the status to flap
+		return nil, updateStatus(policy, deletingCond("OperatorGroup"), deletingObj(desiredOpGroup)), nil
 	}
 
 	earlyConds := []metav1.Condition{}
@@ -870,6 +877,11 @@ func (r *OperatorPolicyReconciler) mustnothaveSubscription(
 
 	if policy.Spec.RemediationAction.IsInform() {
 		return foundSub, nil, changed, nil
+	}
+
+	if foundSub.GetDeletionTimestamp() != nil {
+		// No "early" condition because that would cause the status to flap
+		return foundSub, nil, updateStatus(policy, deletingCond("Subscription"), deletingObj(foundSub)), nil
 	}
 
 	earlyConds := []metav1.Condition{}
@@ -1174,21 +1186,40 @@ func (r *OperatorPolicyReconciler) mustnothaveInstallPlan(
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
 
-	deletedInstallPlans := make([]policyv1.RelatedObject, 0, len(ownedInstallPlans))
+	anyAlreadyDeleting := false
 
 	for i := range ownedInstallPlans {
+		if ownedInstallPlans[i].GetDeletionTimestamp() != nil {
+			anyAlreadyDeleting = true
+			relatedInstallPlans[i] = deletingObj(&ownedInstallPlans[i])
+
+			continue
+		}
+
 		err := r.Delete(ctx, &ownedInstallPlans[i])
 		if err != nil {
-			changed := updateStatus(policy, foundNotWantedCond("InstallPlan"), deletedInstallPlans...)
+			changed := updateStatus(policy, foundNotWantedCond("InstallPlan"), relatedInstallPlans...)
+
+			if anyAlreadyDeleting {
+				// reset the "early" conditions to avoid flapping.
+				earlyConds = []metav1.Condition{}
+			}
 
 			return earlyConds, changed, fmt.Errorf("error deleting the InstallPlan: %w", err)
 		}
 
 		ownedInstallPlans[i].SetGroupVersionKind(installPlanGVK) // Delete stripped this information
-		deletedInstallPlans = append(deletedInstallPlans, deletedObj(&ownedInstallPlans[i]))
+		relatedInstallPlans[i] = deletedObj(&ownedInstallPlans[i])
 	}
 
-	updateStatus(policy, deletedCond("InstallPlan"), deletedInstallPlans...)
+	if anyAlreadyDeleting {
+		// reset the "early" conditions to avoid flapping.
+		earlyConds = []metav1.Condition{}
+
+		return earlyConds, updateStatus(policy, deletingCond("InstallPlan"), relatedInstallPlans...), nil
+	}
+
+	updateStatus(policy, deletedCond("InstallPlan"), relatedInstallPlans...)
 
 	return earlyConds, true, nil
 }
@@ -1285,21 +1316,40 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
 
-	deletedCSVs := make([]policyv1.RelatedObject, 0, len(csvList))
+	anyAlreadyDeleting := false
 
 	for i := range csvList {
+		if csvList[i].GetDeletionTimestamp() != nil {
+			anyAlreadyDeleting = true
+			relatedCSVs[i] = deletingObj(&csvList[i])
+
+			continue
+		}
+
 		err := r.Delete(ctx, &csvList[i])
 		if err != nil {
-			changed := updateStatus(policy, foundNotWantedCond("ClusterServiceVersion"), deletedCSVs...)
+			changed := updateStatus(policy, foundNotWantedCond("ClusterServiceVersion"), relatedCSVs...)
+
+			if anyAlreadyDeleting {
+				// reset the "early" conditions to avoid flapping
+				earlyConds = []metav1.Condition{}
+			}
 
 			return earlyConds, changed, fmt.Errorf("error deleting ClusterServiceVersion: %w", err)
 		}
 
 		csvList[i].SetGroupVersionKind(clusterServiceVersionGVK)
-		deletedCSVs = append(deletedCSVs, deletedObj(&csvList[i]))
+		relatedCSVs[i] = deletedObj(&csvList[i])
 	}
 
-	updateStatus(policy, deletedCond("ClusterServiceVersion"), deletedCSVs...)
+	if anyAlreadyDeleting {
+		// reset the "early" conditions to avoid flapping
+		earlyConds = []metav1.Condition{}
+
+		return earlyConds, updateStatus(policy, deletingCond("ClusterServiceVersion"), relatedCSVs...), nil
+	}
+
+	updateStatus(policy, deletedCond("ClusterServiceVersion"), relatedCSVs...)
 
 	return earlyConds, true, nil
 }
@@ -1420,21 +1470,40 @@ func (r *OperatorPolicyReconciler) handleCRDs(
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
 
-	deletedCRDs := make([]policyv1.RelatedObject, 0, len(crdList))
+	anyAlreadyDeleting := false
 
 	for i := range crdList {
+		if crdList[i].GetDeletionTimestamp() != nil {
+			anyAlreadyDeleting = true
+			relatedCRDs[i] = deletingObj(&crdList[i])
+
+			continue
+		}
+
 		err := r.Delete(ctx, &crdList[i])
 		if err != nil {
-			changed := updateStatus(policy, foundNotWantedCond("CustomResourceDefinition"), deletedCRDs...)
+			changed := updateStatus(policy, foundNotWantedCond("CustomResourceDefinition"), relatedCRDs...)
+
+			if anyAlreadyDeleting {
+				// reset the "early" conditions to avoid flapping.
+				earlyConds = []metav1.Condition{}
+			}
 
 			return earlyConds, changed, fmt.Errorf("error deleting the CRD: %w", err)
 		}
 
 		crdList[i].SetGroupVersionKind(customResourceDefinitionGVK)
-		deletedCRDs = append(deletedCRDs, deletedObj(&crdList[i]))
+		relatedCRDs[i] = deletedObj(&crdList[i])
 	}
 
-	updateStatus(policy, deletedCond("CustomResourceDefinition"), deletedCRDs...)
+	if anyAlreadyDeleting {
+		// reset the "early" conditions to avoid flapping.
+		earlyConds = []metav1.Condition{}
+
+		return earlyConds, updateStatus(policy, deletingCond("CustomResourceDefinition"), relatedCRDs...), nil
+	}
+
+	updateStatus(policy, deletedCond("CustomResourceDefinition"), relatedCRDs...)
 
 	return earlyConds, true, nil
 }
