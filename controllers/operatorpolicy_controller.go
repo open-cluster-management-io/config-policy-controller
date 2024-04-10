@@ -315,18 +315,18 @@ func (r *OperatorPolicyReconciler) buildResources(policy *policyv1beta1.Operator
 	opGroup, ogErr := buildOperatorGroup(policy, opGroupNS)
 	if ogErr != nil {
 		validationErrors = append(validationErrors, ogErr)
-	}
+	} else {
+		watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
-	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+		gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
+		if err != nil {
+			return sub, opGroup, false, fmt.Errorf("error getting operator namespace: %w", err)
+		}
 
-	gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
-	if err != nil {
-		return sub, opGroup, false, fmt.Errorf("error getting operator namespace: %w", err)
-	}
-
-	if gotNamespace == nil {
-		validationErrors = append(validationErrors,
-			fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS))
+		if gotNamespace == nil {
+			validationErrors = append(validationErrors,
+				fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS))
+		}
 	}
 
 	return sub, opGroup, updateStatus(policy, validationCond(validationErrors)), nil
