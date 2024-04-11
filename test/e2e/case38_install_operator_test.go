@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -135,6 +136,98 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		EventuallyWithOffset(1, checkFunc, eventuallyTimeout, 3).Should(Succeed())
 		ConsistentlyWithOffset(1, checkFunc, consistentlyDuration, 1).Should(Succeed())
 	}
+
+	Describe("Testing an all default operator policy", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-all-defaults.yaml"
+			opPolName = "oppol-all-defaults"
+			subName   = "project-quay"
+		)
+		BeforeAll(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should create the Subscription with default values", func(ctx context.Context) {
+			By("Verifying the policy is compliant")
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "SubscriptionMatches",
+					Message: "the Subscription matches what is required by the policy",
+				},
+				"the Subscription required by the policy was created",
+			)
+
+			By("Verifying the subscription has the correct defaults")
+			sub, err := clientManagedDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+				Get(ctx, subName, metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+
+			channel, _, _ := unstructured.NestedString(sub.Object, "spec", "channel")
+			// This default will change so just check something was set.
+			Expect(channel).ToNot(BeEmpty())
+
+			source, _, _ := unstructured.NestedString(sub.Object, "spec", "source")
+			Expect(source).To(Equal("operatorhubio-catalog"))
+
+			sourceNamespace, _, _ := unstructured.NestedString(sub.Object, "spec", "sourceNamespace")
+			Expect(sourceNamespace).To(Equal("olm"))
+		})
+	})
+
+	Describe("Testing an operator policy with invalid partial defaults", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-defaults-invalid-source.yaml"
+			opPolName = "oppol-defaults-invalid-source"
+			subName   = "project-quay"
+		)
+		BeforeAll(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should be NonCompliant specifying a source not matching the PackageManifest", func(ctx context.Context) {
+			By("Verifying the policy is noncompliant due to the invalid source")
+			Eventually(func(g Gomega) {
+				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
+					opPolTestNS, true, eventuallyTimeout)
+				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+
+				g.Expect(compliance).To(Equal("NonCompliant"))
+
+				expectedMsg := "the subscription defaults could not be determined because the catalog specified in " +
+					"the policy does not match what was found in the PackageManifest on the cluster"
+				events := utils.GetMatchingEvents(
+					clientManaged, opPolTestNS, parentPolicyName, "", expectedMsg, eventuallyTimeout,
+				)
+				g.Expect(events).NotTo(BeEmpty())
+			}, defaultTimeoutSeconds, 5, ctx).Should(Succeed())
+		})
+	})
 
 	Describe("Testing OperatorGroup behavior when it is not specified in the policy", Ordered, func() {
 		const (

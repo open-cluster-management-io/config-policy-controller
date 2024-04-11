@@ -1,0 +1,20 @@
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: oppol-all-defaults
+  annotations:
+    policy.open-cluster-management.io/parent-policy-compliance-db-id: "124"
+    policy.open-cluster-management.io/policy-compliance-db-id: "64"
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    kind: Policy
+    name: parent-policy
+    uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
+spec:
+  remediationAction: enforce
+  severity: medium
+  complianceType: musthave
+  subscription:
+    name: project-quay
+    namespace: operator-policy-testns
+    installPlanApproval: Manual
