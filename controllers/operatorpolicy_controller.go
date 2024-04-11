@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation"
+	"k8s.io/client-go/dynamic"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -85,11 +86,18 @@ var (
 		Version: "v1alpha1",
 		Kind:    "InstallPlan",
 	}
+	packageManifestGVR = schema.GroupVersionResource{
+		Group:    "packages.operators.coreos.com",
+		Version:  "v1",
+		Resource: "packagemanifests",
+	}
+	ErrPackageManifest = errors.New("")
 )
 
 // OperatorPolicyReconciler reconciles a OperatorPolicy object
 type OperatorPolicyReconciler struct {
 	client.Client
+	DynamicClient    dynamic.Interface
 	DynamicWatcher   depclient.DynamicWatcher
 	InstanceName     string
 	DefaultNamespace string
@@ -209,7 +217,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 
 	earlyComplianceEvents = make([]metav1.Condition, 0)
 
-	desiredSub, desiredOG, changed, err := r.buildResources(policy)
+	desiredSub, desiredOG, changed, err := r.buildResources(ctx, policy)
 	condChanged = changed
 
 	if err != nil {
@@ -297,13 +305,28 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 //   - an error if an API call failed
 //
 // The built objects can be used to find relevant objects for a 'mustnothave' policy.
-func (r *OperatorPolicyReconciler) buildResources(policy *policyv1beta1.OperatorPolicy) (
+func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *policyv1beta1.OperatorPolicy) (
 	*operatorv1alpha1.Subscription, *operatorv1.OperatorGroup, bool, error,
 ) {
+	var returnedErr error
+
 	validationErrors := make([]error, 0)
 
 	sub, subErr := buildSubscription(policy, r.DefaultNamespace)
-	if subErr != nil {
+	if subErr == nil {
+		err := r.applySubscriptionDefaults(ctx, sub)
+		if err != nil {
+			sub = nil
+
+			// If it's a PackageManifest API error, then that means it should be returned for the Reconcile method
+			// to requeue the request. This is to workaround the PackageManifest API not supporting watches.
+			if errors.Is(err, ErrPackageManifest) {
+				returnedErr = err
+			}
+
+			validationErrors = append(validationErrors, err)
+		}
+	} else {
 		validationErrors = append(validationErrors, subErr)
 	}
 
@@ -329,7 +352,77 @@ func (r *OperatorPolicyReconciler) buildResources(policy *policyv1beta1.Operator
 		}
 	}
 
-	return sub, opGroup, updateStatus(policy, validationCond(validationErrors)), nil
+	return sub, opGroup, updateStatus(policy, validationCond(validationErrors)), returnedErr
+}
+
+// applySubscriptionDefaults will set the subscription channel, source, and sourceNamespace when they are unset by
+// utilizing the PackageManifest API.
+func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
+	ctx context.Context, subscription *operatorv1alpha1.Subscription,
+) error {
+	subSpec := subscription.Spec
+
+	defaultsNeeded := subSpec.Channel == "" || subSpec.CatalogSource == "" || subSpec.CatalogSourceNamespace == ""
+
+	if !defaultsNeeded {
+		return nil
+	}
+
+	// PackageManifests come from an API server and not a Kubernetes resource, so the DynamicWatcher can't be used since
+	// it utilizes watches. The namespace doesn't have any meaning but is required.
+	packageManifest, err := r.DynamicClient.Resource(packageManifestGVR).Namespace("default").Get(
+		ctx, subSpec.Package, metav1.GetOptions{},
+	)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return fmt.Errorf(
+				"%wthe subscription defaults could not be determined because the PackageManifest was not found",
+				ErrPackageManifest,
+			)
+		}
+
+		log.Error(err, "Failed to get the PackageManifest", "name", subSpec.Package)
+
+		return fmt.Errorf(
+			"%wthe subscription defaults could not be determined because the PackageManifest API returned an error",
+			ErrPackageManifest,
+		)
+	}
+
+	catalog, _, _ := unstructured.NestedString(packageManifest.Object, "status", "catalogSource")
+	catalogNamespace, _, _ := unstructured.NestedString(packageManifest.Object, "status", "catalogSourceNamespace")
+
+	if catalog == "" || catalogNamespace == "" {
+		return errors.New(
+			"the subscription defaults could not be determined because the PackageManifest didn't specify a catalog",
+		)
+	}
+
+	if (subSpec.CatalogSource != "" && subSpec.CatalogSource != catalog) ||
+		(subSpec.CatalogSourceNamespace != "" && subSpec.CatalogSourceNamespace != catalogNamespace) {
+		return errors.New(
+			"the subscription defaults could not be determined because the catalog specified in the policy does " +
+				"not match what was found in the PackageManifest on the cluster",
+		)
+	}
+
+	if subSpec.Channel == "" {
+		defaultChannel, _, _ := unstructured.NestedString(packageManifest.Object, "status", "defaultChannel")
+		if defaultChannel == "" {
+			return errors.New(
+				"the default channel could not be determined because the PackageManifest didn't specify one",
+			)
+		}
+
+		subSpec.Channel = defaultChannel
+	}
+
+	if subSpec.CatalogSource == "" || subSpec.CatalogSourceNamespace == "" {
+		subSpec.CatalogSource = catalog
+		subSpec.CatalogSourceNamespace = catalogNamespace
+	}
+
+	return nil
 }
 
 // buildSubscription bootstraps the subscription spec defined in the operator policy

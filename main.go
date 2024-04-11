@@ -434,6 +434,7 @@ func main() {
 
 		OpReconciler := controllers.OperatorPolicyReconciler{
 			Client:           mgr.GetClient(),
+			DynamicClient:    targetK8sDynamicClient,
 			DynamicWatcher:   watcher,
 			InstanceName:     instanceName,
 			DefaultNamespace: opts.operatorPolDefaultNS,
