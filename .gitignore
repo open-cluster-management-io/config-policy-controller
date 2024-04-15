@@ -74,6 +74,7 @@ Session.vim
 tags
 ### VisualStudioCode ###
 .vscode/*
+!.vscode/launch.json
 .history
 # End of https://www.gitignore.io/api/go,vim,emacs,visualstudiocode
 cmd/manager/__debug_bin
