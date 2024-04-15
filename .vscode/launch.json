@@ -1,0 +1,48 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        // Run `make kind-bootstrap-cluster-dev` before launching this.
+        {
+            "name": "Launch Package",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/main.go",
+            "args": ["controller", "--leader-elect=false", "--log-level=3", "--v=5", "--enable-operator-policy=true"],
+            "env": {
+                "WATCH_NAMESPACE": "managed",
+                "KUBECONFIG": "${workspaceFolder}/kubeconfig_managed",
+            }
+        },
+        // Set FDescribe or FIt on the test to debug. Then set the desired breakpoint.
+        {
+            "name": "Launch Test Function (instructions in launch.json)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/test/e2e/e2e_suite_test.go",
+            "args": [
+                "-ginkgo.debug",
+                "-ginkgo.v",
+            ],
+            "env": {
+                "KUBECONFIG": "${workspaceFolder}/kubeconfig_managed_e2e",
+            }
+        },
+        // Set the correct path to the governance-policy-framework repo directory in the env section.
+        {
+            "name": "Launch Package (Framework E2E) (instructions in launch.json)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/main.go",
+            "args": ["controller", "--leader-elect=false", "--log-level=3", "--v=5", "--enable-operator-policy=true"],
+            "env": {
+                "WATCH_NAMESPACE": "managed",
+                "HUB_CONFIG": "${userHome}/git/governance-policy-framework/kubeconfig_hub",
+                "MANAGED_CONFIG": "${userHome}/git/governance-policy-framework/kubeconfig_managed",
+                "KUBECONFIG": "${userHome}/git/governance-policy-framework/kubeconfig_managed",
+            }
+        }
+    ]
+}
