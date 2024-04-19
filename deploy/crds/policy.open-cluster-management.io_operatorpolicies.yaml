@@ -87,15 +87,6 @@ spec:
                     - Keep
                     - Delete
                     type: string
-                  installPlans:
-                    default: Keep
-                    description: |-
-                      Specifies whether to delete any InstallPlans associated with the operator; defaults
-                      to 'Keep' because those objects are only for history
-                    enum:
-                    - Keep
-                    - Delete
-                    type: string
                   operatorGroups:
                     default: DeleteIfUnused
                     description: |-

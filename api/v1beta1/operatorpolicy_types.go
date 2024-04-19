@@ -68,12 +68,6 @@ type RemovalBehavior struct {
 
 	//+kubebuilder:default=Keep
 	//+kubebuilder:validation:Enum=Keep;Delete
-	// Specifies whether to delete any InstallPlans associated with the operator; defaults
-	// to 'Keep' because those objects are only for history
-	InstallPlan RemovalAction `json:"installPlans,omitempty"`
-
-	//+kubebuilder:default=Keep
-	//+kubebuilder:validation:Enum=Keep;Delete
 	// Specifies whether to delete any CustomResourceDefinitions associated with the operator;
 	// defaults to 'Keep' because deleting them should be done deliberately
 	CRDs RemovalAction `json:"customResourceDefinitions,omitempty"`
@@ -95,10 +89,6 @@ func (rb RemovalBehavior) ApplyDefaults() RemovalBehavior {
 
 	if withDefaults.CSVs == "" {
 		withDefaults.CSVs = Delete
-	}
-
-	if withDefaults.InstallPlan == "" {
-		withDefaults.InstallPlan = Keep
 	}
 
 	if withDefaults.CRDs == "" {
