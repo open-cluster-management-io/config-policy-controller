@@ -69,15 +69,16 @@ var (
 )
 
 const (
-	reasonWantFoundExists    = "Resource found as expected"
-	reasonWantFoundCreated   = "K8s creation success"
-	reasonUpdateSuccess      = "K8s update success"
-	reasonDeleteSuccess      = "K8s deletion success"
-	reasonWantFoundNoMatch   = "Resource found but does not match"
-	reasonWantFoundDNE       = "Resource not found but should exist"
-	reasonWantNotFoundExists = "Resource found but should not exist"
-	reasonWantNotFoundDNE    = "Resource not found as expected"
-	reasonCleanupError       = "Error cleaning up child objects"
+	reasonWantFoundExists     = "Resource found as expected"
+	reasonWantFoundCreated    = "K8s creation success"
+	reasonUpdateSuccess       = "K8s update success"
+	reasonDeleteSuccess       = "K8s deletion success"
+	reasonWantFoundNoMatch    = "Resource found but does not match"
+	reasonWantFoundDNE        = "Resource not found but should exist"
+	reasonWantNotFoundExists  = "Resource found but should not exist"
+	reasonWantNotFoundDNE     = "Resource not found as expected"
+	reasonCleanupError        = "Error cleaning up child objects"
+	reasonIgnoreNotApplicable = "Resource found but will not be handled in mustnothave mode"
 )
 
 // SetupWithManager sets up the controller with the Manager.

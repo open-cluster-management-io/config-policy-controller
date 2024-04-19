@@ -28,5 +28,4 @@ spec:
     operatorGroups: DeleteIfUnused
     subscriptions: Delete
     clusterServiceVersions: Delete
-    installPlans: Delete
     customResourceDefinitions: Delete

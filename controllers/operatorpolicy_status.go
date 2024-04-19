@@ -856,6 +856,19 @@ func foundNotWantedObj(obj client.Object) policyv1.RelatedObject {
 	}
 }
 
+// foundNotWantedIpObj returns a Compliant RelatedObject with
+// reason = 'Resource found but will not be handled in mustnothave mode'
+func foundNotApplicableObj(obj client.Object) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object:    policyv1.ObjectResourceFromObj(obj),
+		Compliant: string(policyv1.Compliant),
+		Reason:    reasonIgnoreNotApplicable,
+		Properties: &policyv1.ObjectProperties{
+			UID: string(obj.GetUID()),
+		},
+	}
+}
+
 // createdObj returns a Compliant RelatedObject with reason = 'K8s creation success'
 func createdObj(obj client.Object) policyv1.RelatedObject {
 	created := true

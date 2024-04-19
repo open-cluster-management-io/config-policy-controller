@@ -251,8 +251,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
-	earlyConds, changed, err = r.handleInstallPlan(ctx, policy, subscription)
-	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
+	changed, err = r.handleInstallPlan(ctx, policy, subscription)
 	condChanged = condChanged || changed
 
 	if err != nil {
@@ -1071,10 +1070,10 @@ func constraintMessageMatch(policy *policyv1beta1.OperatorPolicy, cond *operator
 
 func (r *OperatorPolicyReconciler) handleInstallPlan(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription,
-) ([]metav1.Condition, bool, error) {
+) (bool, error) {
 	if sub == nil {
 		// Note: existing related objects will not be removed by this status update
-		return nil, updateStatus(policy, invalidCausingUnknownCond("InstallPlan")), nil
+		return updateStatus(policy, invalidCausingUnknownCond("InstallPlan")), nil
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
@@ -1082,7 +1081,7 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	foundInstallPlans, err := r.DynamicWatcher.List(
 		watcher, installPlanGVK, sub.Namespace, labels.Everything())
 	if err != nil {
-		return nil, false, fmt.Errorf("error listing InstallPlans: %w", err)
+		return false, fmt.Errorf("error listing InstallPlans: %w", err)
 	}
 
 	ownedInstallPlans := make([]unstructured.Unstructured, 0, len(foundInstallPlans))
@@ -1112,16 +1111,16 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	// they can be deleted without impacting the installed operator. So, not finding any should not
 	// be considered a reason for NonCompliance, regardless of musthave or mustnothave.
 	if len(ownedInstallPlans) == 0 {
-		return nil, updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
+		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
 	}
 
 	if policy.Spec.ComplianceType.IsMustHave() {
 		changed, err := r.musthaveInstallPlan(ctx, policy, sub, ownedInstallPlans)
 
-		return nil, changed, err
+		return changed, err
 	}
 
-	return r.mustnothaveInstallPlan(ctx, policy, ownedInstallPlans)
+	return r.mustnothaveInstallPlan(policy, ownedInstallPlans)
 }
 
 func (r *OperatorPolicyReconciler) musthaveInstallPlan(
@@ -1269,72 +1268,19 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 }
 
 func (r *OperatorPolicyReconciler) mustnothaveInstallPlan(
-	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
 	ownedInstallPlans []unstructured.Unstructured,
-) ([]metav1.Condition, bool, error) {
+) (bool, error) {
+	// Let OLM handle removing install plans
 	relatedInstallPlans := make([]policyv1.RelatedObject, 0, len(ownedInstallPlans))
 
-	if policy.Spec.RemovalBehavior.ApplyDefaults().InstallPlan.IsKeep() {
-		for i := range ownedInstallPlans {
-			relatedInstallPlans = append(relatedInstallPlans, leftoverObj(&ownedInstallPlans[i]))
-		}
-
-		return nil, updateStatus(policy, keptCond("InstallPlan"), relatedInstallPlans...), nil
-	}
-
 	for i := range ownedInstallPlans {
-		relatedInstallPlans = append(relatedInstallPlans, foundNotWantedObj(&ownedInstallPlans[i]))
+		relatedInstallPlans = append(relatedInstallPlans, foundNotApplicableObj(&ownedInstallPlans[i]))
 	}
 
-	changed := updateStatus(policy, foundNotWantedCond("InstallPlan"), relatedInstallPlans...)
+	changed := updateStatus(policy, notApplicableCond("InstallPlan"), relatedInstallPlans...)
 
-	if policy.Spec.RemediationAction.IsInform() {
-		return nil, changed, nil
-	}
-
-	earlyConds := []metav1.Condition{}
-
-	if changed {
-		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
-	}
-
-	anyAlreadyDeleting := false
-
-	for i := range ownedInstallPlans {
-		if ownedInstallPlans[i].GetDeletionTimestamp() != nil {
-			anyAlreadyDeleting = true
-			relatedInstallPlans[i] = deletingObj(&ownedInstallPlans[i])
-
-			continue
-		}
-
-		err := r.Delete(ctx, &ownedInstallPlans[i])
-		if err != nil {
-			changed := updateStatus(policy, foundNotWantedCond("InstallPlan"), relatedInstallPlans...)
-
-			if anyAlreadyDeleting {
-				// reset the "early" conditions to avoid flapping.
-				earlyConds = []metav1.Condition{}
-			}
-
-			return earlyConds, changed, fmt.Errorf("error deleting the InstallPlan: %w", err)
-		}
-
-		ownedInstallPlans[i].SetGroupVersionKind(installPlanGVK) // Delete stripped this information
-		relatedInstallPlans[i] = deletedObj(&ownedInstallPlans[i])
-	}
-
-	if anyAlreadyDeleting {
-		// reset the "early" conditions to avoid flapping.
-		earlyConds = []metav1.Condition{}
-
-		return earlyConds, updateStatus(policy, deletingCond("InstallPlan"), relatedInstallPlans...), nil
-	}
-
-	updateStatus(policy, deletedCond("InstallPlan"), relatedInstallPlans...)
-
-	return earlyConds, true, nil
+	return changed, nil
 }
 
 func (r *OperatorPolicyReconciler) handleCSV(

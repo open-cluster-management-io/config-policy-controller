@@ -1784,16 +1784,16 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 							Namespace: opPolTestNS,
 						},
 					},
-					Compliant: "NonCompliant",
-					Reason:    "Resource found but should not exist",
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
 				}},
 				metav1.Condition{
 					Type:    "InstallPlanCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "InstallPlanPresent",
-					Message: "the InstallPlan is present",
+					Status:  metav1.ConditionTrue,
+					Reason:  "InstallPlanNotApplicable",
+					Message: "MustNotHave policies ignore kind InstallPlan",
 				},
-				`the InstallPlan is present`,
+				`MustNotHave policies ignore kind InstallPlan`,
 			)
 			check(
 				opPolName,
@@ -1901,27 +1901,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-						},
-					},
-					Reason: "The InstallPlan is attached to a mustnothave policy, but does not need to be removed",
-				}},
-				metav1.Condition{
-					Type:    "InstallPlanCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "InstallPlanKept",
-					Message: "the policy specifies to keep the InstallPlan",
-				},
-				`the policy specifies to keep the InstallPlan`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
 						Kind:       "ClusterServiceVersion",
 						APIVersion: "operators.coreos.com/v1alpha1",
 						Metadata: policyv1.ObjectMetadata{
@@ -1978,7 +1957,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "Keep"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Keep"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Keep"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/installPlans", "value": "Keep"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Keep"}]`)
 			By("Checking the OperatorPolicy status")
 			keptChecks()
@@ -2056,7 +2034,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Delete"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Delete"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/installPlans", "value": "Delete"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Delete"}]`)
 
 			check(
@@ -2107,26 +2084,26 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 			check(
 				opPolName,
-				false,
+				true,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
 						Kind:       "InstallPlan",
 						APIVersion: "operators.coreos.com/v1alpha1",
 						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
 							Name:      installPlanName,
+							Namespace: opPolTestNS,
 						},
 					},
-					Compliant: "NonCompliant",
-					Reason:    "The object is being deleted but has not been removed yet",
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
 				}},
 				metav1.Condition{
 					Type:    "InstallPlanCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "InstallPlanDeleting",
-					Message: "the InstallPlan has a deletion timestamp",
+					Status:  metav1.ConditionTrue,
+					Reason:  "InstallPlanNotApplicable",
+					Message: "MustNotHave policies ignore kind InstallPlan",
 				},
-				`the InstallPlan was deleted`,
+				`MustNotHave policies ignore kind InstallPlan`,
 			)
 			check(
 				opPolName,
@@ -2257,7 +2234,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Reason:  "NoInstallPlansFound",
 					Message: "there are no relevant InstallPlans in the namespace",
 				},
-				`the InstallPlan was deleted`,
+				`there are no relevant InstallPlans in the namespace`,
 			)
 			check(
 				opPolName,
@@ -2640,7 +2617,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			Expect(remBehavior).To(HaveKeyWithValue("operatorGroups", "DeleteIfUnused"))
 			Expect(remBehavior).To(HaveKeyWithValue("subscriptions", "Delete"))
 			Expect(remBehavior).To(HaveKeyWithValue("clusterServiceVersions", "Delete"))
-			Expect(remBehavior).To(HaveKeyWithValue("installPlans", "Keep"))
 			Expect(remBehavior).To(HaveKeyWithValue("customResourceDefinitions", "Keep"))
 		})
 	})
