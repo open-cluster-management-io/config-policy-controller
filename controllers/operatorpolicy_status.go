@@ -758,7 +758,7 @@ var noDeploymentsCond = metav1.Condition{
 	Type:    deploymentConditionType,
 	Status:  metav1.ConditionTrue,
 	Reason:  "NoRelevantDeployments",
-	Message: "the ClusterServiceVersion is missing, thus meaning there are no relevant deployments",
+	Message: "there are no relevant deployments because the ClusterServiceVersion is missing",
 }
 
 // catalogSourceFindCond is a conditionally compliant condition with reason
