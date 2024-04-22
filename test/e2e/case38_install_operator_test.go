@@ -1328,9 +1328,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:    "CustomResourceDefinitionCompliant",
 					Status:  metav1.ConditionTrue,
 					Reason:  "RelevantCRDNotFound",
-					Message: "No CRDs were found for the operator",
+					Message: "no CRDs were found for the operator",
 				},
-				"No CRDs were found for the operator",
+				"no CRDs were found for the operator",
 			)
 		})
 
@@ -1384,9 +1384,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:    "CustomResourceDefinitionCompliant",
 					Status:  metav1.ConditionTrue,
 					Reason:  "RelevantCRDFound",
-					Message: "There are CRDs present for the operator",
+					Message: "there are CRDs present for the operator",
 				},
-				"There are CRDs present for the operator",
+				"there are CRDs present for the operator",
 			)
 		})
 	})
@@ -1667,9 +1667,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:    "CustomResourceDefinitionCompliant",
 					Status:  metav1.ConditionTrue,
 					Reason:  "RelevantCRDNotFound",
-					Message: "No CRDs were found for the operator",
+					Message: "no CRDs were found for the operator",
 				},
-				`No CRDs were found for the operator`,
+				`no CRDs were found for the operator`,
 			)
 			check(
 				opPolName,
@@ -2295,7 +2295,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:    "CustomResourceDefinitionCompliant",
 					Status:  metav1.ConditionTrue,
 					Reason:  "RelevantCRDNotFound",
-					Message: "No CRDs were found for the operator",
+					Message: "no CRDs were found for the operator",
 				},
 				`the CustomResourceDefinition was deleted`,
 			)

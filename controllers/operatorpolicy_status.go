@@ -696,7 +696,7 @@ var noCSVCond = metav1.Condition{
 	Type:    csvConditionType,
 	Status:  metav1.ConditionFalse,
 	Reason:  "RelevantCSVNotFound",
-	Message: "A relevant installed ClusterServiceVersion could not be found",
+	Message: "a relevant installed ClusterServiceVersion could not be found",
 }
 
 // noCRDCond is a Compliant condition for when no CRDs are found
@@ -704,7 +704,7 @@ var noCRDCond = metav1.Condition{
 	Type:    crdConditionType,
 	Status:  metav1.ConditionTrue,
 	Reason:  "RelevantCRDNotFound",
-	Message: "No CRDs were found for the operator",
+	Message: "no CRDs were found for the operator",
 }
 
 // crdFoundCond is a Compliant condition for when CRDs are found
@@ -712,7 +712,7 @@ var crdFoundCond = metav1.Condition{
 	Type:    crdConditionType,
 	Status:  metav1.ConditionTrue,
 	Reason:  "RelevantCRDFound",
-	Message: "There are CRDs present for the operator",
+	Message: "there are CRDs present for the operator",
 }
 
 // buildDeploymentCond creates a Condition for deployments. If any are not at their
@@ -758,7 +758,7 @@ var noDeploymentsCond = metav1.Condition{
 	Type:    deploymentConditionType,
 	Status:  metav1.ConditionTrue,
 	Reason:  "NoRelevantDeployments",
-	Message: "The ClusterServiceVersion is missing, thus meaning there are no relevant deployments",
+	Message: "the ClusterServiceVersion is missing, thus meaning there are no relevant deployments",
 }
 
 // catalogSourceFindCond is a conditionally compliant condition with reason
@@ -793,7 +793,7 @@ var catalogSourceUnknownCond = metav1.Condition{
 	Type:    "CatalogSourcesUnknownState",
 	Status:  metav1.ConditionTrue,
 	Reason:  "LastObservedUnknown",
-	Message: "Could not determine last observed state of CatalogSource",
+	Message: "could not determine last observed state of CatalogSource",
 }
 
 // missingWantedObj returns a NonCompliant RelatedObject with reason = 'Resource not found but should exist'
