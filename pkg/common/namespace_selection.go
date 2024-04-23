@@ -22,7 +22,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
-	"sigs.k8s.io/controller-runtime/pkg/source"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
@@ -154,7 +153,7 @@ func (r *NamespaceSelectorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	// Instead of reconciling for each Namespace, just reconcile once
 	// - that reconcile will do a list on all the Namespaces anyway.
-	mapToSingleton := func(_ client.Object) []reconcile.Request {
+	mapToSingleton := func(context.Context, client.Object) []reconcile.Request {
 		return []reconcile.Request{{NamespacedName: types.NamespacedName{
 			Name: "NamespaceSelector",
 		}}}
@@ -166,7 +165,7 @@ func (r *NamespaceSelectorReconciler) SetupWithManager(mgr ctrl.Manager) error {
 			&corev1.Namespace{},
 			builder.WithPredicates(neverEnqueue)).
 		Watches(
-			&source.Kind{Type: &corev1.Namespace{}},
+			&corev1.Namespace{},
 			handler.EnqueueRequestsFromMapFunc(mapToSingleton),
 			builder.WithPredicates(predicate.LabelChangedPredicate{})).
 		Complete(r)

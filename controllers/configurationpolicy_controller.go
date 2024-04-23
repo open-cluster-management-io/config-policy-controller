@@ -39,7 +39,6 @@ import (
 	"k8s.io/client-go/tools/record"
 	kubeopenapivalidation "k8s.io/kube-openapi/pkg/util/proto/validation"
 	"k8s.io/kubectl/pkg/util/openapi"
-	openapivalidation "k8s.io/kubectl/pkg/util/openapi/validation"
 	"k8s.io/kubectl/pkg/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -2500,7 +2499,7 @@ func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unst
 	}
 
 	schema := validation.ConjunctiveSchema{
-		openapivalidation.NewSchemaValidation(openAPIResources),
+		validation.NewSchemaValidation(openAPIResources),
 		validation.NoDoubleKeySchema{},
 	}
 
