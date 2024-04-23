@@ -850,6 +850,8 @@ func deletedObj(obj client.Object) policyv1.RelatedObject {
 	}
 }
 
+// deletingObj returns a NonCompliant RelatedObject with
+// reason = 'The object is being deleted but has not been removed yet'
 func deletingObj(obj client.Object) policyv1.RelatedObject {
 	return policyv1.RelatedObject{
 		Object:    policyv1.ObjectResourceFromObj(obj),

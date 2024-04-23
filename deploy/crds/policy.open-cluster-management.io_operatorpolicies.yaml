@@ -100,10 +100,9 @@ spec:
                     default: DeleteIfUnused
                     description: |-
                       Specifies whether to delete the OperatorGroup; defaults to 'DeleteIfUnused' which
-                      will only delete the OperatorGroup if there is not another Subscription using it.
+                      will only delete the OperatorGroup if there is not another resource using it.
                     enum:
                     - Keep
-                    - Delete
                     - DeleteIfUnused
                     type: string
                   subscriptions:
