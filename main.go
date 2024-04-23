@@ -35,7 +35,6 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/rest"
-	toolscache "k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
@@ -46,6 +45,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
@@ -165,13 +166,28 @@ func main() {
 	cfg.Burst = int(opts.clientBurst)
 	cfg.QPS = opts.clientQPS
 
+	nsTransform := func(obj interface{}) (interface{}, error) {
+		ns := obj.(*corev1.Namespace)
+		guttedNS := &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:   ns.Name,
+				Labels: ns.Labels,
+			},
+		}
+
+		return guttedNS, nil
+	}
+
 	// Set a field selector so that a watch on CRDs will be limited to just the configuration policy CRD.
-	cacheSelectors := cache.SelectorsByObject{
+	cacheByObject := map[client.Object]cache.ByObject{
 		&extensionsv1.CustomResourceDefinition{}: {
 			Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
 		},
 		&extensionsv1beta1.CustomResourceDefinition{}: {
 			Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
+		},
+		&corev1.Namespace{}: {
+			Transform: nsTransform,
 		},
 	}
 
@@ -184,7 +200,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		cacheSelectors[&appsv1.Deployment{}] = cache.ObjectSelector{
+		cacheByObject[&appsv1.Deployment{}] = cache.ByObject{
 			Field: fields.SelectorFromSet(fields.Set{
 				"metadata.namespace": ctrlKey.Namespace,
 				"metadata.name":      ctrlKey.Name,
@@ -207,7 +223,7 @@ func main() {
 	log.V(2).Info("Configured the watch namespace", "watchNamespace", watchNamespace)
 
 	if watchNamespace != "" {
-		cacheSelectors[&policyv1.ConfigurationPolicy{}] = cache.ObjectSelector{
+		cacheByObject[&policyv1.ConfigurationPolicy{}] = cache.ByObject{
 			Field: fields.SelectorFromSet(fields.Set{
 				"metadata.namespace": watchNamespace,
 			}),
@@ -216,35 +232,30 @@ func main() {
 		log.Info("Skipping restrictions on the ConfigurationPolicy cache because watchNamespace is empty")
 	}
 
-	nsTransform := func(obj interface{}) (interface{}, error) {
-		ns := obj.(*corev1.Namespace)
-		guttedNS := &corev1.Namespace{
-			ObjectMeta: metav1.ObjectMeta{
-				Name:   ns.Name,
-				Labels: ns.Labels,
-			},
-		}
-
-		return guttedNS, nil
-	}
-
 	// Set default manager options
 	options := manager.Options{
-		MetricsBindAddress:     opts.metricsAddr,
-		Scheme:                 scheme,
-		Port:                   9443,
+		Metrics: server.Options{
+			BindAddress: opts.metricsAddr,
+		},
+		Scheme: scheme,
+		WebhookServer: webhook.NewServer(
+			webhook.Options{
+				Port: 9443,
+			},
+		),
 		HealthProbeBindAddress: opts.probeAddr,
 		LeaderElection:         opts.enableLeaderElection,
 		LeaderElectionID:       "config-policy-controller.open-cluster-management.io",
-		NewCache: cache.BuilderWithOptions(cache.Options{
-			SelectorsByObject: cacheSelectors,
-			TransformByObject: map[client.Object]toolscache.TransformFunc{
-				&corev1.Namespace{}: nsTransform,
-			},
-		}),
+		Cache: cache.Options{
+			ByObject: cacheByObject,
+		},
 		// Disable the cache for Secrets to avoid a watch getting created when the `policy-encryption-key`
 		// Secret is retrieved. Special cache handling is done by the controller.
-		ClientDisableCacheFor: []client.Object{&corev1.Secret{}},
+		Client: client.Options{
+			Cache: &client.CacheOptions{
+				DisableFor: []client.Object{&corev1.Secret{}},
+			},
+		},
 		// Override the EventBroadcaster so that the spam filter will not ignore events for the policy but with
 		// different messages if a large amount of events for that policy are sent in a short time.
 		EventBroadcaster: record.NewBroadcasterWithCorrelatorOptions(
@@ -338,11 +349,13 @@ func main() {
 		// This controller is not needed in uninstall mode, so just skip it.
 		if !beingUninstalled {
 			nsSelMgr, err = manager.New(targetK8sConfig, manager.Options{
-				NewCache: cache.BuilderWithOptions(cache.Options{
-					TransformByObject: map[client.Object]toolscache.TransformFunc{
-						&corev1.Namespace{}: nsTransform,
+				Cache: cache.Options{
+					ByObject: map[client.Object]cache.ByObject{
+						&corev1.Namespace{}: {
+							Transform: nsTransform,
+						},
 					},
-				}),
+				},
 			})
 			if err != nil {
 				log.Error(err, "Unable to create manager from target kube config")

@@ -111,7 +111,7 @@ func (r *OperatorPolicyReconciler) SetupWithManager(mgr ctrl.Manager, depEvents 
 		For(
 			&policyv1beta1.OperatorPolicy{},
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Watches(
+		WatchesRawSource(
 			depEvents,
 			&handler.EnqueueRequestForObject{}).
 		Complete(r)
