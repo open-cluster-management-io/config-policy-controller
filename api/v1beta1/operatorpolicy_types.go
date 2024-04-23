@@ -51,9 +51,9 @@ func (ra RemovalAction) IsDeleteIfUnused() bool {
 
 type RemovalBehavior struct {
 	//+kubebuilder:default=DeleteIfUnused
-	//+kubebuilder:validation:Enum=Keep;Delete;DeleteIfUnused
+	//+kubebuilder:validation:Enum=Keep;DeleteIfUnused
 	// Specifies whether to delete the OperatorGroup; defaults to 'DeleteIfUnused' which
-	// will only delete the OperatorGroup if there is not another Subscription using it.
+	// will only delete the OperatorGroup if there is not another resource using it.
 	OperatorGroups RemovalAction `json:"operatorGroups,omitempty"`
 
 	//+kubebuilder:default=Delete

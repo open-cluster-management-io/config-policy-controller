@@ -1295,8 +1295,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 	})
 	Describe("Testing CustomResourceDefinition reporting", Ordered, func() {
 		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-authorino.yaml"
-			opPolName = "oppol-authorino"
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+			opPolName = "oppol-no-group"
 		)
 		BeforeAll(func() {
 			utils.Kubectl("delete", "crd", "--selector=olm.managed=true")
@@ -1340,7 +1340,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			By("Waiting for a CRD to appear, which should indicate the operator is installing")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
 				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
-					"authconfigs.authorino.kuadrant.io", metav1.GetOptions{})
+					"quayregistries.quay.redhat.com", metav1.GetOptions{})
 
 				return crd
 			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
@@ -1364,7 +1364,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 						Kind:       "CustomResourceDefinition",
 						APIVersion: "apiextensions.k8s.io/v1",
 						Metadata: policyv1.ObjectMetadata{
-							Name: "authconfigs.authorino.kuadrant.io",
+							Name: "quayregistries.quay.redhat.com",
 						},
 					},
 					Compliant: "Compliant",
@@ -1374,7 +1374,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 						Kind:       "CustomResourceDefinition",
 						APIVersion: "apiextensions.k8s.io/v1",
 						Metadata: policyv1.ObjectMetadata{
-							Name: "authorinos.operator.authorino.kuadrant.io",
+							Name: "quayecosystems.redhatcop.redhat.io",
 						},
 					},
 					Compliant: "Compliant",
@@ -2048,7 +2048,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Setting the removal behaviors to Delete")
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "Delete"},`+
+				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Delete"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Delete"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/installPlans", "value": "Delete"},`+
@@ -2378,7 +2378,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
 		})
 
-		It("should delete the operator group when there is only one subscription", func(ctx SpecContext) {
+		It("should delete the inferred operator group when there is only one subscription", func(ctx SpecContext) {
 			// enforce it as a musthave in order to install the operator
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
@@ -2427,7 +2427,121 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			}, eventuallyTimeout, 3, ctx).Should(BeEmpty())
 		})
 
-		It("should not delete the operator group when there is another subscription", func(ctx SpecContext) {
+		It("should delete the specified operator group when there is only one subscription", func(ctx SpecContext) {
+			// enforce it as a musthave in order to install the operator
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
+					`{"op": "add", "path": "/spec/operatorGroup", "value": {"name": "scoped-operator-group", `+
+					`"namespace": "operator-policy-testns", "targetNamespaces": ["operator-policy-testns"]}}]`)
+
+			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
+			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+					"quayregistries.quay.redhat.com", metav1.GetOptions{})
+
+				return crd
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			By("Waiting for the policy to become compliant, indicating the operator is installed")
+			Eventually(func(g Gomega) string {
+				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
+					opPolTestNS, true, eventuallyTimeout)
+				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+
+				return compliance
+			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+
+			By("Verifying that an operator group exists")
+			Eventually(func(g Gomega) []unstructured.Unstructured {
+				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+
+				return list.Items
+			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
+
+			// revert it to mustnothave
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+			By("Verifying that the operator group was removed")
+			Eventually(func(g Gomega) []unstructured.Unstructured {
+				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+
+				return list.Items
+			}, eventuallyTimeout, 3, ctx).Should(BeEmpty())
+		})
+
+		It("should keep the specified operator group when it is owned by something", func(ctx SpecContext) {
+			// enforce it as a musthave in order to install the operator
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
+					`{"op": "add", "path": "/spec/operatorGroup", "value": {"name": "scoped-operator-group", `+
+					`"namespace": "operator-policy-testns", "targetNamespaces": ["operator-policy-testns"]}}]`)
+
+			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
+			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+					"quayregistries.quay.redhat.com", metav1.GetOptions{})
+
+				return crd
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			By("Waiting for the policy to become compliant, indicating the operator is installed")
+			Eventually(func(g Gomega) string {
+				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
+					opPolTestNS, true, eventuallyTimeout)
+				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+
+				return compliance
+			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+
+			By("Verifying that an operator group exists")
+			Eventually(func(g Gomega) []unstructured.Unstructured {
+				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+
+				return list.Items
+			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
+
+			By("Creating and setting an owner for the operator group")
+			utils.Kubectl("create", "configmap", "ownercm", "-n", opPolTestNS, "--from-literal=foo=bar")
+
+			ownerCM := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap, "ownercm",
+				opPolTestNS, true, eventuallyTimeout)
+			ownerUID := string(ownerCM.GetUID())
+			Expect(ownerUID).NotTo(BeEmpty())
+
+			utils.Kubectl("patch", "operatorgroup", "scoped-operator-group", "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "add", "path": "/metadata/ownerReferences", "value": [{"apiVersion": "v1",
+				"kind": "ConfigMap", "name": "ownercm", "uid": "`+ownerUID+`"}]}]`)
+
+			// revert it to mustnothave
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+			By("Verifying the operator group was not removed")
+			Consistently(func(g Gomega) []unstructured.Unstructured {
+				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					List(ctx, metav1.ListOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+
+				return list.Items
+			}, consistentlyDuration, 3, ctx).ShouldNot(BeEmpty())
+		})
+
+		It("should not delete the inferred operator group when there is another subscription", func(ctx SpecContext) {
 			// enforce it as a musthave in order to install the operator
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
@@ -2494,9 +2608,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 	})
 	Describe("Testing defaulted values in an OperatorPolicy", func() {
 		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-authorino.yaml"
-			opPolName = "oppol-authorino"
-			subName   = "authorino-operator"
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+			opPolName = "oppol-no-group"
 		)
 
 		BeforeEach(func() {

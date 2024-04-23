@@ -25,7 +25,7 @@ spec:
   versions:
     - quay-operator.v3.8.13
   removalBehavior:
-    operatorGroups: Delete
+    operatorGroups: DeleteIfUnused
     subscriptions: Delete
     clusterServiceVersions: Delete
     installPlans: Delete

@@ -226,7 +226,12 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
-	earlyConds, changed, err := r.handleOpGroup(ctx, policy, desiredOG)
+	desiredSubName := ""
+	if desiredSub != nil {
+		desiredSubName = desiredSub.Name
+	}
+
+	earlyConds, changed, err := r.handleOpGroup(ctx, policy, desiredOG, desiredSubName)
 	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
 	condChanged = condChanged || changed
 
@@ -567,7 +572,10 @@ func buildOperatorGroup(
 }
 
 func (r *OperatorPolicyReconciler) handleOpGroup(
-	ctx context.Context, policy *policyv1beta1.OperatorPolicy, desiredOpGroup *operatorv1.OperatorGroup,
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	desiredOpGroup *operatorv1.OperatorGroup,
+	desiredSubName string,
 ) ([]metav1.Condition, bool, error) {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
@@ -586,7 +594,7 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 		return r.musthaveOpGroup(ctx, policy, desiredOpGroup, foundOpGroups)
 	}
 
-	return r.mustnothaveOpGroup(ctx, policy, desiredOpGroup, foundOpGroups)
+	return r.mustnothaveOpGroup(ctx, policy, desiredOpGroup, foundOpGroups, desiredSubName)
 }
 
 func (r *OperatorPolicyReconciler) musthaveOpGroup(
@@ -716,53 +724,27 @@ func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
 	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
 	desiredOpGroup *operatorv1.OperatorGroup,
-	foundOpGroups []unstructured.Unstructured,
+	allFoundOpGroups []unstructured.Unstructured,
+	desiredSubName string,
 ) ([]metav1.Condition, bool, error) {
-	if len(foundOpGroups) == 0 {
+	if len(allFoundOpGroups) == 0 {
 		// Missing OperatorGroup: report Compliance
 		changed := updateStatus(policy, missingNotWantedCond("OperatorGroup"), missingNotWantedObj(desiredOpGroup))
 
 		return nil, changed, nil
 	}
 
-	var foundOpGroupName string
-	var foundOpGroup *unstructured.Unstructured
-
-	for _, opGroup := range foundOpGroups {
-		emptyNameMatch := desiredOpGroup.Name == "" && opGroup.GetGenerateName() == desiredOpGroup.GenerateName
-
-		if opGroup.GetName() == desiredOpGroup.Name || emptyNameMatch {
-			foundOpGroupName = opGroup.GetName()
-			foundOpGroup = opGroup.DeepCopy()
-
-			break
-		}
+	if len(allFoundOpGroups) > 1 {
+		// Don't try to choose one, just report this as NonCompliant.
+		return nil, updateStatus(policy, opGroupTooManyCond, opGroupTooManyObjs(allFoundOpGroups)...), nil
 	}
 
-	if foundOpGroupName == "" {
-		// no found OperatorGroup matches what the policy is looking for, report Compliance.
-		changed := updateStatus(policy, missingNotWantedCond("OperatorGroup"), missingNotWantedObj(desiredOpGroup))
-
-		return nil, changed, nil
-	}
-
-	desiredOpGroup.SetName(foundOpGroupName)
+	foundOpGroup := allFoundOpGroups[0]
 
 	removalBehavior := policy.Spec.RemovalBehavior.ApplyDefaults()
+	keep := removalBehavior.OperatorGroups.IsKeep()
 
-	if removalBehavior.OperatorGroups.IsKeep() {
-		changed := updateStatus(policy, keptCond("OperatorGroup"), leftoverObj(desiredOpGroup))
-
-		return nil, changed, nil
-	}
-
-	// The found OperatorGroup matches what is *not* wanted by the policy. Report NonCompliance.
-	changed := updateStatus(policy, foundNotWantedCond("OperatorGroup"), foundNotWantedObj(desiredOpGroup))
-
-	if policy.Spec.RemediationAction.IsInform() {
-		return nil, changed, nil
-	}
-
+	// if DeleteIfUnused and there are other subscriptions, then keep the operator group
 	if removalBehavior.OperatorGroups.IsDeleteIfUnused() {
 		// Check the namespace for any subscriptions, including the sub for this mustnothave policy,
 		// since deleting the OperatorGroup before that could cause problems
@@ -774,9 +756,47 @@ func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
 			return nil, false, fmt.Errorf("error listing Subscriptions: %w", err)
 		}
 
-		if len(foundSubscriptions) != 0 {
-			return nil, changed, nil
+		anotherSubFound := false
+
+		for _, sub := range foundSubscriptions {
+			if sub.GetName() != desiredSubName {
+				anotherSubFound = true
+
+				break
+			}
 		}
+
+		if anotherSubFound {
+			keep = true
+		}
+	}
+
+	if keep {
+		return nil, updateStatus(policy, keptCond("OperatorGroup"), leftoverObj(&foundOpGroup)), nil
+	}
+
+	emptyNameMatch := desiredOpGroup.Name == "" && foundOpGroup.GetGenerateName() == desiredOpGroup.GenerateName
+
+	if !(foundOpGroup.GetName() == desiredOpGroup.Name || emptyNameMatch) {
+		// no found OperatorGroup matches what the policy is looking for, report Compliance.
+		changed := updateStatus(policy, missingNotWantedCond("OperatorGroup"), missingNotWantedObj(desiredOpGroup))
+
+		return nil, changed, nil
+	}
+
+	desiredOpGroup.SetName(foundOpGroup.GetName()) // set it for the generateName case
+
+	if len(foundOpGroup.GetOwnerReferences()) != 0 {
+		// the OperatorGroup specified in the policy might be used or managed by something else
+		// so we will keep it.
+		return nil, updateStatus(policy, keptCond("OperatorGroup"), leftoverObj(desiredOpGroup)), nil
+	}
+
+	// The found OperatorGroup matches what is *not* wanted by the policy. Report NonCompliance.
+	changed := updateStatus(policy, foundNotWantedCond("OperatorGroup"), foundNotWantedObj(desiredOpGroup))
+
+	if policy.Spec.RemediationAction.IsInform() {
+		return nil, changed, nil
 	}
 
 	if foundOpGroup.GetDeletionTimestamp() != nil {
