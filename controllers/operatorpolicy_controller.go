@@ -1413,11 +1413,14 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 		return nil, updateStatus(policy, keptCond("ClusterServiceVersion"), relatedCSVs...), nil
 	}
 
+	csvNames := make([]string, 0, len(csvList))
+
 	for i := range csvList {
 		relatedCSVs = append(relatedCSVs, foundNotWantedObj(&csvList[i]))
+		csvNames = append(csvNames, csvList[i].GetName())
 	}
 
-	changed := updateStatus(policy, foundNotWantedCond("ClusterServiceVersion"), relatedCSVs...)
+	changed := updateStatus(policy, foundNotWantedCond("ClusterServiceVersion", csvNames...), relatedCSVs...)
 
 	if policy.Spec.RemediationAction.IsInform() {
 		return nil, changed, nil
@@ -1441,7 +1444,7 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 
 		err := r.Delete(ctx, &csvList[i])
 		if err != nil {
-			changed := updateStatus(policy, foundNotWantedCond("ClusterServiceVersion"), relatedCSVs...)
+			changed := updateStatus(policy, foundNotWantedCond("ClusterServiceVersion", csvNames...), relatedCSVs...)
 
 			if anyAlreadyDeleting {
 				// reset the "early" conditions to avoid flapping
@@ -1459,10 +1462,10 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 		// reset the "early" conditions to avoid flapping
 		earlyConds = []metav1.Condition{}
 
-		return earlyConds, updateStatus(policy, deletingCond("ClusterServiceVersion"), relatedCSVs...), nil
+		return earlyConds, updateStatus(policy, deletingCond("ClusterServiceVersion", csvNames...), relatedCSVs...), nil
 	}
 
-	updateStatus(policy, deletedCond("ClusterServiceVersion"), relatedCSVs...)
+	updateStatus(policy, deletedCond("ClusterServiceVersion", csvNames...), relatedCSVs...)
 
 	return earlyConds, true, nil
 }
