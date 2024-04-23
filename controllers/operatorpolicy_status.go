@@ -428,12 +428,22 @@ func missingNotWantedCond(kind string) metav1.Condition {
 
 // foundNotWantedCond returns a NonCompliant condition with a Reason like '____Present'
 // and a Message like 'the ____ is present'
-func foundNotWantedCond(kind string) metav1.Condition {
+func foundNotWantedCond(kind string, identifiers ...string) metav1.Condition {
+	var extraInfo string
+
+	if len(identifiers) == 1 {
+		extraInfo = fmt.Sprintf(" (%s) is", identifiers[0])
+	} else if len(identifiers) > 1 {
+		extraInfo = fmt.Sprintf("s (%s) are", strings.Join(identifiers, ", "))
+	} else {
+		extraInfo = " is"
+	}
+
 	return metav1.Condition{
 		Type:    condType(kind),
 		Status:  metav1.ConditionFalse,
 		Reason:  kind + "Present",
-		Message: "the " + kind + " is present",
+		Message: "the " + kind + extraInfo + " present",
 	}
 }
 
@@ -450,23 +460,43 @@ func createdCond(kind string) metav1.Condition {
 
 // deletedCond returns a Compliant condition, with a Reason like '____Deleted',
 // and a Message like 'the ____ was deleted'
-func deletedCond(kind string) metav1.Condition {
+func deletedCond(kind string, identifiers ...string) metav1.Condition {
+	var extraInfo string
+
+	if len(identifiers) == 1 {
+		extraInfo = fmt.Sprintf(" (%s) was", identifiers[0])
+	} else if len(identifiers) > 1 {
+		extraInfo = fmt.Sprintf("s (%s) were", strings.Join(identifiers, ", "))
+	} else {
+		extraInfo = " was"
+	}
+
 	return metav1.Condition{
 		Type:    condType(kind),
 		Status:  metav1.ConditionTrue,
 		Reason:  kind + "Deleted",
-		Message: "the " + kind + " was deleted",
+		Message: "the " + kind + extraInfo + " deleted",
 	}
 }
 
 // deletingCond returns a NonCompliant condition, with a Reason like '____Deleting',
 // and a Message like 'the ____ has a deletion timestamp'
-func deletingCond(kind string) metav1.Condition {
+func deletingCond(kind string, identifiers ...string) metav1.Condition {
+	var extraInfo string
+
+	if len(identifiers) == 1 {
+		extraInfo = fmt.Sprintf(" (%s) has", identifiers[0])
+	} else if len(identifiers) > 1 {
+		extraInfo = fmt.Sprintf("s (%s) have", strings.Join(identifiers, ", "))
+	} else {
+		extraInfo = " has"
+	}
+
 	return metav1.Condition{
 		Type:    condType(kind),
 		Status:  metav1.ConditionFalse,
 		Reason:  kind + "Deleting",
-		Message: "the " + kind + " has a deletion timestamp",
+		Message: "the " + kind + extraInfo + " a deletion timestamp",
 	}
 }
 
@@ -687,7 +717,7 @@ func buildCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition 
 		Type:    condType(csv.Kind),
 		Status:  status,
 		Reason:  string(csv.Status.Reason),
-		Message: "ClusterServiceVersion - " + csv.Status.Message,
+		Message: "ClusterServiceVersion (" + csv.Name + ") - " + csv.Status.Message,
 	}
 }
 

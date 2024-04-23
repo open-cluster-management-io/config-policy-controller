@@ -745,12 +745,15 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Reason:    "InstallSucceeded",
 				}},
 				metav1.Condition{
-					Type:    "ClusterServiceVersionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "InstallSucceeded",
-					Message: "ClusterServiceVersion - install strategy completed with no errors",
+					Type:   "ClusterServiceVersionCompliant",
+					Status: metav1.ConditionTrue,
+					Reason: "InstallSucceeded",
+					Message: "ClusterServiceVersion (quay-operator.v3.8.13) - install strategy completed with " +
+						"no errors",
 				},
-				"ClusterServiceVersion - install strategy completed with no errors",
+				regexp.QuoteMeta(
+					"ClusterServiceVersion (quay-operator.v3.8.13) - install strategy completed with no errors",
+				),
 			)
 		})
 
@@ -863,11 +866,13 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:   "ClusterServiceVersionCompliant",
 					Status: metav1.ConditionFalse,
 					Reason: "UnsupportedOperatorGroup",
-					Message: "ClusterServiceVersion - AllNamespaces InstallModeType not supported," +
-						" cannot configure to watch all namespaces",
+					Message: "ClusterServiceVersion (etcdoperator.v0.9.2) - AllNamespaces InstallModeType not " +
+						"supported, cannot configure to watch all namespaces",
 				},
-				"ClusterServiceVersion - AllNamespaces InstallModeType not supported,"+
-					" cannot configure to watch all namespaces",
+				regexp.QuoteMeta(
+					"ClusterServiceVersion (etcdoperator.v0.9.2) - AllNamespaces InstallModeType not supported,"+
+						" cannot configure to watch all namespaces",
+				),
 			)
 		})
 
@@ -1808,9 +1813,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:    "ClusterServiceVersionCompliant",
 					Status:  metav1.ConditionFalse,
 					Reason:  "ClusterServiceVersionPresent",
-					Message: "the ClusterServiceVersion is present",
+					Message: "the ClusterServiceVersion (quay-operator.v3.8.13) is present",
 				},
-				`the ClusterServiceVersion is present`,
+				regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.8.13) is present"),
 			)
 			check(
 				opPolName,
@@ -2142,9 +2147,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:    "ClusterServiceVersionCompliant",
 					Status:  metav1.ConditionFalse,
 					Reason:  "ClusterServiceVersionDeleting",
-					Message: "the ClusterServiceVersion has a deletion timestamp",
+					Message: "the ClusterServiceVersion (" + csvName + ") has a deletion timestamp",
 				},
-				`the ClusterServiceVersion was deleted`,
+				regexp.QuoteMeta("the ClusterServiceVersion ("+csvName+") was deleted"),
 			)
 			desiredCRDObjects := make([]policyv1.RelatedObject, 0)
 			for _, name := range crdNames {
@@ -2275,7 +2280,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Reason:  "ClusterServiceVersionNotPresent",
 					Message: "the ClusterServiceVersion is not present",
 				},
-				`the ClusterServiceVersion was deleted`,
+				regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.8.13) was deleted"),
 			)
 			check(
 				opPolName,
