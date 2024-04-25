@@ -773,9 +773,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:    "DeploymentCompliant",
 					Status:  metav1.ConditionTrue,
 					Reason:  "DeploymentsAvailable",
-					Message: "All operator Deployments have their minimum availability",
+					Message: "all operator Deployments have their minimum availability",
 				},
-				"All operator Deployments have their minimum availability",
+				"all operator Deployments have their minimum availability",
 			)
 		})
 
@@ -892,9 +892,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:    "DeploymentCompliant",
 					Status:  metav1.ConditionTrue,
 					Reason:  "NoExistingDeployments",
-					Message: "No existing operator Deployments",
+					Message: "no existing operator Deployments",
 				},
-				"No existing operator Deployments",
+				"no existing operator Deployments",
 			)
 		})
 

@@ -754,11 +754,11 @@ func buildDeploymentCond(
 ) metav1.Condition {
 	status := metav1.ConditionTrue
 	reason := "DeploymentsAvailable"
-	message := "All operator Deployments have their minimum availability"
+	message := "all operator Deployments have their minimum availability"
 
 	if !depsExist {
 		reason = "NoExistingDeployments"
-		message = "No existing operator Deployments"
+		message = "no existing operator Deployments"
 	}
 
 	if len(unavailableDeps) != 0 {
@@ -771,7 +771,7 @@ func buildDeploymentCond(
 		}
 
 		names := strings.Join(depNames, ", ")
-		message = fmt.Sprintf("Deployments %s do not have their minimum availability", names)
+		message = fmt.Sprintf("the deployments %s do not have their minimum availability", names)
 	}
 
 	return metav1.Condition{
