@@ -971,28 +971,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		// process object templates for go template usage
 		for i, rawData := range rawDataList {
-			// first check to make sure there are no hub-templates with delimiter - {{hub
-			// if one exists, it means the template resolution on the hub did not succeed.
-			if templates.HasTemplate(rawData, "{{hub", false) {
-				// check to see there is an annotation set to the hub error msg,
-				// if not ,set a generic msg
-				hubTemplatesErrMsg, ok := annotations["policy.open-cluster-management.io/hub-templates-error"]
-				if !ok || hubTemplatesErrMsg == "" {
-					// set a generic msg
-					hubTemplatesErrMsg = "Error occurred while processing hub-templates, " +
-						"check the policy events for more details."
-				}
-
-				log.Info(
-					"An error occurred while processing hub-templates on the Hub cluster. Cannot process the policy.",
-					"message", hubTemplatesErrMsg,
-				)
-
-				addTemplateErrorViolation("Error processing hub templates", hubTemplatesErrMsg)
-
-				return
-			}
-
 			if templates.HasTemplate(rawData, "", true) {
 				log.V(1).Info("Processing policy templates")
 

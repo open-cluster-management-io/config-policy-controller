@@ -461,44 +461,6 @@ var _ = Describe("Test templatization", Ordered, func() {
 				return configmap
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeNil())
 
-			By("Patch with invalid hub template")
-			utils.Kubectl("patch", "configurationpolicy", case13PruneTmpErr, "--type=json", "-p",
-				`[{ "op": "replace", 
-			"path": "/spec/object-templates/0/objectDefinition/data/test",
-			 "value": '{{hub "default" "e2esecret" dddddd vvvvv d hub}}' }]`,
-				"-n", testNamespace)
-
-			By("By verifying that the configurationpolicy is NonCompliant")
-			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case13PruneTmpErr, testNamespace, true, defaultTimeoutSeconds)
-
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
-
-			By("By verifying that the configmap still exist ")
-			Consistently(func() interface{} {
-				configmap := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
-					case13PruneTmpErr+"-configmap", "default", true, defaultTimeoutSeconds)
-
-				return configmap
-			}, defaultConsistentlyDuration, 1).ShouldNot(BeNil())
-
-			By("Change to valid configmap")
-			utils.Kubectl("patch", "configurationpolicy", case13PruneTmpErr, "--type=json", "-p",
-				`[{ "op": "replace", 
-				"path": "/spec/object-templates/0/objectDefinition/data/test",
-				 "value": "working" }]`,
-				"-n", testNamespace)
-
-			By("By verifying that the configmap has no error")
-			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case13PruneTmpErr, testNamespace, true, defaultTimeoutSeconds)
-
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-
 			By("Patch with invalid managed template")
 			utils.Kubectl("patch", "configurationpolicy", case13PruneTmpErr, "--type=json", "-p",
 				`[{ "op": "replace", 
