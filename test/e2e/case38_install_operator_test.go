@@ -2653,4 +2653,106 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			Expect(remBehavior).To(HaveKeyWithValue("customResourceDefinitions", "Keep"))
 		})
 	})
+	Describe("Testing templates in an OperatorPolicy", Ordered, func() {
+		const (
+			opPolYAML     = "../resources/case38_operator_install/operator-policy-with-templates.yaml"
+			opPolName     = "oppol-with-templates"
+			configmapYAML = "../resources/case38_operator_install/template-configmap.yaml"
+			opGroupName   = "scoped-operator-group"
+			subName       = "project-quay"
+		)
+
+		BeforeAll(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			utils.Kubectl("apply", "-f", configmapYAML, "-n", opPolTestNS)
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should lookup values for operator policy resources when enforced", func(ctx SpecContext) {
+			// enforce the policy
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      opGroupName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "OperatorGroupMatches",
+					Message: "the OperatorGroup matches what is required by the policy",
+				},
+				"the OperatorGroup required by the policy was created",
+			)
+
+			By("Verifying the targetNamespaces in the OperatorGroup")
+			og, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+				Get(ctx, opGroupName, metav1.GetOptions{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(og).NotTo(BeNil())
+
+			targetNamespaces, found, err := unstructured.NestedStringSlice(og.Object, "spec", "targetNamespaces")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(targetNamespaces).To(HaveExactElements("foo", "bar", opPolTestNS))
+
+			By("Verifying the Subscription channel")
+			sub, err := clientManagedDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+				Get(ctx, subName, metav1.GetOptions{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(sub).NotTo(BeNil())
+
+			channel, found, err := unstructured.NestedString(sub.Object, "spec", "channel")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(found).To(BeTrue())
+			Expect(channel).To(Equal("fakechannel"))
+		})
+
+		It("Should update the subscription after the configmap is updated", func(ctx SpecContext) {
+			utils.Kubectl("patch", "configmap", "op-config", "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/data/channel", "value": "stable-3.8"}]`)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      subName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "SubscriptionMatches",
+					Message: "the Subscription matches what is required by the policy",
+				},
+				"the Subscription was updated to match the policy",
+			)
+		})
+	})
 })

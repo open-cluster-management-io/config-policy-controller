@@ -13,7 +13,7 @@ require (
 	github.com/prometheus/client_golang v1.18.0
 	github.com/spf13/pflag v1.0.5
 	github.com/stolostron/go-log-utils v0.1.2
-	github.com/stolostron/go-template-utils/v4 v4.0.0
+	github.com/stolostron/go-template-utils/v4 v4.0.2-0.20240426175705-e9547005fb4f
 	github.com/stolostron/kubernetes-dependency-watches v0.5.2
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/mod v0.16.0
@@ -56,7 +56,7 @@ require (
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/pprof v0.0.0-20240402174815-29b9bb013b0f // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
-	github.com/google/uuid v1.3.1 // indirect
+	github.com/google/uuid v1.4.0 // indirect
 	github.com/huandu/xstrings v1.4.0 // indirect
 	github.com/imdario/mergo v1.0.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
