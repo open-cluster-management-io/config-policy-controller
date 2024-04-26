@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: op-config
+data:
+  channel: "fakechannel"
+  namespaces: '["foo", "bar", "operator-policy-testns"]'

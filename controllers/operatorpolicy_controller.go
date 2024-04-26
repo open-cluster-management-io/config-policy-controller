@@ -12,10 +12,12 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
+	templates "github.com/stolostron/go-template-utils/v4/pkg/templates"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -316,7 +318,24 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 
 	validationErrors := make([]error, 0)
 
-	sub, subErr := buildSubscription(policy, r.DefaultNamespace)
+	disableTemplates := false
+
+	if disableAnnotation, ok := policy.GetAnnotations()["policy.open-cluster-management.io/disable-templates"]; ok {
+		disableTemplates, _ = strconv.ParseBool(disableAnnotation) // on error, templates will not be disabled
+	}
+
+	var tmplResolver *templates.TemplateResolver
+
+	if !disableTemplates {
+		var err error
+
+		tmplResolver, err = templates.NewResolverWithDynamicWatcher(r.DynamicWatcher, templates.Config{})
+		if err != nil {
+			validationErrors = append(validationErrors, fmt.Errorf("unable to create template resolver: %w", err))
+		}
+	}
+
+	sub, subErr := buildSubscription(policy, r.DefaultNamespace, tmplResolver)
 	if subErr == nil {
 		err := r.applySubscriptionDefaults(ctx, sub)
 		if err != nil {
@@ -339,7 +358,7 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		opGroupNS = sub.Namespace
 	}
 
-	opGroup, ogErr := buildOperatorGroup(policy, opGroupNS)
+	opGroup, ogErr := buildOperatorGroup(policy, opGroupNS, tmplResolver)
 	if ogErr != nil {
 		validationErrors = append(validationErrors, ogErr)
 	} else {
@@ -434,13 +453,26 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 // If an error is returned, it will include details on why the policy spec if invalid and
 // why the desired subscription can't be determined.
 func buildSubscription(
-	policy *policyv1beta1.OperatorPolicy, defaultNS string,
+	policy *policyv1beta1.OperatorPolicy, defaultNS string, tmplResolver *templates.TemplateResolver,
 ) (*operatorv1alpha1.Subscription, error) {
 	subscription := new(operatorv1alpha1.Subscription)
 
+	rawSub := policy.Spec.Subscription.Raw
+
+	if tmplResolver != nil && templates.HasTemplate(rawSub, "", false) {
+		watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+		resolvedTmpl, err := tmplResolver.ResolveTemplate(rawSub, nil, &templates.ResolveOptions{Watcher: &watcher})
+		if err != nil {
+			return nil, fmt.Errorf("could not build subscription: %w", err)
+		}
+
+		rawSub = resolvedTmpl.ResolvedJSON
+	}
+
 	sub := make(map[string]interface{})
 
-	err := json.Unmarshal(policy.Spec.Subscription.Raw, &sub)
+	err := json.Unmarshal(rawSub, &sub)
 	if err != nil {
 		return nil, fmt.Errorf("the policy spec.subscription is invalid: %w", err)
 	}
@@ -510,7 +542,7 @@ func buildSubscription(
 // buildOperatorGroup bootstraps the OperatorGroup spec defined in the operator policy
 // with the apiversion and kind in preparation for resource creation
 func buildOperatorGroup(
-	policy *policyv1beta1.OperatorPolicy, namespace string,
+	policy *policyv1beta1.OperatorPolicy, namespace string, tmplResolver *templates.TemplateResolver,
 ) (*operatorv1.OperatorGroup, error) {
 	operatorGroup := new(operatorv1.OperatorGroup)
 
@@ -526,9 +558,22 @@ func buildOperatorGroup(
 		return operatorGroup, nil
 	}
 
+	rawOG := policy.Spec.OperatorGroup.Raw
+
+	if tmplResolver != nil && templates.HasTemplate(rawOG, "", false) {
+		watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+		resolvedTmpl, err := tmplResolver.ResolveTemplate(rawOG, nil, &templates.ResolveOptions{Watcher: &watcher})
+		if err != nil {
+			return nil, fmt.Errorf("could not build operator group: %w", err)
+		}
+
+		rawOG = resolvedTmpl.ResolvedJSON
+	}
+
 	opGroup := make(map[string]interface{})
 
-	if err := json.Unmarshal(policy.Spec.OperatorGroup.Raw, &opGroup); err != nil {
+	if err := json.Unmarshal(rawOG, &opGroup); err != nil {
 		return nil, fmt.Errorf("the policy spec.operatorGroup is invalid: %w", err)
 	}
 
