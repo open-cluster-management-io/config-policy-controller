@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1beta1
 kind: OperatorPolicy
 metadata:
-  name: oppol-no-group
+  name: oppol-no-group-enforce-one-version
   annotations:
     policy.open-cluster-management.io/parent-policy-compliance-db-id: "124"
     policy.open-cluster-management.io/policy-compliance-db-id: "64"
@@ -11,7 +11,7 @@ metadata:
     name: parent-policy
     uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
 spec:
-  remediationAction: inform
+  remediationAction: enforce
   severity: medium
   complianceType: musthave
   subscription:
@@ -22,3 +22,5 @@ spec:
     source: operatorhubio-catalog
     sourceNamespace: olm
     startingCSV: quay-operator.v3.10.0
+  versions:
+  - quay-operator.v3.10.0

@@ -734,8 +734,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 	})
 	Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
 		const (
-			opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			opPolName        = "oppol-no-group-enforce"
+			opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce-one-version.yaml"
+			opPolName        = "oppol-no-group-enforce-one-version"
 			opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
 			opPolNoExistName = "oppol-no-exist-enforce"
 		)
@@ -755,7 +755,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
 			Eventually(func(ctx SpecContext) string {
 				csv, _ := clientManagedDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
-					Get(ctx, "quay-operator.v3.8.13", metav1.GetOptions{})
+					Get(ctx, "quay-operator.v3.10.0", metav1.GetOptions{})
 
 				if csv == nil {
 					return ""
@@ -781,11 +781,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:   "ClusterServiceVersionCompliant",
 					Status: metav1.ConditionTrue,
 					Reason: "InstallSucceeded",
-					Message: "ClusterServiceVersion (quay-operator.v3.8.13) - install strategy completed with " +
+					Message: "ClusterServiceVersion (quay-operator.v3.10.0) - install strategy completed with " +
 						"no errors",
 				},
 				regexp.QuoteMeta(
-					"ClusterServiceVersion (quay-operator.v3.8.13) - install strategy completed with no errors",
+					"ClusterServiceVersion (quay-operator.v3.10.0) - install strategy completed with no errors",
 				),
 			)
 		})
@@ -1407,16 +1407,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					},
 					Compliant: "Compliant",
 					Reason:    "Resource found as expected",
-				}, {
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "quayecosystems.redhatcop.redhat.io",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found as expected",
 				}},
 				metav1.Condition{
 					Type:    "CustomResourceDefinitionCompliant",
@@ -1744,17 +1734,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				return crd
 			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
-			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			Eventually(func(g Gomega) string {
-				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
-					opPolTestNS, true, eventuallyTimeout)
-				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-
-				return compliance
-			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
-
 			// Revert to the original mustnothave policy
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"},`+
@@ -1819,6 +1798,16 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					},
 					Compliant: "Compliant",
 					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}, {
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
 				}},
 				metav1.Condition{
 					Type:    "InstallPlanCompliant",
@@ -1846,24 +1835,14 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Type:    "ClusterServiceVersionCompliant",
 					Status:  metav1.ConditionFalse,
 					Reason:  "ClusterServiceVersionPresent",
-					Message: "the ClusterServiceVersion (quay-operator.v3.8.13) is present",
+					Message: "the ClusterServiceVersion (quay-operator.v3.10.0) is present",
 				},
-				regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.8.13) is present"),
+				regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.10.0) is present"),
 			)
 			check(
 				opPolName,
 				true,
 				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "quayecosystems.redhatcop.redhat.io",
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "Resource found but should not exist",
-				}, {
 					Object: policyv1.ObjectResource{
 						Kind:       "CustomResourceDefinition",
 						APIVersion: "apiextensions.k8s.io/v1",
@@ -1959,16 +1938,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 						Kind:       "CustomResourceDefinition",
 						APIVersion: "apiextensions.k8s.io/v1",
 						Metadata: policyv1.ObjectMetadata{
-							Name: "quayecosystems.redhatcop.redhat.io",
-						},
-					},
-					Reason: "The CustomResourceDefinition is attached to a mustnothave policy, but " +
-						"does not need to be removed",
-				}, {
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
 							Name: "quayregistries.quay.redhat.com",
 						},
 					},
@@ -2002,12 +1971,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			keptChecks()
 
 			By("Checking that certain (named) resources are still there")
-			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.8.13",
+			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
 				opPolTestNS, true, eventuallyTimeout)
 			utils.GetWithTimeout(clientManagedDynamic, gvrSubscription, subName,
 				opPolTestNS, true, eventuallyTimeout)
-			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayecosystems.redhatcop.redhat.io",
-				"", true, eventuallyTimeout)
 			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayregistries.quay.redhat.com",
 				"", true, eventuallyTimeout)
 		})
@@ -2129,6 +2096,17 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					},
 					Compliant: "Compliant",
 					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}, {
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      installPlanName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
 				}},
 				metav1.Condition{
 					Type:    "InstallPlanCompliant",
@@ -2190,12 +2168,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		})
 		It("Should report things as gone after the finalizers are removed", func() {
 			By("Checking that certain (named) resources are not there, indicating the removal was completed")
-			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.8.13",
+			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
 				opPolTestNS, false, eventuallyTimeout)
 			utils.GetWithTimeout(clientManagedDynamic, gvrSubscription, subName,
 				opPolTestNS, false, eventuallyTimeout)
-			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayecosystems.redhatcop.redhat.io",
-				"", false, eventuallyTimeout)
 			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayregistries.quay.redhat.com",
 				"", false, eventuallyTimeout)
 
@@ -2290,7 +2266,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Reason:  "ClusterServiceVersionNotPresent",
 					Message: "the ClusterServiceVersion is not present",
 				},
-				regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.8.13) was deleted"),
+				regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.10.0) was deleted"),
 			)
 			check(
 				opPolName,
@@ -2728,7 +2704,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 		It("Should update the subscription after the configmap is updated", func(ctx SpecContext) {
 			utils.Kubectl("patch", "configmap", "op-config", "-n", opPolTestNS, "--type=json", "-p",
-				`[{"op": "replace", "path": "/data/channel", "value": "stable-3.8"}]`)
+				`[{"op": "replace", "path": "/data/channel", "value": "stable-3.10"}]`)
 
 			check(
 				opPolName,
