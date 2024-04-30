@@ -429,7 +429,11 @@ func main() {
 		depReconciler, depEvents := depclient.NewControllerRuntimeSource()
 
 		watcher, err := depclient.New(cfg, depReconciler,
-			&depclient.Options{DisableInitialReconcile: true, EnableCache: true})
+			&depclient.Options{
+				DisableInitialReconcile: true,
+				EnableCache:             true,
+				ObjectCacheOptions:      depclient.ObjectCacheOptions{UnsafeDisableDeepCopy: false},
+			})
 		if err != nil {
 			log.Error(err, "Unable to create dependency watcher")
 			os.Exit(1)

@@ -704,10 +704,8 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 			return nil, false, fmt.Errorf("error converting desired OperatorGroup to an Unstructured: %w", err)
 		}
 
-		merged := opGroup.DeepCopy() // Copy it so that the value in the cache is not changed
-
 		updateNeeded, skipUpdate, err := r.mergeObjects(
-			ctx, desiredUnstruct, merged, string(policy.Spec.ComplianceType),
+			ctx, desiredUnstruct, &opGroup, string(policy.Spec.ComplianceType),
 		)
 		if err != nil {
 			return nil, false, fmt.Errorf("error checking if the OperatorGroup needs an update: %w", err)
@@ -747,7 +745,7 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 
 		desiredOpGroup.ResourceVersion = opGroup.GetResourceVersion()
 
-		err = r.Update(ctx, merged)
+		err = r.Update(ctx, &opGroup)
 		if err != nil {
 			return nil, changed, fmt.Errorf("error updating the OperatorGroup: %w", err)
 		}
@@ -974,15 +972,13 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 		return nil, nil, false, fmt.Errorf("error converting desired Subscription to an Unstructured: %w", err)
 	}
 
-	merged := foundSub.DeepCopy() // Copy it so that the value in the cache is not changed
-
-	updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, merged, string(policy.Spec.ComplianceType))
+	updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, foundSub, string(policy.Spec.ComplianceType))
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("error checking if the Subscription needs an update: %w", err)
 	}
 
 	mergedSub := new(operatorv1alpha1.Subscription)
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(merged.Object, mergedSub); err != nil {
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(foundSub.Object, mergedSub); err != nil {
 		return nil, nil, false, fmt.Errorf("error converting the retrieved Subscription to the go type: %w", err)
 	}
 
@@ -1040,14 +1036,14 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
 
-	err = r.Update(ctx, merged)
+	err = r.Update(ctx, foundSub)
 	if err != nil {
 		return mergedSub, nil, changed, fmt.Errorf("error updating the Subscription: %w", err)
 	}
 
-	merged.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
+	foundSub.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
 
-	updateStatus(policy, updatedCond("Subscription"), updatedObj(merged))
+	updateStatus(policy, updatedCond("Subscription"), updatedObj(foundSub))
 
 	return mergedSub, earlyConds, true, nil
 }
@@ -1696,11 +1692,10 @@ func (r *OperatorPolicyReconciler) handleCatalogSource(
 
 	if !isMissing {
 		// CatalogSource is found, initiate health check
-		catalogSrcUnstruct := foundCatalogSrc.DeepCopy()
 		catalogSrc := new(operatorv1alpha1.CatalogSource)
 
 		err := runtime.DefaultUnstructuredConverter.
-			FromUnstructured(catalogSrcUnstruct.Object, catalogSrc)
+			FromUnstructured(foundCatalogSrc.Object, catalogSrc)
 		if err != nil {
 			return false, fmt.Errorf("error converting the retrieved CatalogSource to the Go type: %w", err)
 		}
