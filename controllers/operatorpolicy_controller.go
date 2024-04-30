@@ -617,7 +617,7 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 		}
 
-		err := r.Create(ctx, desiredOpGroup)
+		err := r.createWithNamespace(ctx, policy, desiredOpGroup)
 		if err != nil {
 			return nil, changed, fmt.Errorf("error creating the OperatorGroup: %w", err)
 		}
@@ -717,6 +717,53 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 		// Consider improving this in the future: perhaps this could suggest one of the OperatorGroups to keep.
 		return nil, updateStatus(policy, opGroupTooManyCond, opGroupTooManyObjs(foundOpGroups)...), nil
 	}
+}
+
+// createWithNamespace will create the input object and the object's namespace if needed.
+func (r *OperatorPolicyReconciler) createWithNamespace(
+	ctx context.Context, policy *policyv1beta1.OperatorPolicy, object client.Object,
+) error {
+	err := r.Create(ctx, object)
+	if err == nil {
+		return nil
+	}
+
+	// If the error is not due to a missing namespace or the namespace is not set on the object, return the error.
+	if !isNamespaceNotFound(err) || object.GetNamespace() == "" {
+		return err
+	}
+
+	log.Info("Creating the namespace since it didn't exist", "name", object.GetNamespace(), "policy", policy.Name)
+
+	ns := corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: object.GetNamespace(),
+		},
+	}
+
+	err = r.Create(ctx, &ns)
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
+		return err
+	}
+
+	// Try creating the object again now that the namespace was created.
+	return r.Create(ctx, object)
+}
+
+// isNamespaceNotFound detects if the input error from r.Create failed due to the specified namespace not existing.
+func isNamespaceNotFound(err error) bool {
+	if !k8serrors.IsNotFound(err) {
+		return false
+	}
+
+	statusErr := &k8serrors.StatusError{}
+	if !errors.As(err, &statusErr) {
+		return false
+	}
+
+	status := statusErr.Status()
+
+	return status.Details != nil && status.Details.Kind == "namespaces"
 }
 
 func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
@@ -863,7 +910,7 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 		}
 
-		err := r.Create(ctx, desiredSub)
+		err := r.createWithNamespace(ctx, policy, desiredSub)
 		if err != nil {
 			return nil, nil, changed, fmt.Errorf("error creating the Subscription: %w", err)
 		}
