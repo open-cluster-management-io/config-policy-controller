@@ -3,9 +3,9 @@ kind: Subscription
 metadata:
   name: project-quay
 spec:
-  channel: stable-3.8
+  channel: stable-3.10
   name: project-quay
   installPlanApproval: Automatic
   source: operatorhubio-catalog
   sourceNamespace: olm
-  startingCSV: quay-operator.v3.8.1
+  startingCSV: quay-operator.v3.10.0

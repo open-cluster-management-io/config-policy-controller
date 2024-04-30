@@ -15,15 +15,15 @@ spec:
   severity: medium
   complianceType: mustnothave
   subscription:
-    channel: stable-3.8
+    channel: stable-3.10
     name: project-quay
     namespace: operator-policy-testns
     installPlanApproval: Manual
     source: operatorhubio-catalog
     sourceNamespace: olm
-    startingCSV: quay-operator.v3.8.13
+    startingCSV: quay-operator.v3.10.0
   versions:
-    - quay-operator.v3.8.13
+    - quay-operator.v3.10.0
   removalBehavior:
     operatorGroups: DeleteIfUnused
     subscriptions: Delete

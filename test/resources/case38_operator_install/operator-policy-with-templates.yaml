@@ -25,4 +25,4 @@ spec:
     installPlanApproval: Automatic
     source: operatorhubio-catalog
     sourceNamespace: olm
-    startingCSV: quay-operator.v3.8.1
+    startingCSV: quay-operator.v3.10.0

@@ -22,10 +22,10 @@ spec:
       - operator-policy-testns
   subscription:
     actually: incorrect
-    channel: stable-3.8
+    channel: stable-3.10
     name: project-quay
     namespace: nonexist-testns
     installPlanApproval: Incorrect
     source: operatorhubio-catalog
     sourceNamespace: olm
-    startingCSV: quay-operator.v3.8.1
+    startingCSV: quay-operator.v3.10.0
