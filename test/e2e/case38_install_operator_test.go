@@ -354,6 +354,39 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 		})
 	})
+
+	Describe("Testing namespace creation", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+			opPolName = "oppol-no-group-enforce"
+		)
+		BeforeAll(func() {
+			DeferCleanup(func() {
+				utils.Kubectl(
+					"delete", "-f", parentPolicyYAML, "-n", testNamespace, "--ignore-not-found", "--cascade=foreground",
+				)
+				utils.Kubectl("delete", "ns", opPolTestNS, "--ignore-not-found")
+			})
+
+			createObjWithParent(
+				parentPolicyYAML, parentPolicyName, opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy,
+			)
+		})
+
+		It("Should be compliant when enforced", func() {
+			By("Waiting for the operator policy " + opPolName + " to be compliant")
+			Eventually(func() string {
+				opPolicy := utils.GetWithTimeout(
+					clientManagedDynamic, gvrOperatorPolicy, opPolName, testNamespace, true, defaultTimeoutSeconds,
+				)
+
+				compliance, _, _ := unstructured.NestedString(opPolicy.Object, "status", "compliant")
+
+				return compliance
+			}, defaultTimeoutSeconds*2, 1).Should(Equal("Compliant"))
+		})
+	})
+
 	Describe("Testing OperatorGroup behavior when it is specified in the policy", Ordered, func() {
 		const (
 			opPolYAML            = "../resources/case38_operator_install/operator-policy-with-group.yaml"
