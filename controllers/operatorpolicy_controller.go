@@ -1515,14 +1515,14 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 	policy *policyv1beta1.OperatorPolicy,
 	csv *operatorv1alpha1.ClusterServiceVersion,
 ) (bool, error) {
-	if policy.Spec.ComplianceType.IsMustNotHave() {
-		return updateStatus(policy, notApplicableCond("Deployment")), nil
-	}
-
 	// case where csv is nil
 	if csv == nil {
 		// need to report lack of existing Deployments
-		return updateStatus(policy, noDeploymentsCond, noExistingDeploymentObj), nil
+		if policy.Spec.ComplianceType.IsMustHave() {
+			return updateStatus(policy, noDeploymentsCond, noExistingDeploymentObj), nil
+		}
+
+		return updateStatus(policy, notApplicableCond("Deployment")), nil
 	}
 
 	OpLog := ctrl.LoggerFrom(ctx)
@@ -1542,7 +1542,8 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 
 		// report missing deployment in relatedObjects list
 		if foundDep == nil {
-			relatedObjects = append(relatedObjects, missingDeploymentObj(dep.Name, csv.Namespace))
+			relatedObjects = append(relatedObjects,
+				missingObj(dep.Name, csv.Namespace, policy.Spec.ComplianceType, deploymentGVK))
 
 			continue
 		}
@@ -1564,7 +1565,15 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 
 		depNum++
 
-		relatedObjects = append(relatedObjects, existingDeploymentObj(&dep))
+		if policy.Spec.ComplianceType.IsMustNotHave() {
+			relatedObjects = append(relatedObjects, foundNotApplicableObj(&dep))
+		} else {
+			relatedObjects = append(relatedObjects, existingDeploymentObj(&dep))
+		}
+	}
+
+	if policy.Spec.ComplianceType.IsMustNotHave() {
+		return updateStatus(policy, notApplicableCond("Deployment"), relatedObjects...), nil
 	}
 
 	return updateStatus(policy, buildDeploymentCond(depNum > 0, unavailableDeployments), relatedObjects...), nil
@@ -1668,18 +1677,20 @@ func (r *OperatorPolicyReconciler) handleCatalogSource(
 	policy *policyv1beta1.OperatorPolicy,
 	subscription *operatorv1alpha1.Subscription,
 ) (bool, error) {
-	if policy.Spec.ComplianceType.IsMustNotHave() {
-		cond := notApplicableCond("CatalogSource")
-		cond.Status = metav1.ConditionFalse // CatalogSource condition has the opposite polarity
-
-		return updateStatus(policy, cond), nil
-	}
-
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	if subscription == nil {
 		// Note: existing related objects will not be removed by this status update
-		return updateStatus(policy, invalidCausingUnknownCond("CatalogSource")), nil
+		if policy.Spec.ComplianceType.IsMustHave() {
+			return updateStatus(policy, invalidCausingUnknownCond("CatalogSource")), nil
+		}
+
+		// CatalogSource may be available
+		// related objects will remain the same to report last known state
+		cond := notApplicableCond("CatalogSource")
+		cond.Status = metav1.ConditionFalse
+
+		return updateStatus(policy, cond), nil
 	}
 
 	catalogName := subscription.Spec.CatalogSource
@@ -1692,22 +1703,64 @@ func (r *OperatorPolicyReconciler) handleCatalogSource(
 		return false, fmt.Errorf("error getting CatalogSource: %w", err)
 	}
 
-	isMissing := foundCatalogSrc == nil
-	isUnhealthy := isMissing
+	var catalogSrc *operatorv1alpha1.CatalogSource
 
-	if !isMissing {
+	if foundCatalogSrc != nil {
 		// CatalogSource is found, initiate health check
-		catalogSrc := new(operatorv1alpha1.CatalogSource)
+		catalogSrc = new(operatorv1alpha1.CatalogSource)
 
 		err := runtime.DefaultUnstructuredConverter.
 			FromUnstructured(foundCatalogSrc.Object, catalogSrc)
 		if err != nil {
 			return false, fmt.Errorf("error converting the retrieved CatalogSource to the Go type: %w", err)
 		}
+	}
 
+	if policy.Spec.ComplianceType.IsMustNotHave() {
+		return r.mustnothaveCatalogSource(policy, catalogSrc, catalogName, catalogNS)
+	}
+
+	return r.musthaveCatalogSource(policy, catalogSrc, catalogName, catalogNS)
+}
+
+func (r *OperatorPolicyReconciler) mustnothaveCatalogSource(
+	policy *policyv1beta1.OperatorPolicy,
+	catalogSrc *operatorv1alpha1.CatalogSource,
+	catalogName string,
+	catalogNS string,
+) (bool, error) {
+	var relObj policyv1.RelatedObject
+
+	cond := notApplicableCond("CatalogSource")
+	cond.Status = metav1.ConditionFalse // CatalogSource condition has the opposite polarity
+
+	if catalogSrc == nil {
+		relObj = missingObj(catalogName, catalogNS, policyv1.MustNotHave, catalogSrcGVK)
+	} else {
+		relObj = foundNotApplicableObj(catalogSrc)
+	}
+
+	return updateStatus(policy, cond, relObj), nil
+}
+
+func (r *OperatorPolicyReconciler) musthaveCatalogSource(
+	policy *policyv1beta1.OperatorPolicy,
+	catalogSrc *operatorv1alpha1.CatalogSource,
+	catalogName string,
+	catalogNS string,
+) (bool, error) {
+	isMissing := catalogSrc == nil
+	isUnhealthy := isMissing
+
+	if catalogSrc != nil {
+		// CatalogSource is found, initiate health check
 		if catalogSrc.Status.GRPCConnectionState == nil {
 			// Unknown State
-			changed := updateStatus(policy, catalogSourceUnknownCond, catalogSrcUnknownObj(catalogName, catalogNS))
+			changed := updateStatus(
+				policy,
+				catalogSourceUnknownCond,
+				catalogSrcUnknownObj(catalogSrc.Name, catalogSrc.Namespace),
+			)
 
 			return changed, nil
 		}

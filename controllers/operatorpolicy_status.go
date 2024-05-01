@@ -12,6 +12,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
@@ -856,16 +857,52 @@ func foundNotWantedObj(obj client.Object) policyv1.RelatedObject {
 	}
 }
 
-// foundNotWantedIpObj returns a Compliant RelatedObject with
+// foundNotApplicableObj returns a Compliant RelatedObject with
 // reason = 'Resource found but will not be handled in mustnothave mode'
 func foundNotApplicableObj(obj client.Object) policyv1.RelatedObject {
 	return policyv1.RelatedObject{
 		Object:    policyv1.ObjectResourceFromObj(obj),
 		Compliant: string(policyv1.Compliant),
-		Reason:    reasonIgnoreNotApplicable,
+		Reason:    reasonFoundNotApplicable,
 		Properties: &policyv1.ObjectProperties{
 			UID: string(obj.GetUID()),
 		},
+	}
+}
+
+// missingObj returns a conditionally Compliant RelatedObject with
+// reason = "Resource not found but should exist"/"Resource not found as expected"
+// based on the complianceType specified by the policy
+func missingObj(
+	name string,
+	namespace string,
+	complianceType policyv1.ComplianceType,
+	gvk schema.GroupVersionKind,
+) policyv1.RelatedObject {
+	var compliance policyv1.ComplianceState
+	var reason string
+
+	if complianceType.IsMustHave() {
+		compliance = policyv1.NonCompliant
+		reason = reasonWantFoundDNE
+	} else {
+		// Non-Applicables are not handled by controller
+		// However if the're not found -> report NA or report not found as expected?
+		compliance = policyv1.Compliant
+		reason = reasonWantNotFoundDNE
+	}
+
+	return policyv1.RelatedObject{
+		Object: policyv1.ObjectResource{
+			Kind:       gvk.Kind,
+			APIVersion: gvk.GroupVersion().String(),
+			Metadata: policyv1.ObjectMetadata{
+				Name:      name,
+				Namespace: namespace,
+			},
+		},
+		Compliant: string(compliance),
+		Reason:    reason,
 	}
 }
 
@@ -1114,23 +1151,6 @@ var noExistingCRDObj = policyv1.RelatedObject{
 	},
 	Compliant: string(policyv1.Compliant),
 	Reason:    "No relevant CustomResourceDefinitions found",
-}
-
-// missingDeploymentObj returns a NonCompliant RelatedObject for a Deployment,
-// with Reason 'Resource not found but should exist'
-func missingDeploymentObj(name string, namespace string) policyv1.RelatedObject {
-	return policyv1.RelatedObject{
-		Object: policyv1.ObjectResource{
-			Kind:       deploymentGVK.Kind,
-			APIVersion: deploymentGVK.GroupVersion().String(),
-			Metadata: policyv1.ObjectMetadata{
-				Name:      name,
-				Namespace: namespace,
-			},
-		},
-		Compliant: string(policyv1.NonCompliant),
-		Reason:    reasonWantFoundDNE,
-	}
 }
 
 // existingDeploymentObj returns a RelatedObject for a Deployment, which will

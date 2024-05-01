@@ -1565,9 +1565,12 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 	})
 	Describe("Testing general OperatorPolicy mustnothave behavior", Ordered, func() {
 		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
-			opPolName = "oppol-mustnothave"
-			subName   = "project-quay"
+			opPolYAML      = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
+			opPolName      = "oppol-mustnothave"
+			subName        = "project-quay"
+			deploymentName = "quay-operator-tng"
+			catSrcName     = "operatorhubio-catalog"
+			catSrcNS       = "olm"
 		)
 
 		BeforeAll(func() {
@@ -1865,6 +1868,52 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				},
 				`the CustomResourceDefinition is present`,
 			)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Deployment",
+						APIVersion: "apps/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      deploymentName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}},
+				metav1.Condition{
+					Type:    "DeploymentCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeploymentNotApplicable",
+					Message: "MustNotHave policies ignore kind Deployment",
+				},
+				`MustNotHave policies ignore kind Deployment`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CatalogSource",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      catSrcName,
+							Namespace: catSrcNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CatalogSourceNotApplicable",
+					Message: "MustNotHave policies ignore kind CatalogSource",
+				},
+				`MustNotHave policies ignore kind CatalogSource`,
+			)
 		})
 
 		// These are the same for inform and enforce, so just write them once
@@ -1966,6 +2015,52 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Keep"}]`)
 			By("Checking the OperatorPolicy status")
 			keptChecks()
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Deployment",
+						APIVersion: "apps/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      deploymentName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}},
+				metav1.Condition{
+					Type:    "DeploymentCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeploymentNotApplicable",
+					Message: "MustNotHave policies ignore kind Deployment",
+				},
+				`MustNotHave policies ignore kind Deployment`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CatalogSource",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      catSrcName,
+							Namespace: catSrcNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CatalogSourceNotApplicable",
+					Message: "MustNotHave policies ignore kind CatalogSource",
+				},
+				`MustNotHave policies ignore kind CatalogSource`,
+			)
 		})
 		It("Should not remove anything when enforced while set to Keep everything", func(ctx SpecContext) {
 			// Enforce the policy
@@ -1973,6 +2068,52 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
 			By("Checking the OperatorPolicy status")
 			keptChecks()
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Deployment",
+						APIVersion: "apps/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      deploymentName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}},
+				metav1.Condition{
+					Type:    "DeploymentCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeploymentNotApplicable",
+					Message: "MustNotHave policies ignore kind Deployment",
+				},
+				`MustNotHave policies ignore kind Deployment`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CatalogSource",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      catSrcName,
+							Namespace: catSrcNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CatalogSourceNotApplicable",
+					Message: "MustNotHave policies ignore kind CatalogSource",
+				},
+				`MustNotHave policies ignore kind CatalogSource`,
+			)
 
 			By("Checking that certain (named) resources are still there")
 			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
@@ -2293,6 +2434,52 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Message: "no CRDs were found for the operator",
 				},
 				`the CustomResourceDefinition was deleted`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Deployment",
+						APIVersion: "apps/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      deploymentName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}},
+				metav1.Condition{
+					Type:    "DeploymentCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "DeploymentNotApplicable",
+					Message: "MustNotHave policies ignore kind Deployment",
+				},
+				`MustNotHave policies ignore kind Deployment`,
+			)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CatalogSource",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      catSrcName,
+							Namespace: catSrcNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found but will not be handled in mustnothave mode",
+				}},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CatalogSourceNotApplicable",
+					Message: "MustNotHave policies ignore kind CatalogSource",
+				},
+				`MustNotHave policies ignore kind CatalogSource`,
 			)
 
 			// the checks don't verify that the policy is compliant, do that now:
