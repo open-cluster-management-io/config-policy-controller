@@ -919,16 +919,12 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					Reason:    "UnsupportedOperatorGroup",
 				}},
 				metav1.Condition{
-					Type:   "ClusterServiceVersionCompliant",
-					Status: metav1.ConditionFalse,
-					Reason: "UnsupportedOperatorGroup",
-					Message: "ClusterServiceVersion (etcdoperator.v0.9.2) - AllNamespaces InstallModeType not " +
-						"supported, cannot configure to watch all namespaces",
+					Type:    "ClusterServiceVersionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "UnsupportedOperatorGroup",
+					Message: "AllNamespaces InstallModeType not supported",
 				},
-				regexp.QuoteMeta(
-					"ClusterServiceVersion (etcdoperator.v0.9.2) - AllNamespaces InstallModeType not supported,"+
-						" cannot configure to watch all namespaces",
-				),
+				"AllNamespaces InstallModeType not supported",
 			)
 		})
 
@@ -1357,7 +1353,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 	})
 	Describe("Testing CustomResourceDefinition reporting", Ordered, func() {
 		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
 			opPolName = "oppol-no-group"
 		)
 		BeforeAll(func() {
@@ -1406,9 +1402,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 				return crd
 			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
-
-			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			checkCompliance(opPolName, opPolTestNS, olmWaitTimeout, policyv1.Compliant)
 
 			check(
 				opPolName,
@@ -2363,7 +2356,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 	})
 	Describe("Testing mustnothave behavior of operator groups in DeleteIfUnused mode", Ordered, func() {
 		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
+			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
 			otherYAML = "../resources/case38_operator_install/operator-policy-authorino.yaml"
 			opPolName = "oppol-mustnothave"
 			subName   = "project-quay"
@@ -2554,13 +2547,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			utils.Kubectl("patch", "operatorpolicy", "oppol-authorino", "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
 
-			By("Waiting for a CRD to appear, which should indicate the other operator was successfully installed.")
-			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
-					"authconfigs.authorino.kuadrant.io", metav1.GetOptions{})
-
-				return crd
-			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+			By("Waiting for the policy to become compliant, indicating the operator is installed")
+			checkCompliance("oppol-authorino", opPolTestNS, olmWaitTimeout, policyv1.Compliant)
 
 			// revert main policy to mustnothave
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
