@@ -1321,7 +1321,12 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		}
 
 		matchingCSV := len(policy.Spec.Versions) == 0 // true if `spec.versions` is not specified
-		allowedVersions := append(policy.Spec.Versions, policyv1.NonEmptyString(sub.Spec.StartingCSV))
+		allowedVersions := make([]policyv1.NonEmptyString, 0, len(policy.Spec.Versions)+1)
+		allowedVersions = append(allowedVersions, policy.Spec.Versions...)
+
+		if sub.Spec.StartingCSV != "" {
+			allowedVersions = append(allowedVersions, policyv1.NonEmptyString(sub.Spec.StartingCSV))
+		}
 
 		for _, acceptableCSV := range allowedVersions {
 			if string(acceptableCSV) == ipCSVs[0] {
