@@ -30,6 +30,36 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		olmWaitTimeout       = 60
 	)
 
+	// checks that the compliance state eventually matches what is desired
+	checkCompliance := func(polName string, ns string, timeoutSeconds int, comp policyv1.ComplianceState) {
+		var debugMessage string
+
+		DeferCleanup(func() {
+			if CurrentSpecReport().Failed() {
+				GinkgoWriter.Println(debugMessage)
+			}
+		})
+
+		EventuallyWithOffset(1, func(g Gomega) {
+			unstructPolicy, err := clientManagedDynamic.Resource(gvrOperatorPolicy).Namespace(ns).
+				Get(context.TODO(), polName, metav1.GetOptions{})
+			g.Expect(err).NotTo(HaveOccurred())
+
+			unstructured.RemoveNestedField(unstructPolicy.Object, "metadata", "managedFields")
+
+			policyJSON, err := json.MarshalIndent(unstructPolicy.Object, "", "  ")
+			g.Expect(err).NotTo(HaveOccurred())
+
+			debugMessage = fmt.Sprintf("Debug info for failure.\npolicy JSON: %s", policyJSON)
+
+			policy := policyv1beta1.OperatorPolicy{}
+			err = json.Unmarshal(policyJSON, &policy)
+			g.Expect(err).NotTo(HaveOccurred())
+
+			g.Expect(policy.Status.ComplianceState).To(Equal(comp))
+		}, timeoutSeconds, 3).Should(Succeed())
+	}
+
 	// checks that the policy has the proper compliance, that the relatedObjects of a given
 	// type exactly match the list given (no extras or omissions), that the condition is present,
 	// and that an event was emitted that matches the given snippet.
@@ -375,15 +405,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 		It("Should be compliant when enforced", func() {
 			By("Waiting for the operator policy " + opPolName + " to be compliant")
-			Eventually(func() string {
-				opPolicy := utils.GetWithTimeout(
-					clientManagedDynamic, gvrOperatorPolicy, opPolName, testNamespace, true, defaultTimeoutSeconds,
-				)
-
-				compliance, _, _ := unstructured.NestedString(opPolicy.Object, "status", "compliant")
-
-				return compliance
-			}, defaultTimeoutSeconds*2, 1).Should(Equal("Compliant"))
+			// Wait for a while, because it might have upgrades that could take longer
+			checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
 		})
 	})
 
@@ -1385,15 +1408,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
 			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			Eventually(func(g Gomega) string {
-				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
-					opPolTestNS, true, eventuallyTimeout)
-				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-
-				return compliance
-			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+			checkCompliance(opPolName, opPolTestNS, olmWaitTimeout, policyv1.Compliant)
 
 			check(
 				opPolName,
@@ -1714,12 +1729,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 
 			// The `check` function doesn't check that it is compliant, only that each piece is compliant
-			pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
-				opPolTestNS, true, eventuallyTimeout)
-			compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(found).To(BeTrue())
-			Expect(compliance).To(Equal("Compliant"))
+			checkCompliance(opPolName, opPolTestNS, olmWaitTimeout, policyv1.Compliant)
 		})
 		It("Should be NonCompliant and report resources when the operator is installed", func(ctx SpecContext) {
 			// Make it musthave and enforced, to install the operator
@@ -2386,15 +2396,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
 			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			Eventually(func(g Gomega) string {
-				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
-					opPolTestNS, true, eventuallyTimeout)
-				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-
-				return compliance
-			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+			checkCompliance(opPolName, opPolTestNS, olmWaitTimeout, policyv1.Compliant)
 
 			By("Verifying that an operator group exists")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
@@ -2437,15 +2439,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
 			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			Eventually(func(g Gomega) string {
-				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
-					opPolTestNS, true, eventuallyTimeout)
-				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-
-				return compliance
-			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+			checkCompliance(opPolName, opPolTestNS, olmWaitTimeout, policyv1.Compliant)
 
 			By("Verifying that an operator group exists")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
@@ -2488,15 +2482,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
 			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			Eventually(func(g Gomega) string {
-				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
-					opPolTestNS, true, eventuallyTimeout)
-				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-
-				return compliance
-			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+			checkCompliance(opPolName, opPolTestNS, olmWaitTimeout, policyv1.Compliant)
 
 			By("Verifying that an operator group exists")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
@@ -2549,15 +2535,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
 			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			Eventually(func(g Gomega) string {
-				pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
-					opPolTestNS, true, eventuallyTimeout)
-				compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(found).To(BeTrue())
-
-				return compliance
-			}, olmWaitTimeout, 5, ctx).Should(Equal("Compliant"))
+			checkCompliance(opPolName, opPolTestNS, olmWaitTimeout, policyv1.Compliant)
 
 			By("Verifying that an operator group exists")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
