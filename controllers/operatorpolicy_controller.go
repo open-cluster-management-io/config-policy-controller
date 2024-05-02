@@ -1176,50 +1176,27 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
-
-	foundInstallPlans, err := r.DynamicWatcher.List(
-		watcher, installPlanGVK, sub.Namespace, labels.Everything())
-	if err != nil {
-		return false, fmt.Errorf("error listing InstallPlans: %w", err)
-	}
-
-	ownedInstallPlans := make([]unstructured.Unstructured, 0, len(foundInstallPlans))
 	selector := subLabelSelector(sub)
 
-	for _, installPlan := range foundInstallPlans {
-		// sometimes the OwnerReferences aren't correct, but the label should be
-		if selector.Matches(labels.Set(installPlan.GetLabels())) {
-			ownedInstallPlans = append(ownedInstallPlans, installPlan)
-
-			break
-		}
-
-		for _, owner := range installPlan.GetOwnerReferences() {
-			match := owner.Name == sub.Name &&
-				owner.Kind == subscriptionGVK.Kind &&
-				owner.APIVersion == subscriptionGVK.GroupVersion().String()
-			if match {
-				ownedInstallPlans = append(ownedInstallPlans, installPlan)
-
-				break
-			}
-		}
+	installPlans, err := r.DynamicWatcher.List(watcher, installPlanGVK, sub.Namespace, selector)
+	if err != nil {
+		return false, fmt.Errorf("error listing InstallPlans: %w", err)
 	}
 
 	// InstallPlans are generally kept in order to provide a history of actions on the cluster, but
 	// they can be deleted without impacting the installed operator. So, not finding any should not
 	// be considered a reason for NonCompliance, regardless of musthave or mustnothave.
-	if len(ownedInstallPlans) == 0 {
+	if len(installPlans) == 0 {
 		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
 	}
 
 	if policy.Spec.ComplianceType.IsMustHave() {
-		changed, err := r.musthaveInstallPlan(ctx, policy, sub, ownedInstallPlans)
+		changed, err := r.musthaveInstallPlan(ctx, policy, sub, installPlans)
 
 		return changed, err
 	}
 
-	return r.mustnothaveInstallPlan(policy, ownedInstallPlans)
+	return r.mustnothaveInstallPlan(policy, installPlans)
 }
 
 func (r *OperatorPolicyReconciler) musthaveInstallPlan(
@@ -1233,7 +1210,6 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 	ipsRequiringApproval := make([]unstructured.Unstructured, 0)
 	anyInstalling := false
 	currentPlanFailed := false
-	selector := subLabelSelector(sub)
 
 	// Construct the relevant relatedObjects, and collect any that might be considered for approval
 	for i, installPlan := range ownedInstallPlans {
@@ -1253,11 +1229,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		// consider some special phases
 		switch phase {
 		case string(operatorv1alpha1.InstallPlanPhaseRequiresApproval):
-			// only consider InstallPlans with this label for approval - this label is supposed to
-			// indicate the "current" InstallPlan for this subscription.
-			if selector.Matches(labels.Set(installPlan.GetLabels())) {
-				ipsRequiringApproval = append(ipsRequiringApproval, installPlan)
-			}
+			ipsRequiringApproval = append(ipsRequiringApproval, installPlan)
 		case string(operatorv1alpha1.InstallPlanPhaseInstalling):
 			anyInstalling = true
 		case string(operatorv1alpha1.InstallPlanFailed):

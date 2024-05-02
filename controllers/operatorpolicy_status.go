@@ -1042,9 +1042,8 @@ func noInstallPlansObj(namespace string) policyv1.RelatedObject {
 }
 
 // existingInstallPlanObj returns a RelatedObject for the InstallPlan, with a reason
-// like 'The InstallPlan is ____' based on the phase. Usually the object will not
-// have a compliance associated with it, but if it requires approval or is actively
-// installing, then it will be NonCompliant.
+// like 'The InstallPlan is ____' based on the phase. When the InstallPlan is in phase
+// 'Complete', the object will be Compliant, otherwise it will be NonCompliant.
 func existingInstallPlanObj(ip client.Object, phase string) policyv1.RelatedObject {
 	relObj := policyv1.RelatedObject{
 		Object: policyv1.ObjectResourceFromObj(ip),
@@ -1064,8 +1063,9 @@ func existingInstallPlanObj(ip client.Object, phase string) policyv1.RelatedObje
 		// FUTURE: check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
 		// For now, assume it is set to 'NonCompliant'
 		relObj.Compliant = string(policyv1.NonCompliant)
-	case string(operatorv1alpha1.InstallPlanPhaseInstalling):
-		// if it's still installing, then it shouldn't be considered compliant yet.
+	case string(operatorv1alpha1.InstallPlanPhaseComplete):
+		relObj.Compliant = string(policyv1.Compliant)
+	default:
 		relObj.Compliant = string(policyv1.NonCompliant)
 	}
 

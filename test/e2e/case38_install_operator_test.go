@@ -1334,16 +1334,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 						APIVersion: "operators.coreos.com/v1alpha1",
 						Metadata: policyv1.ObjectMetadata{
 							Namespace: opPolTestNS,
-							Name:      firstInstallPlanName,
-						},
-					},
-					Reason: "The InstallPlan is Complete",
-				}, {
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
 							Name:      secondInstallPlanName,
 						},
 					},
@@ -1381,20 +1371,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 						APIVersion: "operators.coreos.com/v1alpha1",
 						Metadata: policyv1.ObjectMetadata{
 							Namespace: opPolTestNS,
-							Name:      firstInstallPlanName,
-						},
-					},
-					Reason: "The InstallPlan is Complete",
-				}, {
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
 							Name:      secondInstallPlanName,
 						},
 					},
-					Reason: "The InstallPlan is Complete",
+					Compliant: "Compliant",
+					Reason:    "The InstallPlan is Complete",
 				}},
 				metav1.Condition{
 					Type:    "InstallPlanCompliant",
@@ -1868,16 +1849,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					},
 					Compliant: "Compliant",
 					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}, {
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
 				}},
 				metav1.Condition{
 					Type:    "InstallPlanCompliant",
@@ -2294,17 +2265,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				opPolName,
 				true,
 				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      installPlanName,
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}, {
 					Object: policyv1.ObjectResource{
 						Kind:       "InstallPlan",
 						APIVersion: "operators.coreos.com/v1alpha1",
