@@ -11,6 +11,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
@@ -2483,12 +2484,137 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 
 			// the checks don't verify that the policy is compliant, do that now:
-			pol := utils.GetWithTimeout(clientManagedDynamic, gvrOperatorPolicy, opPolName,
-				opPolTestNS, true, eventuallyTimeout)
-			compliance, found, err := unstructured.NestedString(pol.Object, "status", "compliant")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(found).To(BeTrue())
-			Expect(compliance).To(Equal("Compliant"))
+			checkCompliance(opPolName, opPolTestNS, eventuallyTimeout, policyv1.Compliant)
+		})
+	})
+	Describe("Test CRD deletion delayed because of a finalizer", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
+			opPolName = "oppol-mustnothave"
+			subName   = "project-quay"
+		)
+
+		BeforeAll(func(ctx SpecContext) {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			utils.Kubectl("delete", "crd", "--selector=olm.managed=true")
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+		AfterAll(func(ctx SpecContext) {
+			crd, err := clientManagedDynamic.Resource(gvrCRD).Get(
+				ctx, "quayregistries.quay.redhat.com", metav1.GetOptions{})
+			if k8serrors.IsNotFound(err) {
+				return
+			}
+			Expect(crd).NotTo(BeNil())
+
+			utils.Kubectl("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
+				`[{"op": "remove", "path": "/metadata/finalizers"}]`)
+		})
+		It("Initially behaves correctly as musthave", func(ctx SpecContext) {
+			// Make it musthave and enforced, to install the operator
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+
+			By("Waiting for a CRD to appear, which should indicate the operator is installing")
+			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+					"quayregistries.quay.redhat.com", metav1.GetOptions{})
+
+				return crd
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			checkCompliance(opPolName, opPolTestNS, olmWaitTimeout, policyv1.Compliant)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "quayregistries.quay.redhat.com",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "RelevantCRDFound",
+					Message: "there are CRDs present for the operator",
+				},
+				"there are CRDs present for the operator",
+			)
+
+			By("Adding a finalizer to the CRD")
+			utils.Kubectl("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
+				`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
+			// cleanup for this is handled in an AfterAll
+		})
+		It("Should become noncompliant because the CRD is not fully removed", func(ctx SpecContext) {
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"},`+
+					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "quayregistries.quay.redhat.com",
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "The object is being deleted but has not been removed yet",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CustomResourceDefinitionDeleting",
+					Message: "the CustomResourceDefinition has a deletion timestamp",
+				},
+				`the CustomResourceDefinition was deleted`,
+			)
+		})
+		It("Should become compliant after the finalizer is removed", func(ctx SpecContext) {
+			utils.Kubectl("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
+				`[{"op": "remove", "path": "/metadata/finalizers"}]`)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "-",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "No relevant CustomResourceDefinitions found",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "RelevantCRDNotFound",
+					Message: "no CRDs were found for the operator",
+				},
+				`the CustomResourceDefinition was deleted`,
+			)
+
+			checkCompliance(opPolName, opPolTestNS, eventuallyTimeout, policyv1.Compliant)
 		})
 	})
 	Describe("Testing mustnothave behavior for an operator group that is different than the specified one", func() {

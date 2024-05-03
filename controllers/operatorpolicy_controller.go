@@ -1479,6 +1479,16 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 			anyAlreadyDeleting = true
 			relatedCSVs[i] = deletingObj(&csvList[i])
 
+			// Add a watch specifically for this CSV: the existing watch uses a label selector,
+			// and does not necessarily get notified events when the object is fully removed.
+			watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+			_, err := r.DynamicWatcher.Get(watcher, clusterServiceVersionGVK,
+				csvList[i].GetNamespace(), csvList[i].GetName())
+			if err != nil {
+				return earlyConds, changed, fmt.Errorf("error watching the deleting CSV: %w", err)
+			}
+
 			continue
 		}
 
@@ -1641,6 +1651,13 @@ func (r *OperatorPolicyReconciler) handleCRDs(
 		if crdList[i].GetDeletionTimestamp() != nil {
 			anyAlreadyDeleting = true
 			relatedCRDs[i] = deletingObj(&crdList[i])
+
+			// Add a watch specifically for this CRD: the existing watch uses a label selector,
+			// and does not necessarily get notified events when the object is fully removed.
+			_, err := r.DynamicWatcher.Get(watcher, customResourceDefinitionGVK, sub.Namespace, crdList[i].GetName())
+			if err != nil {
+				return earlyConds, changed, fmt.Errorf("error watching the deleting CRD: %w", err)
+			}
 
 			continue
 		}
