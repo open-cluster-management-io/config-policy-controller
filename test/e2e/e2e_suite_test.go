@@ -54,7 +54,13 @@ var (
 	gvrInstallPlan              schema.GroupVersionResource
 	gvrClusterServiceVersion    schema.GroupVersionResource
 	defaultImageRegistry        string
+	IsHosted                    bool
+	targetK8sClient             kubernetes.Interface
+	targetK8sDynamic            dynamic.Interface
+	KubectlTarget               func(args ...string)
 )
+
+const targetEnvName = "TARGET_KUBECONFIG_PATH"
 
 func TestE2e(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -66,6 +72,11 @@ func init() {
 	klog.InitFlags(nil)
 	flag.StringVar(&kubeconfigManaged, "kubeconfig_managed", "../../kubeconfig_managed_e2e",
 		"Location of the kubeconfig to use; defaults to current kubeconfig if set to an empty string")
+
+	flag.BoolVar(
+		&IsHosted, "is_hosted", false,
+		"Whether is hosted mode or not",
+	)
 }
 
 var _ = BeforeSuite(func() {
@@ -156,6 +167,36 @@ var _ = BeforeSuite(func() {
 		}, metav1.CreateOptions{})).NotTo(BeNil())
 	}
 	Expect(namespaces.Get(context.TODO(), testNamespace, metav1.GetOptions{})).NotTo(BeNil())
+
+	if IsHosted {
+		By("Checking that the " + targetEnvName + " environment variable is valid")
+		altKubeconfigPath := os.Getenv(targetEnvName)
+		Expect(altKubeconfigPath).ToNot(Equal(""))
+
+		targetK8sConfig, err := clientcmd.BuildConfigFromFlags("", altKubeconfigPath)
+		Expect(err).ToNot(HaveOccurred())
+
+		targetK8sClient, err = kubernetes.NewForConfig(targetK8sConfig)
+		Expect(err).ToNot(HaveOccurred())
+
+		targetK8sDynamic, err = dynamic.NewForConfig(targetK8sConfig)
+		Expect(err).ToNot(HaveOccurred())
+	} else {
+		targetK8sClient = clientManaged
+		targetK8sDynamic = clientManagedDynamic
+
+	}
+
+	KubectlTarget = func(args ...string) {
+		kubeconfig := "../../kubeconfig_managed_e2e"
+		if IsHosted {
+			kubeconfig = "../../kubeconfig_managed2_e2e"
+		}
+
+		args = append(args, "--kubeconfig="+kubeconfig)
+
+		utils.Kubectl(args...)
+	}
 })
 
 func NewKubeClient(url, kubeconfig, context string) kubernetes.Interface {

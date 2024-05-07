@@ -103,6 +103,7 @@ type OperatorPolicyReconciler struct {
 	DynamicWatcher   depclient.DynamicWatcher
 	InstanceName     string
 	DefaultNamespace string
+	TargetClient     client.Client
 }
 
 // SetupWithManager sets up the controller with the Manager and will reconcile when the dynamic watcher
@@ -750,7 +751,7 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 
 		desiredOpGroup.ResourceVersion = opGroup.GetResourceVersion()
 
-		err = r.Update(ctx, &opGroup)
+		err = r.TargetClient.Update(ctx, &opGroup)
 		if err != nil {
 			return false, nil, changed, fmt.Errorf("error updating the OperatorGroup: %w", err)
 		}
@@ -771,7 +772,7 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 func (r *OperatorPolicyReconciler) createWithNamespace(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, object client.Object,
 ) error {
-	err := r.Create(ctx, object)
+	err := r.TargetClient.Create(ctx, object)
 	if err == nil {
 		return nil
 	}
@@ -789,13 +790,13 @@ func (r *OperatorPolicyReconciler) createWithNamespace(
 		},
 	}
 
-	err = r.Create(ctx, &ns)
+	err = r.TargetClient.Create(ctx, &ns)
 	if err != nil && !k8serrors.IsAlreadyExists(err) {
 		return err
 	}
 
 	// Try creating the object again now that the namespace was created.
-	return r.Create(ctx, object)
+	return r.TargetClient.Create(ctx, object)
 }
 
 // isNamespaceNotFound detects if the input error from r.Create failed due to the specified namespace not existing.
@@ -904,7 +905,7 @@ func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
 
-	err := r.Delete(ctx, desiredOpGroup)
+	err := r.TargetClient.Delete(ctx, desiredOpGroup)
 	if err != nil {
 		return earlyConds, changed, fmt.Errorf("error deleting the OperatorGroup: %w", err)
 	}
@@ -1046,7 +1047,7 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
 
-	err = r.Update(ctx, foundSub)
+	err = r.TargetClient.Update(ctx, foundSub)
 	if err != nil {
 		return mergedSub, nil, changed, fmt.Errorf("error updating the Subscription: %w", err)
 	}
@@ -1100,7 +1101,7 @@ func (r *OperatorPolicyReconciler) mustnothaveSubscription(
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
 
-	err := r.Delete(ctx, foundUnstructSub)
+	err := r.TargetClient.Delete(ctx, foundUnstructSub)
 	if err != nil {
 		return foundSub, earlyConds, changed, fmt.Errorf("error deleting the Subscription: %w", err)
 	}
@@ -1364,7 +1365,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		return false, fmt.Errorf("error approving InstallPlan: %w", err)
 	}
 
-	if err := r.Update(ctx, &approvableInstallPlans[0]); err != nil {
+	if err := r.TargetClient.Update(ctx, &approvableInstallPlans[0]); err != nil {
 		return false, fmt.Errorf("error updating approved InstallPlan: %w", err)
 	}
 
@@ -1502,7 +1503,7 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 			continue
 		}
 
-		err := r.Delete(ctx, &csvList[i])
+		err := r.TargetClient.Delete(ctx, &csvList[i])
 		if err != nil {
 			changed := updateStatus(policy, foundNotWantedCond("ClusterServiceVersion", csvNames...), relatedCSVs...)
 
@@ -1672,7 +1673,7 @@ func (r *OperatorPolicyReconciler) handleCRDs(
 			continue
 		}
 
-		err := r.Delete(ctx, &crdList[i])
+		err := r.TargetClient.Delete(ctx, &crdList[i])
 		if err != nil {
 			changed := updateStatus(policy, foundNotWantedCond("CustomResourceDefinition"), relatedCRDs...)
 
@@ -1835,7 +1836,7 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	}
 
 	if updateNeeded {
-		err := r.Update(ctx, existing, client.DryRunAll)
+		err := r.TargetClient.Update(ctx, existing, client.DryRunAll)
 		if err != nil {
 			if k8serrors.IsForbidden(err) {
 				// This indicates the update would make a change, but the change is not allowed,

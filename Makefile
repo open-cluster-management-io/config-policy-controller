@@ -106,7 +106,7 @@ create-ns:
 # Run against the current locally configured Kubernetes cluster
 .PHONY: run
 run:
-	WATCH_NAMESPACE=$(WATCH_NAMESPACE) go run ./main.go controller --leader-elect=false
+	WATCH_NAMESPACE=$(WATCH_NAMESPACE) go run ./main.go controller --leader-elect=false --enable-operator-policy=true
 
 ############################################################
 # clean section
@@ -193,7 +193,7 @@ kind-create-cluster:
 .PHONY: kind-additional-cluster
 kind-additional-cluster: MANAGED_CLUSTER_SUFFIX = 2
 kind-additional-cluster: CLUSTER_NAME = $(MANAGED_CLUSTER_NAME)
-kind-additional-cluster: kind-create-cluster kind-controller-kubeconfig
+kind-additional-cluster: kind-create-cluster kind-controller-kubeconfig install-crds-hosted
 
 .PHONY: kind-delete-cluster
 kind-delete-cluster:
@@ -204,11 +204,10 @@ kind-delete-cluster:
 kind-tests: kind-delete-cluster kind-bootstrap-cluster-dev kind-deploy-controller-dev e2e-test
 
 OLM_VERSION := v0.26.0
+OLM_INSTALLER = $(LOCAL_BIN)/install.sh
 
 .PHONY: install-crds
-install-crds:
-	@echo installing olm
-	curl -L https://github.com/operator-framework/operator-lifecycle-manager/releases/download/$(OLM_VERSION)/install.sh -o $(LOCAL_BIN)/install.sh
+install-crds:  $(OLM_INSTALLER)
 	chmod +x $(LOCAL_BIN)/install.sh
 	$(LOCAL_BIN)/install.sh $(OLM_VERSION)
 	@echo installing crds
@@ -221,6 +220,15 @@ install-crds:
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
 
+$(OLM_INSTALLER):
+	@echo getting OLM installer
+	curl -L https://github.com/operator-framework/operator-lifecycle-manager/releases/download/$(OLM_VERSION)/install.sh -o $(LOCAL_BIN)/install.sh
+
+install-crds-hosted: export KUBECONFIG=./kubeconfig_managed$(MANAGED_CLUSTER_SUFFIX)_e2e
+install-crds-hosted: $(OLM_INSTALLER)
+	chmod +x $(LOCAL_BIN)/install.sh
+	$(LOCAL_BIN)/install.sh $(OLM_VERSION)
+
 .PHONY: install-resources
 install-resources:
 	# creating namespaces
@@ -230,17 +238,22 @@ install-resources:
 	kubectl apply -k deploy/rbac
 	kubectl apply -f deploy/manager/service-account.yaml -n $(KIND_NAMESPACE)
 
+IS_HOSTED ?= false
+E2E_PROCS = 20
+
 .PHONY: e2e-test
 e2e-test: e2e-dependencies
-	$(GINKGO) -v --procs=20 $(E2E_TEST_ARGS) test/e2e
+	$(GINKGO) -v --procs=$(E2E_PROCS) $(E2E_TEST_ARGS) test/e2e -- -is_hosted=$(IS_HOSTED)
 
 .PHONY: e2e-test-coverage
 e2e-test-coverage: E2E_TEST_ARGS = --json-report=report_e2e.json --label-filter='!hosted-mode && !running-in-cluster' --output-dir=.
 e2e-test-coverage: e2e-run-instrumented e2e-test e2e-stop-instrumented
 
 .PHONY: e2e-test-hosted-mode-coverage
-e2e-test-hosted-mode-coverage: E2E_TEST_ARGS = --json-report=report_e2e_hosted_mode.json --label-filter="hosted-mode && !running-in-cluster" --output-dir=.
+e2e-test-hosted-mode-coverage: E2E_TEST_ARGS = --json-report=report_e2e_hosted_mode.json --label-filter="hosted-mode || supports-hosted && !running-in-cluster" --output-dir=.
 e2e-test-hosted-mode-coverage: COVERAGE_E2E_OUT = coverage_e2e_hosted_mode.out
+e2e-test-hosted-mode-coverage: IS_HOSTED=true
+e2e-test-hosted-mode-coverage: E2E_PROCS=2
 e2e-test-hosted-mode-coverage: export TARGET_KUBECONFIG_PATH = $(PWD)/kubeconfig_managed2
 e2e-test-hosted-mode-coverage: e2e-run-instrumented e2e-test e2e-stop-instrumented
 
