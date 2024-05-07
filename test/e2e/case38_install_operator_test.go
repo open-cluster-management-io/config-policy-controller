@@ -11,9 +11,11 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	appsv1 "k8s.io/api/apps/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
@@ -1403,6 +1405,22 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 				return crd
 			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			By("Waiting for the Deployment to be available, indicating the installation is complete")
+			Eventually(func(g Gomega) {
+				dep, err := clientManagedDynamic.Resource(gvrDeployment).Namespace(opPolTestNS).Get(
+					ctx, "quay-operator-tng", metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(dep).NotTo(BeNil())
+
+				var deploy appsv1.Deployment
+
+				err = runtime.DefaultUnstructuredConverter.FromUnstructured(dep.Object, &deploy)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				g.Expect(deploy.Status.Replicas).NotTo(BeZero())
+				g.Expect(deploy.Status.ReadyReplicas).To(Equal(deploy.Status.Replicas))
+			}, olmWaitTimeout, 5).Should(Succeed())
 
 			check(
 				opPolName,
