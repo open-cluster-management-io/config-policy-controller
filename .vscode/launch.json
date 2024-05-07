@@ -29,6 +29,23 @@
                 "KUBECONFIG": "${workspaceFolder}/kubeconfig_managed_e2e",
             }
         },
+		// Set FDescribe or FIt on the test to debug. Then set the desired breakpoint.
+		{
+			"name": "Launch Hosted Test Function",
+			"type": "go",
+			"request": "launch",
+			"mode": "auto",
+			"program": "${workspaceFolder}/test/e2e/e2e_suite_test.go",
+			"args": [
+				"-ginkgo.debug",
+				"-ginkgo.v",
+				"-is_hosted=true"
+			],
+			"env": {
+				"KUBECONFIG": "${workspaceFolder}/kubeconfig_managed_e2e",
+				"TARGET_KUBECONFIG_PATH": "${workspaceFolder}/kubeconfig_managed2_e2e",
+			}
+		},
         // Set the correct path to the governance-policy-framework repo directory in the env section.
         {
             "name": "Launch Package (Framework E2E) (instructions in launch.json)",

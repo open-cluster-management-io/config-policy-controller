@@ -23,12 +23,12 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = Describe("Testing OperatorPolicy", Ordered, func() {
+var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), func() {
 	const (
 		opPolTestNS          = "operator-policy-testns"
 		parentPolicyYAML     = "../resources/case38_operator_install/parent-policy.yaml"
 		parentPolicyName     = "parent-policy"
-		eventuallyTimeout    = 10
+		eventuallyTimeout    = 60
 		consistentlyDuration = 5
 		olmWaitTimeout       = 60
 	)
@@ -170,6 +170,19 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		ConsistentlyWithOffset(1, checkFunc, consistentlyDuration, 1).Should(Succeed())
 	}
 
+	preFunc := func() {
+		if IsHosted {
+			KubectlTarget("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				KubectlTarget("delete", "ns", opPolTestNS)
+			})
+		}
+		utils.Kubectl("create", "ns", opPolTestNS)
+		DeferCleanup(func() {
+			utils.Kubectl("delete", "ns", opPolTestNS)
+		})
+	}
+
 	Describe("Testing an all default operator policy", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-all-defaults.yaml"
@@ -177,10 +190,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			subName   = "project-quay"
 		)
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -209,7 +219,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 
 			By("Verifying the subscription has the correct defaults")
-			sub, err := clientManagedDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+			sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
 				Get(ctx, subName, metav1.GetOptions{})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -232,11 +242,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			subName   = "project-quay"
 		)
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
-
+			preFunc()
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
 		})
@@ -270,10 +276,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			extraOpGroupName = "extra-operator-group"
 		)
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -328,7 +331,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 		})
 		It("Should become NonCompliant when an extra OperatorGroup is added", func() {
-			utils.Kubectl("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
+			KubectlTarget("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
 			check(
 				opPolName,
 				true,
@@ -363,8 +366,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		It("Should warn about the OperatorGroup when it doesn't match the default", func() {
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
-			utils.Kubectl("delete", "operatorgroup", "-n", opPolTestNS, "--all")
-			utils.Kubectl("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
+			KubectlTarget("delete", "operatorgroup", "-n", opPolTestNS, "--all")
+			KubectlTarget("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
 			check(
 				opPolName,
 				false,
@@ -398,6 +401,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				utils.Kubectl(
 					"delete", "-f", parentPolicyYAML, "-n", testNamespace, "--ignore-not-found", "--cascade=foreground",
 				)
+				if IsHosted {
+					KubectlTarget("delete", "ns", opPolTestNS, "--ignore-not-found")
+				}
 				utils.Kubectl("delete", "ns", opPolTestNS, "--ignore-not-found")
 			})
 
@@ -426,12 +432,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
-			utils.Kubectl("apply", "-f", incorrectOpGroupYAML, "-n", opPolTestNS)
+			KubectlTarget("apply", "-f", incorrectOpGroupYAML, "-n", opPolTestNS)
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -474,8 +477,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 		})
 		It("Should match when the OperatorGroup is manually corrected", func() {
-			utils.Kubectl("delete", "operatorgroup", incorrectOpGroupName, "-n", opPolTestNS)
-			utils.Kubectl("apply", "-f", scopedOpGroupYAML, "-n", opPolTestNS)
+			KubectlTarget("delete", "operatorgroup", incorrectOpGroupName, "-n", opPolTestNS)
+			KubectlTarget("apply", "-f", scopedOpGroupYAML, "-n", opPolTestNS)
 			check(
 				opPolName,
 				false,
@@ -501,7 +504,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 		})
 		It("Should report a mismatch when the OperatorGroup is manually edited", func() {
-			utils.Kubectl("patch", "operatorgroup", scopedOpGroupName, "-n", opPolTestNS, "--type=json", "-p",
+			KubectlTarget("patch", "operatorgroup", scopedOpGroupName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/targetNamespaces", "value": []}]`)
 			check(
 				opPolName,
@@ -555,7 +558,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 		})
 		It("Should become NonCompliant when an extra OperatorGroup is added", func() {
-			utils.Kubectl("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
+			KubectlTarget("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
 			check(
 				opPolName,
 				true,
@@ -598,12 +601,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
-			utils.Kubectl("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
+			KubectlTarget("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -697,7 +697,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		})
 
 		It("Should create the Subscription after the additional OperatorGroup is removed", func() {
-			utils.Kubectl("delete", "operatorgroup", extraOpGroupName, "-n", opPolTestNS)
+			KubectlTarget("delete", "operatorgroup", extraOpGroupName, "-n", opPolTestNS)
 			check(
 				opPolName,
 				false,
@@ -760,12 +760,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
-			utils.Kubectl("apply", "-f", subYAML, "-n", opPolTestNS)
+			KubectlTarget("apply", "-f", subYAML, "-n", opPolTestNS)
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -831,10 +828,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			opPolNoExistName = "oppol-no-exist-enforce"
 		)
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -845,7 +839,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
 			Eventually(func(ctx SpecContext) string {
-				csv, _ := clientManagedDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
+				csv, _ := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
 					Get(ctx, "quay-operator.v3.10.0", metav1.GetOptions{})
 
 				if csv == nil {
@@ -958,10 +952,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			opPolName = "oppol-no-allnamespaces"
 		)
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -969,7 +960,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
 			Eventually(func(ctx SpecContext) []unstructured.Unstructured {
-				csvList, _ := clientManagedDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
+				csvList, _ := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 
 				return csvList.Items
@@ -1038,11 +1029,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 		BeforeAll(func() {
 			By("Applying creating a ns and the test policy")
-			utils.Kubectl("create", "ns", opPolTestNS)
+			preFunc()
 			DeferCleanup(func() {
-				utils.Kubectl("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
+				KubectlTarget("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
 					`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:latest"}]`)
-				utils.Kubectl("delete", "ns", opPolTestNS)
 			})
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
@@ -1141,7 +1131,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				`[{"op": "replace", "path": "/spec/subscription/source", "value": "operatorhubio-catalog"}]`)
 
 			By("Patching the CatalogSource to reference a broken image link")
-			utils.Kubectl("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
+			KubectlTarget("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/fakecatalog:latest"}]`)
 
 			By("Checking the conditions and relatedObj in the policy")
@@ -1183,10 +1173,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -1194,7 +1181,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 		It("Should initially report the ConstraintsNotSatisfiable Subscription", func(ctx SpecContext) {
 			Eventually(func(ctx SpecContext) interface{} {
-				sub, _ := clientManagedDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+				sub, _ := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
 					Get(ctx, subName, metav1.GetOptions{})
 
 				if sub == nil {
@@ -1273,10 +1260,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/subscription/startingCSV", "value": "`+goodVersion+`"},`+
 					`{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
-			utils.Kubectl("patch", "subscription.operator", subName, "-n", opPolTestNS, "--type=json", "-p",
+			KubectlTarget("patch", "subscription.operator", subName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/startingCSV", "value": "`+goodVersion+`"}]`)
 			Eventually(func(ctx SpecContext) int {
-				ipList, _ := clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+				ipList, _ := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 
 				return len(ipList.Items)
@@ -1305,7 +1292,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 		})
 		It("Should do the upgrade when enforced, and stop at the next version", func(ctx SpecContext) {
-			ipList, err := clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+			ipList, err := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 				List(ctx, metav1.ListOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(ipList.Items).To(HaveLen(1))
@@ -1316,7 +1303,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
 
 			Eventually(func(ctx SpecContext) int {
-				ipList, err = clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+				ipList, err = targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 
 				return len(ipList.Items)
@@ -1328,7 +1315,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			}
 
 			Eventually(func(ctx SpecContext) string {
-				ip, _ := clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+				ip, _ := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 					Get(ctx, firstInstallPlanName, metav1.GetOptions{})
 				phase, _, _ := unstructured.NestedString(ip.Object, "status", "phase")
 
@@ -1378,7 +1365,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				`[{"op": "add", "path": "/spec/versions/-", "value": "strimzi-cluster-operator.v0.36.1"}]`)
 
 			Eventually(func(ctx SpecContext) string {
-				ip, _ := clientManagedDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
+				ip, _ := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 					Get(ctx, secondInstallPlanName, metav1.GetOptions{})
 				phase, _, _ := unstructured.NestedString(ip.Object, "status", "phase")
 
@@ -1425,12 +1412,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			opPolName = "oppol-no-group"
 		)
 		BeforeAll(func() {
-			utils.Kubectl("delete", "crd", "--selector=olm.managed=true")
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
-
+			preFunc()
+			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
 		})
@@ -1465,7 +1448,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
 			By("Waiting for a CRD to appear, which should indicate the operator is installing")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
 					"quayregistries.quay.redhat.com", metav1.GetOptions{})
 
 				return crd
@@ -1473,7 +1456,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Waiting for the Deployment to be available, indicating the installation is complete")
 			Eventually(func(g Gomega) {
-				dep, err := clientManagedDynamic.Resource(gvrDeployment).Namespace(opPolTestNS).Get(
+				dep, err := targetK8sDynamic.Resource(gvrDeployment).Namespace(opPolTestNS).Get(
 					ctx, "quay-operator-tng", metav1.GetOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(dep).NotTo(BeNil())
@@ -1519,10 +1502,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
+			preFunc()
 			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-				utils.Kubectl("delete", "ns", "nonexist-testns")
+				KubectlTarget("delete", "ns", "nonexist-testns")
 			})
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
@@ -1621,7 +1603,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 		})
 		It("Should update the status after the namespace is created", func() {
-			utils.Kubectl("create", "namespace", "nonexist-testns")
+			KubectlTarget("create", "namespace", "nonexist-testns")
 			check(
 				opPolName,
 				true,
@@ -1658,11 +1640,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			utils.Kubectl("delete", "crd", "--selector=olm.managed=true")
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
+			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -1819,7 +1798,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Waiting for a CRD to appear, which should indicate the operator is installing")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
 					"quayregistries.quay.redhat.com", metav1.GetOptions{})
 
 				return crd
@@ -2200,11 +2179,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 
 			By("Checking that certain (named) resources are still there")
-			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
+			utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
 				opPolTestNS, true, eventuallyTimeout)
-			utils.GetWithTimeout(clientManagedDynamic, gvrSubscription, subName,
+			utils.GetWithTimeout(targetK8sDynamic, gvrSubscription, subName,
 				opPolTestNS, true, eventuallyTimeout)
-			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayregistries.quay.redhat.com",
+			utils.GetWithTimeout(targetK8sDynamic, gvrCRD, "quayregistries.quay.redhat.com",
 				"", true, eventuallyTimeout)
 		})
 		It("Should report a special status when the resources are stuck", func(ctx SpecContext) {
@@ -2249,11 +2228,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 					continue
 				}
 
-				utils.Kubectl("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
+				KubectlTarget("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
 					`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
 				DeferCleanup(func() {
 					By("removing the finalizer from " + objKind + " " + objName)
-					utils.Kubectl("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
+					KubectlTarget("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
 						`[{"op": "remove", "path": "/metadata/finalizers"}]`)
 				})
 			}
@@ -2397,11 +2376,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		})
 		It("Should report things as gone after the finalizers are removed", func() {
 			By("Checking that certain (named) resources are not there, indicating the removal was completed")
-			utils.GetWithTimeout(clientManagedDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
+			utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
 				opPolTestNS, false, eventuallyTimeout)
-			utils.GetWithTimeout(clientManagedDynamic, gvrSubscription, subName,
+			utils.GetWithTimeout(targetK8sDynamic, gvrSubscription, subName,
 				opPolTestNS, false, eventuallyTimeout)
-			utils.GetWithTimeout(clientManagedDynamic, gvrCRD, "quayregistries.quay.redhat.com",
+			utils.GetWithTimeout(targetK8sDynamic, gvrCRD, "quayregistries.quay.redhat.com",
 				"", false, eventuallyTimeout)
 
 			By("Checking the OperatorPolicy status")
@@ -2578,24 +2557,21 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeAll(func(ctx SpecContext) {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			utils.Kubectl("delete", "crd", "--selector=olm.managed=true")
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
+			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
 		})
 		AfterAll(func(ctx SpecContext) {
-			crd, err := clientManagedDynamic.Resource(gvrCRD).Get(
+			crd, err := targetK8sDynamic.Resource(gvrCRD).Get(
 				ctx, "quayregistries.quay.redhat.com", metav1.GetOptions{})
 			if k8serrors.IsNotFound(err) {
 				return
 			}
 			Expect(crd).NotTo(BeNil())
 
-			utils.Kubectl("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
+			KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
 				`[{"op": "remove", "path": "/metadata/finalizers"}]`)
 		})
 		It("Initially behaves correctly as musthave", func(ctx SpecContext) {
@@ -2606,7 +2582,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Waiting for a CRD to appear, which should indicate the operator is installing")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
 					"quayregistries.quay.redhat.com", metav1.GetOptions{})
 
 				return crd
@@ -2638,7 +2614,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 
 			By("Adding a finalizer to the CRD")
-			utils.Kubectl("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
+			KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
 				`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
 			// cleanup for this is handled in an AfterAll
 		})
@@ -2671,7 +2647,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 		})
 		It("Should become compliant after the finalizer is removed", func(ctx SpecContext) {
-			utils.Kubectl("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
+			KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
 				`[{"op": "remove", "path": "/metadata/finalizers"}]`)
 
 			check(
@@ -2708,10 +2684,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeEach(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -2719,7 +2692,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 		It("should not report an operator group that does not match the spec", func() {
 			// create the extra operator group
-			utils.Kubectl("apply", "-f", "../resources/case38_operator_install/incorrect-operator-group.yaml",
+			KubectlTarget("apply", "-f", "../resources/case38_operator_install/incorrect-operator-group.yaml",
 				"-n", opPolTestNS)
 			// change the operator policy to mustnothave
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
@@ -2758,10 +2731,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeEach(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -2797,11 +2767,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeEach(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			utils.Kubectl("delete", "crd", "--selector=olm.managed=true")
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
+			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -2816,7 +2783,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
 					"quayregistries.quay.redhat.com", metav1.GetOptions{})
 
 				return crd
@@ -2827,7 +2794,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Verifying that an operator group exists")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 
@@ -2840,7 +2807,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Verifying that the operator group was removed")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 
@@ -2859,7 +2826,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
 					"quayregistries.quay.redhat.com", metav1.GetOptions{})
 
 				return crd
@@ -2870,7 +2837,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Verifying that an operator group exists")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 
@@ -2883,7 +2850,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Verifying that the operator group was removed")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 
@@ -2902,7 +2869,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
 					"quayregistries.quay.redhat.com", metav1.GetOptions{})
 
 				return crd
@@ -2913,7 +2880,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Verifying that an operator group exists")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 
@@ -2921,14 +2888,14 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
 
 			By("Creating and setting an owner for the operator group")
-			utils.Kubectl("create", "configmap", "ownercm", "-n", opPolTestNS, "--from-literal=foo=bar")
+			KubectlTarget("create", "configmap", "ownercm", "-n", opPolTestNS, "--from-literal=foo=bar")
 
-			ownerCM := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap, "ownercm",
+			ownerCM := utils.GetWithTimeout(targetK8sDynamic, gvrConfigMap, "ownercm",
 				opPolTestNS, true, eventuallyTimeout)
 			ownerUID := string(ownerCM.GetUID())
 			Expect(ownerUID).NotTo(BeEmpty())
 
-			utils.Kubectl("patch", "operatorgroup", "scoped-operator-group", "-n", opPolTestNS, "--type=json", "-p",
+			KubectlTarget("patch", "operatorgroup", "scoped-operator-group", "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "add", "path": "/metadata/ownerReferences", "value": [{"apiVersion": "v1",
 				"kind": "ConfigMap", "name": "ownercm", "uid": "`+ownerUID+`"}]}]`)
 
@@ -2938,7 +2905,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Verifying the operator group was not removed")
 			Consistently(func(g Gomega) []unstructured.Unstructured {
-				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 
@@ -2955,7 +2922,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := clientManagedDynamic.Resource(gvrCRD).Get(ctx,
+				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
 					"quayregistries.quay.redhat.com", metav1.GetOptions{})
 
 				return crd
@@ -2966,7 +2933,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Verifying that an operator group exists")
 			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 
@@ -2990,7 +2957,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 
 			By("Verifying the operator group was not removed")
 			Consistently(func(g Gomega) []unstructured.Unstructured {
-				list, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 
@@ -3005,10 +2972,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeEach(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -3040,12 +3004,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		)
 
 		BeforeAll(func() {
-			utils.Kubectl("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", opPolTestNS)
-			})
+			preFunc()
 
-			utils.Kubectl("apply", "-f", configmapYAML, "-n", opPolTestNS)
+			KubectlTarget("apply", "-f", configmapYAML, "-n", opPolTestNS)
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -3081,7 +3042,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 
 			By("Verifying the targetNamespaces in the OperatorGroup")
-			og, err := clientManagedDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+			og, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
 				Get(ctx, opGroupName, metav1.GetOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(og).NotTo(BeNil())
@@ -3092,7 +3053,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			Expect(targetNamespaces).To(HaveExactElements("foo", "bar", opPolTestNS))
 
 			By("Verifying the Subscription channel")
-			sub, err := clientManagedDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+			sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
 				Get(ctx, subName, metav1.GetOptions{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(sub).NotTo(BeNil())
@@ -3104,7 +3065,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 		})
 
 		It("Should update the subscription after the configmap is updated", func(ctx SpecContext) {
-			utils.Kubectl("patch", "configmap", "op-config", "-n", opPolTestNS, "--type=json", "-p",
+			KubectlTarget("patch", "configmap", "op-config", "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/data/channel", "value": "stable-3.10"}]`)
 
 			check(

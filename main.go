@@ -322,6 +322,7 @@ func main() {
 	var targetK8sClient kubernetes.Interface
 	var targetK8sDynamicClient dynamic.Interface
 	var targetK8sConfig *rest.Config
+	var targetClient client.Client
 	var nsSelMgr manager.Manager // A separate controller-manager is needed in hosted mode
 
 	if opts.targetKubeConfig == "" {
@@ -329,6 +330,7 @@ func main() {
 		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
 		targetK8sDynamicClient = dynamic.NewForConfigOrDie(targetK8sConfig)
 		nsSelMgr = mgr
+		targetClient = mgr.GetClient()
 	} else { // "Hosted mode"
 		var err error
 
@@ -343,6 +345,11 @@ func main() {
 
 		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
 		targetK8sDynamicClient = dynamic.NewForConfigOrDie(targetK8sConfig)
+		targetClient, err = client.New(targetK8sConfig, client.Options{Scheme: scheme})
+		if err != nil {
+			log.Error(err, "Failed to load the target kubeconfig", "path", opts.targetKubeConfig)
+			os.Exit(1)
+		}
 
 		// The managed cluster's API server is potentially not the same as the hosting cluster and it could be
 		// offline already as part of the uninstall process. In this case, the manager's instantiation will fail.
@@ -428,7 +435,7 @@ func main() {
 	if opts.enableOperatorPolicy {
 		depReconciler, depEvents := depclient.NewControllerRuntimeSource()
 
-		watcher, err := depclient.New(cfg, depReconciler,
+		watcher, err := depclient.New(targetK8sConfig, depReconciler,
 			&depclient.Options{
 				DisableInitialReconcile: true,
 				EnableCache:             true,
@@ -455,6 +462,7 @@ func main() {
 			DynamicWatcher:   watcher,
 			InstanceName:     instanceName,
 			DefaultNamespace: opts.operatorPolDefaultNS,
+			TargetClient:     targetClient,
 		}
 
 		if err = OpReconciler.SetupWithManager(mgr, depEvents); err != nil {

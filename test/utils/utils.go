@@ -150,6 +150,10 @@ func GetMatchingEvents(
 
 // Kubectl executes kubectl commands
 func Kubectl(args ...string) {
+	if !strings.HasPrefix(args[len(args)-1], "--kubeconfig=") {
+		args = append(args, "--kubeconfig="+"../../kubeconfig_managed_e2e")
+	}
+
 	cmd := exec.Command("kubectl", args...)
 
 	output, err := cmd.CombinedOutput()
