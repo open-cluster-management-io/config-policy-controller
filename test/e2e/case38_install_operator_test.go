@@ -590,9 +590,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 	})
 	Describe("Testing Subscription behavior for musthave mode while enforcing", Ordered, func() {
 		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName = "oppol-no-group"
-			subName   = "project-quay"
+			opPolYAML        = "../resources/case38_operator_install/operator-policy-with-group.yaml"
+			opPolName        = "oppol-with-group"
+			subName          = "project-quay"
+			extraOpGroupYAML = "../resources/case38_operator_install/extra-operator-group.yaml"
+			extraOpGroupName = "extra-operator-group"
 		)
 
 		BeforeAll(func() {
@@ -600,6 +602,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			DeferCleanup(func() {
 				utils.Kubectl("delete", "ns", opPolTestNS)
 			})
+
+			utils.Kubectl("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
@@ -630,9 +634,70 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 				"the Subscription required by the policy was not found",
 			)
 		})
-		It("Should create the Subscription when enforced", func() {
+		It("Should not create the Subscription when another OperatorGroup already exists", func() {
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      extraOpGroupName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource found but does not match",
+				}, {
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      "scoped-operator-group",
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource not found but should exist",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "OperatorGroupMismatch",
+					Message: "the OperatorGroup found on the cluster does not match the policy",
+				},
+				"the OperatorGroup found on the cluster does not match the policy",
+			)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      subName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "Resource not found but should exist",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "SubscriptionMissing",
+					Message: "the Subscription required by the policy was not found",
+				},
+				"the Subscription required by the policy was not found",
+			)
+		})
+
+		It("Should create the Subscription after the additional OperatorGroup is removed", func() {
+			utils.Kubectl("delete", "operatorgroup", extraOpGroupName, "-n", opPolTestNS)
 			check(
 				opPolName,
 				false,
@@ -2895,7 +2960,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			}, consistentlyDuration, 3, ctx).ShouldNot(BeEmpty())
 		})
 	})
-	Describe("Testing defaulted values in an OperatorPolicy", func() {
+	Describe("Testing defaulted values of removalBehavior in an OperatorPolicy", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
 			opPolName = "oppol-no-group"
