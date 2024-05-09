@@ -2750,6 +2750,44 @@ var _ = Describe("Testing OperatorPolicy", Ordered, func() {
 			)
 		})
 	})
+	Describe("Test mustnothave message when the namespace does not exist", func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+			opPolName = "oppol-no-group"
+			subName   = "project-quay"
+		)
+
+		BeforeEach(func() {
+			utils.Kubectl("create", "ns", opPolTestNS)
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", opPolTestNS)
+			})
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("should report compliant", func() {
+			// change the subscription namespace, and the complianceType to mustnothave
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/subscription/namespace", "value": "imaginaryfriend"},`+
+					`{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionTrue,
+					Reason:  "PolicyValidated",
+					Message: "the policy spec is valid",
+				},
+				"the policy spec is valid",
+			)
+			checkCompliance(opPolName, opPolTestNS, eventuallyTimeout, policyv1.Compliant)
+		})
+	})
 	Describe("Testing mustnothave behavior of operator groups in DeleteIfUnused mode", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
