@@ -369,7 +369,7 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 			return sub, opGroup, false, fmt.Errorf("error getting operator namespace: %w", err)
 		}
 
-		if gotNamespace == nil {
+		if gotNamespace == nil && policy.Spec.ComplianceType.IsMustHave() {
 			validationErrors = append(validationErrors,
 				fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS))
 		}
