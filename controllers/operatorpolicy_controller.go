@@ -233,7 +233,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		desiredSubName = desiredSub.Name
 	}
 
-	earlyConds, changed, err := r.handleOpGroup(ctx, policy, desiredOG, desiredSubName)
+	ogCorrect, earlyConds, changed, err := r.handleOpGroup(ctx, policy, desiredOG, desiredSubName)
 	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
 	condChanged = condChanged || changed
 
@@ -243,7 +243,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
-	subscription, earlyConds, changed, err := r.handleSubscription(ctx, policy, desiredSub)
+	subscription, earlyConds, changed, err := r.handleSubscription(ctx, policy, desiredSub, ogCorrect)
 	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
 	condChanged = condChanged || changed
 
@@ -620,25 +620,28 @@ func (r *OperatorPolicyReconciler) handleOpGroup(
 	policy *policyv1beta1.OperatorPolicy,
 	desiredOpGroup *operatorv1.OperatorGroup,
 	desiredSubName string,
-) ([]metav1.Condition, bool, error) {
+) (bool, []metav1.Condition, bool, error) {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	if desiredOpGroup == nil || desiredOpGroup.Namespace == "" {
 		// Note: existing related objects will not be removed by this status update
-		return nil, updateStatus(policy, invalidCausingUnknownCond("OperatorGroup")), nil
+		return false, nil, updateStatus(policy, invalidCausingUnknownCond("OperatorGroup")), nil
 	}
 
 	foundOpGroups, err := r.DynamicWatcher.List(
 		watcher, operatorGroupGVK, desiredOpGroup.Namespace, labels.Everything())
 	if err != nil {
-		return nil, false, fmt.Errorf("error listing OperatorGroups: %w", err)
+		return false, nil, false, fmt.Errorf("error listing OperatorGroups: %w", err)
 	}
 
 	if policy.Spec.ComplianceType.IsMustHave() {
 		return r.musthaveOpGroup(ctx, policy, desiredOpGroup, foundOpGroups)
 	}
 
-	return r.mustnothaveOpGroup(ctx, policy, desiredOpGroup, foundOpGroups, desiredSubName)
+	earlyConds, changed, err := r.mustnothaveOpGroup(ctx, policy, desiredOpGroup, foundOpGroups, desiredSubName)
+
+	// In mustnothave mode, we can always act as if the OperatorGroup is not correct
+	return false, earlyConds, changed, err
 }
 
 func (r *OperatorPolicyReconciler) musthaveOpGroup(
@@ -646,14 +649,14 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 	policy *policyv1beta1.OperatorPolicy,
 	desiredOpGroup *operatorv1.OperatorGroup,
 	foundOpGroups []unstructured.Unstructured,
-) ([]metav1.Condition, bool, error) {
+) (bool, []metav1.Condition, bool, error) {
 	switch len(foundOpGroups) {
 	case 0:
 		// Missing OperatorGroup: report NonCompliance
 		changed := updateStatus(policy, missingWantedCond("OperatorGroup"), missingWantedObj(desiredOpGroup))
 
 		if policy.Spec.RemediationAction.IsInform() {
-			return nil, changed, nil
+			return false, nil, changed, nil
 		}
 
 		earlyConds := []metav1.Condition{}
@@ -664,7 +667,7 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 
 		err := r.createWithNamespace(ctx, policy, desiredOpGroup)
 		if err != nil {
-			return nil, changed, fmt.Errorf("error creating the OperatorGroup: %w", err)
+			return false, nil, changed, fmt.Errorf("error creating the OperatorGroup: %w", err)
 		}
 
 		desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Create stripped this information
@@ -672,7 +675,7 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 		// Now the OperatorGroup should match, so report Compliance
 		updateStatus(policy, createdCond("OperatorGroup"), createdObj(desiredOpGroup))
 
-		return earlyConds, true, nil
+		return true, earlyConds, true, nil
 	case 1:
 		opGroup := foundOpGroups[0]
 
@@ -685,8 +688,8 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 				// The policy doesn't specify what the OperatorGroup should look like, but what is already
 				// there is not the default one the policy would create.
 				// FUTURE: check if the one operator group is compatible with the desired subscription.
-				// For an initial implementation, assume if an OperatorGroup already exists, then it's a good one.
-				return nil, updateStatus(policy, opGroupPreexistingCond, matchedObj(&opGroup)), nil
+				// For now, assume if an OperatorGroup already exists, then it's a good one.
+				return true, nil, updateStatus(policy, opGroupPreexistingCond, matchedObj(&opGroup)), nil
 			}
 
 			// There is an OperatorGroup in the namespace that does not match the name of what is in the policy.
@@ -695,25 +698,25 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 			missing := missingWantedObj(desiredOpGroup)
 			badExisting := mismatchedObj(&opGroup)
 
-			return nil, updateStatus(policy, mismatchCond("OperatorGroup"), missing, badExisting), nil
+			return false, nil, updateStatus(policy, mismatchCond("OperatorGroup"), missing, badExisting), nil
 		}
 
 		// check whether the specs match
 		desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desiredOpGroup)
 		if err != nil {
-			return nil, false, fmt.Errorf("error converting desired OperatorGroup to an Unstructured: %w", err)
+			return false, nil, false, fmt.Errorf("error converting desired OperatorGroup to an Unstructured: %w", err)
 		}
 
 		updateNeeded, skipUpdate, err := r.mergeObjects(
 			ctx, desiredUnstruct, &opGroup, string(policy.Spec.ComplianceType),
 		)
 		if err != nil {
-			return nil, false, fmt.Errorf("error checking if the OperatorGroup needs an update: %w", err)
+			return false, nil, false, fmt.Errorf("error checking if the OperatorGroup needs an update: %w", err)
 		}
 
 		if !updateNeeded {
 			// Everything relevant matches!
-			return nil, updateStatus(policy, matchesCond("OperatorGroup"), matchedObj(&opGroup)), nil
+			return true, nil, updateStatus(policy, matchesCond("OperatorGroup"), matchedObj(&opGroup)), nil
 		}
 
 		// Specs don't match.
@@ -722,19 +725,21 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 			// The policy doesn't specify what the OperatorGroup should look like, but what is already
 			// there is not the default one the policy would create.
 			// FUTURE: check if the one operator group is compatible with the desired subscription.
-			// For an initial implementation, assume if an OperatorGroup already exists, then it's a good one.
-			return nil, updateStatus(policy, opGroupPreexistingCond, matchedObj(&opGroup)), nil
+			// For now, assume if an OperatorGroup already exists, then it's a good one.
+			return true, nil, updateStatus(policy, opGroupPreexistingCond, matchedObj(&opGroup)), nil
 		}
 
 		if policy.Spec.RemediationAction.IsEnforce() && skipUpdate {
-			return nil, updateStatus(policy, mismatchCondUnfixable("OperatorGroup"), mismatchedObj(&opGroup)), nil
+			changed := updateStatus(policy, mismatchCondUnfixable("OperatorGroup"), mismatchedObj(&opGroup))
+
+			return false, nil, changed, nil
 		}
 
 		// The names match, but the specs don't: report NonCompliance
 		changed := updateStatus(policy, mismatchCond("OperatorGroup"), mismatchedObj(&opGroup))
 
 		if policy.Spec.RemediationAction.IsInform() {
-			return nil, changed, nil
+			return false, nil, changed, nil
 		}
 
 		earlyConds := []metav1.Condition{}
@@ -747,18 +752,18 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 
 		err = r.Update(ctx, &opGroup)
 		if err != nil {
-			return nil, changed, fmt.Errorf("error updating the OperatorGroup: %w", err)
+			return false, nil, changed, fmt.Errorf("error updating the OperatorGroup: %w", err)
 		}
 
 		desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Update stripped this information
 
 		updateStatus(policy, updatedCond("OperatorGroup"), updatedObj(desiredOpGroup))
 
-		return earlyConds, true, nil
+		return true, earlyConds, true, nil
 	default:
 		// This situation will always lead to a "TooManyOperatorGroups" failure on the CSV.
 		// Consider improving this in the future: perhaps this could suggest one of the OperatorGroups to keep.
-		return nil, updateStatus(policy, opGroupTooManyCond, opGroupTooManyObjs(foundOpGroups)...), nil
+		return false, nil, updateStatus(policy, opGroupTooManyCond, opGroupTooManyObjs(foundOpGroups)...), nil
 	}
 }
 
@@ -912,7 +917,10 @@ func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
 }
 
 func (r *OperatorPolicyReconciler) handleSubscription(
-	ctx context.Context, policy *policyv1beta1.OperatorPolicy, desiredSub *operatorv1alpha1.Subscription,
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	desiredSub *operatorv1alpha1.Subscription,
+	ogCorrect bool,
 ) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
@@ -927,7 +935,7 @@ func (r *OperatorPolicyReconciler) handleSubscription(
 	}
 
 	if policy.Spec.ComplianceType.IsMustHave() {
-		return r.musthaveSubscription(ctx, policy, desiredSub, foundSub)
+		return r.musthaveSubscription(ctx, policy, desiredSub, foundSub, ogCorrect)
 	}
 
 	return r.mustnothaveSubscription(ctx, policy, desiredSub, foundSub)
@@ -938,12 +946,14 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	policy *policyv1beta1.OperatorPolicy,
 	desiredSub *operatorv1alpha1.Subscription,
 	foundSub *unstructured.Unstructured,
+	ogCorrect bool,
 ) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
 	if foundSub == nil {
 		// Missing Subscription: report NonCompliance
 		changed := updateStatus(policy, missingWantedCond("Subscription"), missingWantedObj(desiredSub))
 
-		if policy.Spec.RemediationAction.IsInform() {
+		// If informing, or if the OperatorGroup is not correct, don't make any changes
+		if policy.Spec.RemediationAction.IsInform() || !ogCorrect {
 			return desiredSub, nil, changed, nil
 		}
 
