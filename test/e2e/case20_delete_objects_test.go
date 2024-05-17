@@ -70,7 +70,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
 
 				return properties["uid"].(string)
-			}, defaultTimeoutSeconds, 1).Should(Not(Equal("")))
+			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 		})
 		It("should update status fields properly for non-created objects", func() {
 			By("Creating " + case20ConfigPolicyNameExisting + " on managed")
@@ -99,7 +99,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
 
 				return properties["uid"]
-			}, defaultTimeoutSeconds, 1).Should(BeNil())
+			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 		})
 		It("should update status fields properly for edited objects", func() {
 			By("Creating " + case20ConfigPolicyNameEdit + " on managed")
@@ -128,7 +128,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
 
 				return properties["uid"]
-			}, defaultTimeoutSeconds, 1).Should(BeNil())
+			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 		})
 		It("should not update status field for inform policies", func() {
 			By("Creating " + case20ConfigPolicyNameInform + " on managed")

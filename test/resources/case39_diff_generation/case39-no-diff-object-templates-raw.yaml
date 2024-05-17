@@ -1,0 +1,15 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case39-no-diff-object-templates-raw
+spec:
+  remediationAction: inform
+  object-templates-raw: |
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: default
+          annotations:
+            message: '{{ fromSecret "default" "case39-secret" "message" }}'

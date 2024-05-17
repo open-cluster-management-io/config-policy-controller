@@ -6,6 +6,7 @@ package e2e
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -58,12 +59,22 @@ var _ = Describe("Test pod obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case8ConfigPolicyNameCheckFail, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
+
+			var managedPlc *unstructured.Unstructured
+
 			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case8ConfigPolicyNameCheckFail, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+
+			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(relatedObjects).To(HaveLen(1))
+
+			diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
+			Expect(diff).To(ContainSubstring("-  compliant: Compliant\n+  compliant: NonCompliant"))
 		})
 		It("should return nonCompliant if status does not match (enforce)", func() {
 			By("Creating " + case8ConfigPolicyNameEnforceFail + " on managed")
@@ -71,12 +82,22 @@ var _ = Describe("Test pod obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case8ConfigPolicyNameEnforceFail, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
+
+			var managedPlc *unstructured.Unstructured
+
 			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case8ConfigPolicyNameEnforceFail, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+
+			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(relatedObjects).To(HaveLen(1))
+
+			diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
+			Expect(diff).To(ContainSubstring("-  compliant: Compliant\n+  compliant: NonCompliant"))
 		})
 		AfterAll(func() {
 			policies := []string{

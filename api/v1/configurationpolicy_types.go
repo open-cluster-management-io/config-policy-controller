@@ -11,6 +11,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -199,16 +200,48 @@ type ObjectTemplate struct {
 	ObjectDefinition runtime.RawExtension `json:"objectDefinition"`
 
 	// RecordDiff specifies whether (and where) to log the diff between the object on the
-	// cluster and the objectDefinition in the policy. Defaults to "None".
+	// cluster and the objectDefinition in the policy. Defaults to "None" when the object kind is
+	// ConfigMap, OAuthAccessToken, OAuthAuthorizeTokens, Route, or Secret. Defaults to "InStatus" otherwise.
 	RecordDiff RecordDiff `json:"recordDiff,omitempty"`
 }
 
-// +kubebuilder:validation:Enum=Log;None
+func (o *ObjectTemplate) RecordDiffWithDefault() RecordDiff {
+	if o.RecordDiff != "" {
+		return o.RecordDiff
+	}
+
+	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(o.ObjectDefinition.Raw, nil, nil)
+	if err != nil {
+		return o.RecordDiff
+	}
+
+	switch gvk.Group {
+	case "":
+		if gvk.Kind == "ConfigMap" || gvk.Kind == "Secret" {
+			return RecordDiffCensored
+		}
+	case "oauth.openshift.io":
+		if gvk.Kind == "OAuthAccessToken" || gvk.Kind == "OAuthAuthorizeTokens" {
+			return RecordDiffCensored
+		}
+	case "route.openshift.io":
+		if gvk.Kind == "Route" {
+			return RecordDiffCensored
+		}
+	}
+
+	return RecordDiffInStatus
+}
+
+// +kubebuilder:validation:Enum=Log;InStatus;None
 type RecordDiff string
 
 const (
-	RecordDiffLog  RecordDiff = "Log"
-	RecordDiffNone RecordDiff = "None"
+	RecordDiffLog      RecordDiff = "Log"
+	RecordDiffInStatus RecordDiff = "InStatus"
+	RecordDiffNone     RecordDiff = "None"
+	// Censored is only used as an internal value to indicate a diff shouldn't be automatically generated.
+	RecordDiffCensored RecordDiff = "Censored"
 )
 
 // ConfigurationPolicyStatus defines the observed state of ConfigurationPolicy
@@ -355,7 +388,8 @@ type ObjectProperties struct {
 	// Whether the object was created by the parent policy
 	CreatedByPolicy *bool `json:"createdByPolicy,omitempty"`
 	// Store object UID to help track object ownership for deletion
-	UID string `json:"uid,omitempty"`
+	UID  string `json:"uid,omitempty"`
+	Diff string `json:"diff,omitempty"`
 }
 
 func init() {

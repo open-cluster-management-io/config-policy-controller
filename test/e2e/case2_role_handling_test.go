@@ -4,6 +4,8 @@
 package e2e
 
 import (
+	"fmt"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -147,12 +149,41 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				configPolicyNameBindingEnforce, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
+
+			var managedPlc *unstructured.Unstructured
+
 			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					configPolicyNameBindingEnforce, testNamespace, true, defaultTimeoutSeconds)
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+
+			By("Verifying the diff in the status")
+			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(relatedObjects).To(HaveLen(1))
+
+			uid, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "uid")
+			Expect(uid).ToNot(BeEmpty())
+
+			diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
+			expectedDiff := fmt.Sprintf(`--- default/pod-reader-e2e-binding : existing
++++ default/pod-reader-e2e-binding : updated
+@@ -8,10 +8,6 @@
+   uid: %s
+ roleRef:
+   apiGroup: rbac.authorization.k8s.io
+   kind: Role
+   name: pod-reader-e2e
+-subjects:
+-- apiGroup: rbac.authorization.k8s.io
+-  kind: Group
+-  name: system:authenticated:oauth
+ 
+`, uid)
+			Expect(diff).To(Equal(expectedDiff))
+
 			By("patching policy spec.remediationAction = enforce")
 			utils.Kubectl("patch", "configurationpolicy", configPolicyNameBindingEnforce, `--type=json`,
 				`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", testNamespace)

@@ -132,7 +132,8 @@ func updateRelatedObjectsStatus(
 			currentObject.Object.Metadata.Namespace == relatedObject.Object.Metadata.Namespace {
 			present = true
 
-			if currentObject.Compliant != relatedObject.Compliant {
+			if currentObject.Compliant != relatedObject.Compliant ||
+				!reflect.DeepEqual(currentObject.Properties, relatedObject.Properties) {
 				list[index] = relatedObject
 			}
 		}
@@ -687,9 +688,10 @@ func generateDiff(existingObj, updatedObj *unstructured.Unstructured) (string, e
 		return "", fmt.Errorf("failed to marshal existing object to YAML for diff: %w", err)
 	}
 
-	existingYAMLName := existingObj.GetName() + " : existing"
+	name := existingObj.GetName()
+
 	if existingObj.GetNamespace() != "" {
-		existingYAMLName = existingObj.GetNamespace() + "/" + existingYAMLName
+		name = existingObj.GetNamespace() + "/" + name
 	}
 
 	updatedYAML, err := yaml.Marshal(updatedObj.Object)
@@ -697,25 +699,28 @@ func generateDiff(existingObj, updatedObj *unstructured.Unstructured) (string, e
 		return "", fmt.Errorf("failed to marshal updated object to YAML for diff: %w", err)
 	}
 
-	updatedYAMLName := updatedObj.GetName() + " : updated"
-	if updatedObj.GetNamespace() != "" {
-		updatedYAMLName = updatedObj.GetNamespace() + "/" + updatedYAMLName
-	}
-
 	// Set the diffing configuration
 	// See https://pkg.go.dev/github.com/pmezard/go-difflib/difflib#UnifiedDiff
 	unifiedDiff := difflib.UnifiedDiff{
 		A:        difflib.SplitLines(string(existingYAML)),
-		FromFile: existingYAMLName,
+		FromFile: name + " : existing",
 		B:        difflib.SplitLines(string(updatedYAML)),
-		ToFile:   updatedYAMLName,
-		Context:  1,
+		ToFile:   name + " : updated",
+		Context:  5,
 	}
 
 	// Generate and return the diff
 	diff, err := difflib.GetUnifiedDiffString(unifiedDiff)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate diff: %w", err)
+	}
+
+	splitDiff := strings.Split(diff, "\n")
+	// Keep a maxmium of 50 lines of diff + 3 lines for the header
+	if len(splitDiff) > 53 {
+		diff = fmt.Sprintf(
+			"# Truncated: showing 50/%d diff lines:\n%s", len(splitDiff), strings.Join(splitDiff[:53], "\n"),
+		)
 	}
 
 	return diff, nil
