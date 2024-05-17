@@ -261,6 +261,8 @@ spec:
                           description: Whether the object was created by the parent
                             policy
                           type: boolean
+                        diff:
+                          type: string
                         uid:
                           description: Store object UID to help track object ownership
                             for deletion

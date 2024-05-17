@@ -15,3 +15,9 @@ patches:
     version: v1
     kind: CustomResourceDefinition
     name: operatorpolicies.policy.open-cluster-management.io
+- path: remove-diff.json
+  target:
+    group: apiextensions.k8s.io
+    version: v1
+    kind: CustomResourceDefinition
+    name: operatorpolicies.policy.open-cluster-management.io

@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/go-logr/logr"
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	templates "github.com/stolostron/go-template-utils/v4/pkg/templates"
@@ -1030,9 +1031,32 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 						return
 					}
 
+					if resolvedTemplate.HasSensitiveData {
+						for i := range objTemps {
+							if objTemps[i].RecordDiff == "" {
+								log.V(1).Info(
+									"Not automatically turning on recordDiff due to templates interacting with "+
+										"sensitive data",
+									"objectTemplateIndex", i,
+								)
+
+								objTemps[i].RecordDiff = policyv1.RecordDiffCensored
+							}
+						}
+					}
+
 					plc.Spec.ObjectTemplates = objTemps
 
 					break
+				}
+
+				if plc.Spec.ObjectTemplates[i].RecordDiff == "" && resolvedTemplate.HasSensitiveData {
+					log.V(1).Info(
+						"Not automatically turning on recordDiff due to templates interacting with sensitive data",
+						"objectTemplateIndex", i,
+					)
+
+					plc.Spec.ObjectTemplates[i].RecordDiff = policyv1.RecordDiffCensored
 				}
 
 				// Otherwise, set the resolved data for use in further processing
@@ -1306,7 +1330,8 @@ func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 					newEntry.Properties.CreatedByPolicy != nil &&
 					!(*newEntry.Properties.CreatedByPolicy) {
 					// Use the old properties if they existed and this is not a newly created resource
-					related[i].Properties = oldEntry.Properties
+					related[i].Properties.CreatedByPolicy = oldEntry.Properties.CreatedByPolicy
+					related[i].Properties.UID = oldEntry.Properties.UID
 
 					if collectMetrics {
 						found[objKey] = true
@@ -1552,9 +1577,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 		log.V(2).Info("Handling a single object template")
 
-		var creationInfo *policyv1.ObjectProperties
+		var objectProperties *policyv1.ObjectProperties
 
-		result, creationInfo = r.handleSingleObj(singObj, remediation, exists, objectT)
+		result, objectProperties = r.handleSingleObj(singObj, remediation, exists, objectT)
 
 		if len(result.events) != 0 {
 			event := result.events[len(result.events)-1]
@@ -1566,7 +1591,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 				objDetails.isNamespaced,
 				result.objectNames,
 				event.reason,
-				creationInfo,
+				objectProperties,
 			)
 		}
 	} else { // This case only occurs when the desired object is not named
@@ -1668,7 +1693,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	objectT *policyv1.ObjectTemplate,
 ) (
 	result objectTmplEvalResult,
-	creationInfo *policyv1.ObjectProperties,
+	objectProperties *policyv1.ObjectProperties,
 ) {
 	objLog := log.WithValues("object", obj.name, "policy", obj.policy.Name, "index", obj.index)
 
@@ -1706,7 +1731,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				objLog.Error(err, "Could not handle missing musthave object")
 			} else {
 				created := true
-				creationInfo = &policyv1.ObjectProperties{
+				objectProperties = &policyv1.ObjectProperties{
 					CreatedByPolicy: &created,
 					UID:             uid,
 				}
@@ -1745,14 +1770,25 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		log.V(2).Info("The object already exists. Verifying the object fields match what is desired.")
 
 		var throwSpecViolation, triedUpdate, updatedObj bool
-		var msg string
+		var msg, diff string
+
+		uid := string(obj.existingObj.GetUID())
 
 		if evaluated, compliant := r.alreadyEvaluated(obj.policy, obj.existingObj); evaluated {
 			log.V(1).Info("Skipping object comparison since the resourceVersion hasn't changed")
 
+			for _, relatedObj := range obj.policy.Status.RelatedObjects {
+				if relatedObj.Properties != nil && relatedObj.Properties.UID == uid {
+					// Retain the diff from the previous evaluation
+					diff = relatedObj.Properties.Diff
+
+					break
+				}
+			}
+
 			throwSpecViolation = !compliant
 		} else {
-			throwSpecViolation, msg, triedUpdate, updatedObj = r.checkAndUpdateResource(
+			throwSpecViolation, msg, diff, triedUpdate, updatedObj = r.checkAndUpdateResource(
 				obj, objectT, remediation,
 			)
 		}
@@ -1761,6 +1797,8 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			// The object was mismatched and was potentially fixed depending on the remediation action
 			result.events = append(result.events, objectTmplEvalEvent{false, reasonWantFoundNoMatch, ""})
 		}
+
+		created := false
 
 		if throwSpecViolation {
 			var resultReason, resultMsg string
@@ -1772,6 +1810,12 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				resultReason = reasonWantFoundNoMatch
 			}
 
+			objectProperties = &policyv1.ObjectProperties{
+				CreatedByPolicy: &created,
+				UID:             uid,
+				Diff:            diff,
+			}
+
 			result.events = append(result.events, objectTmplEvalEvent{false, resultReason, resultMsg})
 		} else {
 			// it is a must have and it does exist, so it is compliant
@@ -1781,10 +1825,11 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				} else {
 					result.events = append(result.events, objectTmplEvalEvent{true, reasonWantFoundExists, ""})
 				}
-				created := false
-				creationInfo = &policyv1.ObjectProperties{
+
+				objectProperties = &policyv1.ObjectProperties{
 					CreatedByPolicy: &created,
-					UID:             "",
+					UID:             uid,
+					Diff:            diff,
 				}
 			} else {
 				result.events = append(result.events, objectTmplEvalEvent{true, reasonWantFoundExists, ""})
@@ -2524,7 +2569,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	obj singleObject,
 	objectT *policyv1.ObjectTemplate,
 	remediation policyv1.RemediationAction,
-) (throwSpecViolation bool, message string, updateNeeded bool, updateSucceeded bool) {
+) (throwSpecViolation bool, message string, diff string, updateNeeded bool, updateSucceeded bool) {
 	complianceType := strings.ToLower(string(objectT.ComplianceType))
 	mdComplianceType := strings.ToLower(string(objectT.MetadataComplianceType))
 
@@ -2552,7 +2597,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if obj.existingObj == nil {
 		log.Info("Skipping update: Previous object retrieval from the API server failed")
 
-		return false, "", false, false
+		return false, "", "", false, false
 	}
 
 	var res dynamic.ResourceInterface
@@ -2570,17 +2615,13 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		obj.desiredObj, obj.existingObj, existingObjectCopy, complianceType, mdComplianceType, !r.DryRunSupported,
 	)
 	if message != "" {
-		return true, message, true, false
+		return true, message, "", true, false
 	}
+
+	recordDiff := objectT.RecordDiffWithDefault()
 
 	if updateNeeded {
 		mismatchLog := "Detected value mismatch"
-
-		// Add a configuration breadcrumb for users that might be looking in the logs for a diff
-		if objectT.RecordDiff != policyv1.RecordDiffLog {
-			mismatchLog += " (Diff disabled. To log the diff, " +
-				"set 'spec.object-tempates[].recordDiff' to 'Log' for this object-template.)"
-		}
 
 		log.Info(mismatchLog)
 
@@ -2590,9 +2631,11 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			if err := r.validateObject(obj.existingObj); err != nil {
 				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
 
-				return true, message, updateNeeded, false
+				return true, message, "", updateNeeded, false
 			}
 		}
+
+		isInform := remediation.IsInform()
 
 		// If the cluster supports dry run requests, verify that the API server agrees with the local comparison logic.
 		// It's possible the dry run request shows the object does match. This can happen if the ConfigurationPolicy
@@ -2610,7 +2653,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 					r.setEvaluatedObject(obj.policy, obj.existingObj, false)
 
-					return true, "", false, false
+					return true, "", "", false, false
 				}
 
 				// If it's a conflict, refetch the object and try again.
@@ -2634,7 +2677,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 					)
 				}
 
-				return true, message, updateNeeded, false
+				return true, message, "", updateNeeded, false
 			}
 
 			removeFieldsForComparison(dryRunUpdatedObj)
@@ -2647,36 +2690,23 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 				r.setEvaluatedObject(obj.policy, obj.existingObj, true)
 
-				return false, "", false, false
+				return false, "", "", false, false
 			}
 
-			// Generate and log the diff
-			if objectT.RecordDiff == policyv1.RecordDiffLog {
-				diff, err := generateDiff(existingObjectCopy, dryRunUpdatedObj)
-				if err != nil {
-					log.Info("Failed to generate the diff: " + err.Error())
-				} else {
-					log.Info("Logging the diff:\n" + diff)
-				}
-			}
-		} else if objectT.RecordDiff == policyv1.RecordDiffLog {
+			diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj)
+		} else if recordDiff == policyv1.RecordDiffLog || (isInform && recordDiff == policyv1.RecordDiffInStatus) {
 			// Generate and log the diff for when dryrun is unsupported (i.e. OCP v3.11)
 			mergedObjCopy := obj.existingObj.DeepCopy()
 			removeFieldsForComparison(mergedObjCopy)
 
-			diff, err := generateDiff(existingObjectCopy, mergedObjCopy)
-			if err != nil {
-				log.Info("Failed to generate the diff: " + err.Error())
-			} else {
-				log.Info("Logging the diff:\n" + diff)
-			}
+			diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, mergedObjCopy)
 		}
 
 		// The object would have been updated, so if it's inform, return as noncompliant.
-		if remediation.IsInform() {
+		if isInform {
 			r.setEvaluatedObject(obj.policy, obj.existingObj, false)
 
-			return true, "", false, false
+			return true, "", diff, false, false
 		}
 
 		// If it's not inform (i.e. enforce), update the object
@@ -2702,7 +2732,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				message = fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
 			}
 
-			return true, message, updateNeeded, false
+			return true, message, diff, updateNeeded, false
 		}
 
 		if !statusMismatch {
@@ -2711,10 +2741,62 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		updateSucceeded = true
 	} else {
+		if throwSpecViolation && recordDiff != policyv1.RecordDiffNone {
+			// The spec didn't require a change but throwSpecViolation indicates the status didn't match. Handle
+			// this diff for this case.
+			mergedObjCopy := obj.existingObj.DeepCopy()
+			removeFieldsForComparison(mergedObjCopy)
+
+			// The provided isInform value is always true because the status checking can only be inform.
+			diff = handleDiff(log, recordDiff, true, existingObjectCopy, mergedObjCopy)
+		}
+
 		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation)
 	}
 
-	return throwSpecViolation, "", updateNeeded, updateSucceeded
+	return throwSpecViolation, "", diff, updateNeeded, updateSucceeded
+}
+
+// handleDiff will generate the diff and then log it or return it based on the input recordDiff value. If recordDiff
+// is set to None or is set to InStatus with enforce, no diff is generated. This is because the diff is not relevant
+// after the object is updated. When recordDiff is set to Censored, a message indicating so is returned.
+func handleDiff(
+	log logr.Logger,
+	recordDiff policyv1.RecordDiff,
+	isInform bool,
+	existingObject *unstructured.Unstructured,
+	mergedObject *unstructured.Unstructured,
+) string {
+	if !isInform && recordDiff == policyv1.RecordDiffInStatus {
+		return ""
+	}
+
+	var computedDiff string
+
+	if recordDiff != policyv1.RecordDiffNone && recordDiff != policyv1.RecordDiffCensored {
+		var err error
+
+		computedDiff, err = generateDiff(existingObject, mergedObject)
+		if err != nil {
+			log.Error(err, "Failed to generate the diff")
+
+			return ""
+		}
+	}
+
+	switch recordDiff {
+	case policyv1.RecordDiffNone:
+		return ""
+	case policyv1.RecordDiffLog:
+		log.Info("Logging the diff:\n" + computedDiff)
+	case policyv1.RecordDiffInStatus:
+		return computedDiff
+	case policyv1.RecordDiffCensored:
+		return `# This diff may contain sensitive data. The "recordDiff" field must be set to "InStatus" ` +
+			`to record a diff.`
+	}
+
+	return ""
 }
 
 // handleKeys goes through all of the fields in the desired object and checks if the existing object
