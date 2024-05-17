@@ -82,7 +82,8 @@ var _ = Describe("Generate the diff", Ordered, func() {
 		Expect(diff).Should(ContainSubstring(`Logging the diff:
 --- default/case39-map : existing
 +++ default/case39-map : updated
-@@ -2,3 +2,3 @@
+@@ -1,8 +1,8 @@
+ apiVersion: v1
  data:
 -  fieldToUpdate: "1"
 +  fieldToUpdate: "2"
