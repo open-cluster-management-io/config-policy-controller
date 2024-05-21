@@ -213,6 +213,33 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 			`# This diff may contain sensitive data. The "recordDiff" field must be set to "InStatus" ` +
 				`to record a diff.`,
 		))
+
+		By("Enforcing the policy removes the diff message")
+		utils.Kubectl(
+			"patch", "configurationpolicy", noDiffOnSecret, `--type=json`,
+			`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", testNamespace,
+		)
+
+		By("Verifying the diff in the status no longer contains instructions to set recordDiff")
+		Eventually(func() interface{} {
+			managedPlc = utils.GetWithTimeout(
+				clientManagedDynamic,
+				gvrConfigPolicy,
+				noDiffOnSecret,
+				testNamespace,
+				true,
+				defaultTimeoutSeconds,
+			)
+
+			return utils.GetComplianceState(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+
+		relatedObjects, _, err = unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(relatedObjects).To(HaveLen(1))
+
+		diff, _, _ = unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
+		Expect(diff).To(BeEmpty())
 	})
 })
 
