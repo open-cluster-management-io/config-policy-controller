@@ -148,6 +148,13 @@ type OperatorPolicyStatus struct {
 	// List of resources processed by the policy
 	// +optional
 	RelatedObjects []policyv1.RelatedObject `json:"relatedObjects"`
+
+	// The resolved name.namespace of the subscription
+	ResolvedSubscriptionLabel string `json:"resolvedSubscriptionLabel,omitempty"`
+
+	// The list of overlapping OperatorPolicies (as name.namespace) which all manage the same
+	// subscription, including this policy. When no overlapping is detected, this list will be empty.
+	OverlappingPolicies []string `json:"overlappingPolicies,omitempty"`
 }
 
 func (status OperatorPolicyStatus) RelatedObjsOfKind(kind string) map[int]policyv1.RelatedObject {
