@@ -1106,7 +1106,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				"CatalogSource was found",
 			)
 		})
-		It("Should become NonCompliant when CatalogSource DNE", func() {
+		It("Should report in status when CatalogSource DNE", func() {
 			By("Patching the policy to reference a CatalogSource that DNE to emulate failure")
 			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/subscription/source", "value": "fakeName"}]`)
@@ -1114,7 +1114,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			By("Checking the conditions and relatedObj in the policy")
 			check(
 				OpPlcName,
-				true,
+				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
 						Kind:       "CatalogSource",
@@ -1124,19 +1124,19 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 							Namespace: opPolTestNS,
 						},
 					},
-					Compliant: "NonCompliant",
+					Compliant: "Compliant",
 					Reason:    "Resource not found but should exist",
 				}},
 				metav1.Condition{
 					Type:    "CatalogSourcesUnhealthy",
-					Status:  metav1.ConditionTrue,
+					Status:  metav1.ConditionFalse,
 					Reason:  "CatalogSourcesNotFound",
 					Message: "CatalogSource 'fakeName' was not found",
 				},
 				"CatalogSource 'fakeName' was not found",
 			)
 		})
-		It("Should remain NonCompliant when CatalogSource fails", func() {
+		It("Should report unhealthy status when CatalogSource fails", func() {
 			By("Patching the policy to point to an existing CatalogSource")
 			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/subscription/source", "value": "operatorhubio-catalog"}]`)
@@ -1144,6 +1144,36 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			By("Patching the CatalogSource to reference a broken image link")
 			KubectlTarget("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/fakecatalog:latest"}]`)
+
+			By("Checking the conditions and relatedObj in the policy")
+			check(
+				OpPlcName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CatalogSource",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      catSrcName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected but is unhealthy",
+				}},
+				metav1.Condition{
+					Type:    "CatalogSourcesUnhealthy",
+					Status:  metav1.ConditionFalse,
+					Reason:  "CatalogSourcesFoundUnhealthy",
+					Message: "CatalogSource was found but is unhealthy",
+				},
+				"CatalogSource was found but is unhealthy",
+			)
+		})
+		It("Should become NonCompliant when ComplianceConfig is modified", func() {
+			By("Patching the policy ComplianceConfig to NonCompliant")
+			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceConfig/catalogSourceUnhealthy", "value": "NonCompliant"}]`)
 
 			By("Checking the conditions and relatedObj in the policy")
 			check(
@@ -1281,6 +1311,36 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			}, olmWaitTimeout, 5, ctx).Should(Equal(1))
 			check(
 				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "The InstallPlan is RequiresApproval",
+				}},
+				metav1.Condition{
+					Type:   "InstallPlanCompliant",
+					Status: metav1.ConditionTrue,
+					Reason: "InstallPlanRequiresApproval",
+					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.36.0] is available" +
+						" for approval",
+				},
+				"an InstallPlan to update .* is available for approval",
+			)
+		})
+		It("Should become NonCompliant when ComplianceConfig is modified to NonCompliant", func(ctx SpecContext) {
+			By("Patching the policy ComplianceConfig to Compliant")
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceConfig/upgradesAvailable", "value": "NonCompliant"}]`)
+
+			By("Checking the conditions and relatedObj in the policy")
+			check(
+				opPolName,
 				true,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1302,7 +1362,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				"an InstallPlan to update .* is available for approval",
 			)
 		})
-		It("Should do the initial install when enforced, and stop at the next version", func(ctx SpecContext) {
+		It("Should do the upgrade when enforced, and stop at the next version", func(ctx SpecContext) {
 			ipList, err := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 				List(ctx, metav1.ListOptions{})
 			Expect(err).NotTo(HaveOccurred())
@@ -2992,6 +3052,34 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			Expect(remBehavior).To(HaveKeyWithValue("subscriptions", "Delete"))
 			Expect(remBehavior).To(HaveKeyWithValue("clusterServiceVersions", "Delete"))
 			Expect(remBehavior).To(HaveKeyWithValue("customResourceDefinitions", "Keep"))
+		})
+	})
+	Describe("Testing defaulted values of ComplianceConfig in an OperatorPolicy", func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+			opPolName = "oppol-no-group"
+		)
+
+		BeforeEach(func() {
+			preFunc()
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should have applied defaults to the ComplianceConfig field", func(ctx SpecContext) {
+			policy, err := clientManagedDynamic.Resource(gvrOperatorPolicy).Namespace(testNamespace).
+				Get(ctx, opPolName, metav1.GetOptions{})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(policy).NotTo(BeNil())
+
+			complianceConfig, found, err := unstructured.NestedStringMap(policy.Object, "spec", "complianceConfig")
+			Expect(found).To(BeTrue())
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(complianceConfig).To(HaveKeyWithValue("catalogSourceUnhealthy", "Compliant"))
+			Expect(complianceConfig).To(HaveKeyWithValue("deploymentsUnavailable", "NonCompliant"))
+			Expect(complianceConfig).To(HaveKeyWithValue("upgradesAvailable", "Compliant"))
 		})
 	})
 	Describe("Testing operator policies that specify the same subscription", Ordered, func() {

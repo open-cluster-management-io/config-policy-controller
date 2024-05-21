@@ -12,19 +12,20 @@ import (
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
-// StatusConfigAction : StatusMessageOnly or NonCompliant
-// +kubebuilder:validation:Enum=StatusMessageOnly;NonCompliant
-type StatusConfigAction string
+// ComplianceConfigAction : Compliant or NonCompliant
+// +kubebuilder:validation:Enum=Compliant;NonCompliant
+type ComplianceConfigAction string
 
 // RemovalAction : Keep, Delete, or DeleteIfUnused
 type RemovalAction string
 
 const (
-	// StatusMessageOnly is a StatusConfigAction that only shows the status message
-	StatusMessageOnly StatusConfigAction = "StatusMessageOnly"
-	// NonCompliant is a StatusConfigAction that shows the status message and sets
-	// the compliance to NonCompliant
-	NonCompliant StatusConfigAction = "NonCompliant"
+	// Compliant is a ComplianceConfigAction that only shows the status message and
+	// does not affect the overall compliance
+	Compliant ComplianceConfigAction = "Compliant"
+	// NonCompliant is a ComplianceConfigAction that shows the status message and sets
+	// the overall compliance when the condition is met
+	NonCompliant ComplianceConfigAction = "NonCompliant"
 )
 
 const (
@@ -98,12 +99,20 @@ func (rb RemovalBehavior) ApplyDefaults() RemovalBehavior {
 	return withDefaults
 }
 
-// StatusConfig defines how resource statuses affect the OperatorPolicy status and compliance
-type StatusConfig struct {
-	CatalogSourceUnhealthy StatusConfigAction `json:"catalogSourceUnhealthy,omitempty"`
-	DeploymentsUnavailable StatusConfigAction `json:"deploymentsUnavailable,omitempty"`
-	UpgradesAvailable      StatusConfigAction `json:"upgradesAvailable,omitempty"`
-	UpgradesProgressing    StatusConfigAction `json:"upgradesProgressing,omitempty"`
+// ComplianceConfig defines how resource statuses affect the OperatorPolicy compliance
+type ComplianceConfig struct {
+	//+kubebuilder:default=Compliant
+	// Specifies how the CatalogSourceUnhealthy typed condition should affect
+	// overall policy compliance. Defaults to 'Compliant'
+	CatalogSourceUnhealthy ComplianceConfigAction `json:"catalogSourceUnhealthy,omitempty"`
+	//+kubebuilder:default=NonCompliant
+	// Specifies how the DeploymentCompliant typed condition should affect
+	// overall policy compliance. Defaults to 'NonCompliant'
+	DeploymentsUnavailable ComplianceConfigAction `json:"deploymentsUnavailable,omitempty"`
+	//+kubebuilder:default=Compliant
+	// Specifies how the InstallPlanCompliant typed condition should affect
+	// overall policy compliance. Defaults to 'Compliant'
+	UpgradesAvailable ComplianceConfigAction `json:"upgradesAvailable,omitempty"`
 }
 
 // OperatorPolicySpec defines the desired state of OperatorPolicy
@@ -115,15 +124,15 @@ type OperatorPolicySpec struct {
 	// Include the name, namespace, and any `spec` fields for the OperatorGroup.
 	// For more info, see `kubectl explain operatorgroup.spec` or
 	// https://olm.operatorframework.io/docs/concepts/crds/operatorgroup/
-	// +kubebuilder:pruning:PreserveUnknownFields
-	// +optional
+	//+kubebuilder:pruning:PreserveUnknownFields
+	//+optional
 	OperatorGroup *runtime.RawExtension `json:"operatorGroup,omitempty"`
 
 	// Include the namespace, and any `spec` fields for the Subscription.
 	// For more info, see `kubectl explain subscription.spec` or
 	// https://olm.operatorframework.io/docs/concepts/crds/subscription/
-	// +kubebuilder:validation:Required
-	// +kubebuilder:pruning:PreserveUnknownFields
+	//+kubebuilder:validation:Required
+	//+kubebuilder:pruning:PreserveUnknownFields
 	Subscription runtime.RawExtension `json:"subscription"`
 
 	// Versions is a list of nonempty strings that specifies which installed versions are compliant when
@@ -143,6 +152,12 @@ type OperatorPolicySpec struct {
 	// approval is not affected by this setting. This setting has no effect when the policy is in
 	// 'mustnothave' mode. Allowed values are "None" or "Automatic".
 	UpgradeApproval string `json:"upgradeApproval"`
+
+	//+kubebuilder:default={}
+	// ComplianceConfig defines how resource statuses affect the OperatorPolicy status and compliance.
+	// When set to Compliant, the condition does not impact the OperatorPolicy compliance.
+	// When set to NonCompliant, the condition causes the OperatorPolicy to become NonCompliant.
+	ComplianceConfig ComplianceConfig `json:"complianceConfig,omitempty"`
 }
 
 // OperatorPolicyStatus defines the observed state of OperatorPolicy

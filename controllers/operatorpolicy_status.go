@@ -211,8 +211,10 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 	}
 
 	idx, cond = policy.Status.GetCondition(installPlanConditionType)
+
 	if idx == -1 {
 		messages = append(messages, "the status of the InstallPlan is unknown")
+
 		foundNonCompliant = true
 	} else {
 		messages = append(messages, cond.Message)
@@ -247,8 +249,10 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 	}
 
 	idx, cond = policy.Status.GetCondition(deploymentConditionType)
+
 	if idx == -1 {
 		messages = append(messages, "the status of the Deployments are unknown")
+
 		foundNonCompliant = true
 	} else {
 		messages = append(messages, cond.Message)
@@ -259,8 +263,10 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 	}
 
 	idx, cond = policy.Status.GetCondition(catalogSrcConditionType)
+
 	if idx == -1 {
 		messages = append(messages, "the status of the CatalogSource is unknown")
+
 		foundNonCompliant = true
 	} else {
 		messages = append(messages, cond.Message)
@@ -668,13 +674,16 @@ var installPlansNoApprovals = metav1.Condition{
 }
 
 // installPlanUpgradeCond is a NonCompliant condition with Reason 'InstallPlanRequiresApproval'
-// and a message detailing which possible updates are available
-func installPlanUpgradeCond(versions []string, approvableIPs []unstructured.Unstructured) metav1.Condition {
-	// FUTURE: check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
-	// For now this condition assumes it is set to 'NonCompliant'
+// and a message detailing which possible updates are available. The `complianceConfig` parameter
+// determines whether the existence of available upgrades should result in NonCompliance when the
+// policy status is updated.
+func installPlanUpgradeCond(
+	complianceConfig policyv1beta1.ComplianceConfigAction,
+	versions []string,
+	approvableIPs []unstructured.Unstructured,
+) metav1.Condition {
 	cond := metav1.Condition{
 		Type:   installPlanConditionType,
-		Status: metav1.ConditionFalse,
 		Reason: "InstallPlanRequiresApproval",
 	}
 
@@ -691,6 +700,12 @@ func installPlanUpgradeCond(versions []string, approvableIPs []unstructured.Unst
 
 	if len(approvableIPs) > 1 {
 		cond.Message += " but multiple of those match the versions specified in the policy"
+	}
+
+	if complianceConfig == "Compliant" {
+		cond.Status = metav1.ConditionTrue
+	} else {
+		cond.Status = metav1.ConditionFalse
 	}
 
 	return cond
@@ -748,8 +763,11 @@ var crdFoundCond = metav1.Condition{
 
 // buildDeploymentCond creates a Condition for deployments. If any are not at their
 // minimum availability, the condition will be NonCompliant, and the message will
-// list the unavailable deployments.
+// list the unavailable deployments. The `complianceConfig` parameter determines
+// whether an unavailable deployment will lead to NonCompliance when the policy
+// status is updated.
 func buildDeploymentCond(
+	complianceConfig policyv1beta1.ComplianceConfigAction,
 	depsExist bool,
 	unavailableDeps []appsv1.Deployment,
 ) metav1.Condition {
@@ -775,6 +793,12 @@ func buildDeploymentCond(
 		message = fmt.Sprintf("the deployments %s do not have their minimum availability", names)
 	}
 
+	// If the status changed, that means the condition should be NonCompliant
+	// Apply override if complianceConfig is set to Compliant
+	if status == metav1.ConditionFalse && complianceConfig == "Compliant" {
+		status = metav1.ConditionTrue
+	}
+
 	return metav1.Condition{
 		Type:    condType(deploymentGVK.Kind),
 		Status:  status,
@@ -793,8 +817,15 @@ var noDeploymentsCond = metav1.Condition{
 }
 
 // catalogSourceFindCond is a conditionally compliant condition with reason
-// based on the `isUnhealthy` and `isMissing` parameters
-func catalogSourceFindCond(isUnhealthy bool, isMissing bool, name string) metav1.Condition {
+// based on the `isUnhealthy` and `isMissing` parameters. The `complianceConfig`
+// parameter determines whether an unhealthy CatalogSource should lead to
+// NonCompliance when status is updated.
+func catalogSourceFindCond(
+	complianceConfig policyv1beta1.ComplianceConfigAction,
+	isUnhealthy bool,
+	isMissing bool,
+	name string,
+) metav1.Condition {
 	status := metav1.ConditionFalse
 	reason := "CatalogSourcesFound"
 	message := "CatalogSource was found"
@@ -809,6 +840,11 @@ func catalogSourceFindCond(isUnhealthy bool, isMissing bool, name string) metav1
 		status = metav1.ConditionTrue
 		reason = "CatalogSourcesNotFound"
 		message = "CatalogSource '" + name + "' was not found"
+	}
+
+	// Only override if condition evaluated to NonCompliant
+	if status == metav1.ConditionTrue && complianceConfig == "Compliant" {
+		status = metav1.ConditionFalse
 	}
 
 	return metav1.Condition{
@@ -1044,7 +1080,13 @@ func noInstallPlansObj(namespace string) policyv1.RelatedObject {
 // existingInstallPlanObj returns a RelatedObject for the InstallPlan, with a reason
 // like 'The InstallPlan is ____' based on the phase. When the InstallPlan is in phase
 // 'Complete', the object will be Compliant, otherwise it will be NonCompliant.
-func existingInstallPlanObj(ip client.Object, phase string) policyv1.RelatedObject {
+// The `complianceConfig` parameter determines whether the existence of available upgrades
+// or installing phase should result in NonCompliance when the policy status is updated.
+func existingInstallPlanObj(
+	ip client.Object,
+	phase string,
+	complianceConfig policyv1beta1.ComplianceConfigAction,
+) policyv1.RelatedObject {
 	relObj := policyv1.RelatedObject{
 		Object: policyv1.ObjectResourceFromObj(ip),
 		Properties: &policyv1.ObjectProperties{
@@ -1059,10 +1101,20 @@ func existingInstallPlanObj(ip client.Object, phase string) policyv1.RelatedObje
 	}
 
 	switch phase {
+	case string(operatorv1alpha1.InstallPlanPhaseInstalling):
+		// Check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
+		if complianceConfig != "Compliant" {
+			relObj.Compliant = string(policyv1.NonCompliant)
+		} else {
+			relObj.Compliant = string(policyv1.Compliant)
+		}
 	case string(operatorv1alpha1.InstallPlanPhaseRequiresApproval):
-		// FUTURE: check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
-		// For now, assume it is set to 'NonCompliant'
-		relObj.Compliant = string(policyv1.NonCompliant)
+		// Check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
+		if complianceConfig != "Compliant" {
+			relObj.Compliant = string(policyv1.NonCompliant)
+		} else {
+			relObj.Compliant = string(policyv1.Compliant)
+		}
 	case string(operatorv1alpha1.InstallPlanPhaseComplete):
 		relObj.Compliant = string(policyv1.Compliant)
 	default:
@@ -1154,14 +1206,23 @@ var noExistingCRDObj = policyv1.RelatedObject{
 }
 
 // existingDeploymentObj returns a RelatedObject for a Deployment, which will
-// be Compliant if there are no unavailable replicas on the deployment.
-func existingDeploymentObj(dep *appsv1.Deployment) policyv1.RelatedObject {
+// be Compliant if there are no unavailable replicas on the deployment. The
+// `complianceConfig` parameter determines whether an unavailable deployment
+// results in NonCompliance when the policy status is updated.
+func existingDeploymentObj(
+	dep *appsv1.Deployment,
+	complianceConfig policyv1beta1.ComplianceConfigAction,
+) policyv1.RelatedObject {
 	compliance := policyv1.NonCompliant
 	reason := "Deployment Unavailable"
 
 	if dep.Status.UnavailableReplicas == 0 {
 		compliance = policyv1.Compliant
 		reason = "Deployment Available"
+	} else if complianceConfig == "Compliant" {
+		compliance = policyv1.Compliant
+		// Notify user since complianceConfig was changed from NonCompliant -> Compliant
+		reason += " (policy compliance is not impacted due to spec.complianceConfig.deploymentsUnavailable)"
 	}
 
 	return policyv1.RelatedObject{
@@ -1187,20 +1248,34 @@ var noExistingDeploymentObj = policyv1.RelatedObject{
 	Reason:    "No relevant deployments found",
 }
 
-// catalogSourceObj returns a conditionally compliant RelatedObject with reason based on the
-// `isUnhealthy` and `isMissing` parameters
-func catalogSourceObj(catalogName string, catalogNS string, isUnhealthy bool, isMissing bool) policyv1.RelatedObject {
+// catalogSourceObj returns a conditionally compliant RelatedObject with reason
+// based on the `isUnhealthy` and `isMissing` parameters. The `complianceConfig`
+// parameter determines whether an unhealthy CatalogSource should lead to
+// NonCompliance when status is updated.
+func catalogSourceObj(
+	catalogName string,
+	catalogNS string,
+	isUnhealthy bool,
+	isMissing bool,
+	complianceConfig policyv1beta1.ComplianceConfigAction,
+) policyv1.RelatedObject {
 	compliance := string(policyv1.Compliant)
 	reason := reasonWantFoundExists
 
 	if isUnhealthy {
-		compliance = string(policyv1.NonCompliant)
 		reason = reasonWantFoundExists + " but is unhealthy"
+
+		if complianceConfig != "Compliant" {
+			compliance = string(policyv1.NonCompliant)
+		}
 	}
 
 	if isMissing {
-		compliance = string(policyv1.NonCompliant)
 		reason = reasonWantFoundDNE
+
+		if complianceConfig != "Compliant" {
+			compliance = string(policyv1.NonCompliant)
+		}
 	}
 
 	return policyv1.RelatedObject{
