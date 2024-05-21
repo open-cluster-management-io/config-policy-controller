@@ -2767,7 +2767,7 @@ func handleDiff(
 	existingObject *unstructured.Unstructured,
 	mergedObject *unstructured.Unstructured,
 ) string {
-	if !isInform && recordDiff == policyv1.RecordDiffInStatus {
+	if !isInform && (recordDiff == policyv1.RecordDiffInStatus || recordDiff == policyv1.RecordDiffCensored) {
 		return ""
 	}
 
