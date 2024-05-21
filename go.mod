@@ -15,7 +15,7 @@ require (
 	github.com/spf13/pflag v1.0.5
 	github.com/stolostron/go-log-utils v0.1.2
 	github.com/stolostron/go-template-utils/v4 v4.2.0
-	github.com/stolostron/kubernetes-dependency-watches v0.6.0
+	github.com/stolostron/kubernetes-dependency-watches v0.7.0
 	github.com/stretchr/testify v1.8.4
 	golang.org/x/mod v0.16.0
 	k8s.io/api v0.29.2
