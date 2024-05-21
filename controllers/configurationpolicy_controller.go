@@ -2792,8 +2792,10 @@ func handleDiff(
 	case policyv1.RecordDiffInStatus:
 		return computedDiff
 	case policyv1.RecordDiffCensored:
-		return `# This diff may contain sensitive data. The "recordDiff" field must be set to "InStatus" ` +
-			`to record a diff.`
+		return `# The difference is redacted because it contains sensitive data. To override, the ` +
+			`spec["object-templates"][].recordDiff field must be set to "InStatus" for the difference to be recorded ` +
+			`in the policy status. Consider existing access to the ConfigurationPolicy objects and the etcd ` +
+			`encryption configuration before you proceed with an override.`
 	}
 
 	return ""
