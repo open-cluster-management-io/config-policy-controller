@@ -199,9 +199,13 @@ type ObjectTemplate struct {
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ObjectDefinition runtime.RawExtension `json:"objectDefinition"`
 
-	// RecordDiff specifies whether (and where) to log the diff between the object on the
-	// cluster and the objectDefinition in the policy. Defaults to "None" when the object kind is
-	// ConfigMap, OAuthAccessToken, OAuthAuthorizeTokens, Route, or Secret. Defaults to "InStatus" otherwise.
+	// RecordDiff specifies whether and where to log the difference between the object on the cluster
+	// and the `objectDefinition` parameter in the policy. The supported options are `InStatus` to record the
+	// difference in the policy status field, `Log` to log the difference in the
+	// `config-policy-controller` pod, and `None` to not log the difference. The default value is `None` for
+	// object kinds that include sensitive data such as `ConfigMap`, `OAuthAccessToken`,
+	// `OAuthAuthorizeTokens`, `Route`, and `Secret`, or when a templated `objectDefinition` references sensitive
+	// data. For all other kinds, the default value is `InStatus`.
 	RecordDiff RecordDiff `json:"recordDiff,omitempty"`
 }
 
