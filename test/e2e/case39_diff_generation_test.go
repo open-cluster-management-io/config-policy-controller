@@ -148,8 +148,10 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 
 		diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
 		Expect(diff).To(Equal(
-			`# This diff may contain sensitive data. The "recordDiff" field must be set to "InStatus" ` +
-				`to record a diff.`,
+			`# The difference is redacted because it contains sensitive data. To override, the ` +
+				`spec["object-templates"][].recordDiff field must be set to "InStatus" for the difference to be ` +
+				`recorded in the policy status. Consider existing access to the ConfigurationPolicy objects and the ` +
+				`etcd encryption configuration before you proceed with an override.`,
 		))
 	})
 
@@ -179,8 +181,10 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 
 		diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
 		Expect(diff).To(Equal(
-			`# This diff may contain sensitive data. The "recordDiff" field must be set to "InStatus" ` +
-				`to record a diff.`,
+			`# The difference is redacted because it contains sensitive data. To override, the ` +
+				`spec["object-templates"][].recordDiff field must be set to "InStatus" for the difference to be ` +
+				`recorded in the policy status. Consider existing access to the ConfigurationPolicy objects and the ` +
+				`etcd encryption configuration before you proceed with an override.`,
 		))
 	})
 
@@ -210,8 +214,10 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 
 		diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
 		Expect(diff).To(Equal(
-			`# This diff may contain sensitive data. The "recordDiff" field must be set to "InStatus" ` +
-				`to record a diff.`,
+			`# The difference is redacted because it contains sensitive data. To override, the ` +
+				`spec["object-templates"][].recordDiff field must be set to "InStatus" for the difference to be ` +
+				`recorded in the policy status. Consider existing access to the ConfigurationPolicy objects and the ` +
+				`etcd encryption configuration before you proceed with an override.`,
 		))
 
 		By("Enforcing the policy removes the diff message")
