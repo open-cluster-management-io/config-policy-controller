@@ -1326,6 +1326,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 	ipsRequiringApproval := make([]unstructured.Unstructured, 0)
 	anyInstalling := false
 	currentPlanFailed := false
+	complianceConfig := policy.Spec.ComplianceConfig.UpgradesAvailable
 
 	// Construct the relevant relatedObjects, and collect any that might be considered for approval
 	for i, installPlan := range ownedInstallPlans {
@@ -1356,7 +1357,8 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 			}
 		}
 
-		relatedInstallPlans = append(relatedInstallPlans, existingInstallPlanObj(&ownedInstallPlans[i], phase))
+		relatedInstallPlans = append(relatedInstallPlans,
+			existingInstallPlanObj(&ownedInstallPlans[i], phase, complianceConfig))
 	}
 
 	if currentPlanFailed {
@@ -1396,9 +1398,8 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 	// Only report this status when not approving an InstallPlan, because otherwise it could easily
 	// oscillate between this and another condition.
 	if policy.Spec.RemediationAction.IsInform() || (!initialInstall && !autoUpgrade) {
-		// FUTURE: check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
-		// For now this condition assumes it is set to 'NonCompliant'
-		return updateStatus(policy, installPlanUpgradeCond(allUpgradeVersions, nil), relatedInstallPlans...), nil
+		return updateStatus(policy, installPlanUpgradeCond(complianceConfig, allUpgradeVersions, nil),
+			relatedInstallPlans...), nil
 	}
 
 	approvedVersion := "" // this will only be accurate when there is only one approvable InstallPlan
@@ -1446,8 +1447,11 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 	}
 
 	if len(approvableInstallPlans) != 1 {
-		changed := updateStatus(policy,
-			installPlanUpgradeCond(allUpgradeVersions, approvableInstallPlans), relatedInstallPlans...)
+		changed := updateStatus(
+			policy,
+			installPlanUpgradeCond(complianceConfig, allUpgradeVersions, approvableInstallPlans),
+			relatedInstallPlans...,
+		)
 
 		return changed, nil
 	}
@@ -1644,6 +1648,7 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 	var relatedObjects []policyv1.RelatedObject
 	var unavailableDeployments []appsv1.Deployment
 
+	complianceConfig := policy.Spec.ComplianceConfig.DeploymentsUnavailable
 	depNum := 0
 
 	for _, dep := range csv.Spec.InstallStrategy.StrategySpec.DeploymentSpecs {
@@ -1680,7 +1685,7 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 		if policy.Spec.ComplianceType.IsMustNotHave() {
 			relatedObjects = append(relatedObjects, foundNotApplicableObj(&dep))
 		} else {
-			relatedObjects = append(relatedObjects, existingDeploymentObj(&dep))
+			relatedObjects = append(relatedObjects, existingDeploymentObj(&dep, complianceConfig))
 		}
 	}
 
@@ -1688,7 +1693,8 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 		return updateStatus(policy, notApplicableCond("Deployment"), relatedObjects...), nil
 	}
 
-	return updateStatus(policy, buildDeploymentCond(depNum > 0, unavailableDeployments), relatedObjects...), nil
+	return updateStatus(policy, buildDeploymentCond(complianceConfig, depNum > 0, unavailableDeployments),
+		relatedObjects...), nil
 }
 
 func (r *OperatorPolicyReconciler) handleCRDs(
@@ -1888,8 +1894,9 @@ func (r *OperatorPolicyReconciler) musthaveCatalogSource(
 		isUnhealthy = (CatalogSrcState != CatalogSourceReady)
 	}
 
-	changed := updateStatus(policy, catalogSourceFindCond(isUnhealthy, isMissing, catalogName),
-		catalogSourceObj(catalogName, catalogNS, isUnhealthy, isMissing))
+	complianceConfig := policy.Spec.ComplianceConfig.CatalogSourceUnhealthy
+	changed := updateStatus(policy, catalogSourceFindCond(complianceConfig, isUnhealthy, isMissing, catalogName),
+		catalogSourceObj(catalogName, catalogNS, isUnhealthy, isMissing, complianceConfig))
 
 	return changed, nil
 }

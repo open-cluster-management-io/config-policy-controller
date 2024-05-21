@@ -41,6 +41,41 @@ spec:
           spec:
             description: OperatorPolicySpec defines the desired state of OperatorPolicy
             properties:
+              complianceConfig:
+                default: {}
+                description: |-
+                  ComplianceConfig defines how resource statuses affect the OperatorPolicy status and compliance.
+                  When set to Compliant, the condition does not impact the OperatorPolicy compliance.
+                  When set to NonCompliant, the condition causes the OperatorPolicy to become NonCompliant.
+                properties:
+                  catalogSourceUnhealthy:
+                    default: Compliant
+                    description: |-
+                      Specifies how the CatalogSourceUnhealthy typed condition should affect
+                      overall policy compliance. Defaults to 'Compliant'
+                    enum:
+                    - Compliant
+                    - NonCompliant
+                    type: string
+                  deploymentsUnavailable:
+                    default: NonCompliant
+                    description: |-
+                      Specifies how the DeploymentCompliant typed condition should affect
+                      overall policy compliance. Defaults to 'NonCompliant'
+                    enum:
+                    - Compliant
+                    - NonCompliant
+                    type: string
+                  upgradesAvailable:
+                    default: Compliant
+                    description: |-
+                      Specifies how the InstallPlanCompliant typed condition should affect
+                      overall policy compliance. Defaults to 'Compliant'
+                    enum:
+                    - Compliant
+                    - NonCompliant
+                    type: string
+                type: object
               complianceType:
                 description: ComplianceType describes whether we must or must not
                   have a given resource
