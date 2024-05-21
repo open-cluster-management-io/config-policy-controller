@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -2952,6 +2953,157 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			Expect(remBehavior).To(HaveKeyWithValue("subscriptions", "Delete"))
 			Expect(remBehavior).To(HaveKeyWithValue("clusterServiceVersions", "Delete"))
 			Expect(remBehavior).To(HaveKeyWithValue("customResourceDefinitions", "Keep"))
+		})
+	})
+	Describe("Testing operator policies that specify the same subscription", Ordered, func() {
+		const (
+			musthaveYAML    = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+			musthaveName    = "oppol-no-group"
+			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
+			mustnothaveName = "oppol-mustnothave"
+		)
+
+		BeforeAll(func() {
+			preFunc()
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				musthaveYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				mustnothaveYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		It("Should display a validation error in both", func() {
+			check(
+				mustnothaveName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:   "ValidPolicySpec",
+					Status: metav1.ConditionFalse,
+					Reason: "InvalidPolicySpec",
+					Message: `the specified operator is managed by multiple policies ` +
+						`(oppol-mustnothave.operator-policy-testns, oppol-no-group.operator-policy-testns)`,
+				},
+				`the specified operator is managed by multiple policies`,
+			)
+			check(
+				musthaveName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:   "ValidPolicySpec",
+					Status: metav1.ConditionFalse,
+					Reason: "InvalidPolicySpec",
+					Message: `the specified operator is managed by multiple policies ` +
+						`(oppol-mustnothave.operator-policy-testns, oppol-no-group.operator-policy-testns)`,
+				},
+				`the specified operator is managed by multiple policies`,
+			)
+		})
+
+		// This test requires that no other OperatorPolicies are active. Ideally it would be marked
+		// with the Serial decorator, but then this whole file would need to be marked that way,
+		// which would slow down the suite. As long as no other test files use OperatorPolicy, the
+		// Ordered property on this file should ensure this is stable.
+		It("Should not cause an infinite reconcile loop", func() {
+			recMetrics := utils.GetMetrics("controller_runtime_reconcile_total",
+				`controller=\"operator-policy-controller\"`)
+
+			totalReconciles := 0
+			for _, metric := range recMetrics {
+				val, err := strconv.Atoi(metric)
+				Expect(err).NotTo(HaveOccurred())
+
+				totalReconciles += val
+			}
+
+			Consistently(func(g Gomega) int {
+				loopMetrics := utils.GetMetrics("controller_runtime_reconcile_total",
+					`controller=\"operator-policy-controller\"`)
+
+				loopReconciles := 0
+				for _, metric := range loopMetrics {
+					val, err := strconv.Atoi(metric)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					loopReconciles += val
+				}
+
+				return loopReconciles
+			}, "10s", "1s").Should(Equal(totalReconciles))
+		})
+
+		It("Should remove the validation error when the overlapping policy is removed", func() {
+			utils.Kubectl("delete", "operatorpolicy", musthaveName, "-n", opPolTestNS)
+
+			check(
+				mustnothaveName,
+				false,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionTrue,
+					Reason:  "PolicyValidated",
+					Message: `the policy spec is valid`,
+				},
+				`the policy spec is valid`,
+			)
+		})
+
+		// This test requires that no other OperatorPolicies are active. Ideally it would be marked
+		// with the Serial decorator, but then this whole file would need to be marked that way,
+		// which would slow down the suite. As long as no other test files use OperatorPolicy, the
+		// Ordered property on this file should ensure this is stable.
+		It("Should not cause an infinite reconcile loop when enforced", func() {
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				musthaveYAML, opPolTestNS, gvrPolicy, gvrOperatorPolicy)
+
+			// enforce the policies
+			utils.Kubectl("patch", "operatorpolicy", mustnothaveName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.Kubectl("patch", "operatorpolicy", musthaveName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+
+			check(
+				mustnothaveName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:   "ValidPolicySpec",
+					Status: metav1.ConditionFalse,
+					Reason: "InvalidPolicySpec",
+					Message: `the specified operator is managed by multiple policies ` +
+						`(oppol-mustnothave.operator-policy-testns, oppol-no-group.operator-policy-testns)`,
+				},
+				`the specified operator is managed by multiple policies`,
+			)
+
+			recMetrics := utils.GetMetrics("controller_runtime_reconcile_total",
+				`controller=\"operator-policy-controller\"`)
+
+			totalReconciles := 0
+			for _, metric := range recMetrics {
+				val, err := strconv.Atoi(metric)
+				Expect(err).NotTo(HaveOccurred())
+
+				totalReconciles += val
+			}
+
+			Consistently(func(g Gomega) int {
+				loopMetrics := utils.GetMetrics("controller_runtime_reconcile_total",
+					`controller=\"operator-policy-controller\"`)
+
+				loopReconciles := 0
+				for _, metric := range loopMetrics {
+					val, err := strconv.Atoi(metric)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					loopReconciles += val
+				}
+
+				return loopReconciles
+			}, "10s", "1s").Should(Equal(totalReconciles))
 		})
 	})
 	Describe("Testing templates in an OperatorPolicy", Ordered, func() {

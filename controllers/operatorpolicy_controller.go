@@ -27,6 +27,7 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/dynamic"
@@ -114,10 +115,40 @@ func (r *OperatorPolicyReconciler) SetupWithManager(mgr ctrl.Manager, depEvents 
 		For(
 			&policyv1beta1.OperatorPolicy{},
 			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Watches(
+			&policyv1beta1.OperatorPolicy{},
+			handler.EnqueueRequestsFromMapFunc(overlapMapper)).
 		WatchesRawSource(
 			depEvents,
 			&handler.EnqueueRequestForObject{}).
 		Complete(r)
+}
+
+func overlapMapper(_ context.Context, obj client.Object) []reconcile.Request {
+	//nolint:forcetypeassert
+	pol := obj.(*policyv1beta1.OperatorPolicy)
+
+	var result []reconcile.Request
+
+	for _, overlap := range pol.Status.OverlappingPolicies {
+		name, ns, ok := strings.Cut(overlap, ".")
+		// skip invalid items in the status
+		if !ok {
+			continue
+		}
+
+		// skip 'this' policy; it will be reconciled (if needed) through another watch
+		if name == pol.Name && ns == pol.Namespace {
+			continue
+		}
+
+		result = append(result, reconcile.Request{NamespacedName: types.NamespacedName{
+			Name:      name,
+			Namespace: ns,
+		}})
+	}
+
+	return result
 }
 
 // blank assignment to verify that OperatorPolicyReconciler implements reconcile.Reconciler
@@ -308,7 +339,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 // checks if the policy's spec is valid. It returns:
 //   - the built Subscription
 //   - the built OperatorGroup
-//   - whether the status has changed because of the validity condition
+//   - whether the status has changed
 //   - an error if an API call failed
 //
 // The built objects can be used to find relevant objects for a 'mustnothave' policy.
@@ -376,7 +407,86 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		}
 	}
 
-	return sub, opGroup, updateStatus(policy, validationCond(validationErrors)), returnedErr
+	changed, overlapErr, apiErr := r.checkSubOverlap(ctx, policy, sub)
+	if apiErr != nil && returnedErr == nil {
+		returnedErr = apiErr
+	}
+
+	if overlapErr != nil {
+		// When an overlap is detected, the generated subscription and operatorgroup
+		// will be considered to be invalid to prevent creations/updates.
+		sub = nil
+		opGroup = nil
+
+		validationErrors = append(validationErrors, overlapErr)
+	}
+
+	changed = updateStatus(policy, validationCond(validationErrors)) || changed
+
+	return sub, opGroup, changed, returnedErr
+}
+
+func (r *OperatorPolicyReconciler) checkSubOverlap(
+	ctx context.Context, policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription,
+) (statusChanged bool, validationErr error, apiErr error) {
+	resolvedSubLabel := ""
+	if sub != nil {
+		resolvedSubLabel = sub.Name + "." + sub.Namespace
+	}
+
+	if policy.Status.ResolvedSubscriptionLabel != resolvedSubLabel {
+		policy.Status.ResolvedSubscriptionLabel = resolvedSubLabel
+		statusChanged = true
+	}
+
+	if resolvedSubLabel == "" {
+		// No possible overlap if the subscription could not be determined
+		if len(policy.Status.OverlappingPolicies) != 0 {
+			policy.Status.OverlappingPolicies = []string{}
+			statusChanged = true
+		}
+
+		return statusChanged, nil, nil
+	}
+
+	opList := &policyv1beta1.OperatorPolicyList{}
+	if err := r.List(ctx, opList); err != nil {
+		return statusChanged, nil, err
+	}
+
+	// In the list, 'this' policy may or may not have the sub label yet, so always
+	// put it in here, and skip it in the loop.
+	overlappers := []string{policy.Name + "." + policy.Namespace}
+
+	for _, otherPolicy := range opList.Items {
+		if otherPolicy.Status.ResolvedSubscriptionLabel == resolvedSubLabel {
+			if !(otherPolicy.Name == policy.Name && otherPolicy.Namespace == policy.Namespace) {
+				overlappers = append(overlappers, otherPolicy.Name+"."+otherPolicy.Namespace)
+			}
+		}
+	}
+
+	// No overlap
+	if len(overlappers) == 1 {
+		if len(policy.Status.OverlappingPolicies) != 0 {
+			policy.Status.OverlappingPolicies = []string{}
+			statusChanged = true
+		}
+
+		return statusChanged, nil, nil
+	}
+
+	slices.Sort(overlappers)
+
+	overlapError := fmt.Errorf("the specified operator is managed by multiple policies (%v)",
+		strings.Join(overlappers, ", "))
+
+	if !slices.Equal(overlappers, policy.Status.OverlappingPolicies) {
+		policy.Status.OverlappingPolicies = overlappers
+		statusChanged = true
+	}
+
+	return statusChanged, overlapError, nil
 }
 
 // applySubscriptionDefaults will set the subscription channel, source, and sourceNamespace when they are unset by
