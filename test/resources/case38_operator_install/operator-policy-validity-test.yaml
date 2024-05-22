@@ -25,7 +25,8 @@ spec:
     channel: stable-3.10
     name: project-quay
     namespace: nonexist-testns
-    installPlanApproval: Incorrect
+    installPlanApproval: Automatic
     source: operatorhubio-catalog
     sourceNamespace: olm
     startingCSV: quay-operator.v3.10.0
+  upgradeApproval: None

@@ -22,7 +22,7 @@ spec:
     channel: '{{ (lookup "v1" "ConfigMap" "operator-policy-testns" "op-config").data.channel }}'
     name: project-quay
     namespace: operator-policy-testns
-    installPlanApproval: Automatic
     source: operatorhubio-catalog
     sourceNamespace: olm
     startingCSV: quay-operator.v3.10.0
+  upgradeApproval: Automatic

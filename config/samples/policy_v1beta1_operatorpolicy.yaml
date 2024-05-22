@@ -16,9 +16,9 @@ spec:
     channel: stable
     name: strimzi-kafka-operator
     namespace: openshift-operators
-    installPlanApproval: Manual
     source: community-operators
     sourceNamespace: openshift-marketplace
     startingCSV: strimzi-cluster-operator.v0.35.0
+  upgradeApproval: None
   versions:
     - strimzi-cluster-operator.v0.35.0

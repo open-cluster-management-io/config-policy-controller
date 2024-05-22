@@ -17,5 +17,5 @@ spec:
   subscription:
     name: project-quay
     namespace: operator-policy-testns
-    installPlanApproval: Manual
     source: wrong
+  upgradeApproval: None

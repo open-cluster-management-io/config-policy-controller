@@ -635,16 +635,16 @@ func buildSubscription(
 	subscription.ObjectMeta.Namespace = ns
 	subscription.Spec = spec
 
-	// This is not validated by the CRD, so validate it here to prevent unexpected behavior.
-	if !(spec.InstallPlanApproval == "Manual" || spec.InstallPlanApproval == "Automatic") {
-		return nil, fmt.Errorf("the policy spec.subscription.installPlanApproval ('%v') is invalid: "+
-			"must be 'Automatic' or 'Manual'", spec.InstallPlanApproval)
+	if spec.InstallPlanApproval != "" {
+		return nil, fmt.Errorf("installPlanApproval is prohibited in spec.subscription")
 	}
 
-	// If the policy is in `enforce` mode and the allowed CSVs are restricted,
-	// the InstallPlanApproval will be set to Manual so that upgrades can be controlled.
-	if policy.Spec.RemediationAction.IsEnforce() && len(policy.Spec.Versions) > 0 {
-		subscription.Spec.InstallPlanApproval = operatorv1alpha1.ApprovalManual
+	// Usually set InstallPlanApproval to manual so that upgrades can be controlled
+	spec.InstallPlanApproval = operatorv1alpha1.ApprovalManual
+	if policy.Spec.RemediationAction.IsEnforce() &&
+		policy.Spec.UpgradeApproval == "Automatic" &&
+		len(policy.Spec.Versions) == 0 {
+		spec.InstallPlanApproval = operatorv1alpha1.ApprovalAutomatic
 	}
 
 	return subscription, nil
@@ -1093,6 +1093,12 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 		return nil, nil, false, fmt.Errorf("error converting desired Subscription to an Unstructured: %w", err)
 	}
 
+	// Clear `installPlanApproval` from the desired subscription when in inform mode - since that field can not
+	// be set in the policy, we should not check it on the object in the cluster.
+	if policy.Spec.RemediationAction.IsInform() {
+		unstructured.RemoveNestedField(desiredUnstruct, "spec", "installPlanApproval")
+	}
+
 	updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, foundSub, string(policy.Spec.ComplianceType))
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("error checking if the Subscription needs an update: %w", err)
@@ -1384,9 +1390,12 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		allUpgradeVersions = append(allUpgradeVersions, fmt.Sprintf("%v", csvNames))
 	}
 
-	// Only report this status in `inform` mode, because otherwise it could easily oscillate between this and
-	// another condition below when being enforced.
-	if policy.Spec.RemediationAction.IsInform() {
+	initialInstall := sub.Status.InstalledCSV == ""
+	autoUpgrade := policy.Spec.UpgradeApproval == "Automatic"
+
+	// Only report this status when not approving an InstallPlan, because otherwise it could easily
+	// oscillate between this and another condition.
+	if policy.Spec.RemediationAction.IsInform() || (!initialInstall && !autoUpgrade) {
 		// FUTURE: check policy.spec.statusConfig.upgradesAvailable to determine `compliant`.
 		// For now this condition assumes it is set to 'NonCompliant'
 		return updateStatus(policy, installPlanUpgradeCond(allUpgradeVersions, nil), relatedInstallPlans...), nil

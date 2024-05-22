@@ -16,7 +16,6 @@ spec:
   complianceType: musthave
   subscription:
     channel: strimzi-0.36.x
-    installPlanApproval: Manual
     name: strimzi-kafka-operator
     namespace: operator-policy-testns
     source: operatorhubio-catalog
@@ -24,3 +23,4 @@ spec:
     startingCSV: strimzi-cluster-operator.v0.0.0.1337 # shouldn't match a real version
   versions:
     - strimzi-cluster-operator.v0.36.0
+  upgradeApproval: None

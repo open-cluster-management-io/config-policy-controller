@@ -135,6 +135,14 @@ type OperatorPolicySpec struct {
 	// When in inform mode, any resources that would be deleted if the policy was enforced will
 	// be causes for NonCompliance, but resources that would be kept will be considered Compliant.
 	RemovalBehavior RemovalBehavior `json:"removalBehavior,omitempty"`
+
+	//+kubebuilder:validation:Required
+	//+kubebuilder:validation:Enum=None;Automatic
+	// UpgradeApproval determines whether 'upgrade' InstallPlans for the operator will be approved
+	// by the controller when the policy is enforced and in 'musthave' mode. The initial InstallPlan
+	// approval is not affected by this setting. This setting has no effect when the policy is in
+	// 'mustnothave' mode. Allowed values are "None" or "Automatic".
+	UpgradeApproval string `json:"upgradeApproval"`
 }
 
 // OperatorPolicyStatus defines the observed state of OperatorPolicy
