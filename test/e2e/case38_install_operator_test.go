@@ -172,15 +172,18 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	}
 
 	preFunc := func() {
+		utils.Kubectl("create", "ns", opPolTestNS)
+
 		if IsHosted {
 			KubectlTarget("create", "ns", opPolTestNS)
-			DeferCleanup(func() {
-				KubectlTarget("delete", "ns", opPolTestNS)
-			})
 		}
-		utils.Kubectl("create", "ns", opPolTestNS)
+
 		DeferCleanup(func() {
-			utils.Kubectl("delete", "ns", opPolTestNS)
+			utils.Kubectl("delete", "ns", opPolTestNS, "--ignore-not-found")
+
+			if IsHosted {
+				KubectlTarget("delete", "ns", opPolTestNS, "--ignore-not-found")
+			}
 		})
 	}
 
