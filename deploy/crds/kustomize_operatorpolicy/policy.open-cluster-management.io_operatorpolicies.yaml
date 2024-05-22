@@ -129,6 +129,16 @@ spec:
                   https://olm.operatorframework.io/docs/concepts/crds/subscription/
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
+              upgradeApproval:
+                description: |-
+                  UpgradeApproval determines whether 'upgrade' InstallPlans for the operator will be approved
+                  by the controller when the policy is enforced and in 'musthave' mode. The initial InstallPlan
+                  approval is not affected by this setting. This setting has no effect when the policy is in
+                  'mustnothave' mode. Allowed values are "None" or "Automatic".
+                enum:
+                - None
+                - Automatic
+                type: string
               versions:
                 description: |-
                   Versions is a list of nonempty strings that specifies which installed versions are compliant when
@@ -140,6 +150,7 @@ spec:
             required:
             - complianceType
             - subscription
+            - upgradeApproval
             type: object
           status:
             description: OperatorPolicyStatus defines the observed state of OperatorPolicy

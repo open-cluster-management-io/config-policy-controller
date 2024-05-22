@@ -18,9 +18,9 @@ spec:
     channel: stable-3.10
     name: project-quay
     namespace: operator-policy-testns
-    installPlanApproval: Manual
     source: operatorhubio-catalog
     sourceNamespace: olm
+  upgradeApproval: Automatic
   removalBehavior:
     operatorGroups: DeleteIfUnused
     subscriptions: Delete

@@ -1259,7 +1259,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				"there are no relevant InstallPlans in the namespace",
 			)
 		})
-		It("Should report an available upgrade", func(ctx SpecContext) {
+		It("Should report an available install when informing", func(ctx SpecContext) {
 			goodVersion := "strimzi-cluster-operator.v0.36.0"
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/subscription/startingCSV", "value": "`+goodVersion+`"},`+
@@ -1295,7 +1295,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				"an InstallPlan to update .* is available for approval",
 			)
 		})
-		It("Should do the upgrade when enforced, and stop at the next version", func(ctx SpecContext) {
+		It("Should do the initial install when enforced, and stop at the next version", func(ctx SpecContext) {
 			ipList, err := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 				List(ctx, metav1.ListOptions{})
 			Expect(err).NotTo(HaveOccurred())
@@ -1304,7 +1304,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			firstInstallPlanName = ipList.Items[0].GetName()
 
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+					`{"op": "replace", "path": "/spec/upgradeApproval", "value": "Automatic"}]`)
 
 			Eventually(func(ctx SpecContext) int {
 				ipList, err = targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
@@ -1329,6 +1330,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			// This check covers several situations that occur quickly: the first InstallPlan eventually
 			// progresses to Complete after it is approved, and the next InstallPlan is created and
 			// recognized by the policy (but not yet approved).
+			// This check may need to be adjusted in the future for new strimzi releases.
 			check(
 				opPolName,
 				false,
@@ -1354,9 +1356,37 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				"the InstallPlan.*36.0.*was approved",
 			)
 		})
-		It("Should approve the next version when it's added to the spec", func(ctx SpecContext) {
+		It("Should not approve an upgrade while upgradeApproval is None", func(ctx SpecContext) {
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
-				`[{"op": "add", "path": "/spec/versions/-", "value": "strimzi-cluster-operator.v0.36.1"}]`)
+				`[{"op": "add", "path": "/spec/versions/-", "value": "strimzi-cluster-operator.v0.36.1"},`+
+					`{"op": "replace", "path": "/spec/upgradeApproval", "value": "None"}]`)
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      secondInstallPlanName,
+						},
+					},
+					Compliant: "NonCompliant",
+					Reason:    "The InstallPlan is RequiresApproval",
+				}},
+				metav1.Condition{
+					Type:    "InstallPlanCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "InstallPlanRequiresApproval",
+					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.36.1] is available for approval",
+				},
+				"an InstallPlan.*36.*is available for approval",
+			)
+		})
+		It("Should approve the upgrade when upgradeApproval is changed to Automatic", func(ctx SpecContext) {
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/upgradeApproval", "value": "Automatic"}]`)
 
 			Eventually(func(ctx SpecContext) string {
 				ip, _ := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
@@ -1387,7 +1417,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "NoInstallPlansRequiringApproval",
 					Message: "no InstallPlans requiring approval were found",
 				},
-				"the InstallPlan.*36.1.*was approved",
+				"the InstallPlan.*36.*was approved",
 			)
 		})
 	})
@@ -1522,7 +1552,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				`the status of the OperatorGroup could not be determined because the policy is invalid`,
 			)
 		})
-		It("Should report about the invalid installPlanApproval value", func() {
+		It("Should report about the prohibited installPlanApproval value", func() {
 			// remove the "unknown" fields
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "remove", "path": "/spec/operatorGroup/foo"}, `+
@@ -1532,19 +1562,18 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				true,
 				[]policyv1.RelatedObject{},
 				metav1.Condition{
-					Type:   "ValidPolicySpec",
-					Status: metav1.ConditionFalse,
-					Reason: "InvalidPolicySpec",
-					Message: "spec.subscription.installPlanApproval ('Incorrect') is invalid: " +
-						"must be 'Automatic' or 'Manual'",
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionFalse,
+					Reason:  "InvalidPolicySpec",
+					Message: "installPlanApproval is prohibited in spec.subscription",
 				},
-				"NonCompliant",
+				"installPlanApproval is prohibited in spec.subscription",
 			)
 		})
 		It("Should report about the namespaces not matching", func() {
-			// Fix the `installPlanApproval` value
+			// Remove the `installPlanApproval` value
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", opPolTestNS, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/subscription/installPlanApproval", "value": "Automatic"}]`)
+				`[{"op": "remove", "path": "/spec/subscription/installPlanApproval"}]`)
 			check(
 				opPolName,
 				true,

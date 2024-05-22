@@ -30,10 +30,10 @@ func TestBuildSubscription(t *testing.T) {
 					"sourceNamespace": "my-ns",
 					"name": "my-operator",
 					"channel": "stable",
-					"startingCSV": "my-operator-v1",
-					"installPlanApproval": "Automatic"
+					"startingCSV": "my-operator-v1"
 				}`),
 			},
+			UpgradeApproval: "None",
 		},
 	}
 	desiredGVK := schema.GroupVersionKind{
@@ -48,6 +48,7 @@ func TestBuildSubscription(t *testing.T) {
 	assert.Equal(t, ret.GroupVersionKind(), desiredGVK)
 	assert.Equal(t, ret.ObjectMeta.Name, "my-operator")
 	assert.Equal(t, ret.ObjectMeta.Namespace, "default")
+	assert.Equal(t, ret.Spec.InstallPlanApproval, operatorv1alpha1.ApprovalManual)
 }
 
 func TestBuildSubscriptionInvalidNames(t *testing.T) {
@@ -94,10 +95,10 @@ func TestBuildSubscriptionInvalidNames(t *testing.T) {
 								"sourceNamespace": "my-ns",
 								"name": "` + test.name + `",
 								"channel": "stable",
-								"startingCSV": "my-operator-v1",
-								"installPlanApproval": "Automatic"
+								"startingCSV": "my-operator-v1"
 							}`),
 						},
+						UpgradeApproval: "None",
 					},
 				}
 
@@ -125,8 +126,7 @@ func TestBuildOperatorGroup(t *testing.T) {
 					"sourceNamespace": "my-ns",
 					"name": "my-operator",
 					"channel": "stable",
-					"startingCSV": "my-operator-v1",
-					"installPlanApproval": "Automatic"
+					"startingCSV": "my-operator-v1"
 				}`),
 			},
 		},
@@ -277,8 +277,7 @@ func TestMessageContentOrderMatching(t *testing.T) {
 					"sourceNamespace": "my-ns",
 					"name": "my-operator",
 					"channel": "stable",
-					"startingCSV": "my-operator-v1",
-					"installPlanApproval": "Automatic"
+					"startingCSV": "my-operator-v1"
 				}`),
 			},
 		},

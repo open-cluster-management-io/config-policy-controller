@@ -18,6 +18,6 @@ spec:
     channel: stable
     name: authorino-operator
     namespace: operator-policy-testns
-    installPlanApproval: Automatic
     source: operatorhubio-catalog
     sourceNamespace: olm
+  upgradeApproval: Automatic
