@@ -14,6 +14,26 @@
                 "KUBECONFIG": "${workspaceFolder}/kubeconfig_managed",
             }
         },
+        // Run `make kind-bootstrap-cluster-dev` and `make kind-additional-cluster` before launching this.
+        {
+            "name": "Launch Package (Hosted Mode)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/main.go",
+            "args": [
+                "controller",
+                "--leader-elect=false",
+                "--log-level=3",
+                "--v=5",
+                "--enable-operator-policy=true",
+                "--target-kubeconfig-path=${workspaceFolder}/kubeconfig_managed2",
+            ],
+            "env": {
+                "WATCH_NAMESPACE": "managed",
+                "KUBECONFIG": "${workspaceFolder}/kubeconfig_managed",
+            }
+        },
         // Set FDescribe or FIt on the test to debug. Then set the desired breakpoint.
         {
             "name": "Launch Test Function (instructions in launch.json)",
