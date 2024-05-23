@@ -195,6 +195,15 @@ type ObjectTemplate struct {
 
 	MetadataComplianceType MetadataComplianceType `json:"metadataComplianceType,omitempty"`
 
+	// RecreateOption describes whether to delete and recreate an object when an update is required. `IfRequired`
+	// will recreate the object when updating an immutable field. `Always` will always recreate the object if a mismatch
+	// is detected. `RecreateOption` has no effect when the `remediationAction` is `inform`. `IfRequired` has no effect
+	// on clusters without dry run update support. The default value is `None`.
+	//
+	//+kubebuilder:validation:Enum=None;IfRequired;Always
+	//+kubebuilder:default=None
+	RecreateOption RecreateOption `json:"recreateOption,omitempty"`
+
 	// ObjectDefinition defines required fields for the object
 	// +kubebuilder:pruning:PreserveUnknownFields
 	ObjectDefinition runtime.RawExtension `json:"objectDefinition"`
@@ -339,6 +348,14 @@ func (c ComplianceType) IsMustNotHave() bool {
 // MetadataComplianceType describes how to check compliance for the labels/annotations of a given object
 // +kubebuilder:validation:Enum=MustHave;Musthave;musthave;MustOnlyHave;Mustonlyhave;mustonlyhave
 type MetadataComplianceType string
+
+type RecreateOption string
+
+const (
+	None       RecreateOption = "None"
+	IfRequired RecreateOption = "IfRequired"
+	Always     RecreateOption = "Always"
+)
 
 // RelatedObject is the list of objects matched by this Policy resource.
 type RelatedObject struct {

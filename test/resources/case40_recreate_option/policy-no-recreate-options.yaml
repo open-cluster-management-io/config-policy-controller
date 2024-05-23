@@ -1,0 +1,36 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case40
+spec:
+  pruneObjectBehavior: DeleteAll
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: apps/v1
+        kind: Deployment
+        metadata:
+          name: case40
+          namespace: default
+        spec:
+          replicas: 0
+          selector:
+            matchLabels:
+              app: case40-2
+          strategy:
+            type: Recreate
+          template:
+            metadata:
+              labels:
+                app: case40-2
+            spec:
+              containers:
+                - args:
+                    - do-not-start
+                  command:
+                    - config-policy-controller
+                  image: quay.io/open-cluster-management/config-policy-controller:latest
+                  imagePullPolicy: IfNotPresent
+                  name: case40
+              restartPolicy: Always

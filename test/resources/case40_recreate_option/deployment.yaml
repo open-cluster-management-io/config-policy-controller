@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: case40
+  namespace: default
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: case40
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: case40
+    spec:
+      containers:
+        - args:
+            - do-not-start
+          command:
+            - config-policy-controller
+          image: quay.io/open-cluster-management/config-policy-controller:latest
+          imagePullPolicy: IfNotPresent
+          name: case40
+      restartPolicy: Always

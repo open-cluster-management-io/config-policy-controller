@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: case40
+  namespace: default
+  finalizers:
+    - policy.open-cluster-management.io/case40
+data:
+  city: Durham
+  state: NC

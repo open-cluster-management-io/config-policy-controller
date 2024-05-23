@@ -177,6 +177,18 @@ spec:
                       - InStatus
                       - None
                       type: string
+                    recreateOption:
+                      default: None
+                      description: |-
+                        RecreateOption describes whether to delete and recreate an object when an update is required. `IfRequired`
+                        will recreate the object when updating an immutable field. `Always` will always recreate the object if a mismatch
+                        is detected. `RecreateOption` has no effect when the `remediationAction` is `inform`. `IfRequired` has no effect
+                        on clusters without dry run update support. The default value is `None`.
+                      enum:
+                      - None
+                      - IfRequired
+                      - Always
+                      type: string
                   required:
                   - complianceType
                   - objectDefinition
