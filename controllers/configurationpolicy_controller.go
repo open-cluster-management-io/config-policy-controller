@@ -408,6 +408,19 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 		return true
 	}
 
+	// If there was a timeout during a recreate, immediately evaluate the policy regardless of the evaluation interval.
+	if policy.Status.ComplianceState == policyv1.NonCompliant {
+		for _, details := range policy.Status.CompliancyDetails {
+			for _, condition := range details.Conditions {
+				if condition.Reason == "K8s update template error" && strings.Contains(
+					condition.Message, "timed out waiting for the object to delete during recreate",
+				) {
+					return true
+				}
+			}
+		}
+	}
+
 	lastEvaluated, err := time.Parse(time.RFC3339, policy.Status.LastEvaluated)
 	if err != nil {
 		log.Error(err, "The policy has an invalid status.lastEvaluated value. Will evaluate it now.")
@@ -1769,9 +1782,11 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if exists && obj.shouldExist {
 		log.V(2).Info("The object already exists. Verifying the object fields match what is desired.")
 
-		var throwSpecViolation, triedUpdate, updatedObj bool
+		var throwSpecViolation, triedUpdate bool
 		var msg, diff string
+		var updatedObj *unstructured.Unstructured
 
+		created := false
 		uid := string(obj.existingObj.GetUID())
 
 		if evaluated, compliant := r.alreadyEvaluated(obj.policy, obj.existingObj); evaluated {
@@ -1791,14 +1806,17 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			throwSpecViolation, msg, diff, triedUpdate, updatedObj = r.checkAndUpdateResource(
 				obj, objectT, remediation,
 			)
+
+			if updatedObj != nil && string(updatedObj.GetUID()) != uid {
+				uid = string(updatedObj.GetUID())
+				created = true
+			}
 		}
 
 		if triedUpdate && !strings.Contains(msg, "Error validating the object") {
 			// The object was mismatched and was potentially fixed depending on the remediation action
 			result.events = append(result.events, objectTmplEvalEvent{false, reasonWantFoundNoMatch, ""})
 		}
-
-		created := false
 
 		if throwSpecViolation {
 			var resultReason, resultMsg string
@@ -1820,7 +1838,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		} else {
 			// it is a must have and it does exist, so it is compliant
 			if remediation.IsEnforce() {
-				if updatedObj {
+				if updatedObj != nil {
 					result.events = append(result.events, objectTmplEvalEvent{true, reasonUpdateSuccess, ""})
 				} else {
 					result.events = append(result.events, objectTmplEvalEvent{true, reasonWantFoundExists, ""})
@@ -2569,7 +2587,13 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	obj singleObject,
 	objectT *policyv1.ObjectTemplate,
 	remediation policyv1.RemediationAction,
-) (throwSpecViolation bool, message string, diff string, updateNeeded bool, updateSucceeded bool) {
+) (
+	throwSpecViolation bool,
+	message string,
+	diff string,
+	updateNeeded bool,
+	updatedObj *unstructured.Unstructured,
+) {
 	complianceType := strings.ToLower(string(objectT.ComplianceType))
 	mdComplianceType := strings.ToLower(string(objectT.MetadataComplianceType))
 
@@ -2597,7 +2621,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if obj.existingObj == nil {
 		log.Info("Skipping update: Previous object retrieval from the API server failed")
 
-		return false, "", "", false, false
+		return false, "", "", false, nil
 	}
 
 	var res dynamic.ResourceInterface
@@ -2615,10 +2639,11 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		obj.desiredObj, obj.existingObj, existingObjectCopy, complianceType, mdComplianceType, !r.DryRunSupported,
 	)
 	if message != "" {
-		return true, message, "", true, false
+		return true, message, "", true, nil
 	}
 
 	recordDiff := objectT.RecordDiffWithDefault()
+	var needsRecreate bool
 
 	if updateNeeded {
 		mismatchLog := "Detected value mismatch"
@@ -2631,7 +2656,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			if err := r.validateObject(obj.existingObj); err != nil {
 				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
 
-				return true, message, "", updateNeeded, false
+				return true, message, "", updateNeeded, nil
 			}
 		}
 
@@ -2646,16 +2671,6 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				DryRun:          []string{metav1.DryRunAll},
 			})
 			if err != nil {
-				// If an inform policy and the update is forbidden (i.e. modifying Pod spec fields), then return
-				// noncompliant since that confirms some fields don't match.
-				if k8serrors.IsForbidden(err) {
-					log.Info(fmt.Sprintf("Dry run update failed with error: %s", err.Error()))
-
-					r.setEvaluatedObject(obj.policy, obj.existingObj, false)
-
-					return true, "", "", false, false
-				}
-
 				// If it's a conflict, refetch the object and try again.
 				if k8serrors.IsConflict(err) {
 					log.Info("The object was updating during the evaluation. Trying again.")
@@ -2668,32 +2683,70 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 					}
 				}
 
-				message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
-				if message == "" {
-					message = fmt.Sprintf(
-						"Error issuing a dry run update request for the object `%v`, the error is `%v`",
-						obj.name,
-						err,
-					)
+				// Handle all errors not related to updating immutable fields here
+				if !k8serrors.IsInvalid(err) {
+					message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
+					if message == "" {
+						message = fmt.Sprintf(
+							"Error issuing a dry run update request for the object `%v`, the error is `%v`",
+							obj.name,
+							err,
+						)
+					}
+
+					// If the user specifies an unknown or invalid field, it comes back as a bad request.
+					if k8serrors.IsBadRequest(err) {
+						r.setEvaluatedObject(obj.policy, obj.existingObj, false)
+					}
+
+					return true, message, "", updateNeeded, nil
 				}
 
-				return true, message, "", updateNeeded, false
+				// If an update is invalid (i.e. modifying Pod spec fields), then return noncompliant since that
+				// confirms some fields don't match and can't be fixed with an update. If a recreate option is
+				// specified, then the update may proceed when enforced.
+				needsRecreate = true
+				recreateOption := objectT.RecreateOption
+
+				if isInform || !(recreateOption == policyv1.Always || recreateOption == policyv1.IfRequired) {
+					log.Info(fmt.Sprintf("Dry run update failed with error: %s", err.Error()))
+
+					r.setEvaluatedObject(obj.policy, obj.existingObj, false)
+
+					// Remove noisy fields such as managedFields from the diff
+					removeFieldsForComparison(existingObjectCopy)
+					removeFieldsForComparison(obj.existingObj)
+
+					diff = handleDiff(log, recordDiff, true, existingObjectCopy, obj.existingObj)
+
+					if !isInform {
+						// Don't include the error message in the compliance status because that can be very long. The
+						// user can check the diff or the logs for more information.
+						message = fmt.Sprintf(
+							`%s cannot be updated, likely due to immutable fields not matching, you may `+
+								`set spec["object-templates"][].recreateOption to recreate the object`,
+							getMsgPrefix(&obj),
+						)
+					}
+
+					return true, message, diff, false, nil
+				}
+			} else {
+				removeFieldsForComparison(dryRunUpdatedObj)
+
+				if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
+					log.Info(
+						"A mismatch was detected but a dry run update didn't make any changes. Assuming the object " +
+							"is compliant.",
+					)
+
+					r.setEvaluatedObject(obj.policy, obj.existingObj, true)
+
+					return false, "", "", false, nil
+				}
+
+				diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj)
 			}
-
-			removeFieldsForComparison(dryRunUpdatedObj)
-
-			if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
-				log.Info(
-					"A mismatch was detected but a dry run update didn't make any changes. Assuming the object is " +
-						"compliant.",
-				)
-
-				r.setEvaluatedObject(obj.policy, obj.existingObj, true)
-
-				return false, "", "", false, false
-			}
-
-			diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj)
 		} else if recordDiff == policyv1.RecordDiffLog || (isInform && recordDiff == policyv1.RecordDiffInStatus) {
 			// Generate and log the diff for when dryrun is unsupported (i.e. OCP v3.11)
 			mergedObjCopy := obj.existingObj.DeepCopy()
@@ -2706,18 +2759,61 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		if isInform {
 			r.setEvaluatedObject(obj.policy, obj.existingObj, false)
 
-			return true, "", diff, false, false
+			return true, "", diff, false, nil
 		}
 
 		// If it's not inform (i.e. enforce), update the object
-		log.Info("Updating the object based on the template definition")
+		var err error
 
-		updatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
-			FieldValidation: metav1.FieldValidationStrict,
-		})
+		// At this point, if a recreate is needed, we know the user opted in, otherwise, the dry run update
+		// failed and would have returned before now.
+		if needsRecreate || objectT.RecreateOption == policyv1.Always {
+			log.Info(
+				"Deleting and recreating the object based on the template definition",
+				"recreateOption", objectT.RecreateOption,
+			)
+
+			err = res.Delete(context.TODO(), obj.name, metav1.DeleteOptions{})
+			if err != nil && !k8serrors.IsNotFound(err) {
+				message = fmt.Sprintf(`%s failed to delete when recreating with the error %v`, getMsgPrefix(&obj), err)
+
+				return true, message, "", updateNeeded, nil
+			}
+
+			attempts := 0
+
+			for {
+				updatedObj, err = res.Create(context.TODO(), &obj.desiredObj, metav1.CreateOptions{})
+				if !k8serrors.IsAlreadyExists(err) {
+					// If there is no error or the error is unexpected, break for the error handling below
+					break
+				}
+
+				attempts++
+
+				if attempts >= 3 {
+					message = fmt.Sprintf(
+						`%s timed out waiting for the object to delete during recreate, will retry on the next `+
+							`policy evaluation`,
+						getMsgPrefix(&obj),
+					)
+
+					return true, message, "", updateNeeded, nil
+				}
+
+				time.Sleep(time.Second)
+			}
+		} else {
+			log.Info("Updating the object based on the template definition")
+
+			updatedObj, err = res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
+				FieldValidation: metav1.FieldValidationStrict,
+			})
+		}
+
 		if err != nil {
 			if k8serrors.IsConflict(err) {
-				log.Info("The object updating during the evaluation. Trying again.")
+				log.Info("The object updated during the evaluation. Trying again.")
 
 				rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
 				if getErr == nil {
@@ -2727,19 +2823,23 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				}
 			}
 
-			message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
-			if message == "" {
-				message = fmt.Sprintf("Error updating the object `%v`, the error is `%v`", obj.name, err)
+			action := "update"
+
+			if needsRecreate || objectT.RecreateOption == policyv1.Always {
+				action = "recreate"
 			}
 
-			return true, message, diff, updateNeeded, false
+			message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
+			if message == "" {
+				message = fmt.Sprintf("%s failed to %s with the error `%v`", getMsgPrefix(&obj), action, err)
+			}
+
+			return true, message, diff, updateNeeded, nil
 		}
 
 		if !statusMismatch {
 			r.setEvaluatedObject(obj.policy, updatedObj, true)
 		}
-
-		updateSucceeded = true
 	} else {
 		if throwSpecViolation && recordDiff != policyv1.RecordDiffNone {
 			// The spec didn't require a change but throwSpecViolation indicates the status didn't match. Handle
@@ -2754,7 +2854,17 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation)
 	}
 
-	return throwSpecViolation, "", diff, updateNeeded, updateSucceeded
+	return throwSpecViolation, "", diff, updateNeeded, updatedObj
+}
+
+func getMsgPrefix(obj *singleObject) string {
+	var namespaceMsg string
+
+	if obj.namespaced {
+		namespaceMsg = fmt.Sprintf(" in namespace %s", obj.namespace)
+	}
+
+	return fmt.Sprintf(`%s [%s]%s`, obj.gvr.Resource, obj.name, namespaceMsg)
 }
 
 // handleDiff will generate the diff and then log it or return it based on the input recordDiff value. If recordDiff

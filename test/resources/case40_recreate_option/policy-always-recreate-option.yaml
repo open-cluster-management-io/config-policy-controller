@@ -1,0 +1,19 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case40
+spec:
+  pruneObjectBehavior: DeleteAll
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      recreateOption: Always
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: case40
+          namespace: default
+        data:
+          city: Raleigh
+          state: NC
