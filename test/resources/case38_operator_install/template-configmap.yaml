@@ -4,4 +4,4 @@ metadata:
   name: op-config
 data:
   channel: "fakechannel"
-  namespaces: '["foo", "bar", "operator-policy-testns"]'
+  namespaces: '["operator-policy-testns"]'

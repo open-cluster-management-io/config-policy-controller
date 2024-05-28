@@ -3194,7 +3194,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			targetNamespaces, found, err := unstructured.NestedStringSlice(og.Object, "spec", "targetNamespaces")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(found).To(BeTrue())
-			Expect(targetNamespaces).To(HaveExactElements("foo", "bar", opPolTestNS))
+			Expect(targetNamespaces).To(HaveExactElements(opPolTestNS))
 
 			By("Verifying the Subscription channel")
 			sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
