@@ -431,7 +431,7 @@ func (r *OperatorPolicyReconciler) checkSubOverlap(
 ) (statusChanged bool, validationErr error, apiErr error) {
 	resolvedSubLabel := ""
 	if sub != nil {
-		resolvedSubLabel = sub.Name + "." + sub.Namespace
+		resolvedSubLabel = opLabelName(sub.Name, sub.Namespace)
 	}
 
 	if policy.Status.ResolvedSubscriptionLabel != resolvedSubLabel {
@@ -1963,7 +1963,7 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 func subLabelSelector(sub *operatorv1alpha1.Subscription) labels.Selector {
 	sel, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{{
-			Key:      fmt.Sprintf("operators.coreos.com/%v.%v", sub.Name, sub.Namespace),
+			Key:      "operators.coreos.com/" + opLabelName(sub.Name, sub.Namespace),
 			Operator: metav1.LabelSelectorOpExists,
 		}},
 	})
@@ -1972,4 +1972,31 @@ func subLabelSelector(sub *operatorv1alpha1.Subscription) labels.Selector {
 	}
 
 	return sel
+}
+
+// opLabelName returns the 'name' part of label put on operator resources by OLM. This is the part
+// of the label after the slash, based on the name and namespace of the operator. It is limited to
+// 63 characters in length, and guaranteed to end with an alphanumeric character. See
+// https://github.com/operator-framework/operator-lifecycle-manager/blob/556637d4144fb782e93c207f55975b743ec2d419/pkg/controller/operators/decorators/operator.go#L127
+func opLabelName(name, namespace string) string {
+	labelName := name + "." + namespace
+
+	if len(labelName) > 63 {
+		// Truncate
+		labelName = labelName[0:63]
+
+		// Remove trailing illegal characters
+		idx := len(labelName) - 1
+		for ; idx >= 0; idx-- {
+			lastChar := labelName[idx]
+			if lastChar != '.' && lastChar != '_' && lastChar != '-' {
+				break
+			}
+		}
+
+		// Update Label
+		labelName = labelName[0 : idx+1]
+	}
+
+	return labelName
 }
