@@ -168,7 +168,7 @@ var _ reconcile.Reconciler = &OperatorPolicyReconciler{}
 // For more details, check Reconcile and its Result here:
 // - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.14.4/pkg/reconcile
 func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	OpLog := ctrl.LoggerFrom(ctx)
+	opLog := ctrl.LoggerFrom(ctx)
 	policy := &policyv1beta1.OperatorPolicy{}
 	watcher := opPolIdentifier(req.Namespace, req.Name)
 
@@ -176,17 +176,17 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	err := r.Get(ctx, req.NamespacedName, policy)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			OpLog.Info("Operator policy could not be found")
+			opLog.Info("Operator policy could not be found")
 
 			err = r.DynamicWatcher.RemoveWatcher(watcher)
 			if err != nil {
-				OpLog.Error(err, "Error updating dependency watcher. Ignoring the failure.")
+				opLog.Error(err, "Error updating dependency watcher. Ignoring the failure.")
 			}
 
 			return reconcile.Result{}, nil
 		}
 
-		OpLog.Error(err, "Failed to get operator policy")
+		opLog.Error(err, "Failed to get operator policy")
 
 		return reconcile.Result{}, err
 	}
@@ -194,7 +194,7 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	// Start query batch for caching and watching related objects
 	err = r.DynamicWatcher.StartQueryBatch(watcher)
 	if err != nil {
-		OpLog.Error(err, "Could not start query batch for the watcher")
+		opLog.Error(err, "Could not start query batch for the watcher")
 
 		return reconcile.Result{}, err
 	}
@@ -202,12 +202,12 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	defer func() {
 		err := r.DynamicWatcher.EndQueryBatch(watcher)
 		if err != nil {
-			OpLog.Error(err, "Could not end query batch for the watcher")
+			opLog.Error(err, "Could not end query batch for the watcher")
 		}
 	}()
 
 	// handle the policy
-	OpLog.Info("Reconciling OperatorPolicy")
+	opLog.Info("Reconciling OperatorPolicy")
 
 	errs := make([]error, 0)
 
@@ -232,7 +232,13 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
-	return reconcile.Result{}, utilerrors.NewAggregate(errs)
+	result := reconcile.Result{}
+	finalErr := utilerrors.NewAggregate(errs)
+
+	opLog.Info("Reconciling complete", "finalErr", finalErr,
+		"conditionChanged", conditionChanged, "eventCount", len(conditionsToEmit))
+
+	return result, finalErr
 }
 
 // handleResources determines the current desired state based on the policy, and
@@ -247,7 +253,7 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *policyv1beta1.OperatorPolicy) (
 	earlyComplianceEvents []metav1.Condition, condChanged bool, err error,
 ) {
-	OpLog := ctrl.LoggerFrom(ctx)
+	opLog := ctrl.LoggerFrom(ctx)
 
 	earlyComplianceEvents = make([]metav1.Condition, 0)
 
@@ -255,7 +261,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 	condChanged = changed
 
 	if err != nil {
-		OpLog.Error(err, "Error building desired resources")
+		opLog.Error(err, "Error building desired resources")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -270,7 +276,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 	condChanged = condChanged || changed
 
 	if err != nil {
-		OpLog.Error(err, "Error handling OperatorGroup")
+		opLog.Error(err, "Error handling OperatorGroup")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -280,7 +286,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 	condChanged = condChanged || changed
 
 	if err != nil {
-		OpLog.Error(err, "Error handling Subscription")
+		opLog.Error(err, "Error handling Subscription")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -289,7 +295,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 	condChanged = condChanged || changed
 
 	if err != nil {
-		OpLog.Error(err, "Error handling InstallPlan")
+		opLog.Error(err, "Error handling InstallPlan")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -299,7 +305,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 	condChanged = condChanged || changed
 
 	if err != nil {
-		OpLog.Error(err, "Error handling ClusterServiceVersions")
+		opLog.Error(err, "Error handling ClusterServiceVersions")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -309,7 +315,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 	condChanged = condChanged || changed
 
 	if err != nil {
-		OpLog.Error(err, "Error handling CustomResourceDefinitions")
+		opLog.Error(err, "Error handling CustomResourceDefinitions")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -318,7 +324,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 	condChanged = condChanged || changed
 
 	if err != nil {
-		OpLog.Error(err, "Error handling Deployments")
+		opLog.Error(err, "Error handling Deployments")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -327,7 +333,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 	condChanged = condChanged || changed
 
 	if err != nil {
-		OpLog.Error(err, "Error handling CatalogSource")
+		opLog.Error(err, "Error handling CatalogSource")
 
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -347,16 +353,15 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 	*operatorv1alpha1.Subscription, *operatorv1.OperatorGroup, bool, error,
 ) {
 	var returnedErr error
+	var tmplResolver *templates.TemplateResolver
 
+	opLog := ctrl.LoggerFrom(ctx)
 	validationErrors := make([]error, 0)
-
 	disableTemplates := false
 
 	if disableAnnotation, ok := policy.GetAnnotations()["policy.open-cluster-management.io/disable-templates"]; ok {
 		disableTemplates, _ = strconv.ParseBool(disableAnnotation) // on error, templates will not be disabled
 	}
-
-	var tmplResolver *templates.TemplateResolver
 
 	if !disableTemplates {
 		var err error
@@ -365,6 +370,8 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		if err != nil {
 			validationErrors = append(validationErrors, fmt.Errorf("unable to create template resolver: %w", err))
 		}
+	} else {
+		opLog.V(1).Info("Templates disabled by annotation")
 	}
 
 	sub, subErr := buildSubscription(policy, r.DefaultNamespace, tmplResolver)
@@ -494,6 +501,7 @@ func (r *OperatorPolicyReconciler) checkSubOverlap(
 func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 	ctx context.Context, subscription *operatorv1alpha1.Subscription,
 ) error {
+	opLog := ctrl.LoggerFrom(ctx)
 	subSpec := subscription.Spec
 
 	defaultsNeeded := subSpec.Channel == "" || subSpec.CatalogSource == "" || subSpec.CatalogSourceNamespace == ""
@@ -501,6 +509,8 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 	if !defaultsNeeded {
 		return nil
 	}
+
+	opLog.V(1).Info("Determining defaults for the subscription based on the PackageManifest")
 
 	// PackageManifests come from an API server and not a Kubernetes resource, so the DynamicWatcher can't be used since
 	// it utilizes watches. The namespace doesn't have any meaning but is required.
@@ -761,6 +771,10 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 	desiredOpGroup *operatorv1.OperatorGroup,
 	foundOpGroups []unstructured.Unstructured,
 ) (bool, []metav1.Condition, bool, error) {
+	opLog := ctrl.LoggerFrom(ctx)
+
+	opLog.V(2).Info("Entered musthaveOpGroup", "foundOpGroupsLen", len(foundOpGroups))
+
 	switch len(foundOpGroups) {
 	case 0:
 		// Missing OperatorGroup: report NonCompliance
@@ -776,7 +790,7 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 		}
 
-		err := r.createWithNamespace(ctx, policy, desiredOpGroup)
+		err := r.createWithNamespace(ctx, desiredOpGroup)
 		if err != nil {
 			return false, nil, changed, fmt.Errorf("error creating the OperatorGroup: %w", err)
 		}
@@ -861,6 +875,8 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 
 		desiredOpGroup.ResourceVersion = opGroup.GetResourceVersion()
 
+		opLog.Info("Updating OperatorGroup to match desired state", "opGroupName", opGroup.GetName())
+
 		err = r.TargetClient.Update(ctx, &opGroup)
 		if err != nil {
 			return false, nil, changed, fmt.Errorf("error updating the OperatorGroup: %w", err)
@@ -879,9 +895,12 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 }
 
 // createWithNamespace will create the input object and the object's namespace if needed.
-func (r *OperatorPolicyReconciler) createWithNamespace(
-	ctx context.Context, policy *policyv1beta1.OperatorPolicy, object client.Object,
-) error {
+func (r *OperatorPolicyReconciler) createWithNamespace(ctx context.Context, object client.Object) error {
+	opLog := ctrl.LoggerFrom(ctx)
+
+	opLog.Info("Creating resource", "resourceGVK", object.GetObjectKind().GroupVersionKind(),
+		"resourceName", object.GetName(), "resourceNamespace", object.GetNamespace())
+
 	err := r.TargetClient.Create(ctx, object)
 	if err == nil {
 		return nil
@@ -892,7 +911,7 @@ func (r *OperatorPolicyReconciler) createWithNamespace(
 		return err
 	}
 
-	log.Info("Creating the namespace since it didn't exist", "name", object.GetNamespace(), "policy", policy.Name)
+	opLog.Info("Creating the namespace since it didn't exist", "name", object.GetNamespace())
 
 	ns := corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1015,6 +1034,9 @@ func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
 
+	opLog := ctrl.LoggerFrom(ctx)
+	opLog.Info("Deleting OperatorGroup", "opGroupName", desiredOpGroup.Name)
+
 	err := r.TargetClient.Delete(ctx, desiredOpGroup)
 	if err != nil {
 		return earlyConds, changed, fmt.Errorf("error deleting the OperatorGroup: %w", err)
@@ -1059,6 +1081,8 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	foundSub *unstructured.Unstructured,
 	ogCorrect bool,
 ) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
+	opLog := ctrl.LoggerFrom(ctx)
+
 	if foundSub == nil {
 		// Missing Subscription: report NonCompliance
 		changed := updateStatus(policy, missingWantedCond("Subscription"), missingWantedObj(desiredSub))
@@ -1074,7 +1098,7 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 		}
 
-		err := r.createWithNamespace(ctx, policy, desiredSub)
+		err := r.createWithNamespace(ctx, desiredSub)
 		if err != nil {
 			return nil, nil, changed, fmt.Errorf("error creating the Subscription: %w", err)
 		}
@@ -1118,11 +1142,9 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 		if subResFailed.Status == corev1.ConditionTrue {
 			includesSubscription, err := messageIncludesSubscription(mergedSub, subResFailed.Message)
 			if err != nil {
-				log.Info(
-					"Failed to determine if the condition applied to this subscription. Assuming it does.",
+				opLog.Info("Failed to determine if the condition applied to this subscription. Assuming it does.",
 					"error", err.Error(), "subscription", mergedSub.Name, "package", mergedSub.Spec.Package,
-					"message", subResFailed.Message,
-				)
+					"message", subResFailed.Message)
 
 				includesSubscription = true
 			}
@@ -1162,6 +1184,9 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	if changed {
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
+
+	opLog.Info("Updating Subscription to match the desired state", "subName", foundSub.GetName(),
+		"subNamespace", foundSub.GetNamespace())
 
 	err = r.TargetClient.Update(ctx, foundSub)
 	if err != nil {
@@ -1216,6 +1241,10 @@ func (r *OperatorPolicyReconciler) mustnothaveSubscription(
 	if changed {
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
+
+	opLog := ctrl.LoggerFrom(ctx)
+	opLog.Info("Deleting Subscription", "subName", foundUnstructSub.GetName(),
+		"subNamespace", foundUnstructSub.GetNamespace())
 
 	err := r.TargetClient.Delete(ctx, foundUnstructSub)
 	if err != nil {
@@ -1321,7 +1350,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 	sub *operatorv1alpha1.Subscription,
 	ownedInstallPlans []unstructured.Unstructured,
 ) (bool, error) {
-	OpLog := ctrl.LoggerFrom(ctx)
+	opLog := ctrl.LoggerFrom(ctx)
 	relatedInstallPlans := make([]policyv1.RelatedObject, 0, len(ownedInstallPlans))
 	ipsRequiringApproval := make([]unstructured.Unstructured, 0)
 	anyInstalling := false
@@ -1336,7 +1365,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		}
 
 		if err != nil {
-			OpLog.Error(err, "Unable to determine the phase of the related InstallPlan",
+			opLog.Error(err, "Unable to determine the phase of the related InstallPlan",
 				"InstallPlan.Name", installPlan.GetName())
 
 			// The InstallPlan will be added as unknown
@@ -1361,6 +1390,9 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 			existingInstallPlanObj(&ownedInstallPlans[i], phase, complianceConfig))
 	}
 
+	opLog.V(2).Info("InstallPlans examined", "currentPlanFailed", currentPlanFailed, "anyInstalling", anyInstalling,
+		"ipsRequiringApprovalLen", len(ipsRequiringApproval))
+
 	if currentPlanFailed {
 		return updateStatus(policy, installPlanFailed, relatedInstallPlans...), nil
 	}
@@ -1383,7 +1415,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		}
 
 		if err != nil {
-			OpLog.Error(err, "Unable to determine the csv names of the related InstallPlan",
+			opLog.Error(err, "Unable to determine the csv names of the related InstallPlan",
 				"InstallPlan.Name", installPlan.GetName())
 
 			csvNames = []string{"unknown"}
@@ -1413,7 +1445,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		}
 
 		if err != nil {
-			OpLog.Error(err, "Unable to determine the csv names of the related InstallPlan",
+			opLog.Error(err, "Unable to determine the csv names of the related InstallPlan",
 				"InstallPlan.Name", installPlan.GetName())
 
 			continue
@@ -1446,6 +1478,8 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		}
 	}
 
+	opLog.V(2).Info("Determined approvable InstallPlans", "count", len(approvableInstallPlans))
+
 	if len(approvableInstallPlans) != 1 {
 		changed := updateStatus(
 			policy,
@@ -1455,6 +1489,9 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 
 		return changed, nil
 	}
+
+	opLog.Info("Approving InstallPlan", "InstallPlanName", approvableInstallPlans[0].GetName(),
+		"InstallPlanNamespace", approvableInstallPlans[0].GetNamespace())
 
 	if err := unstructured.SetNestedField(approvableInstallPlans[0].Object, true, "spec", "approved"); err != nil {
 		return false, fmt.Errorf("error approving InstallPlan: %w", err)
@@ -1542,6 +1579,8 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 	csvList []unstructured.Unstructured,
 	namespace string,
 ) ([]metav1.Condition, bool, error) {
+	opLog := ctrl.LoggerFrom(ctx)
+
 	if len(csvList) == 0 {
 		changed := updateStatus(policy, missingNotWantedCond("ClusterServiceVersion"),
 			missingNotWantedCSVObj(namespace))
@@ -1581,7 +1620,10 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 	anyAlreadyDeleting := false
 
 	for i := range csvList {
-		if csvList[i].GetDeletionTimestamp() != nil {
+		if deletionTS := csvList[i].GetDeletionTimestamp(); deletionTS != nil {
+			opLog.V(1).Info("Found DeletionTimestamp on ClusterServiceVersion", "csvName", csvList[i].GetName(),
+				"csvNamespace", csvList[i].GetNamespace(), "deletionTimestamp", deletionTS)
+
 			anyAlreadyDeleting = true
 			relatedCSVs[i] = deletingObj(&csvList[i])
 
@@ -1597,6 +1639,9 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 
 			continue
 		}
+
+		opLog.Info("Deleting ClusterServiceVersion", "csvName", csvList[i].GetName(),
+			"csvNamespace", csvList[i].GetNamespace())
 
 		err := r.TargetClient.Delete(ctx, &csvList[i])
 		if err != nil {
@@ -1641,7 +1686,7 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 		return updateStatus(policy, notApplicableCond("Deployment")), nil
 	}
 
-	OpLog := ctrl.LoggerFrom(ctx)
+	opLog := ctrl.LoggerFrom(ctx)
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
@@ -1670,7 +1715,7 @@ func (r *OperatorPolicyReconciler) handleDeployment(
 
 		err = runtime.DefaultUnstructuredConverter.FromUnstructured(unstructured, &dep)
 		if err != nil {
-			OpLog.Error(err, "Unable to convert unstructured Deployment to typed", "Deployment.Name", dep.Name)
+			opLog.Error(err, "Unable to convert unstructured Deployment to typed", "Deployment.Name", dep.Name)
 
 			continue
 		}
@@ -1706,6 +1751,7 @@ func (r *OperatorPolicyReconciler) handleCRDs(
 		return nil, updateStatus(policy, noCRDCond, noExistingCRDObj), nil
 	}
 
+	opLog := ctrl.LoggerFrom(ctx)
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 	selector := subLabelSelector(sub)
 
@@ -1756,7 +1802,10 @@ func (r *OperatorPolicyReconciler) handleCRDs(
 	anyAlreadyDeleting := false
 
 	for i := range crdList {
-		if crdList[i].GetDeletionTimestamp() != nil {
+		if deletionTS := crdList[i].GetDeletionTimestamp(); deletionTS != nil {
+			opLog.V(1).Info("Found DeletionTimestamp on CustomResourceDefinition", "crdName", crdList[i].GetName(),
+				"deletionTimestamp", deletionTS)
+
 			anyAlreadyDeleting = true
 			relatedCRDs[i] = deletingObj(&crdList[i])
 
@@ -1769,6 +1818,8 @@ func (r *OperatorPolicyReconciler) handleCRDs(
 
 			continue
 		}
+
+		opLog.Info("Deleting CustomResourceDefinition", "crdName", crdList[i].GetName())
 
 		err := r.TargetClient.Delete(ctx, &crdList[i])
 		if err != nil {
