@@ -752,11 +752,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:    "ConstraintsNotSatisfiable",
 				}},
 				metav1.Condition{
-					Type:   "SubscriptionCompliant",
-					Status: metav1.ConditionFalse,
-					Reason: "ConstraintsNotSatisfiable",
-					Message: "no operators found from catalog operatorhubio-catalog in namespace fake " +
-						"referenced by subscription project-quay",
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "ConstraintsNotSatisfiable",
+					Message: "constraints not satisfiable: refer to the Subscription for more details",
 				},
 				"the Subscription was updated to match the policy",
 			)
@@ -922,12 +921,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:    "ConstraintsNotSatisfiable",
 				}},
 				metav1.Condition{
-					Type:   "SubscriptionCompliant",
-					Status: metav1.ConditionFalse,
-					Reason: "ConstraintsNotSatisfiable",
-					Message: "constraints not satisfiable: no operators found in package project-quay-does-not-exist" +
-						" in the catalog referenced by subscription project-quay-does-not-exist, subscription " +
-						"project-quay-does-not-exist exists",
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "ConstraintsNotSatisfiable",
+					Message: "constraints not satisfiable: refer to the Subscription for more details",
 				},
 				"constraints not satisfiable",
 			)
@@ -1261,12 +1258,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:    "ConstraintsNotSatisfiable",
 				}},
 				metav1.Condition{
-					Type:   "SubscriptionCompliant",
-					Status: metav1.ConditionFalse,
-					Reason: "ConstraintsNotSatisfiable",
-					Message: "no operators found with name strimzi-cluster-operator.v0.0.0.1337 in channel " +
-						"strimzi-0.36.x of package strimzi-kafka-operator in the catalog referenced by " +
-						"subscription strimzi-kafka-operator",
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionFalse,
+					Reason:  "ConstraintsNotSatisfiable",
+					Message: "constraints not satisfiable: refer to the Subscription for more details",
 				},
 				"constraints not satisfiable",
 			)
