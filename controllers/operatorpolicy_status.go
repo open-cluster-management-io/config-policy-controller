@@ -590,6 +590,15 @@ func validationCond(validationErrors []error) metav1.Condition {
 	}
 }
 
+// subConstraintsNotSatisfiableCond is a NonCompliant condition with Reason 'ConstraintsNotSatisfiable',
+// and Message 'constraints not satisfiable: refer to the Subscription for more details'.
+var subConstraintsNotSatisfiableCond = metav1.Condition{
+	Type:    subConditionType,
+	Status:  metav1.ConditionFalse,
+	Reason:  "ConstraintsNotSatisfiable",
+	Message: "constraints not satisfiable: refer to the Subscription for more details",
+}
+
 // subResFailedCond takes a failed SubscriptionCondition and converts it to a generic Condition
 func subResFailedCond(subFailedCond operatorv1alpha1.SubscriptionCondition) metav1.Condition {
 	cond := metav1.Condition{

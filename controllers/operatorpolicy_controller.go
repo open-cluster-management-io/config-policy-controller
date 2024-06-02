@@ -1081,8 +1081,6 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	foundSub *unstructured.Unstructured,
 	ogCorrect bool,
 ) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
-	opLog := ctrl.LoggerFrom(ctx)
-
 	if foundSub == nil {
 		// Missing Subscription: report NonCompliance
 		changed := updateStatus(policy, missingWantedCond("Subscription"), missingWantedObj(desiredSub))
@@ -1136,31 +1134,8 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	if !updateNeeded {
 		subResFailed := mergedSub.Status.GetCondition(operatorv1alpha1.SubscriptionResolutionFailed)
 
-		// OLM includes the status of all subscriptions in the namespace. For example, if you have two subscriptions,
-		// where one is referencing a valid operator and the other isn't, both will have a failed subscription
-		// resolution condition.
 		if subResFailed.Status == corev1.ConditionTrue {
-			includesSubscription, err := messageIncludesSubscription(mergedSub, subResFailed.Message)
-			if err != nil {
-				opLog.Info("Failed to determine if the condition applied to this subscription. Assuming it does.",
-					"error", err.Error(), "subscription", mergedSub.Name, "package", mergedSub.Spec.Package,
-					"message", subResFailed.Message)
-
-				includesSubscription = true
-			}
-
-			if includesSubscription {
-				// a "constraints not satisfiable" message has nondeterministic clauses, and thus
-				// need to be sorted in order to check that they are not duplicates of the current message.
-				if constraintMessageMatch(policy, &subResFailed) {
-					return mergedSub, nil, false, nil
-				}
-
-				return mergedSub, nil, updateStatus(
-					policy, subResFailedCond(subResFailed), nonCompObj(foundSub, subResFailed.Reason)), nil
-			}
-
-			return mergedSub, nil, false, nil
+			return r.considerResolutionFailed(ctx, policy, foundSub, mergedSub)
 		}
 
 		return mergedSub, nil, updateStatus(policy, matchesCond("Subscription"), matchedObj(foundSub)), nil
@@ -1185,6 +1160,7 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 		earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 	}
 
+	opLog := ctrl.LoggerFrom(ctx)
 	opLog.Info("Updating Subscription to match the desired state", "subName", foundSub.GetName(),
 		"subNamespace", foundSub.GetNamespace())
 
@@ -1198,6 +1174,46 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	updateStatus(policy, updatedCond("Subscription"), updatedObj(foundSub))
 
 	return mergedSub, earlyConds, true, nil
+}
+
+func (r *OperatorPolicyReconciler) considerResolutionFailed(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	foundSub *unstructured.Unstructured,
+	mergedSub *operatorv1alpha1.Subscription,
+) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
+	opLog := ctrl.LoggerFrom(ctx)
+	subResFailed := mergedSub.Status.GetCondition(operatorv1alpha1.SubscriptionResolutionFailed)
+
+	// The resolution failed, but OLM includes the status of all subscriptions in the namespace.
+	// For example, if you have two subscriptions, where one is referencing a valid operator and the other isn't,
+	// both will have a failed subscription resolution condition. So check for 'this' subscription.
+	includesSubscription, err := messageIncludesSubscription(mergedSub, subResFailed.Message)
+	if err != nil {
+		opLog.Info("Failed to determine if the condition applied to this subscription. Assuming it does.",
+			"error", err.Error(), "subscription", mergedSub.Name, "package", mergedSub.Spec.Package,
+			"message", subResFailed.Message)
+
+		includesSubscription = true
+	}
+
+	if !includesSubscription {
+		return mergedSub, nil, false, nil
+	}
+
+	// Handle non-ConstraintsNotSatisfiable reasons separately
+	if !strings.EqualFold(subResFailed.Reason, "ConstraintsNotSatisfiable") {
+		changed := updateStatus(policy, subResFailedCond(subResFailed), nonCompObj(foundSub, subResFailed.Reason))
+
+		return mergedSub, nil, changed, nil
+	}
+
+	// A "constraints not satisfiable" message has nondeterministic clauses, and can be noisy with a list of versions.
+	// Just report a generic condition, which will prevent the OperatorPolicy status from constantly updating
+	// when the details in the Subscription status change.
+	changed := updateStatus(policy, subConstraintsNotSatisfiableCond, nonCompObj(foundSub, "ConstraintsNotSatisfiable"))
+
+	return mergedSub, nil, changed, nil
 }
 
 func (r *OperatorPolicyReconciler) mustnothaveSubscription(
@@ -1279,37 +1295,6 @@ func messageIncludesSubscription(subscription *operatorv1alpha1.Subscription, me
 	)
 
 	return regexp.MatchString(regex, message)
-}
-
-// constraintMessageMatch checks if the ConstraintsNotSatisfiable message is actually different
-// from the old one by sorting the clauses of the message
-func constraintMessageMatch(policy *policyv1beta1.OperatorPolicy, cond *operatorv1alpha1.SubscriptionCondition) bool {
-	const cnfPrefix = "constraints not satisfiable: "
-
-	var policyMessage, subMessage string
-
-	for _, statusCond := range policy.Status.Conditions {
-		if strings.Contains(statusCond.Message, cnfPrefix) {
-			policyMessage = statusCond.Message
-		}
-	}
-
-	if policyMessage == "" || !strings.Contains(cond.Message, cnfPrefix) {
-		return false
-	}
-
-	policyMessage = strings.TrimPrefix(policyMessage, cnfPrefix)
-	subMessage = strings.TrimPrefix(cond.Message, cnfPrefix)
-
-	// The ConstraintsNotSatisfiable message is always formatted as follows:
-	// constraints not satisfiable: clause1, clause2, clause3 ...
-	policyMessageSlice := strings.Split(policyMessage, ", ")
-	slices.Sort(policyMessageSlice)
-
-	subMessageSlice := strings.Split(subMessage, ", ")
-	slices.Sort(subMessageSlice)
-
-	return reflect.DeepEqual(policyMessageSlice, subMessageSlice)
 }
 
 func (r *OperatorPolicyReconciler) handleInstallPlan(
