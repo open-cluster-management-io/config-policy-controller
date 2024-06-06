@@ -1,0 +1,23 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: config-policy-controller-metrics-reader
+rules:
+- nonResourceURLs:
+  - "/metrics"
+  verbs:
+  - get
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: config-policy-controller-metrics-reader
+subjects:
+- kind: ServiceAccount
+  name: config-policy-controller
+  namespace: open-cluster-management-agent-addon
+roleRef:
+  kind: ClusterRole
+  name: config-policy-controller-metrics-reader
+  apiGroup: rbac.authorization.k8s.io

@@ -22,6 +22,7 @@ func TestRunMain(t *testing.T) {
 		fmt.Sprintf("--target-kubeconfig-path=%s", os.Getenv("TARGET_KUBECONFIG_PATH")),
 		"--log-level=1",
 		"--enable-operator-policy=true",
+		"--secure-metrics=false",
 	)
 
 	main()

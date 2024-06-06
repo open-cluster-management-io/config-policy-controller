@@ -1,2 +1,5 @@
 resources:
 - role.yaml
+- auth_client.yaml
+- auth_cluster_role.yaml
+- auth_cluster_role_binding.yaml
