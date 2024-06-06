@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1428,7 +1429,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Status: metav1.ConditionFalse,
 					Reason: "InstallPlanRequiresApproval",
 					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.36.1] is available for " +
-						"approval but not allowed by the specified versions in the policy",
+						"approval but approval for [strimzi-cluster-operator.v0.36.1] is required",
 				},
 				"the InstallPlan.*36.0.*was approved",
 			)
@@ -3418,6 +3419,126 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 			By("Verifying the policy becomes compliant")
 			checkCompliance(opPolName, testNamespace, 2*olmWaitTimeout, policyv1.Compliant, 30, 3)
+		})
+	})
+
+	Describe("Testing approving an InstallPlan with multiple CSVs", Ordered, func() {
+		const (
+			opPolArgoCDYAML   = "../resources/case38_operator_install/operator-policy-argocd.yaml"
+			opPolKafkaYAML    = "../resources/case38_operator_install/operator-policy-strimzi-kafka-operator.yaml"
+			subscriptionsYAML = "../resources/case38_operator_install/multiple-subscriptions.yaml"
+		)
+
+		BeforeAll(func() {
+			preFunc()
+		})
+
+		It("OperatorPolicy can approve an InstallPlan with two CSVs", func(ctx SpecContext) {
+			By("Creating two Subscriptions to generate an InstallPlan with two CSVs")
+			KubectlTarget("-n", opPolTestNS, "create", "-f", subscriptionsYAML)
+
+			Eventually(func(g Gomega) {
+				var installPlans *unstructured.UnstructuredList
+
+				// Wait up to 10 seconds for the InstallPlan to appear
+				g.Eventually(func(g Gomega) {
+					var err error
+					installPlans, err = targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).List(
+						ctx, metav1.ListOptions{},
+					)
+
+					g.Expect(err).ToNot(HaveOccurred())
+					// OLM often creates duplicate InstallPlans so account for that.
+					g.Expect(
+						len(installPlans.Items) == 1 || len(installPlans.Items) == 2).To(BeTrue(),
+						"expected 1 or 2 InstallPlans",
+					)
+				}, 10, 1).Should(Succeed())
+
+				csvNames, _, _ := unstructured.NestedStringSlice(
+					installPlans.Items[0].Object, "spec", "clusterServiceVersionNames",
+				)
+
+				if len(csvNames) != 2 {
+					KubectlTarget("-n", opPolTestNS, "delete", "-f", subscriptionsYAML, "--ignore-not-found")
+					KubectlTarget("-n", opPolTestNS, "delete", "installplans", "--all")
+					KubectlTarget("-n", opPolTestNS, "create", "-f", subscriptionsYAML)
+				}
+
+				g.Expect(csvNames).To(ConsistOf("argocd-operator.v0.9.1", "strimzi-cluster-operator.v0.35.0"))
+			}, olmWaitTimeout, 1).Should(Succeed())
+
+			By("Creating an OperatorPolicy to adopt the argocd-operator Subscription")
+			createObjWithParent(
+				parentPolicyYAML, parentPolicyName, opPolArgoCDYAML, testNamespace, gvrPolicy, gvrOperatorPolicy,
+			)
+
+			By("Checking the OperatorPolicy InstallPlan is not approved because of strimzi-cluster-operator.v0.35.0")
+			check(
+				"argocd-operator",
+				true,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "InstallPlan",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "The InstallPlan is RequiresApproval",
+				}},
+				metav1.Condition{
+					Type:   "InstallPlanCompliant",
+					Status: metav1.ConditionTrue,
+					Reason: "InstallPlanRequiresApproval",
+					Message: "an InstallPlan to update to [argocd-operator.v0.9.1, " +
+						"strimzi-cluster-operator.v0.35.0] " +
+						"is available for approval but approval for [strimzi-cluster-operator.v0.35.0] is required",
+				},
+				"an InstallPlan to update to .* is available for approval",
+			)
+
+			By("Creating an OperatorPolicy to adopt the strimzi-cluster-operator Subscription")
+			createObjWithParent(
+				parentPolicyYAML, parentPolicyName, opPolKafkaYAML, testNamespace, gvrPolicy, gvrOperatorPolicy,
+			)
+
+			By("Verifying the initial installPlan for startingCSV was approved")
+			Eventually(func(g Gomega) {
+				installPlans, err := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).List(
+					ctx, metav1.ListOptions{},
+				)
+				g.Expect(err).ToNot(HaveOccurred())
+
+				var approvedInstallPlan bool
+
+				// OLM often creates duplicate InstallPlans with the same generation. They are the same but OLM
+				// concurrency can encounter race conditions, so just see that one of them is approved by
+				// the policies.
+				for _, installPlan := range installPlans.Items {
+					csvNames, _, _ := unstructured.NestedStringSlice(
+						installPlan.Object, "spec", "clusterServiceVersionNames",
+					)
+
+					sort.Strings(csvNames)
+
+					if !reflect.DeepEqual(
+						csvNames, []string{"argocd-operator.v0.9.1", "strimzi-cluster-operator.v0.35.0"},
+					) {
+						continue
+					}
+
+					approved, _, _ := unstructured.NestedBool(installPlan.Object, "spec", "approved")
+					if approved {
+						approvedInstallPlan = true
+
+						break
+					}
+				}
+
+				g.Expect(approvedInstallPlan).To(BeTrue(), "Expect an InstallPlan for startingCSV to be approved")
+			}, olmWaitTimeout, 1).Should(Succeed())
 		})
 	})
 })
