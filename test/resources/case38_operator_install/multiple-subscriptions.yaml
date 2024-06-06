@@ -1,0 +1,31 @@
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: operator-policy-testns-abcdefg
+spec:
+  targetNamespaces:
+    - operator-policy-testns
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: argocd-operator
+spec:
+  name: argocd-operator
+  installPlanApproval: Manual
+  channel: alpha
+  source: operatorhubio-catalog
+  sourceNamespace: olm
+  startingCSV: "argocd-operator.v0.9.1"
+---
+apiVersion: operators.coreos.com/v1alpha1
+kind: Subscription
+metadata:
+  name: strimzi-kafka-operator
+spec:
+  name: strimzi-kafka-operator
+  installPlanApproval: Manual
+  channel: stable
+  source: operatorhubio-catalog
+  sourceNamespace: olm
+  startingCSV: "strimzi-cluster-operator.v0.35.0"

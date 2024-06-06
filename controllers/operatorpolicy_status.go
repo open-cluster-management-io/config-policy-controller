@@ -688,27 +688,25 @@ var installPlansNoApprovals = metav1.Condition{
 // policy status is updated.
 func installPlanUpgradeCond(
 	complianceConfig policyv1beta1.ComplianceConfigAction,
-	versions []string,
-	approvableIPs []unstructured.Unstructured,
+	csvsInInstallPlan []string,
+	remainingCSVsToApprove []string,
 ) metav1.Condition {
 	cond := metav1.Condition{
 		Type:   installPlanConditionType,
 		Reason: "InstallPlanRequiresApproval",
 	}
 
-	if len(versions) == 1 {
-		cond.Message = fmt.Sprintf("an InstallPlan to update to %v is available for approval", versions[0])
-	} else {
-		cond.Message = fmt.Sprintf("there are multiple InstallPlans available for approval (%v)",
-			strings.Join(versions, ", or "))
-	}
+	sort.Strings(csvsInInstallPlan)
+	cond.Message = fmt.Sprintf(
+		"an InstallPlan to update to [%s] is available for approval", strings.Join(csvsInInstallPlan, ", "),
+	)
 
-	if approvableIPs != nil && len(approvableIPs) == 0 {
-		cond.Message += " but not allowed by the specified versions in the policy"
-	}
+	if len(remainingCSVsToApprove) > 0 {
+		sort.Strings(remainingCSVsToApprove)
 
-	if len(approvableIPs) > 1 {
-		cond.Message += " but multiple of those match the versions specified in the policy"
+		cond.Message += fmt.Sprintf(
+			" but approval for [%v] is required", strings.Join(remainingCSVsToApprove, ", "),
+		)
 	}
 
 	if complianceConfig == "Compliant" {

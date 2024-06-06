@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -28,8 +29,10 @@ import (
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/selection"
 	"k8s.io/apimachinery/pkg/types"
 	utilerrors "k8s.io/apimachinery/pkg/util/errors"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/dynamic"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -1443,10 +1446,19 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 		return updateStatus(policy, invalidCausingUnknownCond("InstallPlan")), nil
 	}
 
-	watcher := opPolIdentifier(policy.Namespace, policy.Name)
-	selector := subLabelSelector(sub)
+	if sub.Status.CurrentCSV == "" && sub.Status.InstalledCSV == "" {
+		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
+	}
 
-	installPlans, err := r.DynamicWatcher.List(watcher, installPlanGVK, sub.Namespace, selector)
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	// An InstallPlan will contain all CSVs that can be installed/updated in the namespace at the time the InstallPlan
+	// is created. The latest is denoted by the highest `spec.generation`, though `creationTimestamp` would likely
+	// also work. If the catalog is updated so that `status.currentCSV` on the Subscription does not point to an
+	// existing CSV, `status.currentCSV` will get included in the new InstallPlan. A new Subscription will also trigger
+	// a new InstallPlan. This code will always pick the latest InstallPlan so as to avoid installing older and
+	// potentially vulnerable operators.
+	installPlans, err := r.DynamicWatcher.List(watcher, installPlanGVK, sub.Namespace, labels.Everything())
 	if err != nil {
 		return false, fmt.Errorf("error listing InstallPlans: %w", err)
 	}
@@ -1458,93 +1470,166 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
 	}
 
+	var latestInstallPlan *unstructured.Unstructured
+	var latestGeneration int64 = -1
+
+	// Find the latest InstallPlan that references either the installed CSV or the latest CSV available for update.
+	for i := range installPlans {
+		csvs, found, err := unstructured.NestedStringSlice(
+			installPlans[i].Object, "spec", "clusterServiceVersionNames",
+		)
+		if !found || err != nil {
+			continue
+		}
+
+		matchFound := false
+		containsCurrentCSV := false
+
+		for _, csv := range csvs {
+			if csv == sub.Status.CurrentCSV {
+				containsCurrentCSV = true
+				matchFound = true
+
+				break
+			}
+
+			if csv == sub.Status.InstalledCSV {
+				matchFound = true
+
+				break
+			}
+		}
+
+		if !matchFound {
+			continue
+		}
+
+		// If the InstallPlan contains the current CSV and the phase indicates it is installing or complete, always
+		// use that InstallPlan since race conditions in OLM can cause a newer InstallPlan to be created with this CSV.
+		if containsCurrentCSV {
+			phase, _, _ := unstructured.NestedString(installPlans[i].Object, "status", "phase")
+			ipInstalling := string(operatorv1alpha1.InstallPlanPhaseInstalling)
+			ipComplete := string(operatorv1alpha1.InstallPlanPhaseComplete)
+
+			if phase == ipInstalling || phase == ipComplete {
+				latestInstallPlan = &installPlans[i]
+
+				break
+			}
+		}
+
+		generation, found, err := unstructured.NestedInt64(installPlans[i].Object, "spec", "generation")
+		if !found || err != nil {
+			continue
+		}
+
+		if generation > latestGeneration {
+			latestGeneration = generation
+			latestInstallPlan = &installPlans[i]
+		}
+	}
+
+	if latestInstallPlan == nil {
+		log.Info(
+			"No InstallPlan had the CSVs mentioned in the subscription status",
+			"subscription", sub.Name, "namespace", sub.Namespace,
+		)
+
+		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
+	}
+
 	if policy.Spec.ComplianceType.IsMustHave() {
-		changed, err := r.musthaveInstallPlan(ctx, policy, sub, installPlans)
+		changed, err := r.musthaveInstallPlan(ctx, policy, sub, latestInstallPlan)
 
 		return changed, err
 	}
 
-	return r.mustnothaveInstallPlan(policy, installPlans)
+	return r.mustnothaveInstallPlan(policy, latestInstallPlan)
 }
 
 func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
 	sub *operatorv1alpha1.Subscription,
-	ownedInstallPlans []unstructured.Unstructured,
+	latestInstallPlanUnstruct *unstructured.Unstructured,
 ) (bool, error) {
 	opLog := ctrl.LoggerFrom(ctx)
-	relatedInstallPlans := make([]policyv1.RelatedObject, 0, len(ownedInstallPlans))
-	ipsRequiringApproval := make([]unstructured.Unstructured, 0)
-	anyInstalling := false
-	currentPlanFailed := false
 	complianceConfig := policy.Spec.ComplianceConfig.UpgradesAvailable
+	latestInstallPlan := operatorv1alpha1.InstallPlan{}
 
-	// Construct the relevant relatedObjects, and collect any that might be considered for approval
-	for i, installPlan := range ownedInstallPlans {
-		phase, ok, err := unstructured.NestedString(installPlan.Object, "status", "phase")
-		if !ok && err == nil {
-			err = errors.New("the phase of the InstallPlan was not found")
+	err := runtime.DefaultUnstructuredConverter.FromUnstructured(latestInstallPlanUnstruct.Object, &latestInstallPlan)
+	if err != nil {
+		opLog.Error(err, "Unable to determine the CSV names of the current InstallPlan",
+			"InstallPlan.Name", latestInstallPlanUnstruct.GetName())
+
+		return updateStatus(policy, installPlansNoApprovals), nil
+	}
+
+	ipCSVs := latestInstallPlan.Spec.ClusterServiceVersionNames
+	phase := latestInstallPlan.Status.Phase
+
+	// consider some special phases
+	switch phase { //nolint: exhaustive
+	case operatorv1alpha1.InstallPlanPhaseRequiresApproval:
+		// If OLM created an InstallPlan that requires approval but the installed CSV is already the latest,
+		// then the InstallPlan can be ignored.
+		installedCSV := sub.Status.InstalledCSV
+		currentCSV := sub.Status.CurrentCSV
+
+		if installedCSV != "" && currentCSV != "" && installedCSV == currentCSV {
+			return updateStatus(policy, installPlansNoApprovals), nil
+		}
+	case operatorv1alpha1.InstallPlanPhaseInstalling:
+		return updateStatus(
+			policy,
+			installPlanInstallingCond,
+			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
+		), nil
+	case operatorv1alpha1.InstallPlanFailed:
+		// Generally, a failed InstallPlan is not a reason for NonCompliance, because it could be from
+		// an old installation. But if the current InstallPlan is failed, we should alert the user.
+		if len(ipCSVs) == 1 {
+			return updateStatus(
+				policy, installPlanFailed, existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
+			), nil
 		}
 
-		if err != nil {
-			opLog.Error(err, "Unable to determine the phase of the related InstallPlan",
-				"InstallPlan.Name", installPlan.GetName())
+		// If there is more than one CSV in the InstallPlan, make sure this CSV failed before marking it as
+		// noncompliant.
+		for _, step := range latestInstallPlan.Status.Plan {
+			if step.Resolving != sub.Status.CurrentCSV {
+				continue
+			}
 
-			// The InstallPlan will be added as unknown
-			phase = ""
-		}
-
-		// consider some special phases
-		switch phase {
-		case string(operatorv1alpha1.InstallPlanPhaseRequiresApproval):
-			ipsRequiringApproval = append(ipsRequiringApproval, installPlan)
-		case string(operatorv1alpha1.InstallPlanPhaseInstalling):
-			anyInstalling = true
-		case string(operatorv1alpha1.InstallPlanFailed):
-			// Generally, a failed InstallPlan is not a reason for NonCompliance, because it could be from
-			// an old installation. But if the current InstallPlan is failed, we should alert the user.
-			if sub.Status.InstallPlanRef != nil && sub.Status.InstallPlanRef.Name == installPlan.GetName() {
-				currentPlanFailed = true
+			switch step.Status { //nolint: exhaustive
+			case operatorv1alpha1.StepStatusCreated:
+			case operatorv1alpha1.StepStatusPresent:
+			default:
+				return updateStatus(
+					policy,
+					installPlanFailed,
+					existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
+				), nil
 			}
 		}
 
-		relatedInstallPlans = append(relatedInstallPlans,
-			existingInstallPlanObj(&ownedInstallPlans[i], phase, complianceConfig))
+		// If no step for this CSV failed in the InstallPlan, treat it the same as no install plans requiring approval
+		return updateStatus(policy, installPlansNoApprovals), nil
+	default:
+		return updateStatus(
+			policy,
+			installPlansNoApprovals, existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
+		), nil
 	}
 
-	opLog.V(2).Info("InstallPlans examined", "currentPlanFailed", currentPlanFailed, "anyInstalling", anyInstalling,
-		"ipsRequiringApprovalLen", len(ipsRequiringApproval))
-
-	if currentPlanFailed {
-		return updateStatus(policy, installPlanFailed, relatedInstallPlans...), nil
-	}
-
-	if anyInstalling {
-		return updateStatus(policy, installPlanInstallingCond, relatedInstallPlans...), nil
-	}
-
-	if len(ipsRequiringApproval) == 0 {
-		return updateStatus(policy, installPlansNoApprovals, relatedInstallPlans...), nil
-	}
-
-	allUpgradeVersions := make([]string, 0, len(ipsRequiringApproval))
-
-	for _, installPlan := range ipsRequiringApproval {
-		csvNames, ok, err := unstructured.NestedStringSlice(installPlan.Object,
-			"spec", "clusterServiceVersionNames")
-		if !ok && err == nil {
-			err = errors.New("the clusterServiceVersionNames field of the InstallPlan was not found")
-		}
-
-		if err != nil {
-			opLog.Error(err, "Unable to determine the csv names of the related InstallPlan",
-				"InstallPlan.Name", installPlan.GetName())
-
-			csvNames = []string{"unknown"}
-		}
-
-		allUpgradeVersions = append(allUpgradeVersions, fmt.Sprintf("%v", csvNames))
+	// Check if it's already approved. This can happen if this OperatorPolicy or another managing the same InstallPlan
+	// performed the approval but it hasn't started installing yet.
+	if latestInstallPlan.Spec.Approved {
+		return updateStatus(
+			policy,
+			installPlanApprovedCond(sub.Status.CurrentCSV),
+			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
+		), nil
 	}
 
 	initialInstall := sub.Status.InstalledCSV == ""
@@ -1553,92 +1638,182 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 	// Only report this status when not approving an InstallPlan, because otherwise it could easily
 	// oscillate between this and another condition.
 	if policy.Spec.RemediationAction.IsInform() || (!initialInstall && !autoUpgrade) {
-		return updateStatus(policy, installPlanUpgradeCond(complianceConfig, allUpgradeVersions, nil),
-			relatedInstallPlans...), nil
-	}
-
-	approvedVersion := "" // this will only be accurate when there is only one approvable InstallPlan
-	approvableInstallPlans := make([]unstructured.Unstructured, 0)
-
-	for _, installPlan := range ipsRequiringApproval {
-		ipCSVs, ok, err := unstructured.NestedStringSlice(installPlan.Object,
-			"spec", "clusterServiceVersionNames")
-		if !ok && err == nil {
-			err = errors.New("the clusterServiceVersionNames field of the InstallPlan was not found")
-		}
-
-		if err != nil {
-			opLog.Error(err, "Unable to determine the csv names of the related InstallPlan",
-				"InstallPlan.Name", installPlan.GetName())
-
-			continue
-		}
-
-		if len(ipCSVs) != 1 {
-			continue // Don't automate approving any InstallPlans for multiple CSVs
-		}
-
-		matchingCSV := len(policy.Spec.Versions) == 0 // true if `spec.versions` is not specified
-		allowedVersions := make([]policyv1.NonEmptyString, 0, len(policy.Spec.Versions)+1)
-		allowedVersions = append(allowedVersions, policy.Spec.Versions...)
-
-		if sub.Spec.StartingCSV != "" {
-			allowedVersions = append(allowedVersions, policyv1.NonEmptyString(sub.Spec.StartingCSV))
-		}
-
-		for _, acceptableCSV := range allowedVersions {
-			if string(acceptableCSV) == ipCSVs[0] {
-				matchingCSV = true
-
-				break
-			}
-		}
-
-		if matchingCSV {
-			approvedVersion = ipCSVs[0]
-
-			approvableInstallPlans = append(approvableInstallPlans, installPlan)
-		}
-	}
-
-	opLog.V(2).Info("Determined approvable InstallPlans", "count", len(approvableInstallPlans))
-
-	if len(approvableInstallPlans) != 1 {
-		changed := updateStatus(
+		return updateStatus(
 			policy,
-			installPlanUpgradeCond(complianceConfig, allUpgradeVersions, approvableInstallPlans),
-			relatedInstallPlans...,
-		)
-
-		return changed, nil
+			installPlanUpgradeCond(complianceConfig, ipCSVs, nil),
+			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
+		), nil
 	}
 
-	opLog.Info("Approving InstallPlan", "InstallPlanName", approvableInstallPlans[0].GetName(),
-		"InstallPlanNamespace", approvableInstallPlans[0].GetNamespace())
+	remainingCSVsToApprove, err := r.getRemainingCSVApprovals(ctx, policy, sub, ipCSVs)
+	if err != nil {
+		return false, fmt.Errorf("error finding the InstallPlan approvals: %w", err)
+	}
 
-	if err := unstructured.SetNestedField(approvableInstallPlans[0].Object, true, "spec", "approved"); err != nil {
+	if len(remainingCSVsToApprove) != 0 {
+		return updateStatus(
+			policy,
+			installPlanUpgradeCond(complianceConfig, ipCSVs, remainingCSVsToApprove),
+			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
+		), nil
+	}
+
+	opLog.Info("Approving InstallPlan", "InstallPlanName", latestInstallPlan.Name,
+		"InstallPlanNamespace", latestInstallPlan.Namespace)
+
+	if err := unstructured.SetNestedField(latestInstallPlanUnstruct.Object, true, "spec", "approved"); err != nil {
 		return false, fmt.Errorf("error approving InstallPlan: %w", err)
 	}
 
-	if err := r.TargetClient.Update(ctx, &approvableInstallPlans[0]); err != nil {
+	if err := r.TargetClient.Update(ctx, latestInstallPlanUnstruct); err != nil {
 		return false, fmt.Errorf("error updating approved InstallPlan: %w", err)
 	}
 
-	return updateStatus(policy, installPlanApprovedCond(approvedVersion), relatedInstallPlans...), nil
+	return updateStatus(
+			policy,
+			installPlanApprovedCond(sub.Status.CurrentCSV),
+			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
+		),
+		nil
+}
+
+// getRemainingCSVApprovals will return all CSVs that can't be approved by an OperatorPolicy (currentPolicy and others).
+func (r *OperatorPolicyReconciler) getRemainingCSVApprovals(
+	ctx context.Context,
+	currentPolicy *policyv1beta1.OperatorPolicy,
+	currentSub *operatorv1alpha1.Subscription,
+	csvNames []string,
+) ([]string, error) {
+	requiredCSVs := sets.New(csvNames...)
+	approvedCSVs := sets.New[string]()
+
+	// First try the current OperatorPolicy without checking others.
+	approvedCSV := r.getApprovedCSV(currentPolicy, currentSub, csvNames)
+	if approvedCSV != "" {
+		approvedCSVs.Insert(approvedCSV)
+
+		if requiredCSVs.Equal(approvedCSVs) {
+			return nil, nil
+		}
+	}
+
+	watcher := opPolIdentifier(currentPolicy.Namespace, currentPolicy.Name)
+
+	labelRequirement, err := labels.NewRequirement(ManagedByLabel, selection.Exists, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	managedBySelector := labels.NewSelector().Add(*labelRequirement)
+
+	// List the subscriptions in the namespace managed by OperatorPolicy. This is done to avoid resolving all templates
+	// for every OperatorPolicy to see if it manages a subscription in the namespace.
+	subs, err := r.DynamicWatcher.List(watcher, subscriptionGVK, currentSub.Namespace, managedBySelector)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, sub := range subs {
+		// Skip the current subscription since it was already checked
+		if sub.GetUID() == currentSub.UID {
+			continue
+		}
+
+		annotationValue := sub.GetAnnotations()[ManagedByAnnotation]
+
+		if annotationValue == "" {
+			continue
+		}
+
+		parts := strings.Split(annotationValue, ".")
+		if len(parts) != 2 {
+			continue
+		}
+
+		policyNamespace := parts[0]
+		policyName := parts[1]
+
+		policy := policyv1beta1.OperatorPolicy{}
+
+		err := r.Get(ctx, types.NamespacedName{Namespace: policyNamespace, Name: policyName}, &policy)
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				continue
+			}
+
+			return nil, err
+		}
+
+		subTyped := operatorv1alpha1.Subscription{}
+
+		err = runtime.DefaultUnstructuredConverter.FromUnstructured(sub.Object, &subTyped)
+		if err != nil {
+			continue
+		}
+
+		approvedCSV := r.getApprovedCSV(&policy, &subTyped, csvNames)
+		if approvedCSV != "" {
+			approvedCSVs.Insert(approvedCSV)
+		}
+	}
+
+	unapprovedCSVs := requiredCSVs.Difference(approvedCSVs).UnsortedList()
+
+	sort.Strings(unapprovedCSVs)
+
+	return unapprovedCSVs, nil
+}
+
+// getApprovedCSV returns the CSV in the passed in csvNames that can be approved. If no approval can take place, an
+// empty string is returned.
+func (r *OperatorPolicyReconciler) getApprovedCSV(
+	policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription, csvNames []string,
+) string {
+	// Only enforce policies can approve InstallPlans
+	if !policy.Spec.RemediationAction.IsEnforce() {
+		return ""
+	}
+
+	initialInstall := sub.Status.InstalledCSV == ""
+	autoUpgrade := policy.Spec.UpgradeApproval == "Automatic"
+
+	// If the operator is already installed and isn't configured for automatic upgrades, then it can't approve
+	// InstallPlans.
+	if !autoUpgrade && !initialInstall {
+		return ""
+	}
+
+	allowedCSVs := make([]policyv1.NonEmptyString, 0, len(policy.Spec.Versions)+1)
+	allowedCSVs = append(allowedCSVs, policy.Spec.Versions...)
+
+	if sub.Spec.StartingCSV != "" {
+		allowedCSVs = append(allowedCSVs, policyv1.NonEmptyString(sub.Spec.StartingCSV))
+	}
+
+	// All versions for the operator are allowed if no version is specified
+	if len(policy.Spec.Versions) == 0 {
+		// currentCSV is the CSV related to the latest InstallPlan
+		if sub.Status.CurrentCSV != "" {
+			return sub.Status.CurrentCSV
+		}
+	} else {
+		for _, allowedCSV := range allowedCSVs {
+			for _, csvName := range csvNames {
+				if string(allowedCSV) == csvName {
+					return csvName
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 func (r *OperatorPolicyReconciler) mustnothaveInstallPlan(
 	policy *policyv1beta1.OperatorPolicy,
-	ownedInstallPlans []unstructured.Unstructured,
+	latestInstallPlan *unstructured.Unstructured,
 ) (bool, error) {
-	// Let OLM handle removing install plans
-	relatedInstallPlans := make([]policyv1.RelatedObject, 0, len(ownedInstallPlans))
-
-	for i := range ownedInstallPlans {
-		relatedInstallPlans = append(relatedInstallPlans, foundNotApplicableObj(&ownedInstallPlans[i]))
-	}
-
-	changed := updateStatus(policy, notApplicableCond("InstallPlan"), relatedInstallPlans...)
+	changed := updateStatus(policy, notApplicableCond("InstallPlan"), foundNotApplicableObj(latestInstallPlan))
 
 	return changed, nil
 }
