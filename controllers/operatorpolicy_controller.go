@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
@@ -46,6 +47,7 @@ import (
 const (
 	OperatorControllerName string = "operator-policy-controller"
 	CatalogSourceReady     string = "READY"
+	olmGracePeriod                = 30 * time.Second
 )
 
 var (
@@ -94,7 +96,8 @@ var (
 		Version:  "v1",
 		Resource: "packagemanifests",
 	}
-	ErrPackageManifest = errors.New("")
+	ErrPackageManifest   = errors.New("")
+	unreferencedCSVRegex = regexp.MustCompile(`clusterserviceversion (\S*) exists and is not referenced`)
 )
 
 // OperatorPolicyReconciler reconciles a OperatorPolicy object
@@ -191,6 +194,8 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return reconcile.Result{}, err
 	}
 
+	originalStatus := *policy.Status.DeepCopy()
+
 	// Start query batch for caching and watching related objects
 	err = r.DynamicWatcher.StartQueryBatch(watcher)
 	if err != nil {
@@ -216,14 +221,16 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		errs = append(errs, err)
 	}
 
+	if conditionChanged || !reflect.DeepEqual(policy.Status, originalStatus) {
+		if err := r.Status().Update(ctx, policy); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
 	if conditionChanged {
 		// Add an event for the "final" state of the policy, otherwise this only has the
 		// "early" events (and possibly has zero events).
 		conditionsToEmit = append(conditionsToEmit, calculateComplianceCondition(policy))
-
-		if err := r.Status().Update(ctx, policy); err != nil {
-			errs = append(errs, err)
-		}
 	}
 
 	for _, cond := range conditionsToEmit {
@@ -234,6 +241,14 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 	result := reconcile.Result{}
 	finalErr := utilerrors.NewAggregate(errs)
+
+	if len(errs) == 0 {
+		// Schedule a requeue for the intervention.
+		// Note: this requeue will be superseded if the Subscription's status is flapping.
+		if policy.Status.SubscriptionInterventionWaiting() {
+			result.RequeueAfter = time.Until(policy.Status.SubscriptionInterventionTime.Add(time.Second))
+		}
+	}
 
 	opLog.Info("Reconciling complete", "finalErr", finalErr,
 		"conditionChanged", conditionChanged, "eventCount", len(conditionsToEmit))
@@ -1082,6 +1097,8 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	ogCorrect bool,
 ) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
 	if foundSub == nil {
+		policy.Status.SubscriptionInterventionTime = nil
+
 		// Missing Subscription: report NonCompliance
 		changed := updateStatus(policy, missingWantedCond("Subscription"), missingWantedObj(desiredSub))
 
@@ -1135,11 +1152,17 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 		subResFailed := mergedSub.Status.GetCondition(operatorv1alpha1.SubscriptionResolutionFailed)
 
 		if subResFailed.Status == corev1.ConditionTrue {
-			return r.considerResolutionFailed(ctx, policy, foundSub, mergedSub)
+			return r.considerResolutionFailed(ctx, policy, mergedSub)
+		}
+
+		if policy.Status.SubscriptionInterventionExpired() {
+			policy.Status.SubscriptionInterventionTime = nil
 		}
 
 		return mergedSub, nil, updateStatus(policy, matchesCond("Subscription"), matchedObj(foundSub)), nil
 	}
+
+	policy.Status.SubscriptionInterventionTime = nil
 
 	// Specs don't match.
 	if policy.Spec.RemediationAction.IsEnforce() && skipUpdate {
@@ -1179,7 +1202,6 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 func (r *OperatorPolicyReconciler) considerResolutionFailed(
 	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
-	foundSub *unstructured.Unstructured,
 	mergedSub *operatorv1alpha1.Subscription,
 ) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
 	opLog := ctrl.LoggerFrom(ctx)
@@ -1198,12 +1220,20 @@ func (r *OperatorPolicyReconciler) considerResolutionFailed(
 	}
 
 	if !includesSubscription {
+		if policy.Status.SubscriptionInterventionExpired() {
+			policy.Status.SubscriptionInterventionTime = nil
+		}
+
 		return mergedSub, nil, false, nil
 	}
 
 	// Handle non-ConstraintsNotSatisfiable reasons separately
 	if !strings.EqualFold(subResFailed.Reason, "ConstraintsNotSatisfiable") {
-		changed := updateStatus(policy, subResFailedCond(subResFailed), nonCompObj(foundSub, subResFailed.Reason))
+		changed := updateStatus(policy, subResFailedCond(subResFailed), nonCompObj(mergedSub, subResFailed.Reason))
+
+		if policy.Status.SubscriptionInterventionExpired() {
+			policy.Status.SubscriptionInterventionTime = nil
+		}
 
 		return mergedSub, nil, changed, nil
 	}
@@ -1211,9 +1241,83 @@ func (r *OperatorPolicyReconciler) considerResolutionFailed(
 	// A "constraints not satisfiable" message has nondeterministic clauses, and can be noisy with a list of versions.
 	// Just report a generic condition, which will prevent the OperatorPolicy status from constantly updating
 	// when the details in the Subscription status change.
-	changed := updateStatus(policy, subConstraintsNotSatisfiableCond, nonCompObj(foundSub, "ConstraintsNotSatisfiable"))
+	changed := updateStatus(policy, subConstraintsNotSatisfiableCond,
+		nonCompObj(mergedSub, "ConstraintsNotSatisfiable"))
 
-	return mergedSub, nil, changed, nil
+	unrefCSVMatches := unreferencedCSVRegex.FindStringSubmatch(subResFailed.Message)
+	if len(unrefCSVMatches) < 2 {
+		opLog.V(1).Info("Subscription condition does not match pattern for an unreferenced CSV",
+			"subscriptionConditionMessage", subResFailed.Message)
+
+		if policy.Status.SubscriptionInterventionExpired() {
+			policy.Status.SubscriptionInterventionTime = nil
+		}
+
+		return mergedSub, nil, changed, nil
+	}
+
+	if policy.Status.SubscriptionInterventionExpired() || policy.Status.SubscriptionInterventionTime == nil {
+		interventionTime := metav1.Time{Time: time.Now().Add(olmGracePeriod)}
+		policy.Status.SubscriptionInterventionTime = &interventionTime
+
+		opLog.V(1).Info("Detected ConstraintsNotSatisfiable, setting an intervention time",
+			"interventionTime", interventionTime, "subscription", mergedSub)
+
+		return mergedSub, nil, changed, nil
+	}
+
+	if policy.Status.SubscriptionInterventionWaiting() {
+		opLog.V(1).Info("Detected ConstraintsNotSatisfiable, giving OLM more time before possibly intervening",
+			"interventionTime", policy.Status.SubscriptionInterventionTime)
+
+		return mergedSub, nil, changed, nil
+	}
+
+	// Do the "intervention"
+
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	existingCSV, err := r.DynamicWatcher.Get(watcher, clusterServiceVersionGVK, mergedSub.Namespace, unrefCSVMatches[1])
+	if err != nil {
+		return mergedSub, nil, changed, fmt.Errorf("error getting the existing CSV in the subscription status: %w", err)
+	}
+
+	if existingCSV == nil {
+		opLog.Info("The CSV mentioned in the subscription status could not be found, not intervening",
+			"subscriptionConditionMessage", subResFailed.Message, "csvName", unrefCSVMatches[1])
+
+		return mergedSub, nil, changed, nil
+	}
+
+	// This check is based on the olm check, but does not require fully unmarshalling the csv.
+	reason, found, err := unstructured.NestedString(existingCSV.Object, "status", "reason")
+	hasReasonCopied := found && err == nil && reason == string(operatorv1alpha1.CSVReasonCopied)
+
+	if hasReasonCopied || operatorv1alpha1.IsCopied(existingCSV) {
+		opLog.Info("The CSV mentioned in the subscription status is a copy, not intervening",
+			"subscriptionConditionMessage", subResFailed.Message, "csvName", unrefCSVMatches[1])
+
+		return mergedSub, nil, changed, nil
+	}
+
+	if mergedSub.Status.LastUpdated.IsZero() {
+		mergedSub.Status.LastUpdated = metav1.Now()
+	}
+
+	mergedSub.Status.CurrentCSV = existingCSV.GetName()
+
+	opLog.Info("Updating Subscription status to point to CSV", "csvName", existingCSV.GetName())
+
+	if err := r.TargetClient.Status().Update(ctx, mergedSub); err != nil {
+		return mergedSub, nil, changed,
+			fmt.Errorf("error updating the Subscription status to point to the CSV: %w", err)
+	}
+
+	mergedSub.SetGroupVersionKind(subscriptionGVK) // Update might strip this information
+
+	updateStatus(policy, updatedCond("Subscription"), updatedObj(mergedSub))
+
+	return mergedSub, nil, true, nil
 }
 
 func (r *OperatorPolicyReconciler) mustnothaveSubscription(
@@ -1222,6 +1326,8 @@ func (r *OperatorPolicyReconciler) mustnothaveSubscription(
 	desiredSub *operatorv1alpha1.Subscription,
 	foundUnstructSub *unstructured.Unstructured,
 ) (*operatorv1alpha1.Subscription, []metav1.Condition, bool, error) {
+	policy.Status.SubscriptionInterventionTime = nil
+
 	if foundUnstructSub == nil {
 		// Missing Subscription: report Compliance
 		changed := updateStatus(policy, missingNotWantedCond("Subscription"), missingNotWantedObj(desiredSub))
@@ -1526,8 +1632,11 @@ func (r *OperatorPolicyReconciler) handleCSV(
 
 	var foundCSV *operatorv1alpha1.ClusterServiceVersion
 
+	relatedCSVs := make([]policyv1.RelatedObject, 0)
+
 	for _, csv := range csvList {
-		if csv.GetName() == sub.Status.InstalledCSV {
+		// If the subscription does not know about the CSV, this can report multiple CSVs as related
+		if sub.Status.InstalledCSV == "" || sub.Status.InstalledCSV == csv.GetName() {
 			matchedCSV := operatorv1alpha1.ClusterServiceVersion{}
 
 			err = runtime.DefaultUnstructuredConverter.FromUnstructured(csv.UnstructuredContent(), &matchedCSV)
@@ -1535,9 +1644,11 @@ func (r *OperatorPolicyReconciler) handleCSV(
 				return nil, nil, false, err
 			}
 
-			foundCSV = &matchedCSV
+			relatedCSVs = append(relatedCSVs, existingCSVObj(&matchedCSV))
 
-			break
+			if sub.Status.InstalledCSV == csv.GetName() {
+				foundCSV = &matchedCSV
+			}
 		}
 	}
 
@@ -1549,13 +1660,14 @@ func (r *OperatorPolicyReconciler) handleCSV(
 
 	// CSV has not yet been created by OLM
 	if foundCSV == nil {
-		changed := updateStatus(policy,
-			missingWantedCond("ClusterServiceVersion"), missingCSVObj(sub.Name, sub.Namespace))
+		if len(relatedCSVs) == 0 {
+			relatedCSVs = append(relatedCSVs, missingCSVObj(sub.Name, sub.Namespace))
+		}
 
-		return foundCSV, nil, changed, nil
+		return foundCSV, nil, updateStatus(policy, missingWantedCond("ClusterServiceVersion"), relatedCSVs...), nil
 	}
 
-	return foundCSV, nil, updateStatus(policy, buildCSVCond(foundCSV), existingCSVObj(foundCSV)), nil
+	return foundCSV, nil, updateStatus(policy, buildCSVCond(foundCSV), relatedCSVs...), nil
 }
 
 func (r *OperatorPolicyReconciler) mustnothaveCSV(

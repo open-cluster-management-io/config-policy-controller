@@ -5,6 +5,7 @@ package v1beta1
 
 import (
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -209,6 +210,12 @@ type OperatorPolicyStatus struct {
 	// The list of overlapping OperatorPolicies (as name.namespace) which all manage the same
 	// subscription, including this policy. When no overlapping is detected, this list will be empty.
 	OverlappingPolicies []string `json:"overlappingPolicies,omitempty"`
+
+	// Timestamp for a possible intervention to help a Subscription stuck with a
+	// ConstraintsNotSatisfiable condition. Can be in the future, indicating the
+	// policy is waiting for OLM to resolve the situation. If in the recent past,
+	// the policy may update the status of the Subscription.
+	SubscriptionInterventionTime *metav1.Time `json:"subscriptionInterventionTime,omitempty"`
 }
 
 // RelatedObjsOfKind iterates over the related objects in the status and returns a map of the index
@@ -236,6 +243,25 @@ func (status OperatorPolicyStatus) GetCondition(condType string) (int, metav1.Co
 	}
 
 	return -1, metav1.Condition{}
+}
+
+// Returns true if the SubscriptionInterventionTime is far enough in the past
+// to be considered expired, and therefore should be removed from the status.
+func (status OperatorPolicyStatus) SubscriptionInterventionExpired() bool {
+	if status.SubscriptionInterventionTime == nil {
+		return false
+	}
+
+	return status.SubscriptionInterventionTime.Time.Before(time.Now().Add(-10 * time.Second))
+}
+
+// Returns true if the SubscriptionInterventionTime is in the future.
+func (status OperatorPolicyStatus) SubscriptionInterventionWaiting() bool {
+	if status.SubscriptionInterventionTime == nil {
+		return false
+	}
+
+	return status.SubscriptionInterventionTime.Time.After(time.Now())
 }
 
 // OperatorPolicy is the schema for the operatorpolicies API. You can use the operator policy to

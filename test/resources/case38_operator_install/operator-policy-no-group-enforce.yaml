@@ -20,5 +20,4 @@ spec:
     namespace: operator-policy-testns
     source: operatorhubio-catalog
     sourceNamespace: olm
-    startingCSV: quay-operator.v3.10.0
   upgradeApproval: Automatic
