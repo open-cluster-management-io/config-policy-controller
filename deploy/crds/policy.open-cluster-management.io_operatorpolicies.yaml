@@ -369,6 +369,14 @@ spec:
               resolvedSubscriptionLabel:
                 description: The resolved name.namespace of the subscription
                 type: string
+              subscriptionInterventionTime:
+                description: |-
+                  Timestamp for a possible intervention to help a Subscription stuck with a
+                  ConstraintsNotSatisfiable condition. Can be in the future, indicating the
+                  policy is waiting for OLM to resolve the situation. If in the recent past,
+                  the policy may update the status of the Subscription.
+                format: date-time
+                type: string
             type: object
         type: object
     served: true

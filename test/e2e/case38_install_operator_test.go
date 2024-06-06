@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -35,7 +36,15 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	)
 
 	// checks that the compliance state eventually matches what is desired
-	checkCompliance := func(polName string, ns string, timeoutSeconds int, comp policyv1.ComplianceState) {
+	checkCompliance := func(
+		polName string,
+		ns string,
+		timeoutSeconds int,
+		comp policyv1.ComplianceState,
+		consistencyArgs ...interface{},
+	) {
+		GinkgoHelper()
+
 		var debugMessage string
 
 		DeferCleanup(func() {
@@ -44,7 +53,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			}
 		})
 
-		EventuallyWithOffset(1, func(g Gomega) {
+		compCheck := func(g Gomega) {
 			unstructPolicy, err := clientManagedDynamic.Resource(gvrOperatorPolicy).Namespace(ns).
 				Get(context.TODO(), polName, metav1.GetOptions{})
 			g.Expect(err).NotTo(HaveOccurred())
@@ -61,7 +70,13 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			g.Expect(err).NotTo(HaveOccurred())
 
 			g.Expect(policy.Status.ComplianceState).To(Equal(comp))
-		}, timeoutSeconds, 3).Should(Succeed())
+		}
+
+		Eventually(compCheck, timeoutSeconds, 3).Should(Succeed())
+
+		if len(consistencyArgs) > 0 {
+			Consistently(compCheck, consistencyArgs...).Should(Succeed())
+		}
 	}
 
 	// checks that the policy has the proper compliance, that the relatedObjects of a given
@@ -3325,6 +3340,84 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				},
 				"the Subscription was updated to match the policy",
 			)
+		})
+	})
+	Describe("Testing recovery of sub-csv connection", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+			opPolName = "oppol-no-group-enforce"
+			subName   = "project-quay"
+		)
+
+		scenarioTriggered := true
+
+		BeforeAll(func() {
+			preFunc()
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+		})
+
+		BeforeEach(func() {
+			if !scenarioTriggered {
+				Skip("test scenario was unable to be triggered")
+			}
+		})
+
+		It("should get the 'csv exists and is not referenced' condition", func(ctx SpecContext) {
+			scenarioTriggered = false
+
+			By("Verifying the policy starts compliant")
+			checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+
+			By("Periodically deleting the subscription and checking the status")
+			scenarioDeadline := time.Now().Add(40 * time.Second)
+
+		scenarioTriggerLoop:
+			for scenarioDeadline.After(time.Now()) {
+				KubectlTarget("delete", "subscription", subName, "-n", opPolTestNS)
+				time.Sleep(time.Second)
+
+				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+					Get(ctx, subName, metav1.GetOptions{})
+				if err != nil || sub == nil {
+					continue
+				}
+
+				subConds, _, _ := unstructured.NestedSlice(sub.Object, "status", "conditions")
+				for _, cond := range subConds {
+					condMap, ok := cond.(map[string]interface{})
+					if !ok {
+						continue
+					}
+
+					if condType, _, _ := unstructured.NestedString(condMap, "type"); condType != "ResolutionFailed" {
+						continue
+					}
+
+					if condStatus, _, _ := unstructured.NestedString(condMap, "status"); condStatus != "True" {
+						continue
+					}
+
+					condMessage, _, _ := unstructured.NestedString(condMap, "message")
+					notRefRgx := regexp.MustCompile(`clusterserviceversion (\S*) exists and is not referenced`)
+					if notRefRgx.MatchString(condMessage) {
+						scenarioTriggered = true
+
+						break scenarioTriggerLoop
+					}
+				}
+
+				time.Sleep(5 * time.Second)
+			}
+		})
+
+		It("Verifies the policy eventually fixes the 'not referenced' condition", func() {
+			By("Sleeping 25s, since OperatorPolicy should wait a while before intervening")
+			time.Sleep(25 * time.Second)
+
+			By("Verifying the policy becomes compliant")
+			checkCompliance(opPolName, testNamespace, 2*olmWaitTimeout, policyv1.Compliant, 30, 3)
 		})
 	})
 })
