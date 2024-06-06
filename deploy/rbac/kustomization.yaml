@@ -1,2 +1,5 @@
 resources:
 - role.yaml
+- metrics_reader.yaml
+- auth_cluster_role.yaml
+- auth_cluster_role_binding.yaml

@@ -24,6 +24,7 @@ func TestRunMain(t *testing.T) {
 		// Speed up the tests by not throttling the policy evaluations
 		"--evaluation-backoff=1",
 		"--enable-operator-policy=true",
+		"--secure-metrics=false",
 	)
 
 	main()
