@@ -47,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
+	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
@@ -86,6 +87,7 @@ type ctrlOpts struct {
 	hubConfigPath         string
 	targetKubeConfig      string
 	metricsAddr           string
+	secureMetrics         bool
 	probeAddr             string
 	operatorPolDefaultNS  string
 	clientQPS             float32
@@ -246,12 +248,20 @@ func main() {
 	// No need to resync every 10 hours.
 	disableResync := time.Duration(0)
 
+	metricsOptions := server.Options{
+		BindAddress: opts.metricsAddr,
+	}
+
+	// Configure secure metrics
+	if opts.secureMetrics {
+		metricsOptions.SecureServing = true
+		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+	}
+
 	// Set default manager options
 	options := manager.Options{
-		Metrics: server.Options{
-			BindAddress: opts.metricsAddr,
-		},
-		Scheme: scheme,
+		Metrics: metricsOptions,
+		Scheme:  scheme,
 		WebhookServer: webhook.NewServer(
 			webhook.Options{
 				Port: 9443,
@@ -713,6 +723,13 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		"metrics-bind-address",
 		"localhost:8383",
 		"The address the metrics endpoint binds to.",
+	)
+
+	flags.BoolVar(
+		&opts.secureMetrics,
+		"secure-metrics",
+		true,
+		"Enable secure metrics endpoint",
 	)
 
 	flags.StringVar(
