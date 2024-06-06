@@ -48,6 +48,8 @@ const (
 	OperatorControllerName string = "operator-policy-controller"
 	CatalogSourceReady     string = "READY"
 	olmGracePeriod                = 30 * time.Second
+	ManagedByLabel         string = "operatorpolicy.policy.open-cluster-management.io/managed"
+	ManagedByAnnotation    string = ManagedByLabel
 )
 
 var (
@@ -1148,6 +1150,36 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 		return nil, nil, false, fmt.Errorf("error converting the retrieved Subscription to the go type: %w", err)
 	}
 
+	if policy.Spec.RemediationAction.IsEnforce() {
+		labels := mergedSub.GetLabels()
+		if _, ok := labels[ManagedByLabel]; !ok {
+			if labels == nil {
+				labels = map[string]string{}
+			}
+
+			labels[ManagedByLabel] = ""
+
+			mergedSub.SetLabels(labels)
+
+			updateNeeded = true
+		}
+
+		expectedValue := policy.Namespace + "." + policy.Name
+		annotations := mergedSub.GetAnnotations()
+
+		if annotations[ManagedByAnnotation] != expectedValue {
+			if annotations == nil {
+				annotations = map[string]string{}
+			}
+
+			annotations[ManagedByAnnotation] = expectedValue
+
+			mergedSub.SetAnnotations(annotations)
+
+			updateNeeded = true
+		}
+	}
+
 	if !updateNeeded {
 		subResFailed := mergedSub.Status.GetCondition(operatorv1alpha1.SubscriptionResolutionFailed)
 
@@ -1187,14 +1219,14 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	opLog.Info("Updating Subscription to match the desired state", "subName", foundSub.GetName(),
 		"subNamespace", foundSub.GetNamespace())
 
-	err = r.TargetClient.Update(ctx, foundSub)
+	err = r.TargetClient.Update(ctx, mergedSub)
 	if err != nil {
 		return mergedSub, nil, changed, fmt.Errorf("error updating the Subscription: %w", err)
 	}
 
-	foundSub.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
+	mergedSub.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
 
-	updateStatus(policy, updatedCond("Subscription"), updatedObj(foundSub))
+	updateStatus(policy, updatedCond("Subscription"), updatedObj(mergedSub))
 
 	return mergedSub, earlyConds, true, nil
 }
