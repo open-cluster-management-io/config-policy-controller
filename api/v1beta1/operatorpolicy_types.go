@@ -211,7 +211,7 @@ type OperatorPolicyStatus struct {
 	// subscription, including this policy. When no overlapping is detected, this list will be empty.
 	OverlappingPolicies []string `json:"overlappingPolicies,omitempty"`
 
-	// Timestamp for a possible intervention to help a Subscription stuck with a
+	// The timestamp for a possible intervention to help a Subscription stuck with a
 	// ConstraintsNotSatisfiable condition. Can be in the future, indicating the
 	// policy is waiting for OLM to resolve the situation. If in the recent past,
 	// the policy may update the status of the Subscription.
