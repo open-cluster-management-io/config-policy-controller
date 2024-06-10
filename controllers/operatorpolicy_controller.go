@@ -1319,6 +1319,12 @@ func (r *OperatorPolicyReconciler) considerResolutionFailed(
 
 	// Do the "intervention"
 
+	if mergedSub.Status.InstalledCSV != "" || mergedSub.Status.CurrentCSV != "" {
+		opLog.Info("The subscription already points to a CSV, not intervening", "currentSub", mergedSub)
+
+		return mergedSub, nil, changed, nil
+	}
+
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	existingCSV, err := r.DynamicWatcher.Get(watcher, clusterServiceVersionGVK, mergedSub.Namespace, unrefCSVMatches[1])
@@ -1344,13 +1350,14 @@ func (r *OperatorPolicyReconciler) considerResolutionFailed(
 		return mergedSub, nil, changed, nil
 	}
 
+	opLog.Info("Updating Subscription status to point to CSV",
+		"csvName", existingCSV.GetName(), "currentSub", mergedSub)
+
 	if mergedSub.Status.LastUpdated.IsZero() {
 		mergedSub.Status.LastUpdated = metav1.Now()
 	}
 
 	mergedSub.Status.CurrentCSV = existingCSV.GetName()
-
-	opLog.Info("Updating Subscription status to point to CSV", "csvName", existingCSV.GetName())
 
 	if err := r.TargetClient.Status().Update(ctx, mergedSub); err != nil {
 		return mergedSub, nil, changed,
