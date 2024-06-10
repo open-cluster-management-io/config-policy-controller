@@ -1532,7 +1532,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 							Name: "-",
 						},
 					},
-					Compliant: "Compliant",
+					Compliant: "UnknownCompliancy",
 					Reason:    "No relevant CustomResourceDefinitions found",
 				}},
 				metav1.Condition{
@@ -1864,7 +1864,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 							Name: "-",
 						},
 					},
-					Compliant: "Compliant",
+					Compliant: "UnknownCompliancy",
 					Reason:    "No relevant CustomResourceDefinitions found",
 				}},
 				metav1.Condition{
@@ -2567,7 +2567,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 							Name: "-",
 						},
 					},
-					Compliant: "Compliant",
+					Compliant: "UnknownCompliancy",
 					Reason:    "No relevant CustomResourceDefinitions found",
 				}},
 				metav1.Condition{
@@ -2741,7 +2741,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 							Name: "-",
 						},
 					},
-					Compliant: "Compliant",
+					Compliant: "UnknownCompliancy",
 					Reason:    "No relevant CustomResourceDefinitions found",
 				}},
 				metav1.Condition{
