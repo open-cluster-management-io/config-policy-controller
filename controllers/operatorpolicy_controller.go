@@ -53,6 +53,8 @@ const (
 	olmGracePeriod                = 30 * time.Second
 	ManagedByLabel         string = "operatorpolicy.policy.open-cluster-management.io/managed"
 	ManagedByAnnotation    string = ManagedByLabel
+	ClusterNameLabel       string = "policy.open-cluster-management.io/cluster-name"
+	ClusterNamespaceLabel  string = "policy.open-cluster-management.io/cluster-namespace"
 )
 
 var (
@@ -476,8 +478,15 @@ func (r *OperatorPolicyReconciler) checkSubOverlap(
 		return statusChanged, nil, nil
 	}
 
+	// limit to OperatorPolicies for the same cluster as the policy
+	// (this cluster might be hosting OperatorPolicies for other clusters)
+	sel := labels.SelectorFromSet(map[string]string{
+		ClusterNameLabel:      policy.GetLabels()[ClusterNameLabel],
+		ClusterNamespaceLabel: policy.GetLabels()[ClusterNamespaceLabel],
+	})
+
 	opList := &policyv1beta1.OperatorPolicyList{}
-	if err := r.List(ctx, opList); err != nil {
+	if err := r.List(ctx, opList, &client.ListOptions{LabelSelector: sel}); err != nil {
 		return statusChanged, nil, err
 	}
 
