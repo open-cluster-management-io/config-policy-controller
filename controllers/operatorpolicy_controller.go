@@ -1930,7 +1930,31 @@ func (r *OperatorPolicyReconciler) handleCSV(
 		return foundCSV, nil, updateStatus(policy, missingWantedCond("ClusterServiceVersion"), relatedCSVs...), nil
 	}
 
-	return foundCSV, nil, updateStatus(policy, buildCSVCond(foundCSV), relatedCSVs...), nil
+	// Check if the CSV is an approved version
+	if len(policy.Spec.Versions) != 0 {
+		allowedVersions := make([]policyv1.NonEmptyString, 0, len(policy.Spec.Versions)+1)
+		allowedVersions = append(allowedVersions, policy.Spec.Versions...)
+
+		if sub.Spec.StartingCSV != "" {
+			allowedVersions = append(allowedVersions, policyv1.NonEmptyString(sub.Spec.StartingCSV))
+		}
+
+		allowed := false
+
+		for _, allowedVersion := range allowedVersions {
+			if string(allowedVersion) == foundCSV.Name {
+				allowed = true
+
+				break
+			}
+		}
+
+		if !allowed {
+			return foundCSV, nil, updateStatus(policy, disallowedCSVCond(foundCSV), disallowedCSVObj(foundCSV)), nil
+		}
+	}
+
+	return foundCSV, nil, updateStatus(policy, allowedCSVCond(foundCSV), relatedCSVs...), nil
 }
 
 func (r *OperatorPolicyReconciler) mustnothaveCSV(
