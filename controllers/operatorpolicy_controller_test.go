@@ -43,7 +43,7 @@ func TestBuildSubscription(t *testing.T) {
 	}
 
 	// Check values are correctly bootstrapped to the Subscription
-	ret, err := buildSubscription(testPolicy, "my-operators", nil)
+	ret, err := buildSubscription(testPolicy, nil)
 	assert.Equal(t, err, nil)
 	assert.Equal(t, ret.GroupVersionKind(), desiredGVK)
 	assert.Equal(t, ret.ObjectMeta.Name, "my-operator")
@@ -103,7 +103,7 @@ func TestBuildSubscriptionInvalidNames(t *testing.T) {
 				}
 
 				// Check values are correctly bootstrapped to the Subscription
-				_, err := buildSubscription(testPolicy, "my-operators", nil)
+				_, err := buildSubscription(testPolicy, nil)
 				assert.Equal(t, err.Error(), test.expected)
 			},
 		)

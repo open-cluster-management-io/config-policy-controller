@@ -396,9 +396,9 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		opLog.V(1).Info("Templates disabled by annotation")
 	}
 
-	sub, subErr := buildSubscription(policy, r.DefaultNamespace, tmplResolver)
+	sub, subErr := buildSubscription(policy, tmplResolver)
 	if subErr == nil {
-		err := r.applySubscriptionDefaults(ctx, sub)
+		err := r.applySubscriptionDefaults(ctx, policy, sub)
 		if err != nil {
 			sub = nil
 
@@ -409,6 +409,14 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 			}
 
 			validationErrors = append(validationErrors, err)
+		}
+
+		if sub != nil && sub.Namespace == "" {
+			if r.DefaultNamespace != "" {
+				sub.Namespace = r.DefaultNamespace
+			} else {
+				validationErrors = append(validationErrors, errors.New("namespace is required in spec.subscription"))
+			}
 		}
 	} else {
 		validationErrors = append(validationErrors, subErr)
@@ -528,12 +536,13 @@ func (r *OperatorPolicyReconciler) checkSubOverlap(
 // applySubscriptionDefaults will set the subscription channel, source, and sourceNamespace when they are unset by
 // utilizing the PackageManifest API.
 func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
-	ctx context.Context, subscription *operatorv1alpha1.Subscription,
+	ctx context.Context, policy *policyv1beta1.OperatorPolicy, subscription *operatorv1alpha1.Subscription,
 ) error {
 	opLog := ctrl.LoggerFrom(ctx)
 	subSpec := subscription.Spec
 
-	defaultsNeeded := subSpec.Channel == "" || subSpec.CatalogSource == "" || subSpec.CatalogSourceNamespace == ""
+	defaultsNeeded := subSpec.Channel == "" || subSpec.CatalogSource == "" ||
+		subSpec.CatalogSourceNamespace == "" || subscription.Namespace == ""
 
 	if !defaultsNeeded {
 		return nil
@@ -595,6 +604,41 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 		subSpec.CatalogSourceNamespace = catalogNamespace
 	}
 
+	if subscription.Namespace == "" {
+		// check for an already-known subscription to "adopt"
+		subs := policy.Status.RelatedObjsOfKind("Subscription")
+
+		if len(subs) == 1 {
+			// Note: RelatedObjsOfKind returns a map - in this case we just want the one object
+			for _, sub := range subs {
+				subscription.Namespace = sub.Object.Metadata.Namespace
+
+				return nil
+			}
+		}
+
+		// No known subscription - check for a suggested namespace in the PackageManifest
+		channels, _, _ := unstructured.NestedSlice(packageManifest.Object, "status", "channels")
+
+		for _, channel := range channels {
+			chanObj, ok := channel.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			chanName, _, _ := unstructured.NestedString(chanObj, "name")
+			if chanName != subSpec.Channel {
+				continue
+			}
+
+			suggestedNS, _, _ := unstructured.NestedString(chanObj, "currentCSVDesc", "annotations",
+				"operatorframework.io/suggested-namespace")
+			subscription.Namespace = suggestedNS
+
+			return nil
+		}
+	}
+
 	return nil
 }
 
@@ -603,7 +647,7 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 // If an error is returned, it will include details on why the policy spec if invalid and
 // why the desired subscription can't be determined.
 func buildSubscription(
-	policy *policyv1beta1.OperatorPolicy, defaultNS string, tmplResolver *templates.TemplateResolver,
+	policy *policyv1beta1.OperatorPolicy, tmplResolver *templates.TemplateResolver,
 ) (*operatorv1alpha1.Subscription, error) {
 	subscription := new(operatorv1alpha1.Subscription)
 
@@ -639,16 +683,12 @@ func buildSubscription(
 	}
 
 	ns, ok := sub["namespace"].(string)
-	if !ok {
-		if defaultNS == "" {
-			return nil, fmt.Errorf("namespace is required in spec.subscription")
+	if ok {
+		if validationErrs := validation.IsDNS1123Label(ns); len(validationErrs) != 0 {
+			return nil, fmt.Errorf(
+				"the namespace '%v' used for the subscription is not a valid namespace identifier", ns,
+			)
 		}
-
-		ns = defaultNS
-	}
-
-	if validationErrs := validation.IsDNS1123Label(ns); len(validationErrs) != 0 {
-		return nil, fmt.Errorf("the namespace '%v' used for the subscription is not a valid namespace identifier", ns)
 	}
 
 	// This field is not actually in the subscription spec
