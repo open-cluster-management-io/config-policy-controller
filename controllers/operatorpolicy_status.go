@@ -729,8 +729,9 @@ func installPlanApprovedCond(version string) metav1.Condition {
 	}
 }
 
-// buildCSVCond takes a csv and returns a shortened version of its most recent Condition
-func buildCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition {
+// allowedCSVCond takes an approved CSV and returns a shortened version of its most recent Condition.
+// It will be Compliant if the CSV is in the Succeeded phase, and NonCompliant otherwise.
+func allowedCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition {
 	status := metav1.ConditionFalse
 	if csv.Status.Phase == operatorv1alpha1.CSVPhaseSucceeded {
 		status = metav1.ConditionTrue
@@ -741,6 +742,17 @@ func buildCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition 
 		Status:  status,
 		Reason:  string(csv.Status.Reason),
 		Message: "ClusterServiceVersion (" + csv.Name + ") - " + csv.Status.Message,
+	}
+}
+
+// disallowedCSVCond is a NonCompliant condition with Reason 'UnapprovedVersion'
+// and a message like 'ClusterServiceVersion (_____) is not an approved version'
+func disallowedCSVCond(csv *operatorv1alpha1.ClusterServiceVersion) metav1.Condition {
+	return metav1.Condition{
+		Type:    condType(csv.Kind),
+		Status:  metav1.ConditionFalse,
+		Reason:  "UnapprovedVersion",
+		Message: "ClusterServiceVersion (" + csv.Name + ") is not an approved version",
 	}
 }
 
@@ -1178,6 +1190,19 @@ func existingCSVObj(csv *operatorv1alpha1.ClusterServiceVersion) policyv1.Relate
 		Object:    policyv1.ObjectResourceFromObj(csv),
 		Compliant: string(compliance),
 		Reason:    string(csv.Status.Reason),
+		Properties: &policyv1.ObjectProperties{
+			UID: string(csv.GetUID()),
+		},
+	}
+}
+
+// disallowedCSVObj returns a NonCompliant RelatedObject for the ClusterServiceVersion,
+// with Reason 'ClusterServiceVersion (_____) is not an approved version'.
+func disallowedCSVObj(csv *operatorv1alpha1.ClusterServiceVersion) policyv1.RelatedObject {
+	return policyv1.RelatedObject{
+		Object:    policyv1.ObjectResourceFromObj(csv),
+		Compliant: string(policyv1.NonCompliant),
+		Reason:    "ClusterServiceVersion (" + csv.Name + ") is not an approved version",
 		Properties: &policyv1.ObjectProperties{
 			UID: string(csv.GetUID()),
 		},
