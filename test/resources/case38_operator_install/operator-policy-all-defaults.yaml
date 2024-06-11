@@ -18,6 +18,5 @@ spec:
   severity: medium
   complianceType: musthave
   subscription:
-    name: project-quay
-    namespace: operator-policy-testns
+    name: airflow-helm-operator
   upgradeApproval: Automatic

@@ -212,11 +212,20 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 	Describe("Testing an all default operator policy", Ordered, func() {
 		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-all-defaults.yaml"
-			opPolName = "oppol-all-defaults"
-			subName   = "project-quay"
+			opPolYAML   = "../resources/case38_operator_install/operator-policy-all-defaults.yaml"
+			opPolName   = "oppol-all-defaults"
+			subName     = "airflow-helm-operator"
+			suggestedNS = "airflow-helm"
 		)
 		BeforeAll(func() {
+			DeferCleanup(func() {
+				utils.Kubectl("delete", "ns", suggestedNS, "--ignore-not-found")
+
+				if IsHosted {
+					KubectlTarget("delete", "ns", suggestedNS, "--ignore-not-found")
+				}
+			})
+
 			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
@@ -246,7 +255,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 
 			By("Verifying the subscription has the correct defaults")
-			sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+			sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(suggestedNS).
 				Get(ctx, subName, metav1.GetOptions{})
 			Expect(err).ToNot(HaveOccurred())
 
