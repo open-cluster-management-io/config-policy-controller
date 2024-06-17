@@ -3552,8 +3552,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	})
 	Describe("Test reporting of unapproved version after installation", func() {
 		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			opPolName = "oppol-no-group-enforce"
+			opPolYAML     = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+			opPolName     = "oppol-no-group-enforce"
+			latestQuay310 = "quay-operator.v3.10.6"
 		)
 
 		BeforeEach(func() {
@@ -3566,7 +3567,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		It("Should start compliant", func(ctx SpecContext) {
 			Eventually(func(ctx SpecContext) string {
 				csv, _ := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
-					Get(ctx, "quay-operator.v3.10.5", metav1.GetOptions{})
+					Get(ctx, latestQuay310, metav1.GetOptions{})
 
 				if csv == nil {
 					return ""
@@ -3614,17 +3615,17 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 						APIVersion: "operators.coreos.com/v1alpha1",
 						Metadata: policyv1.ObjectMetadata{
 							Namespace: opPolTestNS,
-							Name:      "quay-operator.v3.10.5",
+							Name:      latestQuay310,
 						},
 					},
 					Compliant: "NonCompliant",
-					Reason:    "ClusterServiceVersion (quay-operator.v3.10.5) is not an approved version",
+					Reason:    "ClusterServiceVersion (" + latestQuay310 + ") is not an approved version",
 				}},
 				metav1.Condition{
 					Type:    "ClusterServiceVersionCompliant",
 					Status:  metav1.ConditionFalse,
 					Reason:  "UnapprovedVersion",
-					Message: "ClusterServiceVersion (quay-operator.v3.10.5) is not an approved version",
+					Message: "ClusterServiceVersion (" + latestQuay310 + ") is not an approved version",
 				},
 				"ClusterServiceVersion .* is not an approved version",
 			)
