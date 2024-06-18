@@ -476,8 +476,8 @@ func (r *OperatorPolicyReconciler) checkSubOverlap(
 		statusChanged = true
 	}
 
-	if resolvedSubLabel == "" {
-		// No possible overlap if the subscription could not be determined
+	// No overlap if the subscription could not be determined or if the policy is in inform mode
+	if resolvedSubLabel == "" || policy.Spec.RemediationAction.IsInform() {
 		if len(policy.Status.OverlappingPolicies) != 0 {
 			policy.Status.OverlappingPolicies = []string{}
 			statusChanged = true
@@ -504,6 +504,10 @@ func (r *OperatorPolicyReconciler) checkSubOverlap(
 
 	for _, otherPolicy := range opList.Items {
 		if otherPolicy.Status.ResolvedSubscriptionLabel == resolvedSubLabel {
+			if otherPolicy.Spec.RemediationAction.IsInform() {
+				continue
+			}
+
 			if !(otherPolicy.Name == policy.Name && otherPolicy.Namespace == policy.Namespace) {
 				overlappers = append(overlappers, otherPolicy.Name+"."+otherPolicy.Namespace)
 			}
@@ -522,7 +526,7 @@ func (r *OperatorPolicyReconciler) checkSubOverlap(
 
 	slices.Sort(overlappers)
 
-	overlapError := fmt.Errorf("the specified operator is managed by multiple policies (%v)",
+	overlapError := fmt.Errorf("the specified operator is managed by multiple enforced policies (%v)",
 		strings.Join(overlappers, ", "))
 
 	if !slices.Equal(overlappers, policy.Status.OverlappingPolicies) {
