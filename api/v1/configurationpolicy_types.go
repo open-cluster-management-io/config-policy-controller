@@ -196,11 +196,11 @@ type ObjectTemplate struct {
 	ComplianceType         ComplianceType         `json:"complianceType"`
 	MetadataComplianceType MetadataComplianceType `json:"metadataComplianceType,omitempty"`
 
-	// RecreateOption describes whether to delete and recreate an object when an update is required. `IfRequired`
-	// will recreate the object when updating an immutable field. `Always` will always recreate the object if a mismatch
-	// is detected. `RecreateOption` has no effect when the `remediationAction` is `inform`. `IfRequired` has no effect
-	// on clusters without dry run update support. The default value is `None`.
-	//
+	// RecreateOption describes when to delete and recreate an object when an update is required. When you set the
+	// object to `IfRequired`, the policy recreates the object when updating an immutable field. When you set the
+	// parameter to `Always`, the policy recreates the object on any update. When you set the `remediationAction` to
+	// `inform`, the parameter value, `recreateOption`, has no effect on the object. The `IfRequired` value has no
+	// effect on clusters without dry-run update support. The default value is `None`.
 	//+kubebuilder:default=None
 	RecreateOption RecreateOption `json:"recreateOption,omitempty"`
 
