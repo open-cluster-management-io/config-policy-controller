@@ -997,6 +997,65 @@ func TestCreateStatus(t *testing.T) {
 	}
 }
 
+func TestHandleKeysServiceAccount(t *testing.T) {
+	t.Parallel()
+
+	desiredServiceAccountYaml := `
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sa-test
+  namespace: sa-test
+`
+
+	existingServiceAccountYaml := `
+apiVersion: v1
+imagePullSecrets:
+  name: test-user-dockercfg
+kind: ServiceAccount
+metadata:
+  name: sa-test
+  namespace: sa-test
+secrets:
+  name: test-user-dockercfg
+`
+
+	serviceAccountObj := make(map[string]interface{})
+
+	err := yaml.UnmarshalStrict([]byte(desiredServiceAccountYaml), &serviceAccountObj)
+	if err != nil {
+		t.Error(err)
+	}
+
+	existingServiceAccountObj := make(map[string]interface{})
+
+	err = yaml.UnmarshalStrict([]byte(existingServiceAccountYaml), &existingServiceAccountObj)
+	if err != nil {
+		t.Error(err)
+	}
+
+	existingServiceAccountObjCopy := make(map[string]interface{})
+
+	err = yaml.UnmarshalStrict([]byte(existingServiceAccountYaml), &existingServiceAccountObjCopy)
+	if err != nil {
+		t.Error(err)
+	}
+
+	desiredObj := unstructured.Unstructured{Object: serviceAccountObj}
+	existingObj := unstructured.Unstructured{Object: existingServiceAccountObj}
+	existingObjCopy := unstructured.Unstructured{Object: existingServiceAccountObjCopy}
+	compType := "mustonlyhave"
+	mdCompType := ""
+	zeroValueEqualsNil := false
+
+	throwSpecViolation, _, updateNeeded, statusMismatch := handleKeys(desiredObj, &existingObj,
+		&existingObjCopy, compType, mdCompType, zeroValueEqualsNil)
+
+	assert.False(t, throwSpecViolation)
+	assert.False(t, updateNeeded)
+	assert.False(t, statusMismatch)
+}
+
 func TestShouldEvaluatePolicy(t *testing.T) {
 	t.Parallel()
 
