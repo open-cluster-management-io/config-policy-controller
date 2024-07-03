@@ -2984,6 +2984,12 @@ func handleKeys(
 				continue
 			}
 
+			// for ServiceAccounts, ignore "secrets" and "imagePullSecrets" fields, as these are managed by Kubernetes
+			if (existingObj.GetKind() == "ServiceAccount" && existingObj.GetAPIVersion() == "v1") &&
+				(key == "secrets" || key == "imagePullSecrets") {
+				continue
+			}
+
 			delete(existingObj.Object, key)
 
 			updateNeeded = true
