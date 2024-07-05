@@ -7,14 +7,17 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
+	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/uuid"
 	"k8s.io/client-go/kubernetes/scheme"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -586,19 +589,22 @@ status:
 
 func TestAddRelatedObject(t *testing.T) {
 	compliant := true
-	rsrc := policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy")
+	scopedGVR := depclient.ScopedGVR{
+		GroupVersionResource: policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy"),
+		Namespaced:           true,
+	}
 	namespace := "default"
-	namespaced := true
 	name := "foo"
 	reason := "reason"
-	relatedList := addRelatedObjects(compliant, rsrc, "ConfigurationPolicy",
-		namespace, namespaced, []string{name}, reason, nil)
+	relatedList := addRelatedObjects(
+		compliant, scopedGVR, "ConfigurationPolicy", namespace, []string{name}, reason, nil,
+	)
 	related := relatedList[0]
 
 	// get the related object and validate what we added is in the status
 	assert.True(t, related.Compliant == string(policyv1.Compliant))
 	assert.True(t, related.Reason == "reason")
-	assert.True(t, related.Object.APIVersion == rsrc.GroupVersion().String())
+	assert.True(t, related.Object.APIVersion == scopedGVR.GroupVersion().String())
 	assert.True(t, related.Object.Kind == "ConfigurationPolicy")
 	assert.True(t, related.Object.Metadata.Name == name)
 	assert.True(t, related.Object.Metadata.Namespace == namespace)
@@ -606,8 +612,7 @@ func TestAddRelatedObject(t *testing.T) {
 	// add the same object and make sure the existing one is overwritten
 	reason = "new"
 	compliant = false
-	relatedList = addRelatedObjects(compliant, rsrc, "ConfigurationPolicy",
-		namespace, namespaced, []string{name}, reason, nil)
+	relatedList = addRelatedObjects(compliant, scopedGVR, "ConfigurationPolicy", namespace, []string{name}, reason, nil)
 	related = relatedList[0]
 
 	assert.True(t, len(relatedList) == 1)
@@ -616,9 +621,10 @@ func TestAddRelatedObject(t *testing.T) {
 
 	// add a new related object and make sure the entry is appended
 	name = "bar"
-	relatedList = append(relatedList,
-		addRelatedObjects(compliant, rsrc, "ConfigurationPolicy",
-			namespace, namespaced, []string{name}, reason, nil)...)
+	relatedList = append(
+		relatedList,
+		addRelatedObjects(compliant, scopedGVR, "ConfigurationPolicy", namespace, []string{name}, reason, nil)...,
+	)
 
 	assert.True(t, len(relatedList) == 2)
 
@@ -650,14 +656,18 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 			},
 		},
 	}
-	rsrc := policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy")
+	scopedGVR := depclient.ScopedGVR{
+		GroupVersionResource: policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy"),
+		Namespaced:           true,
+	}
 	name := "foo"
-	relatedList := addRelatedObjects(true, rsrc, "ConfigurationPolicy", "default", true, []string{name}, "reason", nil)
+	relatedList := addRelatedObjects(true, scopedGVR, "ConfigurationPolicy", "default", []string{name}, "reason", nil)
 
 	// add the same object but after sorting it should be first
 	name = "bar"
-	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "ConfigurationPolicy", "default",
-		true, []string{name}, "reason", nil)...)
+	relatedList = append(relatedList, addRelatedObjects(
+		true, scopedGVR, "ConfigurationPolicy", "default", []string{name}, "reason", nil)...,
+	)
 
 	empty := []policyv1.RelatedObject{}
 
@@ -665,19 +675,21 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
 
 	// append another object named bar but also with namespace bar
-	relatedList = append(relatedList, addRelatedObjects(true, rsrc,
-		"ConfigurationPolicy", "bar", true, []string{name}, "reason", nil)...)
+	relatedList = append(relatedList, addRelatedObjects(
+		true, scopedGVR, "ConfigurationPolicy", "bar", []string{name}, "reason", nil)...,
+	)
 
 	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false, true)
 	assert.True(t, relatedList[0].Object.Metadata.Namespace == "bar")
 
 	// clear related objects and test sorting with no namespace
+	scopedGVR.Namespaced = false
 	name = "foo"
-	relatedList = addRelatedObjects(true, rsrc, "ConfigurationPolicy", "",
-		false, []string{name}, "reason", nil)
+	relatedList = addRelatedObjects(true, scopedGVR, "ConfigurationPolicy", "", []string{name}, "reason", nil)
 	name = "bar"
-	relatedList = append(relatedList, addRelatedObjects(true, rsrc, "ConfigurationPolicy", "",
-		false, []string{name}, "reason", nil)...)
+	relatedList = append(relatedList, addRelatedObjects(
+		true, scopedGVR, "ConfigurationPolicy", "", []string{name}, "reason", nil)...,
+	)
 
 	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false, true)
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
@@ -1064,122 +1076,208 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			Name:       "policy",
 			Namespace:  "managed",
 			Generation: 2,
+			UID:        uuid.NewUUID(),
 		},
 		Spec: &policyv1.ConfigurationPolicySpec{},
 	}
 
 	// Add a 60 second buffer to avoid race conditions
 	inFuture := time.Now().UTC().Add(60 * time.Second).Format(time.RFC3339)
+	lastEvaluatedInFuture := &sync.Map{}
+	lastEvaluatedInFuture.Store(policy.UID, inFuture)
+
+	lastEvaluatedInvalid := &sync.Map{}
+	lastEvaluatedInvalid.Store(policy.UID, "Do or do not. There is no try.")
+
+	twelveSecsAgo := time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339)
+	lastEvaluatedTwelveSecsAgo := &sync.Map{}
+	lastEvaluatedTwelveSecsAgo.Store(policy.UID, twelveSecsAgo)
+
+	twelveHoursAgo := time.Now().UTC().Add(-12 * time.Hour).Format(time.RFC3339)
+	lastEvaluatedTwelveHoursAgo := &sync.Map{}
+	lastEvaluatedTwelveHoursAgo.Store(policy.UID, twelveHoursAgo)
 
 	tests := []struct {
-		testDescription         string
-		lastEvaluated           string
-		lastEvaluatedGeneration int64
-		evaluationInterval      policyv1.EvaluationInterval
-		complianceState         policyv1.ComplianceState
-		expected                bool
-		deletionTimestamp       *metav1.Time
-		cleanupImmediately      bool
-		finalizers              []string
+		testDescription          string
+		lastEvaluated            string
+		lastEvaluatedGeneration  int64
+		evaluationInterval       policyv1.EvaluationInterval
+		complianceState          policyv1.ComplianceState
+		expected                 bool
+		expectedPositiveDuration bool
+		deletionTimestamp        *metav1.Time
+		cleanupImmediately       bool
+		finalizers               []string
+		lastEvaluatedCache       *sync.Map
 	}{
 		{
 			"Just evaluated and the generation is unchanged",
 			inFuture,
 			2,
-			policyv1.EvaluationInterval{},
+			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
 			policyv1.Compliant,
 			false,
+			true,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedInFuture,
 		},
 		{
 			"The generation has changed",
 			inFuture,
 			1,
-			policyv1.EvaluationInterval{},
+			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
 			policyv1.Compliant,
 			true,
+			false,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedInFuture,
 		},
 		{
 			"lastEvaluated not set",
 			"",
 			2,
-			policyv1.EvaluationInterval{},
+			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
 			policyv1.Compliant,
 			true,
+			false,
 			nil,
 			false,
 			[]string{},
+			&sync.Map{},
 		},
 		{
 			"Invalid lastEvaluated",
 			"Do or do not. There is no try.",
 			2,
-			policyv1.EvaluationInterval{},
+			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
 			policyv1.Compliant,
 			true,
+			false,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedInvalid,
 		},
 		{
 			"Unknown compliance state",
 			inFuture,
 			2,
-			policyv1.EvaluationInterval{},
+			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
 			policyv1.UnknownCompliancy,
 			true,
+			false,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedInFuture,
 		},
 		{
 			"Default evaluation interval with a past lastEvaluated when compliant",
-			time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339),
+			twelveSecsAgo,
 			2,
-			policyv1.EvaluationInterval{},
+			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
 			policyv1.Compliant,
 			true,
+			false,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedTwelveSecsAgo,
 		},
 		{
 			"Default evaluation interval with a past lastEvaluated when noncompliant",
-			time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339),
+			twelveSecsAgo,
 			2,
-			policyv1.EvaluationInterval{},
+			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
 			policyv1.NonCompliant,
 			true,
+			false,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedTwelveSecsAgo,
 		},
 		{
 			"Never evaluation interval with past lastEvaluated when compliant",
-			time.Now().UTC().Add(-12 * time.Hour).Format(time.RFC3339),
+			twelveHoursAgo,
 			2,
 			policyv1.EvaluationInterval{Compliant: "never"},
 			policyv1.Compliant,
 			false,
+			false,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedTwelveHoursAgo,
 		},
 		{
 			"Never evaluation interval with past lastEvaluated when noncompliant",
-			time.Now().UTC().Add(-12 * time.Hour).Format(time.RFC3339),
+			twelveHoursAgo,
 			2,
-			policyv1.EvaluationInterval{NonCompliant: "never"},
+			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "never"},
 			policyv1.NonCompliant,
+			false,
 			false,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedTwelveHoursAgo,
+		},
+		{
+			"Unset evaluation interval with past lastEvaluated when compliant",
+			twelveHoursAgo,
+			2,
+			policyv1.EvaluationInterval{},
+			policyv1.Compliant,
+			true,
+			false,
+			nil,
+			false,
+			[]string{},
+			lastEvaluatedTwelveHoursAgo,
+		},
+		{
+			"Watch evaluation interval with past lastEvaluated when compliant",
+			twelveHoursAgo,
+			2,
+			policyv1.EvaluationInterval{Compliant: "watch", NonCompliant: "watch"},
+			policyv1.Compliant,
+			true,
+			false,
+			nil,
+			false,
+			[]string{},
+			lastEvaluatedTwelveHoursAgo,
+		},
+		{
+			"Unset evaluation interval with past lastEvaluated when noncompliant",
+			twelveHoursAgo,
+			2,
+			policyv1.EvaluationInterval{},
+			policyv1.NonCompliant,
+			true,
+			false,
+			nil,
+			false,
+			[]string{},
+			lastEvaluatedTwelveHoursAgo,
+		},
+		{
+			"Watch evaluation interval with past lastEvaluated when noncompliant",
+			twelveHoursAgo,
+			2,
+			policyv1.EvaluationInterval{NonCompliant: "watch"},
+			policyv1.NonCompliant,
+			true,
+			false,
+			nil,
+			false,
+			[]string{},
+			lastEvaluatedTwelveHoursAgo,
 		},
 		{
 			"Invalid evaluation interval when compliant",
@@ -1188,9 +1286,11 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{Compliant: "Do or do not. There is no try."},
 			policyv1.Compliant,
 			true,
+			false,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedInFuture,
 		},
 		{
 			"Invalid evaluation interval when noncompliant",
@@ -1199,69 +1299,90 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			policyv1.EvaluationInterval{NonCompliant: "Do or do not. There is no try."},
 			policyv1.NonCompliant,
 			true,
+			false,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedInFuture,
 		},
 		{
 			"Custom evaluation interval that hasn't past yet when compliant",
-			time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339),
+			twelveSecsAgo,
 			2,
 			policyv1.EvaluationInterval{Compliant: "12h"},
 			policyv1.Compliant,
 			false,
+			true,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedTwelveSecsAgo,
 		},
 		{
 			"Custom evaluation interval that hasn't past yet when noncompliant",
-			time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339),
+			twelveSecsAgo,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
 			policyv1.NonCompliant,
 			false,
+			true,
 			nil,
 			false,
 			[]string{},
+			lastEvaluatedTwelveSecsAgo,
 		},
 		{
 			"Deletion timestamp is non nil",
-			time.Now().UTC().Add(-13 * time.Hour).Format(time.RFC3339),
+			inFuture,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
 			policyv1.NonCompliant,
 			true,
+			false,
 			&metav1.Time{Time: time.Now()},
 			false,
 			[]string{},
+			lastEvaluatedInFuture,
 		},
 		{
 			"Finalizer and the controller is being deleted",
-			time.Now().UTC().Add(-13 * time.Hour).Format(time.RFC3339),
+			inFuture,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
 			policyv1.NonCompliant,
 			true,
+			false,
 			&metav1.Time{Time: time.Now()},
 			true,
 			[]string{pruneObjectFinalizer},
+			lastEvaluatedInFuture,
 		},
 		{
 			"No finalizer and the controller is being deleted",
-			time.Now().UTC().Add(-13 * time.Hour).Format(time.RFC3339),
+			inFuture,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
 			policyv1.NonCompliant,
 			false,
+			false,
 			&metav1.Time{Time: time.Now()},
 			true,
 			[]string{},
+			lastEvaluatedInFuture,
 		},
-	}
-
-	r := &ConfigurationPolicyReconciler{
-		SelectorReconciler: &fakeSR{},
+		{
+			"controller-runtime cache not yet synced",
+			twelveHoursAgo,
+			2,
+			policyv1.EvaluationInterval{NonCompliant: "12h"},
+			policyv1.NonCompliant,
+			false,
+			true,
+			nil,
+			false,
+			[]string{},
+			lastEvaluatedTwelveSecsAgo,
+		},
 	}
 
 	for _, test := range tests {
@@ -1280,8 +1401,23 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 				policy.ObjectMeta.DeletionTimestamp = test.deletionTimestamp
 				policy.ObjectMeta.Finalizers = test.finalizers
 
-				if actual := r.shouldEvaluatePolicy(policy, test.cleanupImmediately); actual != test.expected {
+				r := &ConfigurationPolicyReconciler{
+					SelectorReconciler: &fakeSR{},
+					lastEvaluatedCache: *test.lastEvaluatedCache, //nolint: govet
+				}
+
+				actual, actualDuration := r.shouldEvaluatePolicy(policy, test.cleanupImmediately)
+
+				if actual != test.expected {
 					t.Fatalf("expected %v but got %v", test.expected, actual)
+				}
+
+				if test.expectedPositiveDuration && actualDuration <= 0 {
+					t.Fatalf("expected a positive duration but got %v", actualDuration.String())
+				}
+
+				if !test.expectedPositiveDuration && actualDuration > 0 {
+					t.Fatalf("expected a zero duration but got %v", actualDuration.String())
 				}
 			},
 		)
@@ -1290,15 +1426,15 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 
 type fakeSR struct{}
 
-func (r *fakeSR) Get(_ string, _ policyv1.Target) ([]string, error) {
+func (r *fakeSR) Get(_ string, _ string, _ policyv1.Target) ([]string, error) {
 	return nil, nil
 }
 
-func (r *fakeSR) HasUpdate(_ string) bool {
+func (r *fakeSR) HasUpdate(_ string, _ string) bool {
 	return false
 }
 
-func (r *fakeSR) Stop(_ string) {
+func (r *fakeSR) Stop(_ string, _ string) {
 }
 
 func TestShouldHandleSingleKeyFalse(t *testing.T) {

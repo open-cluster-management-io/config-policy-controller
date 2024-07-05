@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -19,13 +20,13 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/prometheus/client_golang/prometheus"
 	templates "github.com/stolostron/go-template-utils/v5/pkg/templates"
+	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
-	meta "k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -36,14 +37,19 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/restmapper"
 	"k8s.io/client-go/tools/record"
 	kubeopenapivalidation "k8s.io/kube-openapi/pkg/util/proto/validation"
 	"k8s.io/kubectl/pkg/util/openapi"
 	"k8s.io/kubectl/pkg/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
+	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	yaml "sigs.k8s.io/yaml"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
@@ -51,9 +57,10 @@ import (
 )
 
 const (
-	ControllerName       string = "configuration-policy-controller"
-	CRDName              string = "configurationpolicies.policy.open-cluster-management.io"
-	pruneObjectFinalizer string = "policy.open-cluster-management.io/delete-related-objects"
+	ControllerName             string = "configuration-policy-controller"
+	CRDName                    string = "configurationpolicies.policy.open-cluster-management.io"
+	pruneObjectFinalizer       string = "policy.open-cluster-management.io/delete-related-objects"
+	disableTemplatesAnnotation string = "policy.open-cluster-management.io/disable-templates"
 )
 
 var log = ctrl.Log.WithName(ControllerName)
@@ -81,12 +88,69 @@ const (
 	reasonFoundNotApplicable = "Resource found but will not be handled in mustnothave mode"
 )
 
+var ErrPolicyInvalid = errors.New("the Policy is invalid")
+
 // SetupWithManager sets up the controller with the Manager.
-func (r *ConfigurationPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	return ctrl.NewControllerManagedBy(mgr).
+func (r *ConfigurationPolicyReconciler) SetupWithManager(
+	mgr ctrl.Manager, evaluationConcurrency uint8, rawSources ...*source.Channel,
+) error {
+	builder := ctrl.NewControllerManagedBy(mgr).
 		Named(ControllerName).
-		For(&policyv1.ConfigurationPolicy{}).
-		Complete(r)
+		WithOptions(controller.Options{
+			MaxConcurrentReconciles: int(evaluationConcurrency),
+		}).
+		For(&policyv1.ConfigurationPolicy{}, builder.WithPredicates(
+			predicate.Funcs{
+				// Skip most pure status/metadata updates
+				UpdateFunc: func(e event.UpdateEvent) bool {
+					if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
+						return true
+					}
+
+					if !e.ObjectNew.GetDeletionTimestamp().IsZero() {
+						return true
+					}
+
+					oldAnnotations := e.ObjectOld.GetAnnotations()
+					newAnnotations := e.ObjectNew.GetAnnotations()
+
+					// These are the options that change evaluation behavior that aren't in the spec.
+					if oldAnnotations[disableTemplatesAnnotation] != newAnnotations[disableTemplatesAnnotation] ||
+						oldAnnotations[IVAnnotation] != newAnnotations[IVAnnotation] {
+						return true
+					}
+
+					oldTyped, ok := e.ObjectOld.(*policyv1.ConfigurationPolicy)
+					if !ok {
+						return false
+					}
+
+					newTyped, ok := e.ObjectNew.(*policyv1.ConfigurationPolicy)
+					if !ok {
+						return false
+					}
+
+					// Handle the case where compliance was explicitly reset by the governance-policy-framework
+					return oldTyped.Status.ComplianceState != "" && newTyped.Status.ComplianceState == ""
+				},
+				DeleteFunc: func(event event.DeleteEvent) bool {
+					// This is the only place to detect a deletion event and still get the policy UID, so it's a bit
+					// of a hack but it works.
+					r.lastEvaluatedCache.Delete(event.Object.GetUID())
+					r.processedPolicyCache.Delete(event.Object.GetUID())
+
+					return true
+				},
+			},
+		))
+
+	for _, rawSource := range rawSources {
+		if rawSource != nil {
+			builder = builder.WatchesRawSource(rawSource, &handler.EnqueueRequestForObject{})
+		}
+	}
+
+	return builder.Complete(r)
 }
 
 // blank assignment to verify that ConfigurationPolicyReconciler implements reconcile.Reconciler
@@ -95,13 +159,6 @@ var _ reconcile.Reconciler = &ConfigurationPolicyReconciler{}
 type cachedEncryptionKey struct {
 	key         []byte
 	previousKey []byte
-}
-
-type discoveryInfo struct {
-	apiResourceList        []*metav1.APIResourceList
-	apiGroups              []*restmapper.APIGroupResources
-	serverVersion          string
-	discoveryLastRefreshed time.Time
 }
 
 // ConfigurationPolicyReconciler reconciles a ConfigurationPolicy object
@@ -114,10 +171,9 @@ type ConfigurationPolicyReconciler struct {
 	// Determines if the target Kubernetes cluster supports dry run update requests. When OpenShift <v4.5
 	// support is dropped, this can be removed as it's always true.
 	DryRunSupported bool
-	// Determines the number of Go routines that can evaluate policies concurrently.
-	EvaluationConcurrency uint8
-	Scheme                *runtime.Scheme
-	Recorder              record.EventRecorder
+	DynamicWatcher  depclient.DynamicWatcher
+	Scheme          *runtime.Scheme
+	Recorder        record.EventRecorder
 	// processedPolicyCache has the ConfigurationPolicy UID as the key and the values are a *sync.Map with the keys
 	// as object UIDs and the values as cachedEvaluationResult objects.
 	processedPolicyCache sync.Map
@@ -130,25 +186,34 @@ type ConfigurationPolicyReconciler struct {
 	SelectorReconciler     common.SelectorReconciler
 	// Whether custom metrics collection is enabled
 	EnableMetrics bool
-	discoveryInfo
+	ServerVersion string
 	// This is used to fetch and parse OpenAPI documents to perform client-side validation of object definitions.
-	openAPIParser *openapi.CachedOpenAPIParser
+	openAPIParser              *openapi.CachedOpenAPIParser
+	openAPIParserLastRefreshed time.Time
 	// A lock when performing actions that are not thread safe (i.e. reassigning object properties).
 	lock sync.RWMutex
 	// When true, the controller has detected it is being uninstalled and only basic cleanup should be performed before
 	// exiting.
 	UninstallMode bool
+	// The number of seconds before a policy is eligible for reevaluation in watch mode (throttles frequently evaluated
+	// policies)
+	EvalBackoffSeconds uint
+	// lastEvaluatedCache contains the value of ConfigurationPolicyStatus.LastEvaluated per ConfigurationPolicy UID.
+	// This is a workaround to account for race conditions where the status is updated but the controller-runtime cache
+	// has not updated yet.
+	lastEvaluatedCache sync.Map
 }
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
 
-// Reconcile currently does nothing except that it removes a policy's metric when the policy is deleted. All the logic
-// is handled in the PeriodicallyExecConfigPolicies method.
+// Reconcile is responsible for evaluating and rescheduling ConfigurationPolicy evaluations.
 func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request ctrl.Request) (ctrl.Result, error) {
+	log := log.WithValues("name", request.Name, "namespace", request.Namespace)
 	policy := &policyv1.ConfigurationPolicy{}
 
 	err := r.Get(ctx, request.NamespacedName, policy)
 	if k8serrors.IsNotFound(err) {
+		log.V(1).Info("Handling a deleted policy")
 		// If the metric was not deleted, that means the policy was never evaluated so it can be ignored.
 		_ = policyEvalSecondsCounter.DeleteLabelValues(request.Name)
 		_ = policyEvalCounter.DeleteLabelValues(request.Name)
@@ -161,216 +226,156 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 		_ = policyUserErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
 		_ = policySystemErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
 
-		r.SelectorReconciler.Stop(request.Name)
+		r.SelectorReconciler.Stop(request.Namespace, request.Name)
+
+		objID := depclient.ObjectIdentifier{
+			Group:     policyv1.GroupVersion.Group,
+			Version:   policyv1.GroupVersion.Version,
+			Kind:      "ConfigurationPolicy",
+			Namespace: request.Namespace,
+			Name:      request.Name,
+		}
+
+		err := r.DynamicWatcher.RemoveWatcher(objID)
+		if err != nil {
+			log.Error(err, "Failed to remove any watches from this deleted ConfigurationPolicy. Will ignore.")
+		}
+
+		return reconcile.Result{}, nil
 	}
 
-	return reconcile.Result{}, nil
-}
-
-// PeriodicallyExecConfigPolicies loops through all configurationpolicies in the target namespace and triggers
-// template handling for each one. This function drives all the work the configuration policy controller does.
-func (r *ConfigurationPolicyReconciler) PeriodicallyExecConfigPolicies(
-	ctx context.Context, freq uint, elected <-chan struct{}, uninstallDetected context.CancelFunc,
-) {
-	log.Info("Waiting for leader election before periodically evaluating configuration policies")
-
-	select {
-	case <-elected:
-	case <-ctx.Done():
-		return
-	}
-
-	const waiting = 10 * time.Minute
-
-	exiting := false
-	deploymentFinalizerRemoved := false
-
-	for !exiting {
-		if !deploymentFinalizerRemoved {
-			err := r.removeLegacyDeploymentFinalizer()
-			if err == nil {
-				deploymentFinalizerRemoved = true
-			} else {
-				log.Error(err, "Failed to remove the legacy Deployment finalizer. Will try again.")
-			}
-		}
-
-		start := time.Now()
-
-		var skipLoop bool
-
-		cleanupImmediately := r.UninstallMode
-
-		if !r.UninstallMode {
-			if len(r.apiResourceList) == 0 || len(r.apiGroups) == 0 {
-				discoveryErr := r.refreshDiscoveryInfo()
-
-				// If there was an error and no API information was received, then skip the loop.
-				if discoveryErr != nil && (len(r.apiResourceList) == 0 || len(r.apiGroups) == 0) {
-					skipLoop = true
-				}
-			}
-
-			// If it's been more than 10 minutes since the last refresh, then refresh the discovery info, but ignore
-			// any errors since the cache can still be used. If a policy encounters an API resource type not in the
-			// cache, the discovery info refresh will be handled there. This periodic refresh is to account for
-			// deleted CRDs or strange edits to the CRD (e.g. converted it from namespaced to not).
-			if time.Since(r.discoveryLastRefreshed) >= waiting {
-				_ = r.refreshDiscoveryInfo()
-			}
-
-			uninstalling, crdDeleting, err := r.cleanupImmediately()
-			if !uninstalling && !crdDeleting && err != nil {
-				log.Error(err, "Failed to determine if it's time to cleanup immediately")
-
-				skipLoop = true
-			}
-
-			cleanupImmediately = crdDeleting
-
-			if uninstalling {
-				r.UninstallMode = uninstalling
-				cleanupImmediately = true
-
-				uninstallDetected()
-			}
-		}
-
-		if cleanupImmediately || !skipLoop {
-			policiesList := policyv1.ConfigurationPolicyList{}
-
-			// This retrieves the policies from the controller-runtime cache populated by the watch.
-			err := r.List(context.TODO(), &policiesList)
-			if err != nil {
-				log.Error(err, "Failed to list the ConfigurationPolicy objects to evaluate")
-			} else {
-				// This is done every loop cycle since the channel needs to be variable in size to
-				// account for the number of policies changing.
-				policyQueue := make(chan *policyv1.ConfigurationPolicy, len(policiesList.Items))
-				var wg sync.WaitGroup
-
-				log.V(1).Info("Processing the policies", "count", len(policiesList.Items))
-
-				// Initialize the related object map
-				policyRelatedObjectMap = sync.Map{}
-
-				for i := 0; i < int(r.EvaluationConcurrency); i++ {
-					wg.Add(1)
-
-					go r.handlePolicyWorker(policyQueue, &wg)
-				}
-
-				for i := range policiesList.Items {
-					policy := policiesList.Items[i]
-
-					// If the ConfigurationPolicy's spec field was updated, clear the cache of the objects that have
-					// been processed.
-					if policy.Status.LastEvaluatedGeneration != policy.Generation {
-						r.processedPolicyCache.Delete(policy.GetUID())
-					}
-
-					if !r.shouldEvaluatePolicy(&policy, cleanupImmediately) {
-						continue
-					}
-
-					// handle each template in each policy
-					policyQueue <- &policy
-				}
-
-				close(policyQueue)
-				wg.Wait()
-			}
-		}
-
-		// Update the related object metric after policy processing
-		if r.EnableMetrics {
-			updateRelatedObjectMetric()
-		}
-		// Update the evaluation histogram with the elapsed time
-		elapsed := time.Since(start).Seconds()
-		evalLoopHistogram.Observe(elapsed)
-		// making sure that if processing is > freq we don't sleep
-		// if freq > processing we sleep for the remaining duration
-		if float64(freq) > elapsed {
-			remainingSleep := float64(freq) - elapsed
-			sleepTime := time.Duration(remainingSleep) * time.Second
-			log.V(2).Info("Sleeping before reprocessing the configuration policies", "seconds", sleepTime)
-			time.Sleep(sleepTime)
-		}
-
-		select {
-		case <-ctx.Done():
-			exiting = true
-		default:
-		}
-	}
-}
-
-// handlePolicyWorker is meant to be used as a Go routine that wraps handleObjectTemplates.
-func (r *ConfigurationPolicyReconciler) handlePolicyWorker(
-	policyQueue <-chan *policyv1.ConfigurationPolicy, wg *sync.WaitGroup,
-) {
-	defer wg.Done()
-
-	for policy := range policyQueue {
-		before := time.Now().UTC()
-
-		r.handleObjectTemplates(*policy)
-
-		duration := time.Now().UTC().Sub(before)
-		seconds := float64(duration) / float64(time.Second)
-
-		policyEvalSecondsCounter.WithLabelValues(policy.Name).Add(seconds)
-		policyEvalCounter.WithLabelValues(policy.Name).Inc()
-	}
-}
-
-// refreshDiscoveryInfo tries to discover all the available APIs on the cluster, and update the
-// cached information. If it encounters an error, it may update the cache with partial results,
-// if those seem "better" than what's in the current cache.
-func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
-	log.V(2).Info("Refreshing the discovery info")
-	r.lock.Lock()
-	defer func() { r.lock.Unlock() }()
-
-	dd := r.TargetK8sClient.Discovery()
-
-	serverVersion, err := dd.ServerVersion()
 	if err != nil {
-		log.Error(err, "Could not get the server version")
+		return reconcile.Result{}, err
 	}
 
-	r.serverVersion = serverVersion.String()
+	// Account for a change in evaluation interval either due to a spec change or compliance state change.
+	defer func() {
+		if policy.Spec == nil {
+			// The watch is removed in the error handling of handleObjectTemplates in the Reconcile method
+			return
+		}
 
-	_, apiResourceList, resourceErr := dd.ServerGroupsAndResources()
-	if resourceErr != nil {
-		log.Error(resourceErr, "Could not get the full API resource list")
+		compliantWithWatch := policy.Status.ComplianceState == policyv1.Compliant &&
+			policy.Spec.EvaluationInterval.IsWatchForCompliant()
+		nonCompliantWithWatch := policy.Status.ComplianceState != policyv1.Compliant &&
+			policy.Spec.EvaluationInterval.IsWatchForNonCompliant()
+
+		if !(compliantWithWatch || nonCompliantWithWatch) {
+			err := r.DynamicWatcher.RemoveWatcher(policy.ObjectIdentifier())
+			if err != nil {
+				log.Error(err, "Failed to remove any watches related to this ConfigurationPolicy. Will ignore.")
+			}
+		}
+	}()
+
+	uninstalling, crdDeleting, err := r.cleanupImmediately()
+	if !uninstalling && !crdDeleting && err != nil {
+		log.Error(err, "Failed to determine if it's time to cleanup immediately")
+
+		return reconcile.Result{}, err
 	}
 
-	if resourceErr == nil || (len(apiResourceList) > len(r.discoveryInfo.apiResourceList)) {
-		// update the list if it's complete, or if it's "better" than the old one
-		r.discoveryInfo.apiResourceList = apiResourceList
+	// If the ConfigurationPolicy's spec field was updated, clear the cache of evaluated objects.
+	if policy.Status.LastEvaluatedGeneration != policy.Generation {
+		r.processedPolicyCache.Delete(policy.GetUID())
 	}
 
-	apiGroups, groupErr := restmapper.GetAPIGroupResources(dd)
-	if groupErr != nil {
-		log.Error(groupErr, "Could not get the full API groups list")
+	shouldEvaluate, durationLeft := r.shouldEvaluatePolicy(policy, (uninstalling || crdDeleting))
+	if !shouldEvaluate {
+		// Requeue based on the remaining time for the evaluation interval to be met.
+		return reconcile.Result{RequeueAfter: durationLeft}, nil
 	}
 
-	if (resourceErr == nil && groupErr == nil) || (len(apiGroups) > len(r.discoveryInfo.apiGroups)) {
-		// update the list if it's complete, or if it's "better" than the old one
-		r.discoveryInfo.apiGroups = apiGroups
+	before := time.Now().UTC()
+
+	handleErr := r.handleObjectTemplates(policy)
+
+	duration := time.Now().UTC().Sub(before)
+	seconds := float64(duration) / float64(time.Second)
+
+	policyEvalSecondsCounter.WithLabelValues(policy.Name).Add(seconds)
+	policyEvalCounter.WithLabelValues(policy.Name).Inc()
+
+	// Update the related object metric after policy processing
+	if r.EnableMetrics {
+		updateRelatedObjectMetric()
 	}
 
-	// Reset the OpenAPI cache in case the CRDs were updated since the last fetch.
-	r.openAPIParser = openapi.NewOpenAPIParser(dd)
-	r.discoveryInfo.discoveryLastRefreshed = time.Now().UTC()
+	if handleErr != nil {
+		// If the policy is invalid, don't bother requeueing since we need to wait for a spec change.
+		if errors.Is(handleErr, ErrPolicyInvalid) {
+			// Remove any watches on the policy in case the policy used to be valid and specified watches.
+			err := r.DynamicWatcher.RemoveWatcher(policy.ObjectIdentifier())
+			if err != nil {
+				log.Error(err, "Failed to remove any watches related to this ConfigurationPolicy. Will ignore.")
+			}
 
-	if resourceErr != nil {
-		return resourceErr
+			return reconcile.Result{}, nil
+		}
+
+		return reconcile.Result{}, handleErr
 	}
 
-	return groupErr // can be nil
+	var requeueAfter time.Duration
+	var getIntervalErr error
+
+	if policy.Status.ComplianceState == policyv1.Compliant {
+		if policy.Spec.EvaluationInterval.IsWatchForCompliant() {
+			log.V(2).Info("The policy is compliant and has the evaluation interval set to watch. Will not schedule.")
+
+			return reconcile.Result{}, nil
+		}
+
+		requeueAfter, getIntervalErr = policy.Spec.EvaluationInterval.GetCompliantInterval()
+	} else {
+		// If the policy is not compliant (i.e. noncompliant or unknown), fall back to the noncompliant evaluation
+		// interval. This is a court of guilty until proven innocent.
+		if policy.Spec.EvaluationInterval.IsWatchForNonCompliant() {
+			log.V(2).Info(
+				"The policy is not compliant and has the evaluation interval set to watch. Will not schedule.",
+			)
+
+			return reconcile.Result{}, nil
+		}
+
+		requeueAfter, getIntervalErr = policy.Spec.EvaluationInterval.GetNonCompliantInterval()
+	}
+
+	// At this point, we know the evaluation interval isn't set to watch so remove any potential watches for this
+	// policy.
+	removeWatcherErr := r.DynamicWatcher.RemoveWatcher(policy.ObjectIdentifier())
+	if removeWatcherErr != nil {
+		log.Error(err, "Failed to remove any watches related to this ConfigurationPolicy. Will ignore.")
+	}
+
+	if getIntervalErr != nil {
+		if errors.Is(getIntervalErr, policyv1.ErrIsNever) {
+			log.V(2).Info(
+				"The policy will not be scheduled for evaluation since it has an evaluation interval of never",
+			)
+
+			return reconcile.Result{}, nil
+		}
+
+		log.Error(
+			getIntervalErr,
+			"The policy has an invalid evaluation interval; defaulting to 10s",
+		)
+
+		requeueAfter = 10 * time.Second
+	}
+
+	var requeueNow bool
+
+	// Account for an evaluation interval of 0s.
+	if requeueAfter <= 0 {
+		requeueAfter = 0
+		requeueNow = true
+	}
+
+	log.V(2).Info("The policy has a scheduled next evaluation", "untilNextEvaluation", requeueAfter.String())
+
+	return reconcile.Result{RequeueAfter: requeueAfter, Requeue: requeueNow}, nil
 }
 
 // shouldEvaluatePolicy will determine if the policy is ready for evaluation by examining the
@@ -379,33 +384,48 @@ func (r *ConfigurationPolicyReconciler) refreshDiscoveryInfo() error {
 // met, then that will also trigger an evaluation. If cleanupImmediately is true, then only policies
 // with finalizers will be ready for evaluation regardless of the last evaluation.
 // cleanupImmediately should be set true when the controller is getting uninstalled.
+// If the policy is not ready to be evaluated, the returned duration is how long until the next evaluation.
 func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 	policy *policyv1.ConfigurationPolicy, cleanupImmediately bool,
-) bool {
+) (bool, time.Duration) {
 	log := log.WithValues("policy", policy.GetName())
 
 	// If it's time to clean up such as when the config-policy-controller is being uninstalled, only evaluate policies
 	// with a finalizer to remove the finalizer.
 	if cleanupImmediately {
-		return len(policy.Finalizers) != 0
+		return len(policy.Finalizers) != 0, 0
+	}
+
+	if cachedLastEval, ok := r.lastEvaluatedCache.Load(policy.UID); ok {
+		if cachedLastEval.(string) != policy.Status.LastEvaluated {
+			log.V(1).Info(
+				"The policy's status.lastEvaluated field is not synced in the controller-runtime cache. Will requeue.",
+			)
+
+			return false, time.Second
+		}
 	}
 
 	if policy.ObjectMeta.DeletionTimestamp != nil {
 		log.V(1).Info("The policy has been deleted and is waiting for object cleanup. Will evaluate it now.")
 
-		return true
-	}
-
-	if policy.Status.LastEvaluatedGeneration != policy.Generation {
-		log.V(1).Info("The policy has been updated. Will evaluate it now.")
-
-		return true
+		return true, 0
 	}
 
 	if policy.Status.LastEvaluated == "" {
 		log.V(1).Info("The policy's status.lastEvaluated field is not set. Will evaluate it now.")
 
-		return true
+		return true, 0
+	}
+
+	if policy.Status.LastEvaluatedGeneration != policy.Generation {
+		log.V(1).Info(
+			"The policy has been updated. Will evaluate it now.",
+			"generation", policy.Generation,
+			"lastEvaluatedGeneration", policy.Status.LastEvaluatedGeneration,
+		)
+
+		return true, 0
 	}
 
 	// If there was a timeout during a recreate, immediately evaluate the policy regardless of the evaluation interval.
@@ -415,7 +435,7 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 				if condition.Reason == "K8s update template error" && strings.Contains(
 					condition.Message, "timed out waiting for the object to delete during recreate",
 				) {
-					return true
+					return true, 0
 				}
 			}
 		}
@@ -425,139 +445,81 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 	if err != nil {
 		log.Error(err, "The policy has an invalid status.lastEvaluated value. Will evaluate it now.")
 
-		return true
-	}
-
-	var interval time.Duration
-
-	if policy.Status.ComplianceState == policyv1.Compliant && policy.Spec != nil {
-		interval, err = policy.Spec.EvaluationInterval.GetCompliantInterval()
-	} else if policy.Status.ComplianceState == policyv1.NonCompliant && policy.Spec != nil {
-		interval, err = policy.Spec.EvaluationInterval.GetNonCompliantInterval()
-	} else {
-		log.V(1).Info("The policy has an unknown compliance. Will evaluate it now.")
-
-		return true
+		return true, 0
 	}
 
 	usesSelector := policy.Spec.NamespaceSelector.MatchLabels != nil ||
 		policy.Spec.NamespaceSelector.MatchExpressions != nil ||
 		len(policy.Spec.NamespaceSelector.Include) != 0
 
-	if usesSelector && r.SelectorReconciler.HasUpdate(policy.Name) {
+	if usesSelector && r.SelectorReconciler.HasUpdate(policy.Namespace, policy.Name) {
 		log.V(1).Info("There was an update for this policy's namespaces. Will evaluate it now.")
 
-		return true
+		return true, 0
 	}
 
-	if errors.Is(err, policyv1.ErrIsNever) {
+	var interval time.Duration
+	var getIntervalErr error
+
+	if policy.Status.ComplianceState == policyv1.Compliant && policy.Spec != nil {
+		interval, getIntervalErr = policy.Spec.EvaluationInterval.GetCompliantInterval()
+	} else if policy.Status.ComplianceState == policyv1.NonCompliant && policy.Spec != nil {
+		interval, getIntervalErr = policy.Spec.EvaluationInterval.GetNonCompliantInterval()
+	} else {
+		log.V(1).Info("The policy has an unknown compliance. Will evaluate it now.")
+
+		return true, 0
+	}
+
+	now := time.Now().UTC()
+
+	if errors.Is(getIntervalErr, policyv1.ErrIsNever) {
 		log.V(1).Info("Skipping the policy evaluation due to the spec.evaluationInterval value being set to never")
 
-		return false
-	} else if err != nil {
+		return false, 0
+	} else if errors.Is(getIntervalErr, policyv1.ErrIsWatch) {
+		minNextEval := lastEvaluated.Add(time.Second * time.Duration(r.EvalBackoffSeconds))
+		durationLeft := minNextEval.Sub(now)
+
+		if durationLeft > 0 {
+			log.V(1).Info(
+				"The policy evaluation is configured for a watch event but rescheduling the evaluation due to the "+
+					"configured evaluation backoff",
+				"evaluationBackoffSeconds", r.EvalBackoffSeconds,
+				"remainingSeconds", math.Round(durationLeft.Seconds()),
+			)
+
+			return false, durationLeft
+		}
+
+		log.V(1).Info("The policy evaluation is configured for a watch event. Will evaluate now.")
+
+		return true, 0
+	} else if getIntervalErr != nil {
 		log.Error(
-			err,
-			"The policy has an invalid spec.evaluationInterval value. Will evaluate it now.",
+			getIntervalErr,
+			"The policy has an invalid spec.evaluationInterval value; defaulting to watch",
 			"spec.evaluationInterval.compliant", policy.Spec.EvaluationInterval.Compliant,
 			"spec.evaluationInterval.noncompliant", policy.Spec.EvaluationInterval.NonCompliant,
 		)
 
-		return true
+		return true, 0
 	}
 
 	nextEvaluation := lastEvaluated.Add(interval)
-	if nextEvaluation.Sub(time.Now().UTC()) > 0 {
+	durationLeft := nextEvaluation.Sub(now)
+
+	if durationLeft > 0 {
 		log.V(1).Info("Skipping the policy evaluation due to the policy not reaching the evaluation interval")
 
-		return false
+		return false, durationLeft
 	}
 
-	return true
+	return true, 0
 }
 
-type objectTemplateDetails struct {
-	kind         string
-	name         string
-	namespace    string
-	isNamespaced bool
-}
-
-// getObjectTemplateDetails retrieves values from the object templates and returns an array of
-// objects containing the retrieved values.
-// It also gathers namespaces for this policy if necessary:
-//
-//	If a namespaceSelector is present AND objects are namespaced without a namespace specified
-func (r *ConfigurationPolicyReconciler) getObjectTemplateDetails(
-	plc policyv1.ConfigurationPolicy,
-) ([]objectTemplateDetails, []string, bool, error) {
-	templateObjs := make([]objectTemplateDetails, len(plc.Spec.ObjectTemplates))
-	selectedNamespaces := []string{}
-	queryNamespaces := false
-
-	for idx, objectT := range plc.Spec.ObjectTemplates {
-		unstruct, err := unmarshalFromJSON(objectT.ObjectDefinition.Raw)
-		if err != nil {
-			return templateObjs, selectedNamespaces, false, err
-		}
-
-		templateObjs[idx].isNamespaced = r.isObjectNamespaced(&unstruct, true)
-		// strings.TrimSpace() is needed here because a multi-line value will have '\n' in it
-		templateObjs[idx].kind = strings.TrimSpace(unstruct.GetKind())
-		templateObjs[idx].name = strings.TrimSpace(unstruct.GetName())
-		templateObjs[idx].namespace = strings.TrimSpace(unstruct.GetNamespace())
-
-		if templateObjs[idx].isNamespaced && templateObjs[idx].namespace == "" {
-			queryNamespaces = true
-		}
-	}
-
-	// If required, query for namespaces specified in NamespaceSelector for objects to use
-	if queryNamespaces {
-		// Retrieve the namespaces based on filters in NamespaceSelector
-		selector := plc.Spec.NamespaceSelector
-		// If MatchLabels/MatchExpressions/Include were not provided, return no namespaces
-		if selector.MatchLabels == nil && selector.MatchExpressions == nil && len(selector.Include) == 0 {
-			r.SelectorReconciler.Stop(plc.Name)
-
-			log.V(1).Info("namespaceSelector is empty. Skipping namespace retrieval.")
-		} else {
-			// If an error occurred in the NamespaceSelector, update the policy status and abort
-			var err error
-			selectedNamespaces, err = r.SelectorReconciler.Get(plc.Name, plc.Spec.NamespaceSelector)
-			if err != nil {
-				errMsg := "Error filtering namespaces with provided namespaceSelector"
-				log.Error(
-					err, errMsg,
-					"namespaceSelector", fmt.Sprintf("%+v", selector))
-
-				reason := "namespaceSelector error"
-				msg := fmt.Sprintf(
-					"%s: %s", errMsg, err.Error())
-				statusChanged := addConditionToStatus(&plc, -1, false, reason, msg)
-				if statusChanged {
-					r.Recorder.Event(
-						&plc,
-						eventWarning,
-						fmt.Sprintf(plcFmtStr, plc.GetName()),
-						convertPolicyStatusToString(&plc),
-					)
-				}
-
-				return templateObjs, selectedNamespaces, statusChanged, err
-			}
-
-			if len(selectedNamespaces) == 0 {
-				log.V(1).Info("Fetching namespaces with provided NamespaceSelector returned no namespaces.",
-					"namespaceSelector", fmt.Sprintf("%+v", selector))
-			}
-		}
-	}
-
-	return templateObjs, selectedNamespaces, false, nil
-}
-
-func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.ConfigurationPolicy,
-	newRelated []policyv1.RelatedObject,
+func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
+	plc *policyv1.ConfigurationPolicy, newRelated []policyv1.RelatedObject, usingWatch bool,
 ) []string {
 	deletionFailures := []string{}
 
@@ -592,11 +554,7 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 
 		log := log.WithValues("policy", plc.GetName(), "groupVersionKind", gvk.String())
 
-		r.lock.RLock()
-		mapper := restmapper.NewDiscoveryRESTMapper(r.apiGroups)
-		r.lock.RUnlock()
-
-		mapping, err := mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+		scopedGVR, err := r.DynamicWatcher.GVKToGVR(gvk)
 		if err != nil {
 			log.Error(err, "Could not get resource mapping for child object")
 
@@ -606,18 +564,26 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 			continue
 		}
 
-		namespaced := object.Object.Metadata.Namespace != ""
-
 		// determine whether object should be deleted
 		needsDelete := false
+		var existing *unstructured.Unstructured
 
-		existing, err := getObject(
-			namespaced,
-			object.Object.Metadata.Namespace,
-			object.Object.Metadata.Name,
-			mapping.Resource,
-			r.TargetK8sDynamicClient,
-		)
+		if usingWatch {
+			existing, err = r.DynamicWatcher.Get(
+				plc.ObjectIdentifier(),
+				gvk,
+				object.Object.Metadata.Namespace,
+				object.Object.Metadata.Name,
+			)
+		} else {
+			existing, err = getObject(
+				object.Object.Metadata.Namespace,
+				object.Object.Metadata.Name,
+				scopedGVR,
+				r.TargetK8sDynamicClient,
+			)
+		}
+
 		if err != nil {
 			log.Error(err, "Failed to get child object")
 
@@ -659,10 +625,12 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 			}
 
 			var res dynamic.ResourceInterface
-			if namespaced {
-				res = r.TargetK8sDynamicClient.Resource(mapping.Resource).Namespace(object.Object.Metadata.Namespace)
+			if scopedGVR.Namespaced {
+				res = r.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource).Namespace(
+					object.Object.Metadata.Namespace,
+				)
 			} else {
-				res = r.TargetK8sDynamicClient.Resource(mapping.Resource)
+				res = r.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource)
 			}
 
 			if completed, err := deleteObject(res, object.Object.Metadata.Name,
@@ -672,11 +640,12 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(plc policyv1.Configu
 
 				log.Error(err, "Error: Failed to delete object during child object pruning")
 			} else {
+				// Don't use the cache here to avoid race conditions since this is to verify that the deletion was
+				// successful. The cache is dependent on the watch updating.
 				obj, _ := getObject(
-					namespaced,
 					object.Object.Metadata.Namespace,
 					object.Object.Metadata.Name,
-					mapping.Resource,
+					scopedGVR,
 					r.TargetK8sDynamicClient,
 				)
 
@@ -746,8 +715,9 @@ func (r *ConfigurationPolicyReconciler) definitionIsDeleting() (bool, error) {
 	return false, fmt.Errorf("v1: %v, v1beta1: %v", v1err, v1beta1err) //nolint:errorlint
 }
 
-// handleObjectTemplates iterates through all policy templates in a given policy and processes them
-func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.ConfigurationPolicy) {
+// handleObjectTemplates iterates through all policy templates in a given policy and processes them. If fields are
+// missing on the policy (excluding objectDefinition), an error of type ErrPolicyInvalid is returned.
+func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.ConfigurationPolicy) error {
 	log := log.WithValues("policy", plc.GetName())
 	log.V(1).Info("Processing object templates")
 
@@ -767,11 +737,11 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 	if validationErr != "" {
 		message := validationErr
 		log.Info(message)
-		statusChanged := addConditionToStatus(&plc, -1, false, "Invalid spec", message)
+		statusChanged := addConditionToStatus(plc, -1, false, "Invalid spec", message)
 
 		if statusChanged {
-			r.Recorder.Event(&plc, eventWarning,
-				fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(&plc))
+			r.Recorder.Event(plc, eventWarning,
+				fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(plc))
 		}
 
 		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusChanged, true)
@@ -783,41 +753,68 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 		policyUserErrorsCounter.WithLabelValues(parent, plc.GetName(), "invalid-template").Add(1)
 
-		return
+		return fmt.Errorf("%w: %s", ErrPolicyInvalid, validationErr)
+	}
+
+	var usingWatch bool
+
+	// Determine if the watch library should be used based on the evaluation interval.
+	if plc.Status.ComplianceState == policyv1.Compliant {
+		usingWatch = plc.Spec.EvaluationInterval.IsWatchForCompliant()
+	} else {
+		// If the policy is not compliant (i.e. noncompliant or unknown), fall back to the noncompliant evaluation
+		// interval. This is a court of guilty until proven innocent.
+		usingWatch = plc.Spec.EvaluationInterval.IsWatchForNonCompliant()
+	}
+
+	if usingWatch && r.DynamicWatcher != nil {
+		watcherObj := plc.ObjectIdentifier()
+
+		err := r.DynamicWatcher.StartQueryBatch(watcherObj)
+		if err != nil {
+			log.Error(
+				err,
+				"Failed to start a query batch using the dynamic watcher. Will try again on the next evaluation.",
+				"watcher", watcherObj,
+			)
+
+			return err
+		}
+
+		defer func() {
+			err := r.DynamicWatcher.EndQueryBatch(watcherObj)
+			if err != nil {
+				log.Error(err, "Failed to stop the query batch using the dynamic watcher", "watcher", watcherObj)
+			}
+		}()
 	}
 
 	// object handling for when configurationPolicy is deleted
 	if plc.Spec.PruneObjectBehavior == "DeleteIfCreated" || plc.Spec.PruneObjectBehavior == "DeleteAll" {
-		var crdDeleting bool
+		uninstalling, crdDeleting, err := r.cleanupImmediately()
+		if !uninstalling && !crdDeleting && err != nil {
+			log.Error(err, "Error determining whether to cleanup immediately, requeueing policy")
 
-		if !r.UninstallMode {
-			var err error
-
-			crdDeleting, err = r.definitionIsDeleting()
-			if err != nil {
-				log.Error(err, "Error determining whether to cleanup immediately, requeueing policy")
-
-				return
-			}
+			return err
 		}
 
-		if r.UninstallMode || crdDeleting {
-			if objHasFinalizer(&plc, pruneObjectFinalizer) {
-				patch := removeObjFinalizerPatch(&plc, pruneObjectFinalizer)
+		if uninstalling || crdDeleting {
+			if objHasFinalizer(plc, pruneObjectFinalizer) {
+				patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
 
-				err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
+				err = r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
 				if err != nil {
 					log.Error(err, "Error removing finalizer for configuration policy")
 
-					return
+					return err
 				}
 			}
 
-			return
+			return nil
 		}
 
 		// set finalizer if it hasn't been set
-		if !objHasFinalizer(&plc, pruneObjectFinalizer) {
+		if !objHasFinalizer(plc, pruneObjectFinalizer) {
 			var patch []byte
 			if plc.Finalizers == nil {
 				patch = []byte(
@@ -829,11 +826,11 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				)
 			}
 
-			err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
+			err := r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
 			if err != nil {
 				log.Error(err, "Error setting finalizer for configuration policy")
 
-				return
+				return err
 			}
 		}
 
@@ -841,54 +838,58 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		if plc.ObjectMeta.DeletionTimestamp != nil {
 			log.Info("Config policy has been deleted, handling child objects")
 
-			failures := r.cleanUpChildObjects(plc, nil)
+			failures := r.cleanUpChildObjects(plc, nil, usingWatch)
 
 			if len(failures) == 0 {
 				log.Info("Objects have been successfully cleaned up, removing finalizer")
 
-				patch := removeObjFinalizerPatch(&plc, pruneObjectFinalizer)
+				patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
 
-				err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
+				err = r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
 				if err != nil {
 					log.Error(err, "Error removing finalizer for configuration policy")
 
-					return
+					return err
 				}
 			} else {
 				log.Info("Object cleanup failed, some objects have not been deleted from the cluster")
 
+				failuresStr := strings.Join(failures, ", ")
+
 				statusChanged := addConditionToStatus(
-					&plc,
+					plc,
 					-1,
 					false,
 					reasonCleanupError,
-					"Failed to delete objects: "+strings.Join(failures, ", "))
+					"Failed to delete objects: "+failuresStr)
 				if statusChanged {
 					parentStatusUpdateNeeded = true
 
 					r.Recorder.Event(
-						&plc,
+						plc,
 						eventWarning,
 						fmt.Sprintf(plcFmtStr, plc.GetName()),
-						convertPolicyStatusToString(&plc),
+						convertPolicyStatusToString(plc),
 					)
 				}
 
 				// don't change related objects while deletion is in progress
 				r.checkRelatedAndUpdate(plc, oldRelated, oldRelated, parentStatusUpdateNeeded, true)
+
+				return fmt.Errorf("failed to delete objects %s", failuresStr)
 			}
 
-			return
+			return nil
 		}
-	} else if objHasFinalizer(&plc, pruneObjectFinalizer) {
+	} else if objHasFinalizer(plc, pruneObjectFinalizer) {
 		// if pruneObjectBehavior is none, no finalizer is needed
-		patch := removeObjFinalizerPatch(&plc, pruneObjectFinalizer)
+		patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
 
-		err := r.Patch(context.TODO(), &plc, client.RawPatch(types.JSONPatchType, patch))
+		err := r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
 		if err != nil {
 			log.Error(err, "Error removing finalizer for configuration policy")
 
-			return
+			return err
 		}
 	}
 
@@ -901,15 +902,15 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			reason = "Error processing template"
 		}
 
-		statusChanged := addConditionToStatus(&plc, -1, false, reason, msg)
+		statusChanged := addConditionToStatus(plc, -1, false, reason, msg)
 		if statusChanged {
 			parentStatusUpdateNeeded = true
 
 			r.Recorder.Event(
-				&plc,
+				plc,
 				eventWarning,
 				fmt.Sprintf(plcFmtStr, plc.GetName()),
-				convertPolicyStatusToString(&plc),
+				convertPolicyStatusToString(plc),
 			)
 		}
 
@@ -917,9 +918,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded, false)
 	}
 
-	// Cache the result of a missing API resource. Note that it's not actually 10 seconds since the cache is
-	// cleared automatically after every ResolveTemplate call.
-	tmplResolverCfg := templates.Config{MissingAPIResourceCacheTTL: 10 * time.Second}
 	resolveOptions := templates.ResolveOptions{}
 
 	usedKeyCache := false
@@ -932,7 +930,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		if err != nil {
 			addTemplateErrorViolation("", err.Error())
 
-			return
+			return err
 		}
 
 		resolveOptions.EncryptionConfig = encryptionConfig
@@ -941,7 +939,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 	annotations := plc.GetAnnotations()
 	disableTemplates := false
 
-	if disableAnnotation, ok := annotations["policy.open-cluster-management.io/disable-templates"]; ok {
+	if disableAnnotation, ok := annotations[disableTemplatesAnnotation]; ok {
 		log.V(2).Info("Found disable-templates annotation", "value", disableAnnotation)
 
 		parsedDisable, err := strconv.ParseBool(disableAnnotation)
@@ -968,18 +966,26 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 	resolveOptions.InputIsYAML = isRawObjTemplate
 
-	tmplResolver, err := templates.NewResolver(r.TargetK8sConfig, tmplResolverCfg)
-	if err != nil {
-		log.Error(err, "Failed to instantiate a template resolver")
-		addTemplateErrorViolation("", err.Error())
-
-		return
-	}
-
 	log.V(2).Info("Processing the object templates", "count", len(plc.Spec.ObjectTemplates))
 
 	if !disableTemplates {
 		startTime := time.Now().UTC()
+
+		var tmplResolver *templates.TemplateResolver
+		var err error
+
+		if usingWatch {
+			tmplResolver, err = templates.NewResolverWithDynamicWatcher(r.DynamicWatcher, templates.Config{})
+			objID := plc.ObjectIdentifier()
+
+			resolveOptions.Watcher = &objID
+		} else {
+			tmplResolver, err = templates.NewResolver(r.TargetK8sConfig, templates.Config{})
+		}
+
+		if err != nil {
+			return err
+		}
 
 		var objTemps []*policyv1.ObjectTemplate
 
@@ -1004,12 +1010,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 							"the encryption key cache and try the decryption again",
 					)
 					var encryptionConfig templates.EncryptionConfig
+					var err error
 
 					encryptionConfig, usedKeyCache, err = r.getEncryptionConfig(plc, true)
 					if err != nil {
 						addTemplateErrorViolation("", err.Error())
 
-						return
+						return err
 					}
 
 					resolveOptions.EncryptionConfig = encryptionConfig
@@ -1019,20 +1026,24 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 
 				if tplErr != nil {
 					var msg string
+					var returnedErr error
 
 					if errors.Is(tplErr, templates.ErrInvalidAESKey) || errors.Is(tplErr, templates.ErrAESKeyNotSet) {
 						msg = `The "policy-encryption-key" Secret contains an invalid AES key`
+						returnedErr = tplErr
 					} else if errors.Is(tplErr, templates.ErrInvalidIV) {
 						msg = fmt.Sprintf(
 							`The "%s" annotation value is not a valid initialization vector`, IVAnnotation,
 						)
+
+						returnedErr = fmt.Errorf("%w: %w", ErrPolicyInvalid, tplErr)
 					} else {
 						msg = tplErr.Error()
 					}
 
 					addTemplateErrorViolation("", msg)
 
-					return
+					return returnedErr
 				}
 
 				// If raw data, only one passthrough is needed, since all the object templates are in it
@@ -1041,7 +1052,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 					if err != nil {
 						addTemplateErrorViolation("Error unmarshalling raw template", err.Error())
 
-						return
+						return err
 					}
 
 					if resolvedTemplate.HasSensitiveData {
@@ -1077,11 +1088,11 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			} else if isRawObjTemplate {
 				// Unmarshal raw template YAML into object if that has not already been done by the template
 				// resolution function
-				err = yaml.Unmarshal(rawData, &objTemps)
+				err := yaml.Unmarshal(rawData, &objTemps)
 				if err != nil {
 					addTemplateErrorViolation("Error parsing the YAML in the object-templates-raw field", err.Error())
 
-					return
+					return err
 				}
 
 				plc.Spec.ObjectTemplates = objTemps
@@ -1097,29 +1108,19 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		}
 	}
 
-	// Parse and fetch details from each object in each objectTemplate, and gather namespaces if required
-	var templateObjs []objectTemplateDetails
-	var selectedNamespaces []string
-	var objTmplStatusChangeNeeded bool
+	var selectedNamespacesQueried bool
+	var selectedNamespacesErr error
 
-	templateObjs, selectedNamespaces, objTmplStatusChangeNeeded, err = r.getObjectTemplateDetails(plc)
+	selectedNamespaces := []string{}
+	selector := plc.Spec.NamespaceSelector
 
-	// Set the CompliancyDetails array length accordingly in case the number of
-	// object-templates was reduced (the status update will handle if it's longer)
-	if len(templateObjs) < len(plc.Status.CompliancyDetails) {
-		plc.Status.CompliancyDetails = plc.Status.CompliancyDetails[:len(templateObjs)]
-	}
+	// If MatchLabels/MatchExpressions/Include were not provided, return no namespaces
+	if selector.MatchLabels == nil && selector.MatchExpressions == nil && len(selector.Include) == 0 {
+		r.SelectorReconciler.Stop(plc.Namespace, plc.Name)
 
-	if objTmplStatusChangeNeeded {
-		parentStatusUpdateNeeded = true
-	}
+		log.V(1).Info("namespaceSelector is empty. Skipping namespace retrieval.")
 
-	if err != nil {
-		if parentStatusUpdateNeeded {
-			r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded, false)
-		}
-
-		return
+		selectedNamespacesQueried = true
 	}
 
 	if len(plc.Spec.ObjectTemplates) == 0 {
@@ -1127,47 +1128,96 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		msg := fmt.Sprintf("%v contains no object templates to check, and thus has no violations",
 			plc.GetName())
 
-		statusUpdateNeeded := addConditionToStatus(&plc, -1, true, reason, msg)
+		statusUpdateNeeded := addConditionToStatus(plc, -1, true, reason, msg)
 
 		if statusUpdateNeeded {
 			eventType := eventNormal
 
-			r.Recorder.Event(&plc, eventType, fmt.Sprintf(plcFmtStr, plc.GetName()),
-				convertPolicyStatusToString(&plc))
+			r.Recorder.Event(plc, eventType, fmt.Sprintf(plcFmtStr, plc.GetName()),
+				convertPolicyStatusToString(plc))
 		}
 
 		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusUpdateNeeded, true)
 
-		return
+		return nil
 	}
 
 	for indx, objectT := range plc.Spec.ObjectTemplates {
-		// If the object does not have a namespace specified, use the previously retrieved namespaces
-		// from the NamespaceSelector. If no namespaces are found/specified, use the value from the
-		// object so that the objectTemplate is processed:
+		// If the object does not have a namespace specified, use the results from the NamespaceSelector. If no
+		// namespaces are found/specified, use the value from the object so that the objectTemplate is processed:
 		// - For clusterwide resources, an empty string will be expected
 		// - For namespaced resources, handleObjects() will return a status with a no namespace message if
 		//   it's an empty string or else it will use the namespace defined in the object
-		var relevantNamespaces []string
-		if templateObjs[indx].isNamespaced && templateObjs[indx].namespace == "" && len(selectedNamespaces) != 0 {
-			relevantNamespaces = selectedNamespaces
-		} else {
-			relevantNamespaces = []string{templateObjs[indx].namespace}
-		}
-
 		nsToResults := map[string]objectTmplEvalResult{}
-		// map raw object to a resource, generate a violation if resource cannot be found
-		mapping, mappingErrResult := r.getMapping(objectT.ObjectDefinition, &plc, indx)
+		desiredObj := unstructured.Unstructured{}
+		var decodeErrResult *objectTmplEvalResult
 
-		if mapping == nil && mappingErrResult == nil {
-			// If there was no violation generated but the mapping failed, there is nothing to do for this
-			// object-template.
-			continue
+		_, _, err := unstructured.UnstructuredJSONScheme.Decode(objectT.ObjectDefinition.Raw, nil, &desiredObj)
+		if err != nil {
+			decodeErr := fmt.Sprintf("Decoding error, please check your policy file!"+
+				" Aborting handling the object template at index [%v] in policy `%v` with error = `%v`",
+				indx, plc.Name, err)
+
+			log.Error(err, "Could not decode the objectDefinition", "index", indx)
+
+			decodeErrResult = &objectTmplEvalResult{
+				events: []objectTmplEvalEvent{
+					{compliant: false, reason: "K8s decode object definition error", message: decodeErr},
+				},
+			}
 		}
 
-		desiredObj, err := unmarshalFromJSON(objectT.ObjectDefinition.Raw)
-		if err != nil {
-			panic(err)
+		// strings.TrimSpace() is needed here because a multi-line value will have '\n' in it. This is kept for
+		// backwards compatibility.
+		desiredObj.SetName(strings.TrimSpace(desiredObj.GetName()))
+		desiredObj.SetNamespace(strings.TrimSpace(desiredObj.GetNamespace()))
+		desiredObj.SetKind(strings.TrimSpace(desiredObj.GetKind()))
+
+		var scopedGVR depclient.ScopedGVR
+		var mappingErrResult *objectTmplEvalResult
+
+		// map raw object to a resource, generate a violation if resource cannot be found
+		if decodeErrResult == nil {
+			scopedGVR, mappingErrResult = r.getMapping(desiredObj.GroupVersionKind(), plc, indx)
+		}
+
+		var relevantNamespaces []string
+		var nsSelectorErr *objectTmplEvalResult
+
+		if scopedGVR.Namespaced && desiredObj.GetNamespace() == "" {
+			if !selectedNamespacesQueried {
+				selectedNamespaces, selectedNamespacesErr = r.SelectorReconciler.Get(
+					plc.Namespace, plc.Name, plc.Spec.NamespaceSelector,
+				)
+				if selectedNamespacesErr != nil {
+					log.Error(
+						selectedNamespacesErr,
+						"Failed to select the namespaces",
+						"namespaceSelector",
+						fmt.Sprintf("%+v", selector),
+					)
+				}
+			}
+
+			if selectedNamespacesErr != nil {
+				msg := fmt.Sprintf(
+					"Error filtering namespaces with provided namespaceSelector: %v", selectedNamespacesErr,
+				)
+
+				nsSelectorErr = &objectTmplEvalResult{
+					events: []objectTmplEvalEvent{
+						{compliant: false, reason: "namespaceSelector error", message: msg},
+					},
+				}
+			}
+
+			if len(selectedNamespaces) == 0 {
+				relevantNamespaces = []string{desiredObj.GetNamespace()}
+			} else {
+				relevantNamespaces = selectedNamespaces
+			}
+		} else {
+			relevantNamespaces = []string{desiredObj.GetNamespace()}
 		}
 
 		// iterate through all namespaces the configurationpolicy is set on
@@ -1175,9 +1225,15 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 			log.V(1).Info(
 				"Handling the object template for the relevant namespace",
 				"namespace", ns,
-				"desiredName", templateObjs[indx].name,
+				"desiredName", desiredObj.GetName(),
 				"index", indx,
 			)
+
+			if decodeErrResult != nil {
+				nsToResults[ns] = *decodeErrResult
+
+				continue
+			}
 
 			if mappingErrResult != nil {
 				nsToResults[ns] = *mappingErrResult
@@ -1185,7 +1241,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 				continue
 			}
 
-			related, result := r.handleObjects(objectT, ns, templateObjs[indx], indx, &plc, mapping, desiredObj)
+			if nsSelectorErr != nil {
+				nsToResults[ns] = *nsSelectorErr
+
+				continue
+			}
+
+			related, result := r.handleObjects(objectT, ns, desiredObj, indx, plc, scopedGVR, usingWatch)
 
 			nsToResults[ns] = result
 
@@ -1225,10 +1287,10 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		}
 
 		var resourceName string
-		if mapping == nil {
-			resourceName = templateObjs[indx].kind
+		if scopedGVR.Resource == "" {
+			resourceName = desiredObj.GetKind()
 		} else {
-			resourceName = mapping.Resource.Resource
+			resourceName = scopedGVR.Resource
 		}
 
 		// If there are multiple batches, check if the last batch is noncompliant and is the current state. If so,
@@ -1255,7 +1317,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 		for i, batch := range eventBatches {
 			compliant, reason, msg := createStatus(resourceName, batch)
 
-			statusUpdateNeeded := addConditionToStatus(&plc, indx, compliant, reason, msg)
+			statusUpdateNeeded := addConditionToStatus(plc, indx, compliant, reason, msg)
 
 			if statusUpdateNeeded {
 				parentStatusUpdateNeeded = true
@@ -1271,24 +1333,26 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc policyv1.Confi
 					"policy", plc.Name,
 					"index", indx,
 				)
-				r.addForUpdate(&plc, true)
+				r.addForUpdate(plc, true)
 			}
 		}
 	}
 
 	r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded, true)
+
+	return nil
 }
 
 // checkRelatedAndUpdate checks the related objects field and triggers an update on the ConfigurationPolicy
 func (r *ConfigurationPolicyReconciler) checkRelatedAndUpdate(
-	plc policyv1.ConfigurationPolicy,
+	plc *policyv1.ConfigurationPolicy,
 	related, oldRelated []policyv1.RelatedObject,
 	sendEvent bool,
 	deleteDetachedObjs bool,
 ) {
-	r.sortRelatedObjectsAndUpdate(&plc, related, oldRelated, r.EnableMetrics, deleteDetachedObjs)
+	r.sortRelatedObjectsAndUpdate(plc, related, oldRelated, r.EnableMetrics, deleteDetachedObjs)
 	// An update always occurs to account for the lastEvaluated status field
-	r.addForUpdate(&plc, sendEvent)
+	r.addForUpdate(plc, sendEvent)
 }
 
 // helper function to check whether related objects has changed
@@ -1367,8 +1431,19 @@ func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 	}
 
 	if !gocmp.Equal(related, oldRelated) {
+		var usingWatch bool
+
+		// Determine if the watch library should be used based on the evaluation interval.
+		if plc.Status.ComplianceState == policyv1.Compliant {
+			usingWatch = plc.Spec.EvaluationInterval.IsWatchForCompliant()
+		} else {
+			// If the policy is not compliant (i.e. noncompliant or unknown), fall back to the noncompliant evaluation
+			// interval. This is a court of guilty until proven innocent.
+			usingWatch = plc.Spec.EvaluationInterval.IsWatchForNonCompliant()
+		}
+
 		if deleteDetachedObjs {
-			r.cleanUpChildObjects(*plc, related)
+			r.cleanUpChildObjects(plc, related, usingWatch)
 		}
 
 		plc.Status.RelatedObjects = related
@@ -1465,11 +1540,11 @@ func addConditionToStatus(
 func (r *ConfigurationPolicyReconciler) handleObjects(
 	objectT *policyv1.ObjectTemplate,
 	namespace string,
-	objDetails objectTemplateDetails,
+	desiredObj unstructured.Unstructured,
 	index int,
 	policy *policyv1.ConfigurationPolicy,
-	mapping *meta.RESTMapping,
-	desiredObj unstructured.Unstructured,
+	scopedGVR depclient.ScopedGVR,
+	useCache bool,
 ) (
 	relatedObjects []policyv1.RelatedObject,
 	result objectTmplEvalResult,
@@ -1486,34 +1561,36 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	objNames := []string{}
 	remediation := policy.Spec.RemediationAction
 
+	desiredObjName := desiredObj.GetName()
+	desiredObjNamespace := desiredObj.GetNamespace()
+	desiredObjKind := desiredObj.GetKind()
+
 	// If the parsed namespace doesn't match the object namespace, something in the calling function went wrong
-	if objDetails.namespace != "" && objDetails.namespace != namespace {
+	if desiredObjNamespace != "" && desiredObjNamespace != namespace {
 		panic(fmt.Sprintf("Error: provided namespace '%s' does not match object namespace '%s'",
-			namespace, objDetails.namespace))
+			namespace, desiredObjNamespace))
 	}
 
-	if objDetails.isNamespaced && namespace == "" {
-		objName := objDetails.name
-		kindWithoutNS := objDetails.kind
+	if scopedGVR.Namespaced && namespace == "" {
 		log.Info(
 			"The object template is namespaced but no namespace is specified. Cannot process.",
-			"name", objName,
-			"kind", kindWithoutNS,
+			"name", desiredObjName,
+			"kind", desiredObjKind,
 		)
 
 		var space string
-		if objName != "" {
+		if desiredObjName != "" {
 			space = " "
 		}
 
 		// namespaced but none specified, generate violation
 		msg := fmt.Sprintf("namespaced object%s%s of kind %s has no namespace specified "+
 			"from the policy namespaceSelector nor the object metadata",
-			space, objName, kindWithoutNS,
+			space, desiredObjName, desiredObjKind,
 		)
 
 		result = objectTmplEvalResult{
-			[]string{objName},
+			[]string{desiredObjName},
 			namespace,
 			[]objectTmplEvalEvent{{false, "K8s missing namespace", msg}},
 		}
@@ -1524,29 +1601,39 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	var existingObj *unstructured.Unstructured
 	var allResourceNames []string
 
-	if objDetails.name != "" { // named object, so checking just for the existence of the specific object
+	if desiredObjName != "" { // named object, so checking just for the existence of the specific object
 		// If the object couldn't be retrieved, this will be handled later on.
-		existingObj, _ = getObject(
-			objDetails.isNamespaced, namespace, objDetails.name, mapping.Resource, r.TargetK8sDynamicClient,
-		)
+		if useCache {
+			objGVK := schema.GroupVersionKind{
+				Group:   scopedGVR.Group,
+				Version: scopedGVR.Version,
+				Kind:    desiredObjKind,
+			}
+
+			existingObj, _ = r.getObjectFromCache(policy, namespace, desiredObjName, objGVK)
+		} else {
+			existingObj, _ = getObject(namespace, desiredObjName, scopedGVR, r.TargetK8sDynamicClient)
+		}
 
 		exists = existingObj != nil
 
-		objNames = append(objNames, objDetails.name)
-	} else if objDetails.kind != "" { // no name, so we are checking for the existence of any object of this kind
+		objNames = append(objNames, desiredObjName)
+	} else if desiredObjKind != "" {
+		// No name, so we are checking for the existence of any object of this kind
 		log.V(1).Info(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
-		objNames, allResourceNames = getNamesOfKind(
+		objNames, allResourceNames = r.getNamesOfKind(
+			policy,
 			desiredObj,
-			mapping.Resource,
-			objDetails.isNamespaced,
+			scopedGVR,
 			namespace,
 			r.TargetK8sDynamicClient,
 			strings.ToLower(string(objectT.ComplianceType)),
 			// Dry run API requests aren't run on unnamed object templates for performance reasons, so be less
 			// conservative in the comparison algorithm.
 			true,
+			useCache,
 		)
 
 		// we do not support enforce on unnamed templates
@@ -1562,9 +1649,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			exists = false
 		} else if len(objNames) == 1 {
 			// If the object couldn't be retrieved, this will be handled later on.
-			existingObj, _ = getObject(
-				objDetails.isNamespaced, namespace, objNames[0], mapping.Resource, r.TargetK8sDynamicClient,
-			)
+			existingObj, _ = getObject(namespace, objNames[0], scopedGVR, r.TargetK8sDynamicClient)
 
 			exists = existingObj != nil
 		}
@@ -1578,11 +1663,10 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		name := objNames[0]
 		singObj := singleObject{
 			policy:      policy,
-			gvr:         mapping.Resource,
+			scopedGVR:   scopedGVR,
 			existingObj: existingObj,
 			name:        name,
 			namespace:   namespace,
-			namespaced:  objDetails.isNamespaced,
 			shouldExist: objShouldExist,
 			index:       index,
 			desiredObj:  desiredObj,
@@ -1598,10 +1682,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			event := result.events[len(result.events)-1]
 			relatedObjects = addRelatedObjects(
 				event.compliant,
-				mapping.Resource,
-				objDetails.kind,
+				scopedGVR,
+				desiredObjKind,
 				namespace,
-				objDetails.isNamespaced,
 				result.objectNames,
 				event.reason,
 				objectProperties,
@@ -1619,7 +1702,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 				// Length of objNames = 0, complianceType == musthave or mustonlyhave
 				// Find Noncompliant resources to add to the status.relatedObjects for debugging purpose
 				shouldAddCondensedRelatedObj = true
-				if objDetails.kind != "" && objDetails.name == "" {
+				if desiredObjKind != "" && desiredObjName == "" {
 					// Change reason to Resource found but does not match
 					if len(allResourceNames) > 0 {
 						resultEvent.reason = reasonWantFoundNoMatch
@@ -1644,20 +1727,18 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		if shouldAddCondensedRelatedObj {
 			// relatedObjs name is -
 			relatedObjects = addCondensedRelatedObjs(
-				mapping.Resource,
+				scopedGVR,
 				resultEvent.compliant,
-				objDetails.kind,
+				desiredObjKind,
 				namespace,
-				objDetails.isNamespaced,
 				resultEvent.reason,
 			)
 		} else {
 			relatedObjects = addRelatedObjects(
 				resultEvent.compliant,
-				mapping.Resource,
-				objDetails.kind,
+				scopedGVR,
+				desiredObjKind,
 				namespace,
-				objDetails.isNamespaced,
 				objNames,
 				resultEvent.reason,
 				nil,
@@ -1670,11 +1751,10 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 
 type singleObject struct {
 	policy      *policyv1.ConfigurationPolicy
-	gvr         schema.GroupVersionResource
+	scopedGVR   depclient.ScopedGVR
 	existingObj *unstructured.Unstructured
 	name        string
 	namespace   string
-	namespaced  bool
 	shouldExist bool
 	index       int
 	desiredObj  unstructured.Unstructured
@@ -1859,112 +1939,40 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	return
 }
 
-// isObjectNamespaced determines if the input object is a namespaced resource. When refreshIfNecessary
-// is true, the discovery information will be refreshed if the resource cannot be found.
-func (r *ConfigurationPolicyReconciler) isObjectNamespaced(
-	object *unstructured.Unstructured, refreshIfNecessary bool,
-) bool {
-	gvk := object.GetObjectKind().GroupVersionKind()
-	gv := gvk.GroupVersion().String()
-
-	r.lock.RLock()
-
-	for _, apiResourceGroup := range r.apiResourceList {
-		if apiResourceGroup.GroupVersion == gv {
-			for _, apiResource := range apiResourceGroup.APIResources {
-				if apiResource.Kind == gvk.Kind {
-					namespaced := apiResource.Namespaced
-					log.V(2).Info("Found resource in apiResourceList", "namespaced", namespaced, "gvk", gvk.String())
-					r.lock.RUnlock()
-
-					return namespaced
-				}
-			}
-
-			// Break early in the event all the API resources in the matching group version have been exhausted
-			break
-		}
-	}
-
-	r.lock.RUnlock()
-
-	// The API resource wasn't found. Try refreshing the cache and trying again.
-	if refreshIfNecessary {
-		log.V(2).Info("Did not find the resource in apiResourceList. Will refresh and try again.", "gvk", gvk.String())
-
-		err := r.refreshDiscoveryInfo()
-		if err != nil {
-			return false
-		}
-
-		return r.isObjectNamespaced(object, false)
-	}
-
-	return false
-}
-
 // getMapping takes in a raw object, decodes it, and maps it to an existing group/kind
 func (r *ConfigurationPolicyReconciler) getMapping(
-	ext runtime.RawExtension,
+	gvk schema.GroupVersionKind,
 	policy *policyv1.ConfigurationPolicy,
 	index int,
-) (mapping *meta.RESTMapping, result *objectTmplEvalResult) {
+) (depclient.ScopedGVR, *objectTmplEvalResult) {
 	log := log.WithValues("policy", policy.GetName(), "index", index)
-
-	_, gvk, err := unstructured.UnstructuredJSONScheme.Decode(ext.Raw, nil, nil)
-	if err != nil {
-		decodeErr := fmt.Sprintf("Decoding error, please check your policy file!"+
-			" Aborting handling the object template at index [%v] in policy `%v` with error = `%v`",
-			index, policy.Name, err)
-
-		log.Error(err, "Could not decode object")
-
-		result = &objectTmplEvalResult{
-			events: []objectTmplEvalEvent{
-				{compliant: false, reason: "K8s decode object definition error", message: decodeErr},
-			},
-		}
-
-		return nil, result
-	}
 
 	if gvk.Group == "" && gvk.Version == "" {
 		err := fmt.Errorf("object template at index [%v] in policy `%v` missing apiVersion", index, policy.Name)
 
 		log.Error(err, "Can not get mapping for object")
 
-		result = &objectTmplEvalResult{
+		result := &objectTmplEvalResult{
 			events: []objectTmplEvalEvent{
 				{compliant: false, reason: "K8s object definition error", message: err.Error()},
 			},
 		}
 
-		return nil, result
+		return depclient.ScopedGVR{}, result
 	}
 
-	// initializes a mapping between Kind and APIVersion to a resource name
-	r.lock.RLock()
-	mapper := restmapper.NewDiscoveryRESTMapper(r.apiGroups)
-	r.lock.RUnlock()
-
-	mapping, err = mapper.RESTMapping(gvk.GroupKind(), gvk.Version)
+	scopedGVR, err := r.DynamicWatcher.GVKToGVR(gvk)
 	if err != nil {
-		// if the restmapper fails to find a mapping to a resource, generate a violation
-		prefix := "no matches for kind \""
-		startIdx := strings.Index(err.Error(), prefix)
-
-		if startIdx == -1 {
+		if !errors.Is(err, depclient.ErrNoVersionedResource) {
 			log.Error(err, "Could not identify mapping error from raw object", "gvk", gvk)
 
-			return nil, nil
+			return depclient.ScopedGVR{}, nil
 		}
 
-		afterPrefix := err.Error()[(startIdx + len(prefix)):len(err.Error())]
-		kind := afterPrefix[0:(strings.Index(afterPrefix, "\" "))]
-		mappingErrMsg := "couldn't find mapping resource with kind " + kind +
+		mappingErrMsg := "couldn't find mapping resource with kind " + gvk.Kind +
 			", please check if you have CRD deployed"
 
-		log.Error(err, "Could not map resource, do you have the CRD deployed?", "kind", kind)
+		log.Error(err, "Could not map resource, do you have the CRD deployed?", "kind", gvk.Kind)
 
 		parent := ""
 		if len(policy.OwnerReferences) > 0 {
@@ -1973,13 +1981,13 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 
 		policyUserErrorsCounter.WithLabelValues(parent, policy.GetName(), "no-object-CRD").Add(1)
 
-		result = &objectTmplEvalResult{
+		result := &objectTmplEvalResult{
 			events: []objectTmplEvalEvent{
-				{compliant: false, reason: "K8s creation error", message: mappingErrMsg},
+				{compliant: false, reason: "K8s error", message: mappingErrMsg},
 			},
 		}
 
-		return nil, result
+		return depclient.ScopedGVR{}, result
 	}
 
 	log.V(2).Info(
@@ -1989,7 +1997,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 		"kind", gvk.Kind,
 	)
 
-	return mapping, nil
+	return scopedGVR, nil
 }
 
 // buildNameList is a helper function to pull names of resources that match an objectTemplate from a list of resources
@@ -2027,30 +2035,39 @@ func buildNameList(
 // getNamesOfKind returns an array with names of all of the resources found
 // matching the GVK specified.
 // allResourceList includes names that are under the same namespace and kind.
-func getNamesOfKind(
+func (r *ConfigurationPolicyReconciler) getNamesOfKind(
+	plc *policyv1.ConfigurationPolicy,
 	desiredObj unstructured.Unstructured,
-	rsrc schema.GroupVersionResource,
-	namespaced bool,
+	scopedGVR depclient.ScopedGVR,
 	ns string,
 	dclient dynamic.Interface,
 	complianceType string,
 	zeroValueEqualsNil bool,
+	useCache bool,
 ) (kindNameList []string, allResourceList []string) {
 	var resList *unstructured.UnstructuredList
 	var err error
 
-	if namespaced {
-		res := dclient.Resource(rsrc).Namespace(ns)
+	if useCache {
+		var returnedItems []unstructured.Unstructured
+
+		returnedItems, err = r.DynamicWatcher.List(plc.ObjectIdentifier(), desiredObj.GroupVersionKind(), ns, nil)
+
+		resList = &unstructured.UnstructuredList{Items: returnedItems}
+	} else if scopedGVR.Namespaced {
+		res := dclient.Resource(scopedGVR.GroupVersionResource).Namespace(ns)
 
 		resList, err = res.List(context.TODO(), metav1.ListOptions{})
 	} else {
-		res := dclient.Resource(rsrc)
+		res := dclient.Resource(scopedGVR.GroupVersionResource)
 
 		resList, err = res.List(context.TODO(), metav1.ListOptions{})
 	}
 
 	if err != nil {
-		log.Error(err, "Could not list resources", "rsrc", rsrc, "namespaced", namespaced)
+		log.Error(
+			err, "Could not list resources", "rsrc", scopedGVR.Resource, "namespaced", scopedGVR.Namespaced,
+		)
 
 		return kindNameList, allResourceList
 	}
@@ -2078,10 +2095,10 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 	idStr := identifierStr([]string{obj.name}, obj.namespace)
 
 	var res dynamic.ResourceInterface
-	if obj.namespaced {
-		res = r.TargetK8sDynamicClient.Resource(obj.gvr).Namespace(obj.namespace)
+	if obj.scopedGVR.Namespaced {
+		res = r.TargetK8sDynamicClient.Resource(obj.scopedGVR.GroupVersionResource).Namespace(obj.namespace)
 	} else {
-		res = r.TargetK8sDynamicClient.Resource(obj.gvr)
+		res = r.TargetK8sDynamicClient.Resource(obj.scopedGVR.GroupVersionResource)
 	}
 
 	var completed bool
@@ -2094,11 +2111,15 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 
 		if createdObj, err = r.createObject(res, obj.desiredObj); createdObj == nil {
 			reason = "K8s creation error"
-			msg = fmt.Sprintf("%v %v is missing, and cannot be created, reason: `%v`", obj.gvr.Resource, idStr, err)
+			msg = fmt.Sprintf(
+				"%v %v is missing, and cannot be created, reason: `%v`", obj.scopedGVR.Resource, idStr, err,
+			)
 		} else {
-			log.V(2).Info("Created missing must have object", "resource", obj.gvr.Resource, "name", obj.name)
+			log.V(2).Info(
+				"Created missing must have object", "resource", obj.scopedGVR.Resource, "name", obj.name,
+			)
 			reason = reasonWantFoundCreated
-			msg = fmt.Sprintf("%v %v was created successfully", obj.gvr.Resource, idStr)
+			msg = fmt.Sprintf("%v %v was created successfully", obj.scopedGVR.Resource, idStr)
 
 			uid = string(createdObj.GetUID())
 			completed = true
@@ -2108,10 +2129,12 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 
 		if completed, err = deleteObject(res, obj.name, obj.namespace); !completed {
 			reason = "K8s deletion error"
-			msg = fmt.Sprintf("%v %v exists, and cannot be deleted, reason: `%v`", obj.gvr.Resource, idStr, err)
+			msg = fmt.Sprintf(
+				"%v %v exists, and cannot be deleted, reason: `%v`", obj.scopedGVR.Resource, idStr, err,
+			)
 		} else {
 			reason = reasonDeleteSuccess
-			msg = fmt.Sprintf("%v %v was deleted successfully", obj.gvr.Resource, idStr)
+			msg = fmt.Sprintf("%v %v was deleted successfully", obj.scopedGVR.Resource, idStr)
 			obj.existingObj = nil
 		}
 	}
@@ -2139,20 +2162,19 @@ func checkMessageSimilarity(conditions []policyv1.Condition, cond *policyv1.Cond
 
 // getObject gets the object with the dynamic client and returns the object if found.
 func getObject(
-	namespaced bool,
 	namespace string,
 	name string,
-	rsrc schema.GroupVersionResource,
+	scopedGVR depclient.ScopedGVR,
 	dclient dynamic.Interface,
 ) (object *unstructured.Unstructured, err error) {
-	objLog := log.WithValues("name", name, "namespaced", namespaced, "namespace", namespace)
+	objLog := log.WithValues("name", name, "namespaced", scopedGVR.Namespaced, "namespace", namespace)
 	objLog.V(2).Info("Checking if the object exists")
 
 	var res dynamic.ResourceInterface
-	if namespaced {
-		res = dclient.Resource(rsrc).Namespace(namespace)
+	if scopedGVR.Namespaced {
+		res = dclient.Resource(scopedGVR.GroupVersionResource).Namespace(namespace)
 	} else {
-		res = dclient.Resource(rsrc)
+		res = dclient.Resource(scopedGVR.GroupVersionResource)
 	}
 
 	object, err = res.Get(context.TODO(), name, metav1.GetOptions{})
@@ -2173,6 +2195,36 @@ func getObject(
 	return object, nil
 }
 
+// getObjectFromCache gets the object with the caching dependency watcher client and returns the object if found.
+func (r *ConfigurationPolicyReconciler) getObjectFromCache(
+	plc *policyv1.ConfigurationPolicy,
+	objNamespace string,
+	objName string,
+	objGVK schema.GroupVersionKind,
+) (*unstructured.Unstructured, error) {
+	objLog := log.WithValues("name", objName, "namespace", objNamespace)
+	objLog.V(2).Info("Checking if the object exists")
+
+	watcher := plc.ObjectIdentifier()
+
+	rv, err := r.DynamicWatcher.Get(watcher, objGVK, objNamespace, objName)
+	if err != nil {
+		objLog.V(2).Error(err, "Could not retrieve object from the API server")
+
+		return nil, err
+	}
+
+	if rv == nil {
+		objLog.V(2).Info("Got 'Not Found' response for object from the API server")
+
+		return nil, nil
+	}
+
+	objLog.V(2).Info("Retrieved object from the watch cache")
+
+	return rv, nil
+}
+
 func (r *ConfigurationPolicyReconciler) createObject(
 	res dynamic.ResourceInterface, unstruct unstructured.Unstructured,
 ) (object *unstructured.Unstructured, err error) {
@@ -2181,7 +2233,7 @@ func (r *ConfigurationPolicyReconciler) createObject(
 
 	// FieldValidation is supported in k8s 1.25 as beta release
 	// so if the version is below 1.25, we need to use client side validation to validate the object
-	if semver.Compare(r.serverVersion, "v1.25.0") < 0 {
+	if semver.Compare(r.ServerVersion, "v1.25.0") < 0 {
 		if err := r.validateObject(&unstruct); err != nil {
 			return nil, err
 		}
@@ -2533,6 +2585,21 @@ func handleSingleKey(
 func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unstructured) error {
 	// Parse() handles caching of the OpenAPI data.
 	r.lock.RLock()
+
+	// Reset the OpenAPI cache every 10 minutes in case the CRDs were updated since the last fetch.
+	if r.openAPIParser == nil || time.Now().UTC().Sub(r.openAPIParserLastRefreshed) >= 10*time.Minute {
+		r.lock.RUnlock()
+		r.lock.Lock()
+		// Repeat the check after the write lock is obtained in case another goroutine updated it
+		if r.openAPIParser == nil || time.Now().UTC().Sub(r.openAPIParserLastRefreshed) >= 10*time.Minute {
+			r.openAPIParser = openapi.NewOpenAPIParser(r.TargetK8sClient.Discovery())
+			r.openAPIParserLastRefreshed = time.Now().UTC()
+		}
+
+		r.lock.Unlock()
+		r.lock.RLock()
+	}
+
 	openAPIResources, err := r.openAPIParser.Parse()
 	r.lock.RUnlock()
 
@@ -2600,7 +2667,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	mdComplianceType := strings.ToLower(string(objectT.MetadataComplianceType))
 
 	log := log.WithValues(
-		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.gvr.Resource,
+		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.scopedGVR.Resource,
 	)
 
 	// Time the function, and record it in a metric
@@ -2611,12 +2678,12 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		compareObjSecondsCounter.WithLabelValues(
 			obj.policy.Name,
 			obj.namespace,
-			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
+			fmt.Sprintf("%s.%s", obj.scopedGVR.Resource, obj.name),
 		).Add(seconds)
 		compareObjEvalCounter.WithLabelValues(
 			obj.policy.Name,
 			obj.namespace,
-			fmt.Sprintf("%s.%s", obj.gvr.Resource, obj.name),
+			fmt.Sprintf("%s.%s", obj.scopedGVR.Resource, obj.name),
 		).Inc()
 	}()
 
@@ -2627,10 +2694,10 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	}
 
 	var res dynamic.ResourceInterface
-	if obj.namespaced {
-		res = r.TargetK8sDynamicClient.Resource(obj.gvr).Namespace(obj.namespace)
+	if obj.scopedGVR.Namespaced {
+		res = r.TargetK8sDynamicClient.Resource(obj.scopedGVR.GroupVersionResource).Namespace(obj.namespace)
 	} else {
-		res = r.TargetK8sDynamicClient.Resource(obj.gvr)
+		res = r.TargetK8sDynamicClient.Resource(obj.scopedGVR.GroupVersionResource)
 	}
 
 	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
@@ -2654,7 +2721,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		// FieldValidation is supported in k8s 1.25 as beta release
 		// so if the version is below 1.25, we need to use client side validation to validate the object
-		if semver.Compare(r.serverVersion, "v1.25.0") < 0 {
+		if semver.Compare(r.ServerVersion, "v1.25.0") < 0 {
 			if err := r.validateObject(obj.existingObj); err != nil {
 				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
 
@@ -2862,11 +2929,11 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 func getMsgPrefix(obj *singleObject) string {
 	var namespaceMsg string
 
-	if obj.namespaced {
+	if obj.scopedGVR.Namespaced {
 		namespaceMsg = fmt.Sprintf(" in namespace %s", obj.namespace)
 	}
 
-	return fmt.Sprintf(`%s [%s]%s`, obj.gvr.Resource, obj.name, namespaceMsg)
+	return fmt.Sprintf(`%s [%s]%s`, obj.scopedGVR.Resource, obj.name, namespaceMsg)
 }
 
 // handleDiff will generate the diff and then log it or return it based on the input recordDiff value. If recordDiff
@@ -3150,7 +3217,7 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 	if k8serrors.IsConflict(err) {
 		policyLog.Error(err, "Tried to re-update status before previous update could be applied, retrying next loop")
 	} else if err != nil {
-		policyLog.Error(err, "Could not update status, retrying next loop")
+		policyLog.Error(err, "Could not update status, will retry")
 
 		parent := ""
 		if len(policy.OwnerReferences) > 0 {
@@ -3158,6 +3225,8 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		}
 
 		policySystemErrorsCounter.WithLabelValues(parent, policy.GetName(), "status-update-failed").Add(1)
+	} else {
+		r.lastEvaluatedCache.Store(policy.UID, policy.Status.LastEvaluated)
 	}
 }
 
@@ -3378,30 +3447,6 @@ func IsBeingUninstalled(client client.Client) (bool, error) {
 	}
 
 	return deployment.Annotations[common.UninstallingAnnotation] == "true", nil
-}
-
-// removeLegacyDeploymentFinalizer removes the policy.open-cluster-management.io/delete-related-objects on the
-// Deployment object. This finalizer is no longer needed on the Deployment object, so it is removed.
-func (r *ConfigurationPolicyReconciler) removeLegacyDeploymentFinalizer() error {
-	deployment, err := getDeployment(r.Client)
-	if deployment == nil || err != nil {
-		return err
-	}
-
-	for i, finalizer := range deployment.Finalizers {
-		if finalizer == pruneObjectFinalizer {
-			newFinalizers := append(deployment.Finalizers[:i], deployment.Finalizers[i+1:]...)
-			deployment.SetFinalizers(newFinalizers)
-
-			log.Info("Removing the legacy finalizer on the controller Deployment")
-
-			err := r.Client.Update(context.TODO(), deployment)
-
-			return err
-		}
-	}
-
-	return nil
 }
 
 func recoverFlow() {

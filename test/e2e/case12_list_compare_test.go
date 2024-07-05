@@ -6,6 +6,8 @@ package e2e
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -343,13 +345,20 @@ var _ = Describe("Test list handling for musthave", func() {
 			Expect(envvars).To(HaveLen(1))
 		})
 
-		AfterAll(func() {
+		AfterAll(func(ctx SpecContext) {
 			policies := []string{
 				whitespaceListCreate,
 				whitespaceListInform,
 			}
 
 			deleteConfigPolicies(policies)
+
+			err := clientManaged.AppsV1().Deployments("default").Delete(
+				ctx, whitespaceDeployment, metav1.DeleteOptions{},
+			)
+			if !k8serrors.IsNotFound(err) {
+				Expect(err).ToNot(HaveOccurred())
+			}
 		})
 	})
 	Describe("Create a statefulset object with a byte quantity field "+

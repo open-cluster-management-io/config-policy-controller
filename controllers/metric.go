@@ -12,13 +12,6 @@ import (
 )
 
 var (
-	evalLoopHistogram = prometheus.NewHistogram(
-		prometheus.HistogramOpts{
-			Name:    "config_policies_evaluation_duration_seconds",
-			Help:    "The seconds that it takes to evaluate all configuration policies on the cluster",
-			Buckets: []float64{1, 3, 9, 10.5, 15, 30, 60, 90, 120, 180, 300, 450, 600},
-		},
-	)
 	policyEvalSecondsCounter = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "config_policy_evaluation_seconds_total",
@@ -107,7 +100,6 @@ var (
 
 func init() {
 	// Register custom metrics with the global Prometheus registry
-	metrics.Registry.MustRegister(evalLoopHistogram)
 	metrics.Registry.MustRegister(policyEvalSecondsCounter)
 	metrics.Registry.MustRegister(policyEvalCounter)
 	metrics.Registry.MustRegister(plcTempsProcessSecondsCounter)

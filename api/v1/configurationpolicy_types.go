@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -84,29 +85,33 @@ func (t Target) String() string {
 }
 
 // EvaluationInterval configures the minimum elapsed time before a configuration policy is
-// reevaluated. If the policy spec is changed, or if the list of namespaces selected by the policy
-// changes, the policy might be evaluated regardless of the settings here.
+// reevaluated. The default value is `watch` to leverage Kubernetes API watches instead of polling the Kubernetes API
+// server. If the policy spec is changed or if the list of namespaces selected by the policy changes, the policy might
+// be evaluated regardless of the settings here.
 type EvaluationInterval struct {
 	// Compliant is the minimum elapsed time before a configuration policy is reevaluated when in the
-	// compliant state. Set this to `never` to disable reevaluation when in the compliant state.
+	// compliant state. Set this to `never` to disable reevaluation when in the compliant state. The default value is
+	// `watch`.
 	//
-	//+kubebuilder:validation:Pattern=`^(?:(?:(?:[0-9]+(?:.[0-9])?)(?:h|m|s|(?:ms)|(?:us)|(?:ns)))|never)+$`
+	//+kubebuilder:validation:Pattern=`^(?:(?:(?:[0-9]+(?:.[0-9])?)(?:h|m|s|(?:ms)|(?:us)|(?:ns)))|never|watch)+$`
 	Compliant string `json:"compliant,omitempty"`
-	// NonCompliant is the minimum elapsed time before a configuration policy is reevaluated when in
-	// the noncompliant state. Set this to `never` to disable reevaluation when in the noncompliant
-	// state.
+	// NonCompliant is the minimum elapsed time before a configuration policy is reevaluated when in the noncompliant
+	// state. Set this to `never` to disable reevaluation when in the noncompliant state. The default value is `watch`.
 	//
-	//+kubebuilder:validation:Pattern=`^(?:(?:(?:[0-9]+(?:.[0-9])?)(?:h|m|s|(?:ms)|(?:us)|(?:ns)))|never)+$`
+	//+kubebuilder:validation:Pattern=`^(?:(?:(?:[0-9]+(?:.[0-9])?)(?:h|m|s|(?:ms)|(?:us)|(?:ns)))|never|watch)+$`
 	NonCompliant string `json:"noncompliant,omitempty"`
 }
 
-var ErrIsNever = errors.New("the interval is set to never")
+var (
+	ErrIsNever = errors.New("the interval is set to never")
+	ErrIsWatch = errors.New("the interval is set to watch")
+)
 
-// parseInterval converts the input string to a duration. The default value is "0s". ErrIsNever is
-// returned when the string is set to `never`.
+// parseInterval converts the input string to a duration. ErrIsNever is returned when the string is set to `never`.
+// ErrIsWatch is returned when the string is unset or set to `watch`.
 func (e EvaluationInterval) parseInterval(interval string) (time.Duration, error) {
-	if interval == "" {
-		return 0, nil
+	if interval == "" || interval == "watch" {
+		return 0, ErrIsWatch
 	}
 
 	if interval == "never" {
@@ -119,6 +124,14 @@ func (e EvaluationInterval) parseInterval(interval string) (time.Duration, error
 	}
 
 	return parsedInterval, nil
+}
+
+func (e EvaluationInterval) IsWatchForCompliant() bool {
+	return e.Compliant == "" || e.Compliant == "watch"
+}
+
+func (e EvaluationInterval) IsWatchForNonCompliant() bool {
+	return e.NonCompliant == "" || e.NonCompliant == "watch"
 }
 
 // GetCompliantInterval converts the Compliant interval to a duration. ErrIsNever is returned when
@@ -422,6 +435,16 @@ type ConfigurationPolicyStatus struct {
 	// RelatedObjects is a list of objects processed by the configuration policy due to its
 	// `object-templates`.
 	RelatedObjects []RelatedObject `json:"relatedObjects,omitempty"`
+}
+
+func (c ConfigurationPolicy) ObjectIdentifier() depclient.ObjectIdentifier {
+	return depclient.ObjectIdentifier{
+		Group:     GroupVersion.Group,
+		Version:   GroupVersion.Version,
+		Kind:      "ConfigurationPolicy",
+		Namespace: c.Namespace,
+		Name:      c.Name,
+	}
 }
 
 // ConfigurationPolicy is the schema for the configurationpolicies API. A configuration policy

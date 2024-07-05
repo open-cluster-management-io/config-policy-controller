@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -48,12 +49,34 @@ var _ = Describe("Generate the diff", Ordered, func() {
 	It("configmap and status should be updated properly on the managed cluster", func() {
 		By("Updating " + configPolicyName + " on managed")
 		utils.Kubectl("apply", "-f", updateYaml, "-n", testNamespace)
-		Eventually(func() interface{} {
-			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-				configPolicyName, testNamespace, true, defaultTimeoutSeconds)
 
-			return utils.GetStatusMessage(managedPlc)
-		}, 30, 0.5).Should(Equal("configmaps [case39-map] was updated successfully in namespace default"))
+		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			configPolicyName, testNamespace, true, defaultTimeoutSeconds)
+
+		// Must check the event instead of the compliance message on the policy since the status updates so quickly
+		// to say the object was found as specified.
+		Eventually(func(g Gomega) {
+			events := utils.GetMatchingEvents(clientManaged, testNamespace,
+				configPolicyName,
+				"Policy updated",
+				regexp.QuoteMeta(
+					`Policy status is Compliant: configmaps [case39-map] was updated successfully in namespace default`,
+				),
+				defaultTimeoutSeconds,
+			)
+
+			var foundEvent bool
+
+			for _, event := range events {
+				if event.InvolvedObject.UID == managedPlc.GetUID() {
+					foundEvent = true
+
+					break
+				}
+			}
+
+			g.Expect(foundEvent).To(BeTrue(), "Did not find a compliance event indicating the ConfigMap was updated")
+		}, 30, 1).Should(Succeed())
 	})
 
 	It("diff should be logged by the controller", func() {

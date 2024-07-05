@@ -8,6 +8,9 @@ metadata:
       name: parent-policy-c17-create-ns
       uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
 spec:
+  evaluationInterval:
+    compliant: 10s
+    noncompliant: 10s
   remediationAction: inform
   object-templates:
     - complianceType: musthave
