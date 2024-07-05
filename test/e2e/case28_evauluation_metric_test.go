@@ -18,18 +18,6 @@ var _ = Describe("Test config policy evaluation metrics", Ordered, func() {
 		policyYaml = "../resources/case28_evaluation_metric/case28_policy.yaml"
 	)
 
-	prePolicyEvalDuration := -1
-
-	It("should record number of evaluations under 30 seconds for comparison", func() {
-		evalMetric := utils.GetMetrics(
-			"config_policies_evaluation_duration_seconds_bucket", fmt.Sprintf(`le=\"%d\"`, 30))
-		Expect(evalMetric).ToNot(BeEmpty())
-		numEvals, err := strconv.Atoi(evalMetric[0])
-		Expect(err).ToNot(HaveOccurred())
-		prePolicyEvalDuration = numEvals
-		Expect(prePolicyEvalDuration).To(BeNumerically(">", -1))
-	})
-
 	It("should create policy", func() {
 		By("Creating " + policyYaml)
 		utils.Kubectl("apply",
@@ -40,23 +28,6 @@ var _ = Describe("Test config policy evaluation metrics", Ordered, func() {
 			clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 		)
 		Expect(plc).NotTo(BeNil())
-	})
-
-	It("should update evaluation duration after the configurationpolicy is created", func() {
-		By("Checking metric bucket for evaluation duration (30 seconds or less)")
-		Eventually(func() interface{} {
-			metric := utils.GetMetrics(
-				"config_policies_evaluation_duration_seconds_bucket", fmt.Sprintf(`le=\"%d\"`, 30))
-			if len(metric) == 0 {
-				return false
-			}
-			numEvals, err := strconv.Atoi(metric[0])
-			if err != nil {
-				return false
-			}
-
-			return numEvals > prePolicyEvalDuration
-		}, defaultTimeoutSeconds, 1).Should(Equal(true))
 	})
 
 	It("should correctly report total evaluations for the configurationpolicy", func() {

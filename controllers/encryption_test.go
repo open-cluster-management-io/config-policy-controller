@@ -99,7 +99,7 @@ func TestGetEncryptionConfig(t *testing.T) {
 
 	policy := getEmptyPolicy()
 
-	config, usedCache, err := r.getEncryptionConfig(policy, false)
+	config, usedCache, err := r.getEncryptionConfig(&policy, false)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(usedCache).To(BeFalse())
 	Expect(config).ToNot(BeNil())
@@ -129,7 +129,7 @@ func TestGetEncryptionConfigCached(t *testing.T) {
 	r.cachedEncryptionKey = &cachedEncryptionKey{key: key}
 	policy := getEmptyPolicy()
 
-	config, usedCache, err := r.getEncryptionConfig(policy, false)
+	config, usedCache, err := r.getEncryptionConfig(&policy, false)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(usedCache).To(BeTrue())
 	Expect(config).ToNot(BeNil())
@@ -151,7 +151,7 @@ func TestGetEncryptionConfigInvalidIV(t *testing.T) {
 		},
 	}
 
-	_, _, err := r.getEncryptionConfig(policy, false)
+	_, _, err := r.getEncryptionConfig(&policy, false)
 	Expect(err.Error()).To(
 		Equal(
 			"the policy annotation of \"policy.open-cluster-management.io/encryption-iv\" is not Base64: illegal " +
@@ -169,7 +169,7 @@ func TestGetEncryptionConfigNoSecret(t *testing.T) {
 
 	policy := getEmptyPolicy()
 
-	_, _, err := r.getEncryptionConfig(policy, false)
+	_, _, err := r.getEncryptionConfig(&policy, false)
 	Expect(err.Error()).To(
 		Equal(
 			`failed to get the encryption key from Secret local-cluster/policy-encryption-key: secrets ` +
@@ -188,7 +188,7 @@ func TestGetEncryptionConfigForceRefresh(t *testing.T) {
 
 	policy := getEmptyPolicy()
 
-	config, usedCache, err := r.getEncryptionConfig(policy, true)
+	config, usedCache, err := r.getEncryptionConfig(&policy, true)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(usedCache).To(BeFalse())
 	Expect(config).ToNot(BeNil())
@@ -224,7 +224,7 @@ func TestUsesEncryption(t *testing.T) {
 	RegisterFailHandler(Fail)
 
 	policy := getEmptyPolicy()
-	rv := usesEncryption(policy)
+	rv := usesEncryption(&policy)
 	Expect(rv).To(BeTrue())
 }
 
@@ -238,6 +238,6 @@ func TestUsesEncryptionNoIV(t *testing.T) {
 			Namespace: "local-cluster",
 		},
 	}
-	rv := usesEncryption(policy)
+	rv := usesEncryption(&policy)
 	Expect(rv).To(BeFalse())
 }

@@ -12,10 +12,10 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/pmezard/go-difflib/difflib"
+	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	apiRes "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/json"
 	"sigs.k8s.io/yaml"
 
@@ -27,10 +27,9 @@ import (
 // policy's Status information.
 func addRelatedObjects(
 	compliant bool,
-	rsrc schema.GroupVersionResource,
+	scopedGVR depclient.ScopedGVR,
 	kind string,
 	namespace string,
-	namespaced bool,
 	objNames []string,
 	reason string,
 	creationInfo *policyv1.ObjectProperties,
@@ -52,13 +51,13 @@ func addRelatedObjects(
 		metadata := policyv1.ObjectMetadata{}
 		metadata.Name = name
 
-		if namespaced {
+		if scopedGVR.Namespaced {
 			metadata.Namespace = namespace
 		} else {
 			metadata.Namespace = ""
 		}
 
-		relatedObject.Object.APIVersion = rsrc.GroupVersion().String()
+		relatedObject.Object.APIVersion = scopedGVR.GroupVersion().String()
 		relatedObject.Object.Kind = kind
 		relatedObject.Object.Metadata = metadata
 		relatedObjects = updateRelatedObjectsStatus(relatedObjects, relatedObject)
@@ -70,16 +69,15 @@ func addRelatedObjects(
 // addCondensedRelatedObjs does not include all of relatedObjs.
 // The Name field is "-". The list of objects will be presented on the console.
 func addCondensedRelatedObjs(
-	rsrc schema.GroupVersionResource,
+	scopedGVR depclient.ScopedGVR,
 	compliant bool,
 	kind string,
 	namespace string,
-	namespaced bool,
 	reason string,
 ) (relatedObjects []policyv1.RelatedObject) {
 	metadata := policyv1.ObjectMetadata{Name: "-"}
 
-	if namespaced {
+	if scopedGVR.Namespaced {
 		metadata.Namespace = namespace
 	} else {
 		metadata.Namespace = ""
@@ -89,7 +87,7 @@ func addCondensedRelatedObjs(
 	relatedObject := policyv1.RelatedObject{
 		Reason: reason,
 		Object: policyv1.ObjectResource{
-			APIVersion: rsrc.GroupVersion().String(),
+			APIVersion: scopedGVR.GroupVersion().String(),
 			Kind:       kind,
 			Metadata:   metadata,
 		},

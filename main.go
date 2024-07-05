@@ -29,6 +29,7 @@ import (
 	"k8s.io/apimachinery/pkg/fields"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	k8sversion "k8s.io/apimachinery/pkg/version"
 	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
@@ -43,9 +44,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
@@ -87,7 +90,7 @@ type ctrlOpts struct {
 	operatorPolDefaultNS  string
 	clientQPS             float32
 	clientBurst           uint
-	frequency             uint
+	evalBackoffSeconds    uint
 	decryptionConcurrency uint8
 	evaluationConcurrency uint8
 	enableLease           bool
@@ -240,6 +243,9 @@ func main() {
 		log.Info("Skipping restrictions on the ConfigurationPolicy cache because watchNamespace is empty")
 	}
 
+	// No need to resync every 10 hours.
+	disableResync := time.Duration(0)
+
 	// Set default manager options
 	options := manager.Options{
 		Metrics: server.Options{
@@ -255,7 +261,8 @@ func main() {
 		LeaderElection:         opts.enableLeaderElection,
 		LeaderElectionID:       "config-policy-controller.open-cluster-management.io",
 		Cache: cache.Options{
-			ByObject: cacheByObject,
+			ByObject:   cacheByObject,
+			SyncPeriod: &disableResync,
 		},
 		// Disable the cache for Secrets to avoid a watch getting created when the `policy-encryption-key`
 		// Secret is retrieved. Special cache handling is done by the controller.
@@ -387,12 +394,26 @@ func main() {
 	instanceName, _ := os.Hostname() // on an error, instanceName will be empty, which is ok
 
 	var nsSelReconciler common.NamespaceSelectorReconciler
+	var nsSelUpdatesSource *source.Channel
+	var objectTemplatesChannel *source.Channel
+	var dynamicWatcher depclient.DynamicWatcher
 	var dryRunSupported bool
+	var serverVersion *k8sversion.Info
 
+	managerCtx, managerCancel := context.WithCancel(terminatingCtx)
+
+	// Don't initialize any clients that use the target clusters when being uninstalled. This is to guard against
+	// the hosted cluster being gone during uninstalls when running in hosted mode.
 	if !beingUninstalled {
-		nsSelReconciler = common.NamespaceSelectorReconciler{
-			Client: nsSelMgr.GetClient(),
+		// Set the buffers to 20 to not take up too much memory. If the buffers get filled, that's okay because the
+		// recipient is really just parsing the event and adding it to a queue, so it should get capacity quickly.
+		nsSelUpdatesChan := make(chan event.GenericEvent, 20)
+		nsSelUpdatesSource = &source.Channel{
+			Source:         nsSelUpdatesChan,
+			DestBufferSize: 20,
 		}
+
+		nsSelReconciler = common.NewNamespaceSelectorReconciler(nsSelMgr.GetClient(), nsSelUpdatesChan)
 		if err = nsSelReconciler.SetupWithManager(nsSelMgr); err != nil {
 			log.Error(err, "Unable to create controller", "controller", "NamespaceSelector")
 			os.Exit(1)
@@ -400,9 +421,11 @@ func main() {
 
 		discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(targetK8sConfig)
 
-		serverVersion, err := discoveryClient.ServerVersion()
-		if err != nil {
-			log.Error(err, "unable to detect the managed cluster's Kubernetes version")
+		var serverVersionErr error
+
+		serverVersion, serverVersionErr = discoveryClient.ServerVersion()
+		if serverVersionErr != nil {
+			log.Error(serverVersionErr, "unable to detect the managed cluster's Kubernetes version")
 			os.Exit(1)
 		}
 
@@ -415,13 +438,34 @@ func main() {
 					"to not being set.",
 			)
 		}
+
+		var watcherReconciler *depclient.ControllerRuntimeSourceReconciler
+
+		watcherReconciler, objectTemplatesChannel = depclient.NewControllerRuntimeSource()
+
+		dynamicWatcher, err = depclient.New(
+			targetK8sConfig,
+			watcherReconciler,
+			&depclient.Options{DisableInitialReconcile: true, EnableCache: true},
+		)
+		if err != nil {
+			log.Error(err, "Unable to setup the dynamic watcher", "controller", "ConfigurationPolicy")
+			os.Exit(1)
+		}
+
+		go func() {
+			err := dynamicWatcher.Start(terminatingCtx)
+			if err != nil {
+				panic(err)
+			}
+		}()
 	}
 
 	reconciler := controllers.ConfigurationPolicyReconciler{
 		Client:                 mgr.GetClient(),
 		DecryptionConcurrency:  opts.decryptionConcurrency,
 		DryRunSupported:        dryRunSupported,
-		EvaluationConcurrency:  opts.evaluationConcurrency,
+		DynamicWatcher:         dynamicWatcher,
 		Scheme:                 mgr.GetScheme(),
 		Recorder:               mgr.GetEventRecorderFor(controllers.ControllerName),
 		InstanceName:           instanceName,
@@ -431,11 +475,13 @@ func main() {
 		SelectorReconciler:     &nsSelReconciler,
 		EnableMetrics:          opts.enableMetrics,
 		UninstallMode:          beingUninstalled,
+		ServerVersion:          serverVersion.String(),
+		EvalBackoffSeconds:     opts.evalBackoffSeconds,
 	}
 
-	managerCtx, managerCancel := context.WithCancel(context.Background())
-
-	if err = reconciler.SetupWithManager(mgr); err != nil {
+	if err = reconciler.SetupWithManager(
+		mgr, opts.evaluationConcurrency, objectTemplatesChannel, nsSelUpdatesSource,
+	); err != nil {
 		log.Error(err, "Unable to create controller", "controller", "ConfigurationPolicy")
 		os.Exit(1)
 	}
@@ -490,14 +536,6 @@ func main() {
 		log.Error(err, "Unable to set up ready check")
 		os.Exit(1)
 	}
-
-	// PeriodicallyExecConfigPolicies is the go-routine that periodically checks the policies
-	log.Info("Periodically processing Configuration Policies", "frequency", opts.frequency)
-
-	go func() {
-		reconciler.PeriodicallyExecConfigPolicies(terminatingCtx, opts.frequency, mgr.Elected(), uninstallingCtxCancel)
-		managerCancel()
-	}()
 
 	// This lease is not related to leader election. This is to report the status of the controller
 	// to the addon framework. This can be seen in the "status" section of the ManagedClusterAddOn
@@ -635,10 +673,11 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 	opts := &ctrlOpts{}
 
 	flags.UintVar(
-		&opts.frequency,
-		"update-frequency",
+		&opts.evalBackoffSeconds,
+		"evaluation-backoff",
 		10,
-		"The status update frequency (in seconds) of a mutation policy",
+		"The number of seconds before a policy is eligible for reevaluation in watch mode (throttles frequently "+
+			"evaluated policies)",
 	)
 
 	flags.BoolVar(

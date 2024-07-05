@@ -56,7 +56,7 @@ func (r *ConfigurationPolicyReconciler) getEncryptionKey(namespace string) (*cac
 // The returned bool determines if the cache was used. This value can be helpful to know if the cache should be
 // refreshed if the decryption failed. The forceRefresh argument will skip the cache and update it with what the
 // API returns.
-func (r *ConfigurationPolicyReconciler) getEncryptionConfig(policy policyv1.ConfigurationPolicy, forceRefresh bool) (
+func (r *ConfigurationPolicyReconciler) getEncryptionConfig(policy *policyv1.ConfigurationPolicy, forceRefresh bool) (
 	templates.EncryptionConfig, bool, error,
 ) {
 	log := log.WithValues("policy", policy.GetName())
@@ -107,6 +107,6 @@ func (r *ConfigurationPolicyReconciler) getEncryptionConfig(policy policyv1.Conf
 
 // usesEncryption detects if the initialization vector is set on the policy. If it is, then there
 // are encrypted strings that need to be decrypted.
-func usesEncryption(policy policyv1.ConfigurationPolicy) bool {
+func usesEncryption(policy *policyv1.ConfigurationPolicy) bool {
 	return policy.GetAnnotations()[IVAnnotation] != ""
 }

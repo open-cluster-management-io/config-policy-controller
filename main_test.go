@@ -21,6 +21,8 @@ func TestRunMain(t *testing.T) {
 		"--leader-elect=false",
 		fmt.Sprintf("--target-kubeconfig-path=%s", os.Getenv("TARGET_KUBECONFIG_PATH")),
 		"--log-level=1",
+		// Speed up the tests by not throttling the policy evaluations
+		"--evaluation-backoff=1",
 		"--enable-operator-policy=true",
 	)
 

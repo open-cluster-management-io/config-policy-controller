@@ -19,6 +19,9 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 	)
 	Describe("Test a musthave", Ordered, func() {
 		BeforeAll(func() {
+			By("Apply bad ingresses")
+			utils.Kubectl("apply", "-f", case37BadIngressPath)
+
 			By("Creating a policy on managed")
 			utils.Kubectl("apply", "-f", case37PolicyNSPath, "-n", testNamespace)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -26,9 +29,6 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 			Expect(plc).ShouldNot(BeNil())
 		})
 		It("should have 1 NonCompliant relatedObject under the policy's status", func() {
-			By("Apply bad ingresses")
-			utils.Kubectl("apply", "-f", case37BadIngressPath)
-
 			var managedPlc *unstructured.Unstructured
 
 			Eventually(func() interface{} {
@@ -277,14 +277,14 @@ var _ = Describe("Test a cluster-scope policy that is missing name ", Ordered, f
 
 	Describe("Test a musthave", func() {
 		BeforeEach(func() {
+			By("Creating an IngressClass")
+			utils.Kubectl("apply", "-f", case37BadIngressClassPath)
+
 			By("Creating a policy on managed")
 			utils.Kubectl("apply", "-f", case37PolicyCSPath, "-n", testNamespace)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case37PolicyCSName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).ShouldNot(BeNil())
-
-			By("Creating a IngressClass")
-			utils.Kubectl("apply", "-f", case37BadIngressClassPath)
 		})
 		It("should have 1 NonCompliant relatedObject under the policy's status", func() {
 			var managedPlc *unstructured.Unstructured
@@ -336,14 +336,14 @@ var _ = Describe("Test a cluster-scope policy that is missing name ", Ordered, f
 	})
 	Describe("Test a mustnothave", func() {
 		BeforeEach(func() {
+			By("Creating a IngressClass that is not related to the policy")
+			utils.Kubectl("apply", "-f", case37BadIngressClassPath)
+
 			By("Creating a policy on managed")
 			utils.Kubectl("apply", "-f", case37PolicyCSMustnothavePath, "-n", testNamespace)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case37PolicyCSMustnothaveName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).ShouldNot(BeNil())
-
-			By("Creating a IngressClass that is not related to the policy")
-			utils.Kubectl("apply", "-f", case37BadIngressClassPath)
 		})
 		It("should have 1 Compliant relatedObject under the policy's status", func() {
 			var managedPlc *unstructured.Unstructured

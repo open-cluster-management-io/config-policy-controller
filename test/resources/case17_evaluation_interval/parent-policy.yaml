@@ -14,6 +14,7 @@ spec:
         spec:
           evaluationInterval:
             compliant: never
+            noncompliant: 10s
           remediationAction: enforce
           object-templates:
             - complianceType: musthave

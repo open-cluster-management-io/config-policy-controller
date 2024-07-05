@@ -8,16 +8,19 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -119,23 +122,32 @@ func GetAllNamespaces(client kubernetes.Interface, labelSelector metav1.LabelSel
 // SelectorReconciler keeps a cache of NamespaceSelector results, which it should update when
 // namespaces are created, deleted, or re-labeled.
 type SelectorReconciler interface {
-	// Get returns the items matching the given Target for the given name. If no selection for that
-	// name and Target has been calculated, it will be calculated now. Otherwise, a cached value
-	// may be used.
-	Get(string, policyv1.Target) ([]string, error)
+	// Get returns the items matching the given Target for the given object. If there's  no selection for that object,
+	// and Target has been calculated, it will be calculated now. Otherwise, a cached value may be used.
+	Get(objNS string, objName string, t policyv1.Target) ([]string, error)
 
-	// HasUpdate indicates when the cached selection for this name has been changed since the last
+	// HasUpdate indicates when the cached selection for this namespace and name has been changed since the last
 	// time that Get was called for that name.
-	HasUpdate(string) bool
+	HasUpdate(string, string) bool
 
-	// Stop tells the SelectorReconciler to stop updating the cached selection for the name.
-	Stop(string)
+	// Stop tells the SelectorReconciler to stop updating the cached selection for the namespace and name.
+	Stop(string, string)
 }
 
 type NamespaceSelectorReconciler struct {
-	Client     client.Client
-	selections map[string]namespaceSelection
-	lock       sync.RWMutex
+	client        client.Client
+	updateChannel chan<- event.GenericEvent
+	selections    map[string]namespaceSelection
+	lock          sync.RWMutex
+}
+
+func NewNamespaceSelectorReconciler(
+	k8sClient client.Client, updateChannel chan<- event.GenericEvent,
+) NamespaceSelectorReconciler {
+	return NamespaceSelectorReconciler{
+		client:        k8sClient,
+		updateChannel: updateChannel,
+	}
 }
 
 type namespaceSelection struct {
@@ -193,18 +205,20 @@ func (r *NamespaceSelectorReconciler) Reconcile(ctx context.Context, _ ctrl.Requ
 	namespaces := corev1.NamespaceList{}
 
 	// This List will be from the cache
-	if err := r.Client.List(ctx, &namespaces); err != nil {
+	if err := r.client.List(ctx, &namespaces); err != nil {
 		log.Error(err, "Unable to list namespaces from the cache")
 
 		return ctrl.Result{}, err
 	}
 
-	for name, oldSelection := range oldSelections {
+	for nsName, oldSelection := range oldSelections {
+		policyNs, policyName := splitKey(nsName)
+
 		newNamespaces, err := filter(namespaces, oldSelection.target)
 		if err != nil {
-			log.Error(err, "Unable to filter namespaces for policy", "name", name)
+			log.Error(err, "Unable to filter namespaces for policy", "namespace", policyNs, "name", policyName)
 
-			r.update(name, namespaceSelection{
+			r.update(policyNs, policyName, namespaceSelection{
 				target:     oldSelection.target,
 				namespaces: newNamespaces,
 				hasUpdate:  oldSelection.err == nil, // it has an update if the error state changed
@@ -215,9 +229,14 @@ func (r *NamespaceSelectorReconciler) Reconcile(ctx context.Context, _ ctrl.Requ
 		}
 
 		if !reflect.DeepEqual(newNamespaces, oldSelection.namespaces) {
-			log.V(2).Info("Updating selection from Reconcile", "policy", name, "selection", newNamespaces)
+			log.V(2).Info(
+				"Updating selection from Reconcile",
+				"namespace", policyNs,
+				"name", policyName,
+				"selection", newNamespaces,
+			)
 
-			r.update(name, namespaceSelection{
+			r.update(policyNs, policyName, namespaceSelection{
 				target:     oldSelection.target,
 				namespaces: newNamespaces,
 				hasUpdate:  true,
@@ -229,18 +248,19 @@ func (r *NamespaceSelectorReconciler) Reconcile(ctx context.Context, _ ctrl.Requ
 	return ctrl.Result{}, nil
 }
 
-// Get returns the items matching the given Target for the given policy. If no selection for that
-// policy and Target has been calculated, it will be calculated now. Otherwise, a cached value
-// may be used.
-func (r *NamespaceSelectorReconciler) Get(name string, t policyv1.Target) ([]string, error) {
+// Get returns the items matching the given Target for the given object. If there's  no selection for that object,
+// and Target has been calculated, it will be calculated now. Otherwise, a cached value may be used.
+func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policyv1.Target) ([]string, error) {
 	log := logf.Log.WithValues("Reconciler", "NamespaceSelector")
 
 	r.lock.Lock()
 
+	key := getKey(objNS, objName)
+
 	// If found, and target has not been changed
-	if selection, found := r.selections[name]; found && selection.target.String() == t.String() {
+	if selection, found := r.selections[key]; found && selection.target.String() == t.String() {
 		selection.hasUpdate = false
-		r.selections[name] = selection
+		r.selections[key] = selection
 
 		r.lock.Unlock()
 
@@ -261,7 +281,7 @@ func (r *NamespaceSelectorReconciler) Get(name string, t policyv1.Target) ([]str
 	}
 
 	// This List will be from the cache
-	if err := r.Client.List(context.TODO(), &nsList, &client.ListOptions{LabelSelector: selector}); err != nil {
+	if err := r.client.List(context.TODO(), &nsList, &client.ListOptions{LabelSelector: selector}); err != nil {
 		log.Error(err, "Unable to list namespaces from the cache")
 
 		return nil, err
@@ -275,9 +295,9 @@ func (r *NamespaceSelectorReconciler) Get(name string, t policyv1.Target) ([]str
 	selected, err := Matches(nsToMatch, t.Include, t.Exclude)
 	sort.Strings(selected)
 
-	log.V(2).Info("Updating selection from Reconcile", "policy", name, "selection", selected)
+	log.V(2).Info("Updating selection from Reconcile", "namespace", objNS, "policy", objName, "selection", selected)
 
-	r.update(name, namespaceSelection{
+	r.update(objNS, objName, namespaceSelection{
 		target:     t,
 		namespaces: selected,
 		hasUpdate:  false,
@@ -289,26 +309,55 @@ func (r *NamespaceSelectorReconciler) Get(name string, t policyv1.Target) ([]str
 
 // HasUpdate indicates when the cached selection for this policy has been changed since the last
 // time that Get was called for that policy.
-func (r *NamespaceSelectorReconciler) HasUpdate(name string) bool {
+func (r *NamespaceSelectorReconciler) HasUpdate(namespace string, name string) bool {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	return r.selections[name].hasUpdate
+	return r.selections[getKey(namespace, name)].hasUpdate
 }
 
 // Stop tells the SelectorReconciler to stop updating the cached selection for the name.
-func (r *NamespaceSelectorReconciler) Stop(name string) {
+func (r *NamespaceSelectorReconciler) Stop(namespace string, name string) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	delete(r.selections, name)
+	delete(r.selections, getKey(namespace, name))
 }
 
-func (r *NamespaceSelectorReconciler) update(name string, sel namespaceSelection) {
+func getKey(namespace string, name string) string {
+	return fmt.Sprintf("%s/%s", namespace, name)
+}
+
+func splitKey(key string) (string, string) {
+	parts := strings.SplitN(key, "/", 2)
+
+	if len(parts) != 2 {
+		return "", parts[0]
+	}
+
+	return parts[0], parts[1]
+}
+
+func (r *NamespaceSelectorReconciler) update(namespace string, name string, sel namespaceSelection) {
 	r.lock.Lock()
 	defer r.lock.Unlock()
 
-	r.selections[name] = sel
+	r.selections[getKey(namespace, name)] = sel
+
+	if r.updateChannel != nil {
+		policy := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": policyv1.GroupVersion.String(),
+				"kind":       "ConfigurationPolicy",
+				"metadata": map[string]interface{}{
+					"name":      name,
+					"namespace": namespace,
+				},
+			},
+		}
+
+		r.updateChannel <- event.GenericEvent{Object: policy}
+	}
 }
 
 func filter(allNSList corev1.NamespaceList, t policyv1.Target) ([]string, error) {

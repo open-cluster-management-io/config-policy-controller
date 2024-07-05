@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -314,9 +313,6 @@ var _ = Describe("Test templatization", Ordered, func() {
 				)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(replConfigMap.Data["message"]).To(Equal("Hello Raleigh!\n"))
-
-				By("Sleeping 30 seconds to ensure PeriodicallyExecConfigPolicies has rerun twice")
-				time.Sleep(30 * time.Second)
 
 				By("Checking metric endpoint for policy template counter for policy " + case13UpdateRefObject)
 				Eventually(func() interface{} {
