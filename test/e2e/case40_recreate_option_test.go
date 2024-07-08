@@ -82,9 +82,23 @@ var _ = Describe("Recreate options", Ordered, func() {
 		diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
 		Expect(diff).To(ContainSubstring("-      app: case40\n+      app: case40-2\n"))
 
-		expected := `deployments [case40] in namespace default cannot be updated, likely due to immutable fields not ` +
-			`matching, you may set spec["object-templates"][].recreateOption to recreate the object`
-		Expect(utils.GetStatusMessage(managedPlc)).To(Equal(expected))
+		By("Verifying the compliance message is correct and doesn't change")
+		Consistently(func(g Gomega) {
+			managedPlc = utils.GetWithTimeout(
+				clientManagedDynamic,
+				gvrConfigPolicy,
+				"case40",
+				testNamespace,
+				true,
+				defaultTimeoutSeconds,
+			)
+
+			expected := `deployments [case40] in namespace default cannot be updated, likely due to immutable fields ` +
+				`not matching, you may set spec["object-templates"][].recreateOption to recreate the object`
+
+			helpMsg := "Expected the cached evaluation to not change the message"
+			g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(expected), helpMsg)
+		}, defaultConsistentlyDuration, 1).Should(Succeed())
 	})
 
 	It("should update the immutable fields when recreateOption=IfRequired", func(ctx SpecContext) {
