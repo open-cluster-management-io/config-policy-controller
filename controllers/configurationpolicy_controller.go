@@ -1789,7 +1789,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		created := false
 		uid := string(obj.existingObj.GetUID())
 
-		if evaluated, compliant := r.alreadyEvaluated(obj.policy, obj.existingObj); evaluated {
+		if evaluated, compliant, cachedMsg := r.alreadyEvaluated(obj.policy, obj.existingObj); evaluated {
 			log.V(1).Info("Skipping object comparison since the resourceVersion hasn't changed")
 
 			for _, relatedObj := range obj.policy.Status.RelatedObjects {
@@ -1802,6 +1802,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			}
 
 			throwSpecViolation = !compliant
+			msg = cachedMsg
 		} else {
 			throwSpecViolation, msg, diff, triedUpdate, updatedObj = r.checkAndUpdateResource(
 				obj, objectT, remediation,
@@ -2577,6 +2578,7 @@ func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unst
 type cachedEvaluationResult struct {
 	resourceVersion string
 	compliant       bool
+	msg             string
 }
 
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
@@ -2696,7 +2698,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 					// If the user specifies an unknown or invalid field, it comes back as a bad request.
 					if k8serrors.IsBadRequest(err) {
-						r.setEvaluatedObject(obj.policy, obj.existingObj, false)
+						r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
 					}
 
 					return true, message, "", updateNeeded, nil
@@ -2710,8 +2712,6 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 				if isInform || !(recreateOption == policyv1.Always || recreateOption == policyv1.IfRequired) {
 					log.Info(fmt.Sprintf("Dry run update failed with error: %s", err.Error()))
-
-					r.setEvaluatedObject(obj.policy, obj.existingObj, false)
 
 					// Remove noisy fields such as managedFields from the diff
 					removeFieldsForComparison(existingObjectCopy)
@@ -2729,6 +2729,8 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 						)
 					}
 
+					r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+
 					return true, message, diff, false, nil
 				}
 			} else {
@@ -2740,7 +2742,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 							"is compliant.",
 					)
 
-					r.setEvaluatedObject(obj.policy, obj.existingObj, true)
+					r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
 
 					return false, "", "", false, nil
 				}
@@ -2757,7 +2759,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		// The object would have been updated, so if it's inform, return as noncompliant.
 		if isInform {
-			r.setEvaluatedObject(obj.policy, obj.existingObj, false)
+			r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
 
 			return true, "", diff, false, nil
 		}
@@ -2838,7 +2840,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		}
 
 		if !statusMismatch {
-			r.setEvaluatedObject(obj.policy, updatedObj, true)
+			r.setEvaluatedObject(obj.policy, updatedObj, true, message)
 		}
 	} else {
 		if throwSpecViolation && recordDiff != policyv1.RecordDiffNone {
@@ -2851,7 +2853,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			diff = handleDiff(log, recordDiff, true, existingObjectCopy, mergedObjCopy)
 		}
 
-		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation)
+		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
 	}
 
 	return throwSpecViolation, "", diff, updateNeeded, updatedObj
@@ -3003,7 +3005,7 @@ func removeFieldsForComparison(obj *unstructured.Unstructured) {
 // setEvaluatedObject updates the cache to indicate that the ConfigurationPolicy has evaluated this
 // object at its current resourceVersion.
 func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
-	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured, compliant bool,
+	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured, compliant bool, msg string,
 ) {
 	policyMap := &sync.Map{}
 
@@ -3017,6 +3019,7 @@ func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
 		cachedEvaluationResult{
 			resourceVersion: currentObject.GetResourceVersion(),
 			compliant:       compliant,
+			msg:             msg,
 		},
 	)
 }
@@ -3025,26 +3028,26 @@ func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
 // resourceVersion.
 func (r *ConfigurationPolicyReconciler) alreadyEvaluated(
 	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured,
-) (evaluated bool, compliant bool) {
+) (evaluated bool, compliant bool, msg string) {
 	if policy == nil || currentObject == nil {
-		return false, false
+		return false, false, ""
 	}
 
 	loadedPolicyMap, loaded := r.processedPolicyCache.Load(policy.GetUID())
 	if !loaded {
-		return false, false
+		return false, false, ""
 	}
 
 	policyMap := loadedPolicyMap.(*sync.Map)
 
 	result, loaded := policyMap.Load(currentObject.GetUID())
 	if !loaded {
-		return false, false
+		return false, false, ""
 	}
 
 	resultTyped := result.(cachedEvaluationResult)
 
-	return resultTyped.resourceVersion == currentObject.GetResourceVersion(), resultTyped.compliant
+	return resultTyped.resourceVersion == currentObject.GetResourceVersion(), resultTyped.compliant, resultTyped.msg
 }
 
 func getUpdateErrorMsg(err error, kind string, name string) string {
