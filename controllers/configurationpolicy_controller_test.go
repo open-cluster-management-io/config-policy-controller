@@ -671,7 +671,7 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 
 	empty := []policyv1.RelatedObject{}
 
-	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false, true)
+	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false)
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
 
 	// append another object named bar but also with namespace bar
@@ -679,7 +679,7 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 		true, scopedGVR, "ConfigurationPolicy", "bar", []string{name}, "reason", nil)...,
 	)
 
-	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false, true)
+	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false)
 	assert.True(t, relatedList[0].Object.Metadata.Namespace == "bar")
 
 	// clear related objects and test sorting with no namespace
@@ -691,7 +691,7 @@ func TestSortRelatedObjectsAndUpdate(t *testing.T) {
 		true, scopedGVR, "ConfigurationPolicy", "", []string{name}, "reason", nil)...,
 	)
 
-	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false, true)
+	r.sortRelatedObjectsAndUpdate(policy, relatedList, empty, false)
 	assert.True(t, relatedList[0].Object.Metadata.Name == "bar")
 }
 
