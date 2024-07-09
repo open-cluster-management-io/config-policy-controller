@@ -2,13 +2,9 @@ package controllers
 
 import (
 	"errors"
-	"fmt"
-	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
-
-	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
 var (
@@ -60,20 +56,6 @@ var (
 		},
 		[]string{"config_policy_name", "namespace", "object"},
 	)
-	// The policyRelatedObjectMap collects a map of related objects to policies
-	// in order to populate the gauge:
-	//   <kind.version/namespace/name>: []<policy-namespace/policy-name>
-	policyRelatedObjectMap   sync.Map
-	policyRelatedObjectGauge = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "common_related_objects",
-			Help: "A gauge vector of related objects managed by multiple policies.",
-		},
-		[]string{
-			"relatedObject",
-			"policy",
-		},
-	)
 	policyUserErrorsCounter = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "policy_user_errors_total",
@@ -106,7 +88,6 @@ func init() {
 	metrics.Registry.MustRegister(plcTempsProcessCounter)
 	metrics.Registry.MustRegister(compareObjSecondsCounter)
 	metrics.Registry.MustRegister(compareObjEvalCounter)
-	metrics.Registry.MustRegister(policyRelatedObjectGauge)
 	// Error metrics may already be registered by template sync
 	alreadyReg := &prometheus.AlreadyRegisteredError{}
 
@@ -119,43 +100,4 @@ func init() {
 	if regErr != nil && !errors.As(regErr, alreadyReg) {
 		panic(regErr)
 	}
-}
-
-// updateRelatedObjectMetric iterates through the collected related object map, deletes any metrics
-// that aren't duplications, and sets a metric for any related object that is handled by multiple
-// policies to the number of policies that currently handles it.
-func updateRelatedObjectMetric() {
-	log.V(3).Info("Updating common_related_objects metric ...")
-
-	policyRelatedObjectMap.Range(func(key any, value any) bool {
-		relatedObj := key.(string)
-		policies := value.([]string)
-
-		for _, policy := range policies {
-			if len(policies) == 1 {
-				policyRelatedObjectGauge.DeleteLabelValues(relatedObj, policy)
-
-				continue
-			}
-
-			gaugeInstance, err := policyRelatedObjectGauge.GetMetricWithLabelValues(relatedObj, policy)
-			if err != nil {
-				log.V(3).Error(err, "Failed to retrieve related object gauge")
-
-				continue
-			}
-
-			gaugeInstance.Set(float64(len(policies)))
-		}
-
-		return true
-	})
-}
-
-// getObjectString returns a string formatted as:
-// <kind>.<version>/<namespace>/<name>
-func getObjectString(obj policyv1.RelatedObject) string {
-	return fmt.Sprintf("%s.%s/%s/%s",
-		obj.Object.Kind, obj.Object.APIVersion,
-		obj.Object.Metadata.Namespace, obj.Object.Metadata.Name)
 }

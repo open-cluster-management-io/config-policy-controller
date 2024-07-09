@@ -221,8 +221,6 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 		_ = plcTempsProcessCounter.DeleteLabelValues(request.Name)
 		_ = compareObjEvalCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
 		_ = compareObjSecondsCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
-		_ = policyRelatedObjectGauge.DeletePartialMatch(
-			prometheus.Labels{"policy": fmt.Sprintf("%s/%s", request.Namespace, request.Name)})
 		_ = policyUserErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
 		_ = policySystemErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
 
@@ -295,11 +293,6 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 
 	policyEvalSecondsCounter.WithLabelValues(policy.Name).Add(seconds)
 	policyEvalCounter.WithLabelValues(policy.Name).Inc()
-
-	// Update the related object metric after policy processing
-	if r.EnableMetrics {
-		updateRelatedObjectMetric()
-	}
 
 	if handleErr != nil {
 		// If the policy is invalid, don't bother requeueing since we need to wait for a spec change.
@@ -1350,7 +1343,7 @@ func (r *ConfigurationPolicyReconciler) checkRelatedAndUpdate(
 	sendEvent bool,
 	deleteDetachedObjs bool,
 ) {
-	r.sortRelatedObjectsAndUpdate(plc, related, oldRelated, r.EnableMetrics, deleteDetachedObjs)
+	r.sortRelatedObjectsAndUpdate(plc, related, oldRelated, deleteDetachedObjs)
 	// An update always occurs to account for the lastEvaluated status field
 	r.addForUpdate(plc, sendEvent)
 }
@@ -1358,7 +1351,6 @@ func (r *ConfigurationPolicyReconciler) checkRelatedAndUpdate(
 // helper function to check whether related objects has changed
 func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 	plc *policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject,
-	collectMetrics bool,
 	deleteDetachedObjs bool,
 ) {
 	sort.SliceStable(related, func(i, j int) bool {
@@ -1372,33 +1364,7 @@ func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 		return related[i].Object.Metadata.Name < related[j].Object.Metadata.Name
 	})
 
-	// Instantiate found objects for the related object metric
-	found := map[string]bool{}
-
-	if collectMetrics {
-		for _, obj := range oldRelated {
-			found[getObjectString(obj)] = false
-		}
-	}
-
-	// Format policy for related object metric
-	policyVal := fmt.Sprintf("%s/%s", plc.Namespace, plc.Name)
-
 	for i, newEntry := range related {
-		var objKey string
-		// Collect the policy and related object for related object metric
-		if collectMetrics {
-			objKey = getObjectString(newEntry)
-			policiesArray := []string{}
-
-			if objValue, ok := policyRelatedObjectMap.Load(objKey); ok {
-				policiesArray = append(policiesArray, objValue.([]string)...)
-			}
-
-			policiesArray = append(policiesArray, policyVal)
-			policyRelatedObjectMap.Store(objKey, policiesArray)
-		}
-
 		for _, oldEntry := range oldRelated {
 			// Get matching objects
 			if gocmp.Equal(newEntry.Object, oldEntry.Object) {
@@ -1410,22 +1376,8 @@ func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 					related[i].Properties.CreatedByPolicy = oldEntry.Properties.CreatedByPolicy
 					related[i].Properties.UID = oldEntry.Properties.UID
 
-					if collectMetrics {
-						found[objKey] = true
-					}
-
 					break
 				}
-			}
-		}
-	}
-
-	// Clean up old related object metrics if the related object list changed
-	if collectMetrics {
-		for _, obj := range oldRelated {
-			objString := getObjectString(obj)
-			if !found[objString] {
-				_ = policyRelatedObjectGauge.DeleteLabelValues(objString, policyVal)
 			}
 		}
 	}
