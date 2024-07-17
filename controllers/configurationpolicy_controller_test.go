@@ -1056,8 +1056,8 @@ secrets:
 	desiredObj := unstructured.Unstructured{Object: serviceAccountObj}
 	existingObj := unstructured.Unstructured{Object: existingServiceAccountObj}
 	existingObjCopy := unstructured.Unstructured{Object: existingServiceAccountObjCopy}
-	compType := "mustonlyhave"
-	mdCompType := ""
+	compType := policyv1.MustOnlyHave
+	mdCompType := policyv1.MustOnlyHave
 	zeroValueEqualsNil := false
 
 	throwSpecViolation, _, updateNeeded, statusMismatch := handleKeys(desiredObj, &existingObj,

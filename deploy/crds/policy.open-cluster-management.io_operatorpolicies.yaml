@@ -82,9 +82,9 @@ spec:
                 type: object
               complianceType:
                 description: |-
-                  ComplianceType describes how objects on the cluster should be compared with the object definition
-                  of the configuration policy. The supported options are `MustHave`, `MustOnlyHave`, or
-                  `MustNotHave`.
+                  ComplianceType specifies the desired state of the operator on the cluster. If set to
+                  `musthave`, the policy is compliant when the operator is found. If set to `mustnothave`,
+                  the policy is compliant when the operator is not found.
                 enum:
                 - musthave
                 - mustnothave

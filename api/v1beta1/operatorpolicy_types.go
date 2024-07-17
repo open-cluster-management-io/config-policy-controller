@@ -140,7 +140,13 @@ type ComplianceConfig struct {
 type OperatorPolicySpec struct {
 	Severity          policyv1.Severity          `json:"severity,omitempty"`
 	RemediationAction policyv1.RemediationAction `json:"remediationAction,omitempty"`
-	ComplianceType    policyv1.ComplianceType    `json:"complianceType"`
+
+	// ComplianceType specifies the desired state of the operator on the cluster. If set to
+	// `musthave`, the policy is compliant when the operator is found. If set to `mustnothave`,
+	// the policy is compliant when the operator is not found.
+	//
+	// +kubebuilder:validation:Enum=musthave;mustnothave
+	ComplianceType policyv1.ComplianceType `json:"complianceType"`
 
 	// OperatorGroup specifies which `OperatorGroup` to inspect. Include the name, namespace, and any
 	// `spec` fields for the operator group. For more info, see `kubectl explain operatorgroups.spec`

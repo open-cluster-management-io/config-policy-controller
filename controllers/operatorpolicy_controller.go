@@ -905,9 +905,7 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 			return false, nil, false, fmt.Errorf("error converting desired OperatorGroup to an Unstructured: %w", err)
 		}
 
-		updateNeeded, skipUpdate, err := r.mergeObjects(
-			ctx, desiredUnstruct, &opGroup, string(policy.Spec.ComplianceType),
-		)
+		updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, &opGroup, policy.Spec.ComplianceType)
 		if err != nil {
 			return false, nil, false, fmt.Errorf("error checking if the OperatorGroup needs an update: %w", err)
 		}
@@ -1196,7 +1194,7 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 		unstructured.RemoveNestedField(desiredUnstruct, "spec", "installPlanApproval")
 	}
 
-	updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, foundSub, string(policy.Spec.ComplianceType))
+	updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, foundSub, policy.Spec.ComplianceType)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("error checking if the Subscription needs an update: %w", err)
 	}
@@ -2357,7 +2355,7 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	ctx context.Context,
 	desired map[string]interface{},
 	existing *unstructured.Unstructured,
-	complianceType string,
+	complianceType policyv1.ComplianceType,
 ) (updateNeeded, updateIsForbidden bool, err error) {
 	desiredObj := unstructured.Unstructured{Object: desired}
 
