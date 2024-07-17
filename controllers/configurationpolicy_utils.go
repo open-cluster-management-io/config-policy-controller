@@ -60,7 +60,7 @@ func addRelatedObjects(
 		relatedObject.Object.APIVersion = scopedGVR.GroupVersion().String()
 		relatedObject.Object.Kind = kind
 		relatedObject.Object.Metadata = metadata
-		relatedObjects = updateRelatedObjectsStatus(relatedObjects, relatedObject)
+		relatedObjects = addOrUpdateRelatedObject(relatedObjects, relatedObject)
 	}
 
 	return relatedObjects
@@ -117,8 +117,9 @@ func unmarshalFromJSON(rawData []byte) (unstructured.Unstructured, error) {
 	return unstruct, nil
 }
 
-// updateRelatedObjectsStatus adds or updates the RelatedObject in the policy status.
-func updateRelatedObjectsStatus(
+// addOrUpdateRelatedObject adds or updates the RelatedObject in the given list
+// and returns the resulting updated list
+func addOrUpdateRelatedObject(
 	list []policyv1.RelatedObject, relatedObject policyv1.RelatedObject,
 ) (result []policyv1.RelatedObject) {
 	present := false
