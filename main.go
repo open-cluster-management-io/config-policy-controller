@@ -20,7 +20,6 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/stolostron/go-log-utils/zaputil"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
-	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -397,7 +396,6 @@ func main() {
 	var nsSelUpdatesSource *source.Channel
 	var objectTemplatesChannel *source.Channel
 	var dynamicWatcher depclient.DynamicWatcher
-	var dryRunSupported bool
 	var serverVersion *k8sversion.Info
 
 	managerCtx, managerCancel := context.WithCancel(terminatingCtx)
@@ -429,16 +427,6 @@ func main() {
 			os.Exit(1)
 		}
 
-		dryRunSupported = semver.Compare(serverVersion.GitVersion, "v1.18.0") >= 0
-		if dryRunSupported {
-			log.Info("The managed cluster supports dry run API requests")
-		} else {
-			log.Info(
-				"The managed cluster does not support dry run API requests. Will assume that empty values are equal " +
-					"to not being set.",
-			)
-		}
-
 		var watcherReconciler *depclient.ControllerRuntimeSourceReconciler
 
 		watcherReconciler, objectTemplatesChannel = depclient.NewControllerRuntimeSource()
@@ -464,7 +452,6 @@ func main() {
 	reconciler := controllers.ConfigurationPolicyReconciler{
 		Client:                 mgr.GetClient(),
 		DecryptionConcurrency:  opts.decryptionConcurrency,
-		DryRunSupported:        dryRunSupported,
 		DynamicWatcher:         dynamicWatcher,
 		Scheme:                 mgr.GetScheme(),
 		Recorder:               mgr.GetEventRecorderFor(controllers.ControllerName),

@@ -1058,10 +1058,9 @@ secrets:
 	existingObjCopy := unstructured.Unstructured{Object: existingServiceAccountObjCopy}
 	compType := policyv1.MustOnlyHave
 	mdCompType := policyv1.MustOnlyHave
-	zeroValueEqualsNil := false
 
 	throwSpecViolation, _, updateNeeded, statusMismatch := handleKeys(desiredObj, &existingObj,
-		&existingObjCopy, compType, mdCompType, zeroValueEqualsNil)
+		&existingObjCopy, compType, mdCompType)
 
 	assert.False(t, throwSpecViolation)
 	assert.False(t, updateNeeded)
