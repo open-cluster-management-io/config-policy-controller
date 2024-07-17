@@ -18,7 +18,6 @@ import (
 
 	"github.com/go-logr/logr"
 	gocmp "github.com/google/go-cmp/cmp"
-	"github.com/prometheus/client_golang/prometheus"
 	templates "github.com/stolostron/go-template-utils/v5/pkg/templates"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"golang.org/x/mod/semver"
@@ -213,16 +212,7 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 	err := r.Get(ctx, request.NamespacedName, policy)
 	if k8serrors.IsNotFound(err) {
 		log.V(1).Info("Handling a deleted policy")
-		// If the metric was not deleted, that means the policy was never evaluated so it can be ignored.
-		_ = policyEvalSecondsCounter.DeleteLabelValues(request.Name)
-		_ = policyEvalCounter.DeleteLabelValues(request.Name)
-		_ = plcTempsProcessSecondsCounter.DeleteLabelValues(request.Name)
-		_ = plcTempsProcessCounter.DeleteLabelValues(request.Name)
-		_ = compareObjEvalCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
-		_ = compareObjSecondsCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
-		_ = policyUserErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
-		_ = policySystemErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
-
+		removeConfigPolicyMetrics(request)
 		r.SelectorReconciler.Stop(request.Namespace, request.Name)
 
 		objID := depclient.ObjectIdentifier{
