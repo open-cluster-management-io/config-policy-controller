@@ -1087,21 +1087,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		}
 	}
 
-	var selectedNamespacesQueried bool
-	var selectedNamespacesErr error
-
-	selectedNamespaces := []string{}
-	selector := plc.Spec.NamespaceSelector
-
-	// If MatchLabels/MatchExpressions/Include were not provided, return no namespaces
-	if selector.MatchLabels == nil && selector.MatchExpressions == nil && len(selector.Include) == 0 {
-		r.SelectorReconciler.Stop(plc.Namespace, plc.Name)
-
-		log.V(1).Info("namespaceSelector is empty. Skipping namespace retrieval.")
-
-		selectedNamespacesQueried = true
-	}
-
 	if len(plc.Spec.ObjectTemplates) == 0 {
 		reason := "No object templates"
 		msg := fmt.Sprintf("%v contains no object templates to check, and thus has no violations",
@@ -1174,24 +1159,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		var nsSelectorErr *objectTmplEvalResult
 
 		if scopedGVR.Namespaced && desiredObj.GetNamespace() == "" {
-			if !selectedNamespacesQueried {
-				selectedNamespaces, selectedNamespacesErr = r.SelectorReconciler.Get(
-					plc.Namespace, plc.Name, plc.Spec.NamespaceSelector,
-				)
-				if selectedNamespacesErr != nil {
-					log.Error(
-						selectedNamespacesErr,
-						"Failed to select the namespaces",
-						"namespaceSelector",
-						fmt.Sprintf("%+v", selector),
-					)
-				}
-			}
+			selectedNamespaces, err := r.SelectorReconciler.Get(plc.Namespace, plc.Name, plc.Spec.NamespaceSelector)
+			if err != nil {
+				log.Error(err, "Failed to select the namespaces",
+					"namespaceSelector", fmt.Sprintf("%+v", plc.Spec.NamespaceSelector))
 
-			if selectedNamespacesErr != nil {
-				msg := fmt.Sprintf(
-					"Error filtering namespaces with provided namespaceSelector: %v", selectedNamespacesErr,
-				)
+				msg := fmt.Sprintf("Error filtering namespaces with provided namespaceSelector: %v", err)
 
 				nsSelectorErr = &objectTmplEvalResult{
 					events: []objectTmplEvalEvent{

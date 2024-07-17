@@ -248,7 +248,7 @@ func (r *NamespaceSelectorReconciler) Reconcile(ctx context.Context, _ ctrl.Requ
 	return ctrl.Result{}, nil
 }
 
-// Get returns the items matching the given Target for the given object. If there's  no selection for that object,
+// Get returns the items matching the given Target for the given object. If there's no selection for that object,
 // and Target has been calculated, it will be calculated now. Otherwise, a cached value may be used.
 func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policyv1.Target) ([]string, error) {
 	log := logf.Log.WithValues("Reconciler", "NamespaceSelector")
@@ -270,6 +270,20 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 	// unlock for now, the list filtering could take a non-trivial amount of time
 	r.lock.Unlock()
 
+	if t.MatchLabels == nil && t.MatchExpressions == nil && len(t.Include) == 0 {
+		log.V(2).Info("Updating selection from Reconcile for empty selector",
+			"namespace", objNS, "policy", objName)
+
+		r.update(objNS, objName, namespaceSelection{
+			target:     t,
+			namespaces: []string{},
+			hasUpdate:  false,
+			err:        nil,
+		})
+
+		return []string{}, nil
+	}
+
 	// New, or the target has changed.
 	nsList := corev1.NamespaceList{}
 
@@ -277,10 +291,22 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 
 	selector, err := metav1.LabelSelectorAsSelector(&labelSelector)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing namespace LabelSelector: %w", err)
+		err = fmt.Errorf("error parsing namespace LabelSelector: %w", err)
+
+		log.V(2).Info("Updating selection from Reconcile with parsing error",
+			"namespace", objNS, "policy", objName, "error", err)
+
+		r.update(objNS, objName, namespaceSelection{
+			target:     t,
+			namespaces: []string{},
+			hasUpdate:  false,
+			err:        err,
+		})
+
+		return []string{}, fmt.Errorf("error parsing namespace LabelSelector: %w", err)
 	}
 
-	// This List will be from the cache
+	// This List will be from the controller-runtime cache
 	if err := r.client.List(context.TODO(), &nsList, &client.ListOptions{LabelSelector: selector}); err != nil {
 		log.Error(err, "Unable to list namespaces from the cache")
 
@@ -295,7 +321,8 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 	selected, err := Matches(nsToMatch, t.Include, t.Exclude)
 	sort.Strings(selected)
 
-	log.V(2).Info("Updating selection from Reconcile", "namespace", objNS, "policy", objName, "selection", selected)
+	log.V(2).Info("Updating selection from Reconcile with matches",
+		"namespace", objNS, "policy", objName, "selection", selected, "error", err)
 
 	r.update(objNS, objName, namespaceSelection{
 		target:     t,
