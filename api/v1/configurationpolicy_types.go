@@ -146,11 +146,6 @@ func (e EvaluationInterval) GetNonCompliantInterval() (time.Duration, error) {
 	return e.parseInterval(e.NonCompliant)
 }
 
-// ComplianceType describes how objects on the cluster should be compared with the object definition
-// of the configuration policy. The supported options are `MustHave`, `MustOnlyHave`, or
-// `MustNotHave`.
-//
-// +kubebuilder:validation:Enum=MustHave;Musthave;musthave;MustOnlyHave;Mustonlyhave;mustonlyhave;MustNotHave;Mustnothave;mustnothave
 type ComplianceType string
 
 const (
@@ -176,14 +171,6 @@ func (c ComplianceType) IsMustNotHave() bool {
 	return strings.EqualFold(string(c), string(MustNotHave))
 }
 
-// MetadataComplianceType describes how the labels and annotations of objects on the cluster should
-// be compared with the object definition of the configuration policy. The supported options are
-// `MustHave` or `MustOnlyHave`. The default value is the value defined in `complianceType` for the
-// object template.
-//
-// +kubebuilder:validation:Enum=MustHave;Musthave;musthave;MustOnlyHave;Mustonlyhave;mustonlyhave
-type MetadataComplianceType string
-
 // +kubebuilder:validation:Enum=Log;InStatus;None
 type RecordDiff string
 
@@ -206,8 +193,20 @@ const (
 
 // ObjectTemplate describes the desired state of an object on the cluster.
 type ObjectTemplate struct {
-	ComplianceType         ComplianceType         `json:"complianceType"`
-	MetadataComplianceType MetadataComplianceType `json:"metadataComplianceType,omitempty"`
+	// ComplianceType describes how objects on the cluster should be compared with the object definition
+	// of the configuration policy. The supported options are `MustHave`, `MustOnlyHave`, or
+	// `MustNotHave`.
+	//
+	// +kubebuilder:validation:Enum=MustHave;Musthave;musthave;MustOnlyHave;Mustonlyhave;mustonlyhave;MustNotHave;Mustnothave;mustnothave
+	ComplianceType ComplianceType `json:"complianceType"`
+
+	// MetadataComplianceType describes how the labels and annotations of objects on the cluster should
+	// be compared with the object definition of the configuration policy. The supported options are
+	// `MustHave` or `MustOnlyHave`. The default value is the value defined in `complianceType` for the
+	// object template.
+	//
+	// +kubebuilder:validation:Enum=MustHave;Musthave;musthave;MustOnlyHave;Mustonlyhave;mustonlyhave
+	MetadataComplianceType ComplianceType `json:"metadataComplianceType,omitempty"`
 
 	// RecreateOption describes when to delete and recreate an object when an update is required. When you set the
 	// object to `IfRequired`, the policy recreates the object when updating an immutable field. When you set the

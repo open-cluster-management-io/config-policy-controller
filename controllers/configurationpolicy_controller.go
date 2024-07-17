@@ -1577,7 +1577,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			scopedGVR,
 			namespace,
 			r.TargetK8sDynamicClient,
-			strings.ToLower(string(objectT.ComplianceType)),
+			objectT.ComplianceType,
 			// Dry run API requests aren't run on unnamed object templates for performance reasons, so be less
 			// conservative in the comparison algorithm.
 			true,
@@ -1951,7 +1951,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 // buildNameList is a helper function to pull names of resources that match an objectTemplate from a list of resources
 func buildNameList(
 	desiredObj unstructured.Unstructured,
-	complianceType string,
+	complianceType policyv1.ComplianceType,
 	resList *unstructured.UnstructuredList,
 	zeroValueEqualsNil bool,
 ) (kindNameList []string) {
@@ -1989,7 +1989,7 @@ func (r *ConfigurationPolicyReconciler) getNamesOfKind(
 	scopedGVR depclient.ScopedGVR,
 	ns string,
 	dclient dynamic.Interface,
-	complianceType string,
+	complianceType policyv1.ComplianceType,
 	zeroValueEqualsNil bool,
 	useCache bool,
 ) (kindNameList []string, allResourceList []string) {
@@ -2230,7 +2230,9 @@ func deleteObject(res dynamic.ResourceInterface, name, namespace string) (delete
 }
 
 // mergeSpecs is a wrapper for the recursive function to merge 2 maps.
-func mergeSpecs(templateVal, existingVal interface{}, ctype string, zeroValueEqualsNil bool) (interface{}, error) {
+func mergeSpecs(
+	templateVal, existingVal interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
+) (interface{}, error) {
 	// Copy templateVal since it will be modified in mergeSpecsHelper
 	data1, err := json.Marshal(templateVal)
 	if err != nil {
@@ -2252,7 +2254,9 @@ func mergeSpecs(templateVal, existingVal interface{}, ctype string, zeroValueEqu
 // that exists on the cluster will tell you whether the existing object is compliant with the template.
 // This function uses recursion to check mismatches in nested objects and is the basis for most
 // comparisons the controller makes.
-func mergeSpecsHelper(templateVal, existingVal interface{}, ctype string, zeroValueEqualsNil bool) interface{} {
+func mergeSpecsHelper(
+	templateVal, existingVal interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
+) interface{} {
 	switch templateVal := templateVal.(type) {
 	case map[string]interface{}:
 		existingVal, ok := existingVal.(map[string]interface{})
@@ -2306,9 +2310,9 @@ type countedVal struct {
 // mergeArrays is a helper function that takes a list from the existing object and merges in all the data that is
 // different in the template.
 func mergeArrays(
-	desiredArr []interface{}, existingArr []interface{}, ctype string, zeroValueEqualsNil bool,
+	desiredArr []interface{}, existingArr []interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
 ) (result []interface{}) {
-	if ctype == "mustonlyhave" {
+	if ctype.IsMustOnlyHave() {
 		return desiredArr
 	}
 
@@ -2407,9 +2411,9 @@ func mergeArrays(
 // compareSpecs is a wrapper function that creates a merged map for mustHave
 // and returns the template map for mustonlyhave
 func compareSpecs(
-	newSpec, oldSpec map[string]interface{}, ctype string, zeroValueEqualsNil bool,
+	newSpec, oldSpec map[string]interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
 ) (updatedSpec map[string]interface{}, err error) {
-	if ctype == "mustonlyhave" {
+	if ctype.IsMustOnlyHave() {
 		return newSpec, nil
 	}
 	// if compliance type is musthave, create merged object to compare on
@@ -2427,7 +2431,7 @@ func handleSingleKey(
 	key string,
 	desiredObj unstructured.Unstructured,
 	existingObj *unstructured.Unstructured,
-	complianceType string,
+	complianceType policyv1.ComplianceType,
 	zeroValueEqualsNil bool,
 ) (errormsg string, update bool, merged interface{}, skip bool) {
 	log := log.WithValues("name", existingObj.GetName(), "namespace", existingObj.GetNamespace())
@@ -2601,19 +2605,10 @@ type cachedEvaluationResult struct {
 // function tried to update the child object and updateSucceeded indicates whether the update was applied
 // successfully.
 func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
-	obj singleObject,
-	objectT *policyv1.ObjectTemplate,
-	remediation policyv1.RemediationAction,
+	obj singleObject, objectT *policyv1.ObjectTemplate, remediation policyv1.RemediationAction,
 ) (
-	throwSpecViolation bool,
-	message string,
-	diff string,
-	updateNeeded bool,
-	updatedObj *unstructured.Unstructured,
+	throwSpecViolation bool, message string, diff string, updateNeeded bool, updatedObj *unstructured.Unstructured,
 ) {
-	complianceType := strings.ToLower(string(objectT.ComplianceType))
-	mdComplianceType := strings.ToLower(string(objectT.MetadataComplianceType))
-
 	log := log.WithValues(
 		"policy", obj.policy.Name, "name", obj.name, "namespace", obj.namespace, "resource", obj.scopedGVR.Resource,
 	)
@@ -2653,7 +2648,12 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	removeFieldsForComparison(existingObjectCopy)
 
 	throwSpecViolation, message, updateNeeded, statusMismatch := handleKeys(
-		obj.desiredObj, obj.existingObj, existingObjectCopy, complianceType, mdComplianceType, !r.DryRunSupported,
+		obj.desiredObj,
+		obj.existingObj,
+		existingObjectCopy,
+		objectT.ComplianceType,
+		objectT.MetadataComplianceType,
+		!r.DryRunSupported,
 	)
 	if message != "" {
 		return true, message, "", true, nil
@@ -2935,8 +2935,8 @@ func handleKeys(
 	desiredObj unstructured.Unstructured,
 	existingObj *unstructured.Unstructured,
 	existingObjectCopy *unstructured.Unstructured,
-	compType string,
-	mdCompType string,
+	compType policyv1.ComplianceType,
+	mdCompType policyv1.ComplianceType,
 	zeroValueEqualsNil bool,
 ) (throwSpecViolation bool, message string, updateNeeded bool, statusMismatch bool) {
 	handledKeys := map[string]bool{}
@@ -2993,7 +2993,7 @@ func handleKeys(
 
 	// If the complianceType is "mustonlyhave", then compare the existing object's keys,
 	// skipping over: previously compared keys, metadata, and status.
-	if compType == "mustonlyhave" {
+	if compType.IsMustOnlyHave() {
 		for key := range existingObj.Object {
 			if handledKeys[key] || key == "status" || key == "metadata" {
 				continue
