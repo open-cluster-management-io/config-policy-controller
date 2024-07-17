@@ -306,6 +306,15 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 			return reconcile.Result{}, nil
 		}
 
+		// If a mapping error occurred, try again in 10 seconds to see if the CRD is available
+		if errors.Is(handleErr, depclient.ErrNoVersionedResource) &&
+			policy.Spec != nil &&
+			policy.Spec.EvaluationInterval.IsWatchForNonCompliant() {
+			log.Info("Requeuing the policy to be reevalauted in 10 seconds due to a mapping error")
+
+			return reconcile.Result{RequeueAfter: 10 * time.Second}, nil
+		}
+
 		return reconcile.Result{}, handleErr
 	}
 
@@ -1135,6 +1144,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		return nil
 	}
 
+	var mappingErr error
+
 	for indx, objectT := range plc.Spec.ObjectTemplates {
 		// If the object does not have a namespace specified, use the results from the NamespaceSelector. If no
 		// namespaces are found/specified, use the value from the object so that the objectTemplate is processed:
@@ -1171,7 +1182,11 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 
 		// map raw object to a resource, generate a violation if resource cannot be found
 		if decodeErrResult == nil {
-			scopedGVR, mappingErrResult = r.getMapping(desiredObj.GroupVersionKind(), plc, indx)
+			scopedGVR, mappingErrResult, err = r.getMapping(desiredObj.GroupVersionKind(), plc, indx)
+			if err != nil {
+				// Return all mapping errors encountered and let the caller decide if the errors should be retried
+				mappingErr = errors.Join(mappingErr, err)
+			}
 		}
 
 		var relevantNamespaces []string
@@ -1333,7 +1348,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 
 	r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded, true)
 
-	return nil
+	return mappingErr
 }
 
 // checkRelatedAndUpdate checks the related objects field and triggers an update on the ConfigurationPolicy
@@ -1896,7 +1911,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	gvk schema.GroupVersionKind,
 	policy *policyv1.ConfigurationPolicy,
 	index int,
-) (depclient.ScopedGVR, *objectTmplEvalResult) {
+) (depclient.ScopedGVR, *objectTmplEvalResult, error) {
 	log := log.WithValues("policy", policy.GetName(), "index", index)
 
 	if gvk.Group == "" && gvk.Version == "" {
@@ -1910,7 +1925,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 			},
 		}
 
-		return depclient.ScopedGVR{}, result
+		return depclient.ScopedGVR{}, result, err
 	}
 
 	scopedGVR, err := r.DynamicWatcher.GVKToGVR(gvk)
@@ -1918,7 +1933,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 		if !errors.Is(err, depclient.ErrNoVersionedResource) {
 			log.Error(err, "Could not identify mapping error from raw object", "gvk", gvk)
 
-			return depclient.ScopedGVR{}, nil
+			return depclient.ScopedGVR{}, nil, err
 		}
 
 		mappingErrMsg := "couldn't find mapping resource with kind " + gvk.Kind +
@@ -1939,7 +1954,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 			},
 		}
 
-		return depclient.ScopedGVR{}, result
+		return depclient.ScopedGVR{}, result, err
 	}
 
 	log.V(2).Info(
@@ -1949,7 +1964,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 		"kind", gvk.Kind,
 	)
 
-	return scopedGVR, nil
+	return scopedGVR, nil, nil
 }
 
 // buildNameList is a helper function to pull names of resources that match an objectTemplate from a list of resources

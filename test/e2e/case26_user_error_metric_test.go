@@ -3,6 +3,7 @@ package e2e
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -47,12 +48,19 @@ var _ = Describe("Test related object metrics", Ordered, func() {
 
 	It("should correctly report no CRD user error", func() {
 		By("Checking metric endpoint for user error gauge for policy " + policy1Name)
-		Eventually(func() interface{} {
-			return utils.GetMetrics(
+		Eventually(func(g Gomega) {
+			rv := utils.GetMetrics(
 				"policy_user_errors",
 				fmt.Sprintf(`template=\"%s\"`, policy1Name),
 			)
-		}, defaultTimeoutSeconds, 1).Should(Equal([]string{"1"}))
+			g.Expect(rv).To(HaveLen(1))
+
+			value, err := strconv.ParseInt(rv[0], 10, 64)
+			g.Expect(err).ToNot(HaveOccurred())
+			// It should retry every 10 seconds so the counter will increase. This verifies that
+			// at least one retry occurred.
+			g.Expect(value).To(BeNumerically(">", 1))
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 
 	AfterAll(cleanup)
