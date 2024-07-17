@@ -2095,7 +2095,6 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 		} else {
 			reason = reasonDeleteSuccess
 			msg = fmt.Sprintf("%v %v was deleted successfully", obj.scopedGVR.Resource, idStr)
-			obj.existingObj = nil
 		}
 	}
 
