@@ -506,6 +506,9 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 	return true, 0
 }
 
+// cleanUpChildObjects conditionally removed child objects that are no longer referenced in the
+// `newRelated` list, compared to what is currently in the policy. It does not delete anything in
+// inform mode, and it obeys the pruneObjectBehavior setting.
 func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 	plc *policyv1.ConfigurationPolicy, newRelated []policyv1.RelatedObject, usingWatch bool,
 ) []string {
@@ -710,7 +713,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 	log.V(1).Info("Processing object templates")
 
 	// initialize the RelatedObjects for this Configuration Policy
-	oldRelated := append([]policyv1.RelatedObject{}, plc.Status.RelatedObjects...)
 	relatedObjects := []policyv1.RelatedObject{}
 	parentStatusUpdateNeeded := false
 
@@ -731,7 +733,9 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 			r.recordInfoEvent(plc, true)
 		}
 
-		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusChanged, true)
+		// Note: don't update related objects when the policy is invalid
+
+		r.addForUpdate(plc, statusChanged)
 
 		parent := ""
 		if len(plc.OwnerReferences) > 0 {
@@ -851,8 +855,9 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 					r.recordInfoEvent(plc, true)
 				}
 
-				// don't change related objects while deletion is in progress
-				r.checkRelatedAndUpdate(plc, oldRelated, oldRelated, parentStatusUpdateNeeded, true)
+				// Note: don't change related objects while deletion is in progress
+
+				r.addForUpdate(plc, parentStatusUpdateNeeded)
 
 				return fmt.Errorf("failed to delete objects %s", failuresStr)
 			}
@@ -871,8 +876,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		}
 	}
 
-	// When it is hub or managed template parse error, deleteDetachedObjs should be false
-	// Then it doesn't remove resources
 	addTemplateErrorViolation := func(reason, msg string) {
 		log.Info("Setting the policy to noncompliant due to a templating error", "error", msg)
 
@@ -887,8 +890,11 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 			r.recordInfoEvent(plc, true)
 		}
 
-		// deleteDetachedObjs should be false
-		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded, false)
+		r.updatedRelatedObjects(plc, relatedObjects)
+
+		// Note: don't clean up child objects when there is a template violation
+
+		r.addForUpdate(plc, parentStatusUpdateNeeded)
 	}
 
 	resolveOptions := templates.ResolveOptions{}
@@ -1107,7 +1113,14 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 			r.recordInfoEvent(plc, false)
 		}
 
-		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusUpdateNeeded, true)
+		updatedRelated := r.updatedRelatedObjects(plc, relatedObjects)
+		if !gocmp.Equal(updatedRelated, plc.Status.RelatedObjects) {
+			r.cleanUpChildObjects(plc, updatedRelated, usingWatch)
+
+			plc.Status.RelatedObjects = updatedRelated
+		}
+
+		r.addForUpdate(plc, statusUpdateNeeded)
 
 		return nil
 	}
@@ -1228,7 +1241,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 			nsToResults[ns] = result
 
 			for _, object := range related {
-				relatedObjects = updateRelatedObjectsStatus(relatedObjects, object)
+				relatedObjects = addOrUpdateRelatedObject(relatedObjects, object)
 			}
 		}
 
@@ -1298,44 +1311,37 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 			if statusUpdateNeeded {
 				parentStatusUpdateNeeded = true
 
-				// Don't send events on the last batch because the final call to checkRelatedAndUpdate
-				// after all the object templates are processed handles this.
+				// The event is always sent at the end, so skip sending it in the final batch
 				if i == len(eventBatches)-1 {
 					break
 				}
 
-				log.Info(
-					"Sending an update policy status event for the object template",
-					"policy", plc.Name,
-					"index", indx,
-				)
+				log.Info("Sending an update policy status event for the object template",
+					"policy", plc.Name, "index", indx)
 				r.addForUpdate(plc, true)
 			}
 		}
 	}
 
-	r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, parentStatusUpdateNeeded, true)
+	updatedRelated := r.updatedRelatedObjects(plc, relatedObjects)
+	if !gocmp.Equal(updatedRelated, plc.Status.RelatedObjects) {
+		r.cleanUpChildObjects(plc, updatedRelated, usingWatch)
+
+		plc.Status.RelatedObjects = updatedRelated
+	}
+
+	r.addForUpdate(plc, parentStatusUpdateNeeded)
 
 	return mappingErr
 }
 
-// checkRelatedAndUpdate checks the related objects field and triggers an update on the ConfigurationPolicy
-func (r *ConfigurationPolicyReconciler) checkRelatedAndUpdate(
-	plc *policyv1.ConfigurationPolicy,
-	related, oldRelated []policyv1.RelatedObject,
-	sendEvent bool,
-	deleteDetachedObjs bool,
-) {
-	r.sortRelatedObjectsAndUpdate(plc, related, oldRelated, deleteDetachedObjs)
-	// An update always occurs to account for the lastEvaluated status field
-	r.addForUpdate(plc, sendEvent)
-}
+// updatedRelatedObjects calculates what the related objects list should be, sorting the given list
+// and preserving properties that are already present in the current related objects list.
+func (r *ConfigurationPolicyReconciler) updatedRelatedObjects(
+	plc *policyv1.ConfigurationPolicy, related []policyv1.RelatedObject,
+) (updatedRelated []policyv1.RelatedObject) {
+	oldRelated := plc.Status.RelatedObjects
 
-// helper function to check whether related objects has changed
-func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
-	plc *policyv1.ConfigurationPolicy, related, oldRelated []policyv1.RelatedObject,
-	deleteDetachedObjs bool,
-) {
 	sort.SliceStable(related, func(i, j int) bool {
 		if related[i].Object.Kind != related[j].Object.Kind {
 			return related[i].Object.Kind < related[j].Object.Kind
@@ -1365,24 +1371,7 @@ func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 		}
 	}
 
-	if !gocmp.Equal(related, oldRelated) {
-		var usingWatch bool
-
-		// Determine if the watch library should be used based on the evaluation interval.
-		if plc.Status.ComplianceState == policyv1.Compliant {
-			usingWatch = plc.Spec.EvaluationInterval.IsWatchForCompliant()
-		} else {
-			// If the policy is not compliant (i.e. noncompliant or unknown), fall back to the noncompliant evaluation
-			// interval. This is a court of guilty until proven innocent.
-			usingWatch = plc.Spec.EvaluationInterval.IsWatchForNonCompliant()
-		}
-
-		if deleteDetachedObjs {
-			r.cleanUpChildObjects(plc, related, usingWatch)
-		}
-
-		plc.Status.RelatedObjects = related
-	}
+	return related
 }
 
 // helper function that appends a condition (violation or compliant) to the status of a configurationpolicy
@@ -3052,6 +3041,7 @@ func getUpdateErrorMsg(err error, kind string, name string) string {
 
 // addForUpdate calculates the compliance status of a configurationPolicy and updates the status field. The sendEvent
 // argument determines if a status update event should be sent on the parent policy and configuration policy.
+// Regardless of the sendEvent parameter, events will be sent if the compliance or policy generation changes.
 func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.ConfigurationPolicy, sendEvent bool) {
 	compliant := true
 
@@ -3114,8 +3104,7 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 // updatePolicyStatus updates the status of the configurationPolicy if new conditions are added and generates an event
 // on the parent policy and configuration policy with the compliance decision if the sendEvent argument is true.
 func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
-	policy *policyv1.ConfigurationPolicy,
-	sendEvent bool,
+	policy *policyv1.ConfigurationPolicy, sendEvent bool,
 ) error {
 	if sendEvent {
 		log.Info("Sending parent policy compliance event")
