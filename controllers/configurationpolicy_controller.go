@@ -166,12 +166,9 @@ type ConfigurationPolicyReconciler struct {
 	// that reads objects from the cache and writes to the apiserver
 	client.Client
 	DecryptionConcurrency uint8
-	// Determines if the target Kubernetes cluster supports dry run update requests. When OpenShift <v4.5
-	// support is dropped, this can be removed as it's always true.
-	DryRunSupported bool
-	DynamicWatcher  depclient.DynamicWatcher
-	Scheme          *runtime.Scheme
-	Recorder        record.EventRecorder
+	DynamicWatcher        depclient.DynamicWatcher
+	Scheme                *runtime.Scheme
+	Recorder              record.EventRecorder
 	// processedPolicyCache has the ConfigurationPolicy UID as the key and the values are a *sync.Map with the keys
 	// as object UIDs and the values as cachedEvaluationResult objects.
 	processedPolicyCache sync.Map
@@ -1580,9 +1577,6 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			namespace,
 			r.TargetK8sDynamicClient,
 			objectT.ComplianceType,
-			// Dry run API requests aren't run on unnamed object templates for performance reasons, so be less
-			// conservative in the comparison algorithm.
-			true,
 			useCache,
 		)
 
@@ -1955,13 +1949,16 @@ func buildNameList(
 	desiredObj unstructured.Unstructured,
 	complianceType policyv1.ComplianceType,
 	resList *unstructured.UnstructuredList,
-	zeroValueEqualsNil bool,
 ) (kindNameList []string) {
 	for i := range resList.Items {
 		uObj := resList.Items[i]
 		match := true
 
 		for key := range desiredObj.Object {
+			// Dry run API requests aren't run on unnamed object templates for performance reasons, so be less
+			// conservative in the comparison algorithm.
+			zeroValueEqualsNil := true
+
 			// if any key in the object generates a mismatch, the object does not match the template and we
 			// do not add its name to the list
 			errorMsg, updateNeeded, _, skipped := handleSingleKey(
@@ -1992,7 +1989,6 @@ func (r *ConfigurationPolicyReconciler) getNamesOfKind(
 	ns string,
 	dclient dynamic.Interface,
 	complianceType policyv1.ComplianceType,
-	zeroValueEqualsNil bool,
 	useCache bool,
 ) (kindNameList []string, allResourceList []string) {
 	var resList *unstructured.UnstructuredList
@@ -2026,7 +2022,7 @@ func (r *ConfigurationPolicyReconciler) getNamesOfKind(
 		allResourceList = append(allResourceList, res.GetName())
 	}
 
-	return buildNameList(desiredObj, complianceType, resList, zeroValueEqualsNil), allResourceList
+	return buildNameList(desiredObj, complianceType, resList), allResourceList
 }
 
 // enforceByCreatingOrDeleting can handle the situation where a musthave or mustonlyhave object is
@@ -2636,7 +2632,6 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		existingObjectCopy,
 		objectT.ComplianceType,
 		objectT.MetadataComplianceType,
-		!r.DryRunSupported,
 	)
 	if message != "" {
 		return true, message, "", true, nil
@@ -2662,97 +2657,88 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		isInform := remediation.IsInform()
 
-		// If the cluster supports dry run requests, verify that the API server agrees with the local comparison logic.
 		// It's possible the dry run request shows the object does match. This can happen if the ConfigurationPolicy
 		// specifies an empty map and the API server omits it from the return value.
-		if r.DryRunSupported {
-			dryRunUpdatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
-				FieldValidation: metav1.FieldValidationStrict,
-				DryRun:          []string{metav1.DryRunAll},
-			})
-			if err != nil {
-				// If it's a conflict, refetch the object and try again.
-				if k8serrors.IsConflict(err) {
-					log.Info("The object was updating during the evaluation. Trying again.")
+		dryRunUpdatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
+			FieldValidation: metav1.FieldValidationStrict,
+			DryRun:          []string{metav1.DryRunAll},
+		})
+		if err != nil {
+			// If it's a conflict, refetch the object and try again.
+			if k8serrors.IsConflict(err) {
+				log.Info("The object was updating during the evaluation. Trying again.")
 
-					rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
-					if getErr == nil {
-						obj.existingObj = rv
+				rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
+				if getErr == nil {
+					obj.existingObj = rv
 
-						return r.checkAndUpdateResource(obj, objectT, remediation)
-					}
+					return r.checkAndUpdateResource(obj, objectT, remediation)
 				}
-
-				// Handle all errors not related to updating immutable fields here
-				if !k8serrors.IsInvalid(err) {
-					message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
-					if message == "" {
-						message = fmt.Sprintf(
-							"Error issuing a dry run update request for the object `%v`, the error is `%v`",
-							obj.name,
-							err,
-						)
-					}
-
-					// If the user specifies an unknown or invalid field, it comes back as a bad request.
-					if k8serrors.IsBadRequest(err) {
-						r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
-					}
-
-					return true, message, "", updateNeeded, nil
-				}
-
-				// If an update is invalid (i.e. modifying Pod spec fields), then return noncompliant since that
-				// confirms some fields don't match and can't be fixed with an update. If a recreate option is
-				// specified, then the update may proceed when enforced.
-				needsRecreate = true
-				recreateOption := objectT.RecreateOption
-
-				if isInform || !(recreateOption == policyv1.Always || recreateOption == policyv1.IfRequired) {
-					log.Info(fmt.Sprintf("Dry run update failed with error: %s", err.Error()))
-
-					// Remove noisy fields such as managedFields from the diff
-					removeFieldsForComparison(existingObjectCopy)
-					removeFieldsForComparison(obj.existingObj)
-
-					diff = handleDiff(log, recordDiff, true, existingObjectCopy, obj.existingObj)
-
-					if !isInform {
-						// Don't include the error message in the compliance status because that can be very long. The
-						// user can check the diff or the logs for more information.
-						message = fmt.Sprintf(
-							`%s cannot be updated, likely due to immutable fields not matching, you may `+
-								`set spec["object-templates"][].recreateOption to recreate the object`,
-							getMsgPrefix(&obj),
-						)
-					}
-
-					r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
-
-					return true, message, diff, false, nil
-				}
-			} else {
-				removeFieldsForComparison(dryRunUpdatedObj)
-
-				if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
-					log.Info(
-						"A mismatch was detected but a dry run update didn't make any changes. Assuming the object " +
-							"is compliant.",
-					)
-
-					r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
-
-					return false, "", "", false, nil
-				}
-
-				diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj)
 			}
-		} else if recordDiff == policyv1.RecordDiffLog || (isInform && recordDiff == policyv1.RecordDiffInStatus) {
-			// Generate and log the diff for when dryrun is unsupported (i.e. OCP v3.11)
-			mergedObjCopy := obj.existingObj.DeepCopy()
-			removeFieldsForComparison(mergedObjCopy)
 
-			diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, mergedObjCopy)
+			// Handle all errors not related to updating immutable fields here
+			if !k8serrors.IsInvalid(err) {
+				message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
+				if message == "" {
+					message = fmt.Sprintf(
+						"Error issuing a dry run update request for the object `%v`, the error is `%v`",
+						obj.name,
+						err,
+					)
+				}
+
+				// If the user specifies an unknown or invalid field, it comes back as a bad request.
+				if k8serrors.IsBadRequest(err) {
+					r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+				}
+
+				return true, message, "", updateNeeded, nil
+			}
+
+			// If an update is invalid (i.e. modifying Pod spec fields), then return noncompliant since that
+			// confirms some fields don't match and can't be fixed with an update. If a recreate option is
+			// specified, then the update may proceed when enforced.
+			needsRecreate = true
+			recreateOption := objectT.RecreateOption
+
+			if isInform || !(recreateOption == policyv1.Always || recreateOption == policyv1.IfRequired) {
+				log.Info(fmt.Sprintf("Dry run update failed with error: %s", err.Error()))
+
+				// Remove noisy fields such as managedFields from the diff
+				removeFieldsForComparison(existingObjectCopy)
+				removeFieldsForComparison(obj.existingObj)
+
+				diff = handleDiff(log, recordDiff, true, existingObjectCopy, obj.existingObj)
+
+				if !isInform {
+					// Don't include the error message in the compliance status because that can be very long. The
+					// user can check the diff or the logs for more information.
+					message = fmt.Sprintf(
+						`%s cannot be updated, likely due to immutable fields not matching, you may `+
+							`set spec["object-templates"][].recreateOption to recreate the object`,
+						getMsgPrefix(&obj),
+					)
+				}
+
+				r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+
+				return true, message, diff, false, nil
+			}
+		} else {
+			removeFieldsForComparison(dryRunUpdatedObj)
+
+			if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
+				log.Info(
+					"A mismatch was detected but a dry run update didn't make any changes. Assuming the object " +
+						"is compliant.",
+				)
+
+				r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
+
+				return false, "", "", false, nil
+			}
+
+			diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj)
 		}
 
 		// The object would have been updated, so if it's inform, return as noncompliant.
@@ -2763,7 +2749,6 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		}
 
 		// If it's not inform (i.e. enforce), update the object
-		var err error
 
 		// At this point, if a recreate is needed, we know the user opted in, otherwise, the dry run update
 		// failed and would have returned before now.
@@ -2920,7 +2905,6 @@ func handleKeys(
 	existingObjectCopy *unstructured.Unstructured,
 	compType policyv1.ComplianceType,
 	mdCompType policyv1.ComplianceType,
-	zeroValueEqualsNil bool,
 ) (throwSpecViolation bool, message string, updateNeeded bool, statusMismatch bool) {
 	handledKeys := map[string]bool{}
 
@@ -2937,7 +2921,7 @@ func handleKeys(
 
 		// check key for mismatch
 		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(
-			key, desiredObj, existingObjectCopy, keyComplianceType, zeroValueEqualsNil,
+			key, desiredObj, existingObjectCopy, keyComplianceType, false,
 		)
 		if errorMsg != "" {
 			log.Info(errorMsg)
