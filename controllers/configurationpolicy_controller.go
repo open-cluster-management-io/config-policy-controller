@@ -1403,7 +1403,7 @@ func (r *ConfigurationPolicyReconciler) sortRelatedObjectsAndUpdate(
 func addConditionToStatus(
 	plc *policyv1.ConfigurationPolicy, index int, compliant bool, reason string, message string,
 ) (updateNeeded bool) {
-	cond := &policyv1.Condition{
+	newCond := &policyv1.Condition{
 		Status:             corev1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             reason,
@@ -1414,13 +1414,13 @@ func addConditionToStatus(
 
 	if reason == reasonCleanupError {
 		complianceState = policyv1.Terminating
-		cond.Type = "violation"
+		newCond.Type = "violation"
 	} else if compliant {
 		complianceState = policyv1.Compliant
-		cond.Type = "notification"
+		newCond.Type = "notification"
 	} else {
 		complianceState = policyv1.NonCompliant
-		cond.Type = "violation"
+		newCond.Type = "violation"
 	}
 
 	log := log.WithValues("policy", plc.GetName(), "complianceState", complianceState)
@@ -1428,12 +1428,12 @@ func addConditionToStatus(
 	if compliant && plc.Spec != nil && plc.Spec.EvaluationInterval.Compliant == "never" {
 		msg := `This policy will not be evaluated again due to spec.evaluationInterval.compliant being set to "never"`
 		log.Info(msg)
-		cond.Message += fmt.Sprintf(". %s.", msg)
+		newCond.Message += fmt.Sprintf(". %s.", msg)
 	} else if !compliant && plc.Spec != nil && plc.Spec.EvaluationInterval.NonCompliant == "never" {
 		msg := "This policy will not be evaluated again due to spec.evaluationInterval.noncompliant " +
 			`being set to "never"`
 		log.Info(msg)
-		cond.Message += fmt.Sprintf(". %s.", msg)
+		newCond.Message += fmt.Sprintf(". %s.", msg)
 	}
 
 	// Set a boolean to clear the details array if the index is -1, but set
@@ -1469,11 +1469,23 @@ func addConditionToStatus(
 
 	plc.Status.CompliancyDetails[index].ComplianceState = complianceState
 
-	// do not add condition unless it does not already appear in the status
-	if !checkMessageSimilarity(plc.Status.CompliancyDetails[index].Conditions, cond) {
-		conditions := AppendCondition(plc.Status.CompliancyDetails[index].Conditions, cond)
-		plc.Status.CompliancyDetails[index].Conditions = conditions
+	// Ensure the new condition is in the status
+	currentConds := plc.Status.CompliancyDetails[index].Conditions
+
+	if len(currentConds) == 0 {
+		plc.Status.CompliancyDetails[index].Conditions = []policyv1.Condition{*newCond}
 		updateNeeded = true
+	} else {
+		oldCond := currentConds[len(currentConds)-1]
+		newConditionIsSimilar := reflect.DeepEqual(oldCond.Status, newCond.Status) &&
+			reflect.DeepEqual(oldCond.Reason, newCond.Reason) &&
+			reflect.DeepEqual(oldCond.Message, newCond.Message) &&
+			reflect.DeepEqual(oldCond.Type, newCond.Type)
+
+		if !newConditionIsSimilar {
+			plc.Status.CompliancyDetails[index].Conditions[len(currentConds)-1] = *newCond
+			updateNeeded = true
+		}
 	}
 
 	// Clear the details array if the index provided was -1
@@ -2088,24 +2100,6 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 	}
 
 	return completed, reason, msg, uid, err
-}
-
-// checkMessageSimilarity decides whether to append a new condition to a configurationPolicy status
-// based on whether it is too similar to the previous one
-func checkMessageSimilarity(conditions []policyv1.Condition, cond *policyv1.Condition) bool {
-	same := true
-	lastIndex := len(conditions)
-
-	if lastIndex > 0 {
-		oldCond := conditions[lastIndex-1]
-		if !IsSimilarToLastCondition(oldCond, *cond) {
-			same = false
-		}
-	} else {
-		same = false
-	}
-
-	return same
 }
 
 // getObject gets the object with the dynamic client and returns the object if found.
@@ -3083,40 +3077,6 @@ func getUpdateErrorMsg(err error, kind string, name string) string {
 	return ""
 }
 
-// AppendCondition check and appends conditions to the policy status
-func AppendCondition(
-	conditions []policyv1.Condition, newCond *policyv1.Condition,
-) (conditionsRes []policyv1.Condition) {
-	defer recoverFlow()
-
-	lastIndex := len(conditions)
-	if lastIndex > 0 {
-		oldCond := conditions[lastIndex-1]
-		if IsSimilarToLastCondition(oldCond, *newCond) {
-			conditions[lastIndex-1] = *newCond
-
-			return conditions
-		}
-	} else {
-		// first condition => trigger event
-		conditions = append(conditions, *newCond)
-
-		return conditions
-	}
-
-	conditions[lastIndex-1] = *newCond
-
-	return conditions
-}
-
-// IsSimilarToLastCondition checks the diff, so that we don't keep updating with the same info
-func IsSimilarToLastCondition(oldCond policyv1.Condition, newCond policyv1.Condition) bool {
-	return reflect.DeepEqual(oldCond.Status, newCond.Status) &&
-		reflect.DeepEqual(oldCond.Reason, newCond.Reason) &&
-		reflect.DeepEqual(oldCond.Message, newCond.Message) &&
-		reflect.DeepEqual(oldCond.Type, newCond.Type)
-}
-
 // addForUpdate calculates the compliance status of a configurationPolicy and updates the status field. The sendEvent
 // argument determines if a status update event should be sent on the parent policy and configuration policy.
 func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.ConfigurationPolicy, sendEvent bool) {
@@ -3402,11 +3362,4 @@ func IsBeingUninstalled(client client.Client) (bool, error) {
 	}
 
 	return deployment.Annotations[common.UninstallingAnnotation] == "true", nil
-}
-
-func recoverFlow() {
-	if r := recover(); r != nil {
-		// V(-2) is the error level
-		log.V(-2).Info("ALERT!!!! -> recovered from ", "recover", r)
-	}
 }
