@@ -1148,10 +1148,16 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 
 		// map raw object to a resource, generate a violation if resource cannot be found
 		if decodeErrResult == nil {
-			scopedGVR, mappingErrResult, err = r.getMapping(desiredObj.GroupVersionKind(), plc, indx)
+			scopedGVR, err = r.getMapping(desiredObj.GroupVersionKind(), plc, indx)
 			if err != nil {
 				// Return all mapping errors encountered and let the caller decide if the errors should be retried
 				mappingErr = errors.Join(mappingErr, err)
+
+				mappingErrResult = &objectTmplEvalResult{
+					events: []objectTmplEvalEvent{
+						{compliant: false, reason: "K8s error", message: err.Error()},
+					},
+				}
 			}
 		}
 
@@ -1847,10 +1853,8 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 // getMapping takes in a raw object, decodes it, and maps it to an existing group/kind
 func (r *ConfigurationPolicyReconciler) getMapping(
-	gvk schema.GroupVersionKind,
-	policy *policyv1.ConfigurationPolicy,
-	index int,
-) (depclient.ScopedGVR, *objectTmplEvalResult, error) {
+	gvk schema.GroupVersionKind, policy *policyv1.ConfigurationPolicy, index int,
+) (depclient.ScopedGVR, error) {
 	log := log.WithValues("policy", policy.GetName(), "index", index)
 
 	if gvk.Group == "" && gvk.Version == "" {
@@ -1858,13 +1862,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 
 		log.Error(err, "Can not get mapping for object")
 
-		result := &objectTmplEvalResult{
-			events: []objectTmplEvalEvent{
-				{compliant: false, reason: "K8s object definition error", message: err.Error()},
-			},
-		}
-
-		return depclient.ScopedGVR{}, result, err
+		return depclient.ScopedGVR{}, err
 	}
 
 	scopedGVR, err := r.DynamicWatcher.GVKToGVR(gvk)
@@ -1872,11 +1870,11 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 		if !errors.Is(err, depclient.ErrNoVersionedResource) {
 			log.Error(err, "Could not identify mapping error from raw object", "gvk", gvk)
 
-			return depclient.ScopedGVR{}, nil, err
+			return depclient.ScopedGVR{}, err
 		}
 
-		mappingErrMsg := "couldn't find mapping resource with kind " + gvk.Kind +
-			", please check if you have CRD deployed"
+		mappingErr := errors.New("couldn't find mapping resource with kind " + gvk.Kind +
+			", please check if you have CRD deployed")
 
 		log.Error(err, "Could not map resource, do you have the CRD deployed?", "kind", gvk.Kind)
 
@@ -1887,23 +1885,13 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 
 		policyUserErrorsCounter.WithLabelValues(parent, policy.GetName(), "no-object-CRD").Add(1)
 
-		result := &objectTmplEvalResult{
-			events: []objectTmplEvalEvent{
-				{compliant: false, reason: "K8s error", message: mappingErrMsg},
-			},
-		}
-
-		return depclient.ScopedGVR{}, result, err
+		return depclient.ScopedGVR{}, mappingErr
 	}
 
-	log.V(2).Info(
-		"Found the API mapping for the object template",
-		"group", gvk.Group,
-		"version", gvk.Version,
-		"kind", gvk.Kind,
-	)
+	log.V(2).Info("Found the API mapping for the object template",
+		"group", gvk.Group, "version", gvk.Version, "kind", gvk.Kind)
 
-	return scopedGVR, nil, nil
+	return scopedGVR, nil
 }
 
 // buildNameList is a helper function to pull names of resources that match an objectTemplate from a list of resources
