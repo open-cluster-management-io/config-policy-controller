@@ -712,47 +712,18 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 	log := log.WithValues("policy", plc.GetName())
 	log.V(1).Info("Processing object templates")
 
-	// initialize the RelatedObjects for this Configuration Policy
-	relatedObjects := []policyv1.RelatedObject{}
-	parentStatusUpdateNeeded := false
-
-	validationErr := ""
-	if plc.Spec == nil {
-		validationErr = "Policy does not have a Spec specified"
-	} else if plc.Spec.RemediationAction == "" {
-		validationErr = "Policy does not have a RemediationAction specified"
+	if err := r.validateConfigPolicy(plc); err != nil {
+		return err
 	}
 
-	// error if no spec or remediationAction is specified
-	if validationErr != "" {
-		message := validationErr
-		log.Info(message)
-		statusChanged := addConditionToStatus(plc, -1, false, "Invalid spec", message)
-
-		if statusChanged {
-			r.recordInfoEvent(plc, true)
-		}
-
-		// Note: don't update related objects when the policy is invalid
-
-		r.addForUpdate(plc, statusChanged)
-
-		parent := ""
-		if len(plc.OwnerReferences) > 0 {
-			parent = plc.OwnerReferences[0].Name
-		}
-
-		policyUserErrorsCounter.WithLabelValues(parent, plc.GetName(), "invalid-template").Add(1)
-
-		return fmt.Errorf("%w: %s", ErrPolicyInvalid, validationErr)
+	if returnNow, err := r.manageDeletionFinalizer(plc); err != nil || returnNow {
+		return err
 	}
-
-	var usingWatch bool
 
 	// Determine if the watch library should be used based on the evaluation interval.
-	if plc.Status.ComplianceState == policyv1.Compliant {
-		usingWatch = plc.Spec.EvaluationInterval.IsWatchForCompliant()
-	} else {
+	usingWatch := plc.Spec.EvaluationInterval.IsWatchForCompliant()
+
+	if plc.Status.ComplianceState != policyv1.Compliant {
 		// If the policy is not compliant (i.e. noncompliant or unknown), fall back to the noncompliant evaluation
 		// interval. This is a court of guilty until proven innocent.
 		usingWatch = plc.Spec.EvaluationInterval.IsWatchForNonCompliant()
@@ -780,145 +751,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		}()
 	}
 
-	// object handling for when configurationPolicy is deleted
-	if plc.Spec.PruneObjectBehavior == "DeleteIfCreated" || plc.Spec.PruneObjectBehavior == "DeleteAll" {
-		uninstalling, crdDeleting, err := r.cleanupImmediately()
-		if !uninstalling && !crdDeleting && err != nil {
-			log.Error(err, "Error determining whether to cleanup immediately, requeueing policy")
-
-			return err
-		}
-
-		if uninstalling || crdDeleting {
-			if objHasFinalizer(plc, pruneObjectFinalizer) {
-				patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
-
-				err = r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
-				if err != nil {
-					log.Error(err, "Error removing finalizer for configuration policy")
-
-					return err
-				}
-			}
-
-			return nil
-		}
-
-		// set finalizer if it hasn't been set
-		if !objHasFinalizer(plc, pruneObjectFinalizer) {
-			var patch []byte
-			if plc.Finalizers == nil {
-				patch = []byte(
-					`[{"op":"add","path":"/metadata/finalizers","value":["` + pruneObjectFinalizer + `"]}]`,
-				)
-			} else {
-				patch = []byte(
-					`[{"op":"add","path":"/metadata/finalizers/-","value":"` + pruneObjectFinalizer + `"}]`,
-				)
-			}
-
-			err := r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
-			if err != nil {
-				log.Error(err, "Error setting finalizer for configuration policy")
-
-				return err
-			}
-		}
-
-		// kick off object deletion if configurationPolicy has been deleted
-		if plc.ObjectMeta.DeletionTimestamp != nil {
-			log.Info("Config policy has been deleted, handling child objects")
-
-			failures := r.cleanUpChildObjects(plc, nil, usingWatch)
-
-			if len(failures) == 0 {
-				log.Info("Objects have been successfully cleaned up, removing finalizer")
-
-				patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
-
-				err = r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
-				if err != nil {
-					log.Error(err, "Error removing finalizer for configuration policy")
-
-					return err
-				}
-			} else {
-				log.Info("Object cleanup failed, some objects have not been deleted from the cluster")
-
-				failuresStr := strings.Join(failures, ", ")
-
-				statusChanged := addConditionToStatus(plc, -1, false, reasonCleanupError,
-					"Failed to delete objects: "+failuresStr)
-				if statusChanged {
-					parentStatusUpdateNeeded = true
-
-					r.recordInfoEvent(plc, true)
-				}
-
-				// Note: don't change related objects while deletion is in progress
-
-				r.addForUpdate(plc, parentStatusUpdateNeeded)
-
-				return fmt.Errorf("failed to delete objects %s", failuresStr)
-			}
-
-			return nil
-		}
-	} else if objHasFinalizer(plc, pruneObjectFinalizer) {
-		// if pruneObjectBehavior is none, no finalizer is needed
-		patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
-
-		err := r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
-		if err != nil {
-			log.Error(err, "Error removing finalizer for configuration policy")
-
-			return err
-		}
+	if plc.ObjectMeta.DeletionTimestamp != nil {
+		return r.handleDeletion(plc, usingWatch)
 	}
 
-	addTemplateErrorViolation := func(reason, msg string) {
-		log.Info("Setting the policy to noncompliant due to a templating error", "error", msg)
-
-		if reason == "" {
-			reason = "Error processing template"
-		}
-
-		statusChanged := addConditionToStatus(plc, -1, false, reason, msg)
-		if statusChanged {
-			parentStatusUpdateNeeded = true
-
-			r.recordInfoEvent(plc, true)
-		}
-
-		r.updatedRelatedObjects(plc, relatedObjects)
-
-		// Note: don't clean up child objects when there is a template violation
-
-		r.addForUpdate(plc, parentStatusUpdateNeeded)
-	}
-
-	resolveOptions := templates.ResolveOptions{}
-
-	usedKeyCache := false
-
-	if usesEncryption(plc) {
-		var encryptionConfig templates.EncryptionConfig
-		var err error
-
-		encryptionConfig, usedKeyCache, err = r.getEncryptionConfig(plc, false)
-		if err != nil {
-			addTemplateErrorViolation("", err.Error())
-
-			return err
-		}
-
-		resolveOptions.EncryptionConfig = encryptionConfig
-	}
-
-	annotations := plc.GetAnnotations()
 	disableTemplates := false
 
-	if disableAnnotation, ok := annotations[disableTemplatesAnnotation]; ok {
+	if disableAnnotation, ok := plc.Annotations[disableTemplatesAnnotation]; ok {
 		log.V(2).Info("Found disable-templates annotation", "value", disableAnnotation)
 
 		parsedDisable, err := strconv.ParseBool(disableAnnotation)
@@ -929,163 +768,18 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		}
 	}
 
-	// set up raw data for template processing
-	var rawDataList [][]byte
-	var isRawObjTemplate bool
-
-	if plc.Spec.ObjectTemplatesRaw != "" {
-		rawDataList = [][]byte{[]byte(plc.Spec.ObjectTemplatesRaw)}
-		isRawObjTemplate = true
-	} else {
-		for _, objectT := range plc.Spec.ObjectTemplates {
-			rawDataList = append(rawDataList, objectT.ObjectDefinition.Raw)
-		}
-		isRawObjTemplate = false
-	}
-
-	resolveOptions.InputIsYAML = isRawObjTemplate
-
-	log.V(2).Info("Processing the object templates", "count", len(plc.Spec.ObjectTemplates))
+	parentStatusUpdateNeeded := false
 
 	if !disableTemplates {
-		startTime := time.Now().UTC()
-
-		var tmplResolver *templates.TemplateResolver
-		var err error
-
-		if usingWatch {
-			tmplResolver, err = templates.NewResolverWithDynamicWatcher(r.DynamicWatcher, templates.Config{})
-			objID := plc.ObjectIdentifier()
-
-			resolveOptions.Watcher = &objID
-		} else {
-			tmplResolver, err = templates.NewResolver(r.TargetK8sConfig, templates.Config{})
+		updateNeeded, tmplErr := r.handleTemplatization(plc, usingWatch)
+		if tmplErr != nil {
+			return tmplErr
 		}
 
-		if err != nil {
-			return err
-		}
-
-		var objTemps []*policyv1.ObjectTemplate
-
-		// process object templates for go template usage
-		for i, rawData := range rawDataList {
-			if templates.HasTemplate(rawData, "", true) {
-				log.V(1).Info("Processing policy templates")
-
-				// If there's a template, we can't rely on the cache results.
-				r.processedPolicyCache.Delete(plc.GetUID())
-
-				resolvedTemplate, tplErr := tmplResolver.ResolveTemplate(rawData, nil, &resolveOptions)
-
-				// If the error is because the padding is invalid, this either means the encrypted value was not
-				// generated by the "protect" template function or the AES key is incorrect. Control for a stale
-				// cached key.
-				if usedKeyCache && (errors.Is(tplErr, templates.ErrInvalidPKCS7Padding) ||
-					errors.Is(tplErr, templates.ErrInvalidAESKey) ||
-					errors.Is(tplErr, templates.ErrAESKeyNotSet)) {
-					log.V(2).Info(
-						"The template decryption failed likely due to an invalid encryption key, will refresh " +
-							"the encryption key cache and try the decryption again",
-					)
-					var encryptionConfig templates.EncryptionConfig
-					var err error
-
-					encryptionConfig, usedKeyCache, err = r.getEncryptionConfig(plc, true)
-					if err != nil {
-						addTemplateErrorViolation("", err.Error())
-
-						return err
-					}
-
-					resolveOptions.EncryptionConfig = encryptionConfig
-
-					resolvedTemplate, tplErr = tmplResolver.ResolveTemplate(rawData, nil, &resolveOptions)
-				}
-
-				if tplErr != nil {
-					var msg string
-					var returnedErr error
-
-					if errors.Is(tplErr, templates.ErrInvalidAESKey) || errors.Is(tplErr, templates.ErrAESKeyNotSet) {
-						msg = `The "policy-encryption-key" Secret contains an invalid AES key`
-						returnedErr = tplErr
-					} else if errors.Is(tplErr, templates.ErrInvalidIV) {
-						msg = fmt.Sprintf(
-							`The "%s" annotation value is not a valid initialization vector`, IVAnnotation,
-						)
-
-						returnedErr = fmt.Errorf("%w: %w", ErrPolicyInvalid, tplErr)
-					} else {
-						msg = tplErr.Error()
-					}
-
-					addTemplateErrorViolation("", msg)
-
-					return returnedErr
-				}
-
-				// If raw data, only one passthrough is needed, since all the object templates are in it
-				if isRawObjTemplate {
-					err := json.Unmarshal(resolvedTemplate.ResolvedJSON, &objTemps)
-					if err != nil {
-						addTemplateErrorViolation("Error unmarshalling raw template", err.Error())
-
-						return err
-					}
-
-					if resolvedTemplate.HasSensitiveData {
-						for i := range objTemps {
-							if objTemps[i].RecordDiff == "" {
-								log.V(1).Info(
-									"Not automatically turning on recordDiff due to templates interacting with "+
-										"sensitive data",
-									"objectTemplateIndex", i,
-								)
-
-								objTemps[i].RecordDiff = policyv1.RecordDiffCensored
-							}
-						}
-					}
-
-					plc.Spec.ObjectTemplates = objTemps
-
-					break
-				}
-
-				if plc.Spec.ObjectTemplates[i].RecordDiff == "" && resolvedTemplate.HasSensitiveData {
-					log.V(1).Info(
-						"Not automatically turning on recordDiff due to templates interacting with sensitive data",
-						"objectTemplateIndex", i,
-					)
-
-					plc.Spec.ObjectTemplates[i].RecordDiff = policyv1.RecordDiffCensored
-				}
-
-				// Otherwise, set the resolved data for use in further processing
-				plc.Spec.ObjectTemplates[i].ObjectDefinition.Raw = resolvedTemplate.ResolvedJSON
-			} else if isRawObjTemplate {
-				// Unmarshal raw template YAML into object if that has not already been done by the template
-				// resolution function
-				err := yaml.Unmarshal(rawData, &objTemps)
-				if err != nil {
-					addTemplateErrorViolation("Error parsing the YAML in the object-templates-raw field", err.Error())
-
-					return err
-				}
-
-				plc.Spec.ObjectTemplates = objTemps
-
-				break
-			}
-		}
-
-		if r.EnableMetrics {
-			durationSeconds := time.Since(startTime).Seconds()
-			plcTempsProcessSecondsCounter.WithLabelValues(plc.GetName()).Add(durationSeconds)
-			plcTempsProcessCounter.WithLabelValues(plc.GetName()).Inc()
-		}
+		parentStatusUpdateNeeded = updateNeeded
 	}
+
+	relatedObjects := []policyv1.RelatedObject{}
 
 	if len(plc.Spec.ObjectTemplates) == 0 {
 		reason := "No object templates"
@@ -1112,110 +806,26 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 
 	var mappingErr error
 
-	for indx, objectT := range plc.Spec.ObjectTemplates {
-		// If the object does not have a namespace specified, use the results from the NamespaceSelector. If no
-		// namespaces are found/specified, use the value from the object so that the objectTemplate is processed:
-		// - For clusterwide resources, an empty string will be expected
-		// - For namespaced resources, handleObjects() will return a status with a no namespace message if
-		//   it's an empty string or else it will use the namespace defined in the object
+	for index, objectT := range plc.Spec.ObjectTemplates {
 		nsToResults := map[string]objectTmplEvalResult{}
-		desiredObj := unstructured.Unstructured{}
-		var decodeErrResult *objectTmplEvalResult
+		desiredObj, scopedGVR, relevantNamespaces, errEvent, mapErr := r.determineDesiredObject(plc, index, objectT)
 
-		_, _, err := unstructured.UnstructuredJSONScheme.Decode(objectT.ObjectDefinition.Raw, nil, &desiredObj)
-		if err != nil {
-			decodeErr := fmt.Sprintf("Decoding error, please check your policy file!"+
-				" Aborting handling the object template at index [%v] in policy `%v` with error = `%v`",
-				indx, plc.Name, err)
+		// Return all mapping errors encountered and let the caller decide if the errors should be retried
+		mappingErr = errors.Join(mappingErr, mapErr)
 
-			log.Error(err, "Could not decode the objectDefinition", "index", indx)
-
-			decodeErrResult = &objectTmplEvalResult{
-				events: []objectTmplEvalEvent{
-					{compliant: false, reason: "K8s decode object definition error", message: decodeErr},
-				},
-			}
-		}
-
-		// strings.TrimSpace() is needed here because a multi-line value will have '\n' in it. This is kept for
-		// backwards compatibility.
-		desiredObj.SetName(strings.TrimSpace(desiredObj.GetName()))
-		desiredObj.SetNamespace(strings.TrimSpace(desiredObj.GetNamespace()))
-		desiredObj.SetKind(strings.TrimSpace(desiredObj.GetKind()))
-
-		var scopedGVR depclient.ScopedGVR
-		var mappingErrResult *objectTmplEvalResult
-
-		// map raw object to a resource, generate a violation if resource cannot be found
-		if decodeErrResult == nil {
-			scopedGVR, err = r.getMapping(desiredObj.GroupVersionKind(), plc, indx)
-			if err != nil {
-				// Return all mapping errors encountered and let the caller decide if the errors should be retried
-				mappingErr = errors.Join(mappingErr, err)
-
-				mappingErrResult = &objectTmplEvalResult{
-					events: []objectTmplEvalEvent{
-						{compliant: false, reason: "K8s error", message: err.Error()},
-					},
-				}
-			}
-		}
-
-		var relevantNamespaces []string
-		var nsSelectorErr *objectTmplEvalResult
-
-		if scopedGVR.Namespaced && desiredObj.GetNamespace() == "" {
-			selectedNamespaces, err := r.SelectorReconciler.Get(plc.Namespace, plc.Name, plc.Spec.NamespaceSelector)
-			if err != nil {
-				log.Error(err, "Failed to select the namespaces",
-					"namespaceSelector", fmt.Sprintf("%+v", plc.Spec.NamespaceSelector))
-
-				msg := fmt.Sprintf("Error filtering namespaces with provided namespaceSelector: %v", err)
-
-				nsSelectorErr = &objectTmplEvalResult{
-					events: []objectTmplEvalEvent{
-						{compliant: false, reason: "namespaceSelector error", message: msg},
-					},
-				}
-			}
-
-			if len(selectedNamespaces) == 0 {
-				relevantNamespaces = []string{desiredObj.GetNamespace()}
-			} else {
-				relevantNamespaces = selectedNamespaces
-			}
-		} else {
-			relevantNamespaces = []string{desiredObj.GetNamespace()}
-		}
-
-		// iterate through all namespaces the configurationpolicy is set on
 		for _, ns := range relevantNamespaces {
-			log.V(1).Info(
-				"Handling the object template for the relevant namespace",
-				"namespace", ns,
-				"desiredName", desiredObj.GetName(),
-				"index", indx,
-			)
+			log.V(1).Info("Handling the object template for the relevant namespace",
+				"namespace", ns, "desiredName", desiredObj.GetName(), "index", index)
 
-			if decodeErrResult != nil {
-				nsToResults[ns] = *decodeErrResult
+			if errEvent != nil {
+				nsToResults[ns] = objectTmplEvalResult{
+					events: []objectTmplEvalEvent{*errEvent},
+				}
 
 				continue
 			}
 
-			if mappingErrResult != nil {
-				nsToResults[ns] = *mappingErrResult
-
-				continue
-			}
-
-			if nsSelectorErr != nil {
-				nsToResults[ns] = *nsSelectorErr
-
-				continue
-			}
-
-			related, result := r.handleObjects(objectT, ns, desiredObj, indx, plc, scopedGVR, usingWatch)
+			related, result := r.handleObjects(objectT, ns, desiredObj, index, plc, scopedGVR, usingWatch)
 
 			nsToResults[ns] = result
 
@@ -1224,41 +834,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 			}
 		}
 
-		// Each index is a batch of compliance events to be set on the ConfigurationPolicy before going on to the
-		// next one. For example, if an object didn't match and was enforced, there would be an event that it didn't
-		// match in the first batch, and then the second batch would be that it was updated successfully.
-		eventBatches := []map[string]*objectTmplEvalResultWithEvent{}
+		eventBatches := batchedEvents(nsToResults)
 
-		for ns, r := range nsToResults {
-			// Ensure eventBatches has enough batch entries for the number of compliance events for this namespace.
-			if len(eventBatches) < len(r.events) {
-				eventBatches = append(
-					make([]map[string]*objectTmplEvalResultWithEvent, len(r.events)-len(eventBatches)),
-					eventBatches...,
-				)
-			}
-
-			for i, event := range r.events {
-				// Determine the applicable batch. For example, if the policy enforces a "Role" in namespaces "ns1" and
-				// "ns2", and the "Role" was created in "ns1" and already compliant in "ns2", then "eventBatches" would
-				// have a length of two. The zeroth index would contain a noncompliant event because the "Role" did not
-				// exist in "ns1". The first index would contain two compliant events because the "Role" was created in
-				// "ns1" and was already compliant in "ns2".
-				batchIndex := len(eventBatches) - len(r.events) + i
-
-				if eventBatches[batchIndex] == nil {
-					eventBatches[batchIndex] = map[string]*objectTmplEvalResultWithEvent{}
-				}
-
-				eventBatches[batchIndex][ns] = &objectTmplEvalResultWithEvent{result: r, event: event}
-			}
-		}
-
-		var resourceName string
-		if scopedGVR.Resource == "" {
+		resourceName := scopedGVR.Resource
+		if resourceName == "" {
+			// Fallback to the kind in the object, if the scopedGVR wasn't populated.
 			resourceName = desiredObj.GetKind()
-		} else {
-			resourceName = scopedGVR.Resource
 		}
 
 		// If there are multiple batches, check if the last batch is noncompliant and is the current state. If so,
@@ -1272,12 +853,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 			compliant, reason, msg := createStatus(resourceName, lastBatch)
 
 			if !compliant {
-				statusUpdateNeeded := addConditionToStatus(plc.DeepCopy(), indx, compliant, reason, msg)
+				statusUpdateNeeded := addConditionToStatus(plc.DeepCopy(), index, compliant, reason, msg)
 
 				if !statusUpdateNeeded {
 					log.V(2).Info("Skipping status update because the last batch already matches")
 
-					eventBatches = []map[string]*objectTmplEvalResultWithEvent{}
+					continue
 				}
 			}
 		}
@@ -1285,7 +866,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		for i, batch := range eventBatches {
 			compliant, reason, msg := createStatus(resourceName, batch)
 
-			statusUpdateNeeded := addConditionToStatus(plc, indx, compliant, reason, msg)
+			statusUpdateNeeded := addConditionToStatus(plc, index, compliant, reason, msg)
 
 			if statusUpdateNeeded {
 				parentStatusUpdateNeeded = true
@@ -1296,7 +877,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 				}
 
 				log.Info("Sending an update policy status event for the object template",
-					"policy", plc.Name, "index", indx)
+					"policy", plc.Name, "index", index)
 				r.addForUpdate(plc, true)
 			}
 		}
@@ -1312,6 +893,463 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 	r.addForUpdate(plc, parentStatusUpdateNeeded)
 
 	return mappingErr
+}
+
+// validateConfigPolicy returns an error and increments the "invalid-template" error counter metric
+// if the configuration is invalid.
+func (r *ConfigurationPolicyReconciler) validateConfigPolicy(plc *policyv1.ConfigurationPolicy) error {
+	var invalidMessage string
+
+	if plc.Spec == nil {
+		invalidMessage = "Policy does not have a Spec specified"
+	} else if plc.Spec.RemediationAction == "" {
+		invalidMessage = "Policy does not have a RemediationAction specified"
+	} else {
+		return nil
+	}
+
+	log.Info(invalidMessage)
+	statusChanged := addConditionToStatus(plc, -1, false, "Invalid spec", invalidMessage)
+
+	if statusChanged {
+		r.recordInfoEvent(plc, true)
+	}
+
+	// Note: don't change related objects while the policy is invalid
+
+	r.addForUpdate(plc, statusChanged)
+
+	parent := ""
+	if len(plc.OwnerReferences) > 0 {
+		parent = plc.OwnerReferences[0].Name
+	}
+
+	policyUserErrorsCounter.WithLabelValues(parent, plc.GetName(), "invalid-template").Add(1)
+
+	return fmt.Errorf("%w: %s", ErrPolicyInvalid, invalidMessage)
+}
+
+// manageDeletionFinalizer sets or removes the finalizer on the ConfigurationPolicy based on the
+// pruneObjectBehavior setting, and whether the controller is being uninstalled. If the controller
+// is being uninstalled, the function will return true, indicating the rest of the policy handling
+// logic should be skipped.
+func (r *ConfigurationPolicyReconciler) manageDeletionFinalizer(plc *policyv1.ConfigurationPolicy,
+) (returnNow bool, err error) {
+	if plc.Spec.PruneObjectBehavior == "DeleteIfCreated" || plc.Spec.PruneObjectBehavior == "DeleteAll" {
+		uninstalling, crdDeleting, err := r.cleanupImmediately()
+		if !uninstalling && !crdDeleting && err != nil {
+			log.Error(err, "Error determining whether to cleanup immediately, requeueing policy")
+
+			return true, err
+		}
+
+		if uninstalling || crdDeleting {
+			if objHasFinalizer(plc, pruneObjectFinalizer) {
+				patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
+
+				err = r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
+				if err != nil {
+					log.Error(err, "Error removing finalizer for configuration policy")
+
+					return true, err
+				}
+			}
+
+			return true, nil
+		}
+
+		// set finalizer if it hasn't been set
+		if !objHasFinalizer(plc, pruneObjectFinalizer) {
+			var patch []byte
+			if plc.Finalizers == nil {
+				patch = []byte(
+					`[{"op":"add","path":"/metadata/finalizers","value":["` + pruneObjectFinalizer + `"]}]`,
+				)
+			} else {
+				patch = []byte(
+					`[{"op":"add","path":"/metadata/finalizers/-","value":"` + pruneObjectFinalizer + `"}]`,
+				)
+			}
+
+			err := r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
+			if err != nil {
+				log.Error(err, "Error setting finalizer for configuration policy")
+
+				return true, err
+			}
+		}
+	} else if objHasFinalizer(plc, pruneObjectFinalizer) {
+		// if pruneObjectBehavior is none, no finalizer is needed
+		patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
+
+		err := r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
+		if err != nil {
+			log.Error(err, "Error removing finalizer for configuration policy")
+
+			return true, err
+		}
+	}
+
+	return false, nil
+}
+
+// handleDeletion cleans up the child objects, based on the pruneObjectBehavior setting. If all of
+// the required child objects are fully removed, it will remove the finalizer.
+func (r *ConfigurationPolicyReconciler) handleDeletion(plc *policyv1.ConfigurationPolicy, usingWatch bool) error {
+	if !(plc.Spec.PruneObjectBehavior == "DeleteIfCreated" || plc.Spec.PruneObjectBehavior == "DeleteAll") {
+		return nil
+	}
+
+	parentStatusUpdateNeeded := false
+
+	log.Info("Config policy has been deleted, handling child objects")
+
+	failures := r.cleanUpChildObjects(plc, nil, usingWatch)
+
+	if len(failures) == 0 {
+		log.Info("Objects have been successfully cleaned up, removing finalizer")
+
+		patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
+
+		err := r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
+		if err != nil {
+			log.Error(err, "Error removing finalizer for configuration policy")
+
+			return err
+		}
+	} else {
+		log.Info("Object cleanup failed, some objects have not been deleted from the cluster")
+
+		failuresStr := strings.Join(failures, ", ")
+
+		statusChanged := addConditionToStatus(plc, -1, false, reasonCleanupError,
+			"Failed to delete objects: "+failuresStr)
+		if statusChanged {
+			parentStatusUpdateNeeded = true
+
+			r.recordInfoEvent(plc, true)
+		}
+
+		// Note: don't change related objects while deletion is in progress
+
+		r.addForUpdate(plc, parentStatusUpdateNeeded)
+
+		return fmt.Errorf("failed to delete objects %s", failuresStr)
+	}
+
+	return nil
+}
+
+// handleTemplatization sets the `plc.Spec.ObjectTemplates` after resolving any templatized values.
+func (r *ConfigurationPolicyReconciler) handleTemplatization(
+	plc *policyv1.ConfigurationPolicy, usingWatch bool,
+) (parentStatusUpdateNeeded bool, err error) {
+	if r.EnableMetrics {
+		startTime := time.Now().UTC()
+
+		defer func() {
+			durationSeconds := time.Since(startTime).Seconds()
+			plcTempsProcessSecondsCounter.WithLabelValues(plc.GetName()).Add(durationSeconds)
+			plcTempsProcessCounter.WithLabelValues(plc.GetName()).Inc()
+		}()
+	}
+
+	relatedObjects := []policyv1.RelatedObject{}
+
+	addTemplateErrorViolation := func(reason, msg string) {
+		log.Info("Setting the policy to noncompliant due to a templating error", "error", msg)
+
+		if reason == "" {
+			reason = "Error processing template"
+		}
+
+		statusChanged := addConditionToStatus(plc, -1, false, reason, msg)
+		if statusChanged {
+			parentStatusUpdateNeeded = true
+
+			r.recordInfoEvent(plc, true)
+		}
+
+		r.updatedRelatedObjects(plc, relatedObjects)
+
+		// Note: don't clean up child objects when there is a template violation
+
+		r.addForUpdate(plc, parentStatusUpdateNeeded)
+	}
+
+	resolveOptions := templates.ResolveOptions{}
+	usedKeyCache := false
+
+	if usesEncryption(plc) {
+		var encryptionConfig templates.EncryptionConfig
+		var err error
+
+		encryptionConfig, usedKeyCache, err = r.getEncryptionConfig(plc, false)
+		if err != nil {
+			addTemplateErrorViolation("", err.Error())
+
+			return parentStatusUpdateNeeded, err
+		}
+
+		resolveOptions.EncryptionConfig = encryptionConfig
+	}
+
+	// set up raw data for template processing
+	var rawDataList [][]byte
+
+	isRawObjTemplate := false
+
+	if plc.Spec.ObjectTemplatesRaw != "" {
+		rawDataList = [][]byte{[]byte(plc.Spec.ObjectTemplatesRaw)}
+		isRawObjTemplate = true
+	} else {
+		for _, objectT := range plc.Spec.ObjectTemplates {
+			rawDataList = append(rawDataList, objectT.ObjectDefinition.Raw)
+		}
+	}
+
+	resolveOptions.InputIsYAML = isRawObjTemplate
+
+	log.V(2).Info("Processing the object templates", "count", len(plc.Spec.ObjectTemplates))
+
+	var tmplResolver *templates.TemplateResolver
+
+	if usingWatch {
+		tmplResolver, err = templates.NewResolverWithDynamicWatcher(r.DynamicWatcher, templates.Config{})
+		objID := plc.ObjectIdentifier()
+
+		resolveOptions.Watcher = &objID
+	} else {
+		tmplResolver, err = templates.NewResolver(r.TargetK8sConfig, templates.Config{})
+	}
+
+	if err != nil {
+		return parentStatusUpdateNeeded, err
+	}
+
+	var objTemps []*policyv1.ObjectTemplate
+
+	// process object templates for go template usage
+	for i, rawData := range rawDataList {
+		if !templates.HasTemplate(rawData, "", true) && !isRawObjTemplate {
+			continue
+		}
+
+		if !templates.HasTemplate(rawData, "", true) {
+			// Unmarshal raw template YAML into object if that has not already been done by the template
+			// resolution function
+			err := yaml.Unmarshal(rawData, &objTemps)
+			if err != nil {
+				addTemplateErrorViolation("Error parsing the YAML in the object-templates-raw field", err.Error())
+
+				return parentStatusUpdateNeeded, err
+			}
+
+			plc.Spec.ObjectTemplates = objTemps
+
+			break
+		}
+
+		log.V(1).Info("Processing policy templates")
+
+		// If there's a template, we can't rely on the cache results.
+		r.processedPolicyCache.Delete(plc.GetUID())
+
+		resolvedTemplate, tplErr := tmplResolver.ResolveTemplate(rawData, nil, &resolveOptions)
+		if tplErr != nil {
+			// If the error is because the padding is invalid, this either means the encrypted value was not
+			// generated by the "protect" template function or the AES key is incorrect. Control for a stale
+			// cached key.
+			isRefreshableError := errors.Is(tplErr, templates.ErrInvalidPKCS7Padding) ||
+				errors.Is(tplErr, templates.ErrInvalidAESKey) || errors.Is(tplErr, templates.ErrAESKeyNotSet)
+
+			if usedKeyCache && isRefreshableError {
+				log.V(2).Info(
+					"The template decryption failed likely due to an invalid encryption key, will refresh " +
+						"the encryption key cache and try the decryption again",
+				)
+
+				encryptionConfig, usedNewCache, err := r.getEncryptionConfig(plc, true)
+				if err != nil {
+					addTemplateErrorViolation("", err.Error())
+
+					return parentStatusUpdateNeeded, err
+				}
+
+				usedKeyCache = usedNewCache
+				resolveOptions.EncryptionConfig = encryptionConfig
+				resolvedTemplate, tplErr = tmplResolver.ResolveTemplate(rawData, nil, &resolveOptions)
+			}
+		}
+
+		if tplErr != nil { // this could be a *new* tplErr
+			if errors.Is(tplErr, templates.ErrInvalidAESKey) || errors.Is(tplErr, templates.ErrAESKeyNotSet) {
+				addTemplateErrorViolation("", `The "policy-encryption-key" Secret contains an invalid AES key`)
+
+				return parentStatusUpdateNeeded, tplErr
+			} else if errors.Is(tplErr, templates.ErrInvalidIV) {
+				addTemplateErrorViolation("", fmt.Sprintf(
+					`The "%s" annotation value is not a valid initialization vector`, IVAnnotation,
+				))
+
+				return parentStatusUpdateNeeded, fmt.Errorf("%w: %w", ErrPolicyInvalid, tplErr)
+			} else {
+				addTemplateErrorViolation("", tplErr.Error())
+
+				return parentStatusUpdateNeeded, tplErr
+			}
+		}
+
+		// If raw data, only one passthrough is needed, since all the object templates are in it
+		if isRawObjTemplate {
+			err := json.Unmarshal(resolvedTemplate.ResolvedJSON, &objTemps)
+			if err != nil {
+				addTemplateErrorViolation("Error unmarshalling raw template", err.Error())
+
+				return parentStatusUpdateNeeded, err
+			}
+
+			if resolvedTemplate.HasSensitiveData {
+				for i := range objTemps {
+					if objTemps[i].RecordDiff == "" {
+						log.V(1).Info(
+							"Not automatically turning on recordDiff due to templates interacting with sensitive data",
+							"objectTemplateIndex", i,
+						)
+
+						objTemps[i].RecordDiff = policyv1.RecordDiffCensored
+					}
+				}
+			}
+
+			plc.Spec.ObjectTemplates = objTemps
+
+			break
+		}
+
+		if plc.Spec.ObjectTemplates[i].RecordDiff == "" && resolvedTemplate.HasSensitiveData {
+			log.V(1).Info(
+				"Not automatically turning on recordDiff due to templates interacting with sensitive data",
+				"objectTemplateIndex", i,
+			)
+
+			plc.Spec.ObjectTemplates[i].RecordDiff = policyv1.RecordDiffCensored
+		}
+
+		// Otherwise, set the resolved data for use in further processing
+		plc.Spec.ObjectTemplates[i].ObjectDefinition.Raw = resolvedTemplate.ResolvedJSON
+	}
+
+	return parentStatusUpdateNeeded, nil
+}
+
+// determineDesiredObject decodes the object definition, gets its mapping, and determines which namespaces
+// are relevant (using the policy's selector if a namespace is not set in the object definition). If an
+// error occurs during this process, it returns an evaluation event with more details about the error.
+func (r *ConfigurationPolicyReconciler) determineDesiredObject(
+	plc *policyv1.ConfigurationPolicy, index int, objectT *policyv1.ObjectTemplate,
+) (
+	desiredObj unstructured.Unstructured,
+	scopedGVR depclient.ScopedGVR,
+	relevantNamespaces []string,
+	errEvent *objectTmplEvalEvent,
+	mappingErr error,
+) {
+	_, _, err := unstructured.UnstructuredJSONScheme.Decode(objectT.ObjectDefinition.Raw, nil, &desiredObj)
+	if err != nil {
+		log.Error(err, "Could not decode the objectDefinition", "index", index)
+
+		errEvent = &objectTmplEvalEvent{
+			compliant: false,
+			reason:    "K8s decode object definition error",
+			message: fmt.Sprintf("Decoding error, please check your policy file!"+
+				" Aborting handling the object template at index [%v] in policy `%v` with error = `%v`",
+				index, plc.Name, err),
+		}
+	}
+
+	// strings.TrimSpace() is needed here because a multi-line value will have '\n' in it. This is kept for
+	// backwards compatibility.
+	desiredObj.SetName(strings.TrimSpace(desiredObj.GetName()))
+	desiredObj.SetNamespace(strings.TrimSpace(desiredObj.GetNamespace()))
+	desiredObj.SetKind(strings.TrimSpace(desiredObj.GetKind()))
+
+	// map raw object to a resource, generate a violation if resource cannot be found
+	if errEvent == nil {
+		scopedGVR, err = r.getMapping(desiredObj.GroupVersionKind(), plc, index)
+		if err != nil {
+			mappingErr = err
+
+			errEvent = &objectTmplEvalEvent{
+				compliant: false,
+				reason:    "K8s error",
+				message:   err.Error(),
+			}
+		}
+	}
+
+	if scopedGVR.Namespaced && desiredObj.GetNamespace() == "" {
+		selectedNamespaces, err := r.SelectorReconciler.Get(plc.Namespace, plc.Name, plc.Spec.NamespaceSelector)
+		if err != nil {
+			log.Error(err, "Failed to select the namespaces",
+				"namespaceSelector", fmt.Sprintf("%+v", plc.Spec.NamespaceSelector))
+
+			msg := fmt.Sprintf("Error filtering namespaces with provided namespaceSelector: %v", err)
+
+			// only report this error if there wasn't another yet
+			if errEvent == nil {
+				errEvent = &objectTmplEvalEvent{
+					compliant: false,
+					reason:    "namespaceSelector error",
+					message:   msg,
+				}
+			}
+		}
+
+		if len(selectedNamespaces) == 0 {
+			relevantNamespaces = []string{desiredObj.GetNamespace()}
+		} else {
+			relevantNamespaces = selectedNamespaces
+		}
+	} else {
+		relevantNamespaces = []string{desiredObj.GetNamespace()}
+	}
+
+	return desiredObj, scopedGVR, relevantNamespaces, errEvent, mappingErr
+}
+
+// batchedEvents combines compliance events into batches that should be emitted in order. For example,
+// if an object didn't match and was enforced, there would be an event that it didn't match in the first
+// batch, and then the second batch would be that it was updated successfully.
+func batchedEvents(nsToResults map[string]objectTmplEvalResult) (
+	eventBatches []map[string]*objectTmplEvalResultWithEvent,
+) {
+	for ns, result := range nsToResults {
+		// Ensure eventBatches has enough batch entries for the number of compliance events for this namespace.
+		if len(eventBatches) < len(result.events) {
+			eventBatches = append(
+				make([]map[string]*objectTmplEvalResultWithEvent, len(result.events)-len(eventBatches)),
+				eventBatches...,
+			)
+		}
+
+		for i, event := range result.events {
+			// Determine the applicable batch. For example, if the policy enforces a "Role" in namespaces "ns1" and
+			// "ns2", and the "Role" was created in "ns1" and already compliant in "ns2", then "eventBatches" would
+			// have a length of two. The zeroth index would contain a noncompliant event because the "Role" did not
+			// exist in "ns1". The first index would contain two compliant events because the "Role" was created in
+			// "ns1" and was already compliant in "ns2".
+			batchIndex := len(eventBatches) - len(result.events) + i
+
+			if eventBatches[batchIndex] == nil {
+				eventBatches[batchIndex] = map[string]*objectTmplEvalResultWithEvent{}
+			}
+
+			eventBatches[batchIndex][ns] = &objectTmplEvalResultWithEvent{result: result, event: event}
+		}
+	}
+
+	return eventBatches
 }
 
 // updatedRelatedObjects calculates what the related objects list should be, sorting the given list
