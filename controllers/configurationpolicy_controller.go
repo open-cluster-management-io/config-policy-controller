@@ -3238,23 +3238,14 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	if sendEvent {
 		log.V(1).Info("Sending policy status update event")
 
-		var msg string
+		condMessages := make([]string, 0, len(policy.Status.CompliancyDetails))
 
-		for i, compliancyDetail := range policy.Status.CompliancyDetails {
-			if i == 0 {
-				msg = ": "
-			}
-
-			for _, condition := range compliancyDetail.Conditions {
-				if condition.Message == "" {
-					continue
-				}
-
-				if msg != ": " {
-					msg += "; "
-				}
-
-				msg += condition.Message
+		for _, compliancyDetail := range policy.Status.CompliancyDetails {
+			if len(compliancyDetail.Conditions) != 0 {
+				// NOTE: this will drop additional conditions, if there is more than one.
+				// There should only ever be one condition at a time, either of type 'violation' if the
+				// resource is NonCompliant, or type 'notification' if it is Compliant.
+				condMessages = append(condMessages, compliancyDetail.Conditions[0].Message)
 			}
 		}
 
@@ -3263,7 +3254,7 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 			eventType = eventWarning
 		}
 
-		eventMessage := fmt.Sprintf("%s%s", policy.Status.ComplianceState, msg)
+		eventMessage := fmt.Sprintf("%s: %s", policy.Status.ComplianceState, strings.Join(condMessages, "; "))
 		log.Info("Policy status message", "policy", policy.GetName(), "status", eventMessage)
 
 		r.Recorder.Event(
