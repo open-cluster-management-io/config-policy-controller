@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/prometheus/client_golang/prometheus"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/metrics"
 )
 
@@ -100,4 +101,16 @@ func init() {
 	if regErr != nil && !errors.As(regErr, alreadyReg) {
 		panic(regErr)
 	}
+}
+
+func removeConfigPolicyMetrics(request ctrl.Request) {
+	// If a metric has an error while deleting, that means the policy was never evaluated so it can be ignored.
+	_ = policyEvalSecondsCounter.DeleteLabelValues(request.Name)
+	_ = policyEvalCounter.DeleteLabelValues(request.Name)
+	_ = plcTempsProcessSecondsCounter.DeleteLabelValues(request.Name)
+	_ = plcTempsProcessCounter.DeleteLabelValues(request.Name)
+	_ = compareObjEvalCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
+	_ = compareObjSecondsCounter.DeletePartialMatch(prometheus.Labels{"config_policy_name": request.Name})
+	_ = policyUserErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
+	_ = policySystemErrorsCounter.DeletePartialMatch(prometheus.Labels{"template": request.Name})
 }
