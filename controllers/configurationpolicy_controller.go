@@ -72,7 +72,6 @@ var (
 	eventNormal  = "Normal"
 	eventWarning = "Warning"
 	eventFmtStr  = "policy: %s/%s"
-	plcFmtStr    = "policy: %s"
 )
 
 const (
@@ -742,8 +741,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		statusChanged := addConditionToStatus(plc, -1, false, "Invalid spec", message)
 
 		if statusChanged {
-			r.Recorder.Event(plc, eventWarning,
-				fmt.Sprintf(plcFmtStr, plc.GetName()), convertPolicyStatusToString(plc))
+			r.recordInfoEvent(plc, true)
 		}
 
 		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusChanged, true)
@@ -858,21 +856,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 
 				failuresStr := strings.Join(failures, ", ")
 
-				statusChanged := addConditionToStatus(
-					plc,
-					-1,
-					false,
-					reasonCleanupError,
+				statusChanged := addConditionToStatus(plc, -1, false, reasonCleanupError,
 					"Failed to delete objects: "+failuresStr)
 				if statusChanged {
 					parentStatusUpdateNeeded = true
 
-					r.Recorder.Event(
-						plc,
-						eventWarning,
-						fmt.Sprintf(plcFmtStr, plc.GetName()),
-						convertPolicyStatusToString(plc),
-					)
+					r.recordInfoEvent(plc, true)
 				}
 
 				// don't change related objects while deletion is in progress
@@ -908,12 +897,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		if statusChanged {
 			parentStatusUpdateNeeded = true
 
-			r.Recorder.Event(
-				plc,
-				eventWarning,
-				fmt.Sprintf(plcFmtStr, plc.GetName()),
-				convertPolicyStatusToString(plc),
-			)
+			r.recordInfoEvent(plc, true)
 		}
 
 		// deleteDetachedObjs should be false
@@ -1133,10 +1117,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		statusUpdateNeeded := addConditionToStatus(plc, -1, true, reason, msg)
 
 		if statusUpdateNeeded {
-			eventType := eventNormal
-
-			r.Recorder.Event(plc, eventType, fmt.Sprintf(plcFmtStr, plc.GetName()),
-				convertPolicyStatusToString(plc))
+			r.recordInfoEvent(plc, false)
 		}
 
 		r.checkRelatedAndUpdate(plc, relatedObjects, oldRelated, statusUpdateNeeded, true)
@@ -3294,6 +3275,22 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	}
 
 	return nil
+}
+
+// recordInfoEvent adds an informational event to the queue to be emitted (it does not emit it
+// synchronously). This event is not used for compliance, but may be used by other tools.
+func (r *ConfigurationPolicyReconciler) recordInfoEvent(plc *policyv1.ConfigurationPolicy, violation bool) {
+	eventType := eventNormal
+	if violation {
+		eventType = eventWarning
+	}
+
+	r.Recorder.Event(
+		plc,
+		eventType,
+		"policy: "+plc.GetName(),
+		convertPolicyStatusToString(plc),
+	)
 }
 
 func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.ConfigurationPolicy) error {
