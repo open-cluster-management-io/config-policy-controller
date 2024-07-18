@@ -101,10 +101,10 @@ var _ = Describe("Test pod obj template handling", func() {
 		})
 		AfterAll(func() {
 			policies := []string{
-				case8ConfigPolicyNamePod,
 				case8ConfigPolicyNameCheck,
 				case8ConfigPolicyNameCheckFail,
 				case8ConfigPolicyNameEnforceFail,
+				case8ConfigPolicyNamePod,
 			}
 
 			deleteConfigPolicies(policies)
