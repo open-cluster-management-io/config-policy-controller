@@ -68,15 +68,15 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 	AfterAll(func() {
 		for _, policy := range policyTests {
 			By("Deleting " + policy.name + " on managed")
-			utils.Kubectl("delete", "-f", policy.yamlFile, "-n", testNamespace)
+			utils.KubectlDelete("-f", policy.yamlFile, "-n", testNamespace)
 		}
 		for _, ns := range testNamespaces {
 			By("Deleting " + case14LimitRangeName + " on " + ns)
-			utils.Kubectl("delete", "-f", case14LimitRangeFile, "-n", ns)
+			utils.KubectlDelete("-f", case14LimitRangeFile, "-n", ns)
 		}
 		for _, ns := range append(testNamespaces, newNs) {
 			By("Deleting namespace " + ns)
-			utils.Kubectl("delete", "namespace", ns, "--ignore-not-found")
+			utils.KubectlDelete("namespace", ns)
 		}
 	})
 

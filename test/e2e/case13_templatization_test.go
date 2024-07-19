@@ -106,8 +106,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 
 			By("Clean up")
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCheckSecret, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case13CfgPolCheckSecret, "-n", testNamespace)
 		})
 	})
 	Describe("Create a secret and copy all secret data into a configurationPolicy", func() {
@@ -148,8 +148,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 
 			By("Clean up")
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCheckSecret, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case13CfgPolCheckSecret, "-n", testNamespace)
 		})
 	})
 	Describe("Create a clusterclaim and pull data from it into a configurationPolicy", func() {
@@ -199,12 +199,9 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
 		})
 		AfterAll(func() {
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolCreatePod,
-				"-n", testNamespace, "--ignore-not-found")
-			utils.Kubectl("delete", "configurationpolicy", case13CfgPolVerifyPod,
-				"-n", testNamespace, "--ignore-not-found")
-			utils.Kubectl("delete", "configurationpolicy",
-				case13CfgPolVerifyPodWithConfigMap, "-n", testNamespace, "--ignore-not-found")
+			utils.KubectlDelete("configurationpolicy", case13CfgPolCreatePod, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case13CfgPolVerifyPod, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case13CfgPolVerifyPodWithConfigMap, "-n", testNamespace)
 		})
 	})
 	Describe("Use the generic lookup template to get the same resources from the previous tests", func() {
@@ -235,7 +232,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 			By("Clean up")
 			deleteConfigPolicies([]string{case13LookupSecret, case13LookupClusterClaim})
-			utils.Kubectl("delete", "pod", "c13-pod", "-n", "default")
+			utils.KubectlDelete("pod", "c13-pod", "-n", "default")
 		})
 	})
 	Describe("test invalid templates", Ordered, func() {
@@ -374,8 +371,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 			})
 			AfterAll(func() {
 				deleteConfigPolicies([]string{case13UpdateRefObject})
-				utils.Kubectl("delete", "configmap", configMapName, "-n", "default")
-				utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default")
+				utils.KubectlDelete("configmap", configMapName, "-n", "default")
+				utils.KubectlDelete("configmap", configMapReplName, "-n", "default")
 			})
 		})
 	Describe("Test the copy configMap function", Ordered, func() {
@@ -423,8 +420,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 		})
 		AfterAll(func() {
 			deleteConfigPolicies([]string{case13CopyRefObject})
-			utils.Kubectl("delete", "configmap", configMapName, "-n", "default", "--ignore-not-found")
-			utils.Kubectl("delete", "configmap", configMapReplName, "-n", "default", "--ignore-not-found")
+			utils.KubectlDelete("configmap", configMapName, "-n", "default")
+			utils.KubectlDelete("configmap", configMapReplName, "-n", "default")
 		})
 	})
 	Describe("Create a secret and create template error", Ordered, func() {
@@ -481,12 +478,9 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultConsistentlyDuration, 1).ShouldNot(BeNil())
 		})
 		AfterAll(func() {
-			utils.Kubectl("delete", "configurationpolicy", case13PruneTmpErr,
-				"-n", testNamespace, "--ignore-not-found")
-			utils.Kubectl("delete", "configmap", case13PruneTmpErr+"-configmap",
-				"-n", "default", "--ignore-not-found")
-			utils.Kubectl("delete", "secret", case13Secret,
-				"-n", "default", "--ignore-not-found")
+			utils.KubectlDelete("configurationpolicy", case13PruneTmpErr, "-n", testNamespace)
+			utils.KubectlDelete("configmap", case13PruneTmpErr+"-configmap", "-n", "default")
+			utils.KubectlDelete("secret", case13Secret, "-n", "default")
 		})
 	})
 })

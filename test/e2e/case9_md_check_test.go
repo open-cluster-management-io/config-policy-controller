@@ -154,7 +154,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			}
 
 			deleteConfigPolicies(policies)
-			utils.Kubectl("delete", "pod", "nginx-pod-e2e-9", "-n", "default")
+			utils.KubectlDelete("pod", "nginx-pod-e2e-9", "-n", "default")
 			utils.KubectlDelete("ns", "case9-test")
 		})
 	})
@@ -171,7 +171,7 @@ var _ = Describe("Test pod obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			utils.Kubectl("delete", "configurationpolicy", case9MultiAnnoNSCreate, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case9MultiAnnoNSCreate, "-n", testNamespace)
 		})
 		It("should be compliant if metadataComplianceType is musthave", func() {
 			By("Creating " + case9CheckNSMusthave + " on managed")
@@ -185,7 +185,7 @@ var _ = Describe("Test pod obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			utils.Kubectl("delete", "configurationpolicy", case9CheckNSMusthave, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case9CheckNSMusthave, "-n", testNamespace)
 		})
 		It("should return noncompliant if metadataComplianceType is mustonlyhave", func() {
 			By("Creating " + case9CheckNSMustonlyhave + " on managed")
@@ -199,7 +199,7 @@ var _ = Describe("Test pod obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
-			utils.Kubectl("delete", "configurationpolicy", case9CheckNSMustonlyhave, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case9CheckNSMustonlyhave, "-n", testNamespace)
 		})
 		AfterAll(func() {
 			policies := []string{
@@ -211,7 +211,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			deleteConfigPolicies(policies)
 
 			By("Deleting the namespace from " + case9MultiAnnoNSCreate)
-			utils.Kubectl("delete", "ns", "case9-test-multi-annotation")
+			utils.KubectlDelete("ns", "case9-test-multi-annotation")
 		})
 	})
 })

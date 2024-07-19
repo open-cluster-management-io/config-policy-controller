@@ -26,7 +26,7 @@ var _ = Describe("Test resource creation when there are empty labels in configur
 
 	AfterEach(func() {
 		By("deleting the deployment " + case36DeploymentName)
-		utils.Kubectl("delete", "-f", case36Deployment, "--ignore-not-found")
+		utils.KubectlDelete("-f", case36Deployment)
 		deleteConfigPolicies([]string{case36AddEmptyMapName, case36NoEmptyMapName})
 	})
 

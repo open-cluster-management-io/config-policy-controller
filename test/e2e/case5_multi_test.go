@@ -202,7 +202,7 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 			}
 
 			for _, ns := range nss {
-				utils.Kubectl("delete", "ns", ns, "--ignore-not-found")
+				utils.KubectlDelete("ns", ns)
 			}
 		}
 		AfterAll(cleanup)

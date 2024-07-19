@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/ghodss/yaml"
@@ -151,6 +152,24 @@ func Kubectl(args ...string) {
 		// in case of failure, print command output (including error)
 		Fail(fmt.Sprintf("Error running '%s'\n: %s: %v", strings.Join(cmd.Args, " "), output, err), 1)
 	}
+}
+
+// KubectlDelete executes a delete command, ignoring not found errors,
+// and skipping the wait if not provided
+func KubectlDelete(args ...string) {
+	deleteArgs := []string{
+		"delete", "--ignore-not-found",
+	}
+
+	// Append default for wait if not provided
+	hasWait := slices.ContainsFunc(args, func(arg string) bool {
+		return strings.HasPrefix(arg, "--wait")
+	})
+	if !hasWait {
+		deleteArgs = append(deleteArgs, "--wait=false")
+	}
+
+	Kubectl(append(deleteArgs, args...)...)
 }
 
 // GetComplianceState parses status field of configurationPolicy to get compliance

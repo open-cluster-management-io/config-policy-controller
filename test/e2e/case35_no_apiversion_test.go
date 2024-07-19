@@ -37,12 +37,12 @@ var _ = Describe("Test a policy with an objectDefinition that is missing apiVers
 	})
 
 	AfterEach(func() {
-		utils.Kubectl("delete", "policy", policyName, "-n", "managed", "--ignore-not-found")
+		utils.KubectlDelete("policy", policyName, "-n", "managed")
 		configPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			cfgPlcName, "managed", false, defaultTimeoutSeconds,
 		)
 		Expect(configPlc).To(BeNil())
-		utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
-		utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+cfgPlcName, "-n", "managed")
+		utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
+		utils.KubectlDelete("event", "--field-selector=involvedObject.name="+cfgPlcName, "-n", "managed")
 	})
 })

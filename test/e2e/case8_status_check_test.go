@@ -167,7 +167,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			}
 			deleteConfigPolicies(policies)
 
-			utils.Kubectl("delete", "pod", "nginx-badpod-e2e-8", "-n", "default", "--ignore-not-found")
+			utils.KubectlDelete("pod", "nginx-badpod-e2e-8", "-n", "default")
 		})
 	})
 })

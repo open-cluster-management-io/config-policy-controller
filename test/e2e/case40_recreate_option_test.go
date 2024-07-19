@@ -24,7 +24,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 		deleteConfigPolicies([]string{"case40"})
 
 		By("Deleting the case40 Deployment in the default namespace")
-		utils.Kubectl("-n", "default", "delete", "deployment", "case40", "--ignore-not-found")
+		utils.KubectlDelete("-n", "default", "deployment", "case40")
 
 		By("Deleting the case40 ConfigMap in the default namespace")
 		configmap, err := clientManagedDynamic.Resource(gvrConfigMap).Namespace("default").Get(
@@ -48,7 +48,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 			)
 		}
 
-		utils.Kubectl("-n", "default", "delete", "configmap", "case40", "--ignore-not-found")
+		utils.KubectlDelete("-n", "default", "configmap", "case40")
 	})
 
 	It("should fail to update due to immutable fields not matching", func() {

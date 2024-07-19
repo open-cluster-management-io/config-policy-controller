@@ -109,11 +109,9 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 
 		AfterAll(func() {
 			deleteConfigPolicies([]string{case30RangePolicyName, case30NoTemplatePolicyName})
-			utils.Kubectl("delete", "-f", case30ConfigMapsYaml)
-			utils.Kubectl("delete", "configmap", case30ConfigmapName1,
-				"-n", "default", "--ignore-not-found")
-			utils.Kubectl("delete", "configmap", case30ConfigmapName2,
-				"-n", "default", "--ignore-not-found")
+			utils.KubectlDelete("-f", case30ConfigMapsYaml)
+			utils.KubectlDelete("configmap", case30ConfigmapName1, "-n", "default")
+			utils.KubectlDelete("configmap", case30ConfigmapName2, "-n", "default")
 		})
 	})
 	Describe("Test invalid multiline templates", func() {
