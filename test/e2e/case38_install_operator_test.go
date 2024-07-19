@@ -102,6 +102,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		expectedCondition metav1.Condition,
 		expectedEventMsgSnippet string,
 	) {
+		GinkgoHelper()
+
 		var debugMessage string
 
 		DeferCleanup(func() {
@@ -195,8 +197,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			}
 		}
 
-		EventuallyWithOffset(1, checkFunc, eventuallyTimeout, 3).Should(Succeed())
-		ConsistentlyWithOffset(1, checkFunc, consistentlyDuration, 1).Should(Succeed())
+		Eventually(checkFunc, eventuallyTimeout, 3).Should(Succeed())
+		Consistently(checkFunc, consistentlyDuration, 1).Should(Succeed())
 	}
 
 	preFunc := func() {
@@ -2084,6 +2086,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 		// These are the same for inform and enforce, so just write them once
 		keptChecks := func() {
+			GinkgoHelper()
+
 			check(
 				opPolName,
 				false,
