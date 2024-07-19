@@ -151,7 +151,7 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 
 		var managedPlc *unstructured.Unstructured
 
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -161,8 +161,8 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the diff in the status contains instructions to set recordDiff")
 		relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
@@ -184,7 +184,7 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 
 		var managedPlc *unstructured.Unstructured
 
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -194,8 +194,8 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the diff in the status contains instructions to set recordDiff")
 		relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
@@ -217,7 +217,7 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 
 		var managedPlc *unstructured.Unstructured
 
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -227,8 +227,8 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the diff in the status contains instructions to set recordDiff")
 		relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
@@ -250,7 +250,7 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 		)
 
 		By("Verifying the diff in the status no longer contains instructions to set recordDiff")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -260,8 +260,8 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		relatedObjects, _, err = unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 		Expect(err).ToNot(HaveOccurred())
@@ -288,7 +288,7 @@ var _ = Describe("Diff generation that is truncated", Ordered, func() {
 
 		var managedPlc *unstructured.Unstructured
 
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -298,8 +298,8 @@ var _ = Describe("Diff generation that is truncated", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the diff in the status is truncated")
 		relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")

@@ -72,7 +72,15 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			err = json.Unmarshal(policyJSON, &policy)
 			g.Expect(err).NotTo(HaveOccurred())
 
-			g.Expect(policy.Status.ComplianceState).To(Equal(comp))
+			compliantMsg := ""
+			_, compliantCond := policy.Status.GetCondition("Compliant")
+			compliantMsg = compliantCond.Message
+
+			g.Expect(policy.Status.ComplianceState).To(
+				Equal(comp),
+				fmt.Sprintf(
+					"Unexpected compliance state. Status message: %s", strings.ReplaceAll(compliantMsg, ", ", "\n- "),
+				))
 		}
 
 		Eventually(compCheck, timeoutSeconds, 3).Should(Succeed())

@@ -88,12 +88,12 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 				policy.name, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
 			By("Checking that " + policy.name + " is NonCompliant")
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		}
 	})
 
@@ -104,12 +104,12 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policy.name, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Consistently(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
@@ -126,12 +126,12 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policy.name, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		}
 	})
 
@@ -146,12 +146,12 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 		Expect(namespaces.Get(context.TODO(), newNs, metav1.GetOptions{})).NotTo(BeNil())
 		for _, policy := range policyTests {
 			By("Checking that " + policy.name + " is NonCompliant")
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Consistently(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
@@ -181,12 +181,12 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 			utils.Kubectl("patch", "configurationpolicy", policy.name, `--type=json`,
 				`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", testNamespace)
 			By("Checking that " + policy.name + " is Compliant")
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			By("Checking that " + policy.name + " has the correct relatedObjects")
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policy.name, testNamespace, true, defaultTimeoutSeconds)
@@ -202,12 +202,12 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 				`-p=[{"op":"replace","path":"/spec/namespaceSelector/include","value":["range[2-3]"]}]`,
 				"-n", testNamespace)
 			By("Checking that " + policy.name + " is Compliant")
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			By("Checking that " + policy.name + " has the correct relatedObjects")
 			Eventually(func() int {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -223,12 +223,12 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 			By("Restoring the " + policy.name + " namespaceSelector")
 			utils.Kubectl("apply", "-f", policy.yamlFile, "-n", testNamespace)
 			By("Checking that " + policy.name + " is Compliant")
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			By("Checking that " + policy.name + " has the correct relatedObjects")
 			Eventually(func() int {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -253,12 +253,12 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policy.name, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policy.name, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			By("Checking that " + policy.name + " has the correct relatedObjects")
 			Eventually(func() int {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,

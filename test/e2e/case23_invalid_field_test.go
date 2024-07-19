@@ -147,13 +147,13 @@ var _ = Describe("Test an objectDefinition with a missing status field that shou
 		By("Verifying that the " + policyName + " policy is compliant")
 		var managedPlc *unstructured.Unstructured
 
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 
 	AfterAll(func() {

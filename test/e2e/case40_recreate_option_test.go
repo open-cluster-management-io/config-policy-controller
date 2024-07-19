@@ -61,7 +61,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 		By("Verifying the ConfigurationPolicy is NonCompliant")
 		var managedPlc *unstructured.Unstructured
 
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -71,8 +71,8 @@ var _ = Describe("Recreate options", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the diff is present")
 		relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
@@ -118,7 +118,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 		By("Verifying the ConfigurationPolicy is Compliant")
 		var managedPlc *unstructured.Unstructured
 
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -128,8 +128,8 @@ var _ = Describe("Recreate options", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the diff is not set")
 		relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
@@ -210,7 +210,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 		)
 
 		By("Verifying the ConfigurationPolicy is Compliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -220,8 +220,8 @@ var _ = Describe("Recreate options", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the ConfigMap was recreated")
 

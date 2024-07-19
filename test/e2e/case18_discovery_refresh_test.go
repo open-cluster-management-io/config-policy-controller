@@ -42,7 +42,7 @@ var _ = Describe("Test discovery info refresh", Ordered, func() {
 		Expect(policy).NotTo(BeNil())
 
 		By("Verifying " + policyName + " becomes compliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			policy := utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -52,8 +52,8 @@ var _ = Describe("Test discovery info refresh", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(policy)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, policy, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 
 	It("Verifies that the discovery info is refreshed when a template references a new object kind", func() {
@@ -128,7 +128,7 @@ var _ = Describe("Test discovery info refresh", Ordered, func() {
 		Expect(policy).NotTo(BeNil())
 
 		By("Verifying " + policyTemplateName + " becomes compliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			policy := utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -138,8 +138,8 @@ var _ = Describe("Test discovery info refresh", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(policy)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, policy, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 
 	AfterAll(func() {

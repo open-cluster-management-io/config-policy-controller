@@ -42,13 +42,13 @@ var _ = Describe("Test policy template decryption", Ordered, func() {
 		})
 
 		It("verifies the policy "+case16PolicyName+" in "+testNamespace, func() {
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(
 					clientManagedDynamic, gvrConfigPolicy, case16PolicyName, testNamespace, true, defaultTimeoutSeconds,
 				)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
 		It("simulates a key rotation", func() {
@@ -60,7 +60,7 @@ var _ = Describe("Test policy template decryption", Ordered, func() {
 		})
 
 		It("verifies the policy "+case16PolicyDiffKeyName+" in "+testNamespace, func() {
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(
 					clientManagedDynamic,
 					gvrConfigPolicy,
@@ -70,12 +70,12 @@ var _ = Describe("Test policy template decryption", Ordered, func() {
 					defaultTimeoutSeconds,
 				)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
 		It("verifies that the policy "+case16PolicyName+" in "+testNamespace+" is still compliant", func() {
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(
 					clientManagedDynamic,
 					gvrConfigPolicy,
@@ -85,8 +85,8 @@ var _ = Describe("Test policy template decryption", Ordered, func() {
 					defaultTimeoutSeconds,
 				)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
 		AfterAll(func() {

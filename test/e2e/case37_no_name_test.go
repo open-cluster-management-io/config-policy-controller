@@ -31,12 +31,12 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 		It("should have 1 NonCompliant relatedObject under the policy's status", func() {
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case37PolicyNSName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			var relatedObjects []interface{}
 
@@ -76,12 +76,12 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case37PolicyNSName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			var relatedObjects []interface{}
 
@@ -134,12 +134,12 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 		It("should have 1 Compliant relatedObject under the policy's status", func() {
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case37PolicyMustnothaveName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("relatedObjects should exist")
 			var relatedObjects []interface{}
@@ -171,12 +171,12 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case37PolicyMustnothaveName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			var relatedObjects []interface{}
 
@@ -216,12 +216,12 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case37PolicyMustnothaveName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			var relatedObjects []interface{}
 
@@ -289,12 +289,12 @@ var _ = Describe("Test a cluster-scope policy that is missing name ", Ordered, f
 		It("should have 1 NonCompliant relatedObject under the policy's status", func() {
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case37PolicyCSName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			var relatedObjects []interface{}
 
@@ -348,12 +348,12 @@ var _ = Describe("Test a cluster-scope policy that is missing name ", Ordered, f
 		It("should have 1 Compliant relatedObject under the policy's status", func() {
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case37PolicyCSMustnothaveName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			var relatedObjects []interface{}
 

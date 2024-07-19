@@ -29,12 +29,12 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case3ConfigPolicyNameCSV, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case3ConfigPolicyNameCSV, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			deleteConfigPolicies([]string{case3ConfigPolicyNameCSV})
 		})
@@ -44,12 +44,12 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case3ConfigPolicyNameSub, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case3ConfigPolicyNameSub, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			deleteConfigPolicies([]string{case3ConfigPolicyNameSub})
 		})
@@ -59,12 +59,12 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case3ConfigPolicyNameVuln, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case3ConfigPolicyNameVuln, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Consistently(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case3ConfigPolicyNameVuln, testNamespace, true, defaultTimeoutSeconds)
@@ -80,12 +80,12 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case3ConfigPolicyNameVulnObj, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case3ConfigPolicyNameVulnObj, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Consistently(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case3ConfigPolicyNameVulnObj, testNamespace, true, defaultTimeoutSeconds)

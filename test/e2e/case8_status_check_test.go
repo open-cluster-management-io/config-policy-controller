@@ -33,12 +33,12 @@ var _ = Describe("Test pod obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case8ConfigPolicyNamePod, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case8ConfigPolicyNamePod, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		It("should check status of the created policy", func() {
 			By("Creating " + case8ConfigPolicyNameCheck + " on managed")
@@ -46,12 +46,12 @@ var _ = Describe("Test pod obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case8ConfigPolicyNameCheck, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case8ConfigPolicyNameCheck, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		It("should return nonCompliant if status does not match", func() {
 			By("Creating " + case8ConfigPolicyNameCheckFail + " on managed")
@@ -62,12 +62,12 @@ var _ = Describe("Test pod obj template handling", func() {
 
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case8ConfigPolicyNameCheckFail, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 			Expect(err).ToNot(HaveOccurred())
@@ -85,12 +85,12 @@ var _ = Describe("Test pod obj template handling", func() {
 
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case8ConfigPolicyNameEnforceFail, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 			Expect(err).ToNot(HaveOccurred())
@@ -117,12 +117,12 @@ var _ = Describe("Test pod obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Eventually(func() interface{} {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					"nginx-badpod-e2e-8", "default", true, defaultTimeoutSeconds)
@@ -136,12 +136,12 @@ var _ = Describe("Test pod obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Eventually(func() interface{} {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					"nginx-badpod-e2e-8", "default", true, defaultTimeoutSeconds)
@@ -154,12 +154,12 @@ var _ = Describe("Test pod obj template handling", func() {
 
 				return pod.Object["status"].(map[string]interface{})["phase"]
 			}, defaultTimeoutSeconds, 1).Should(Equal("Failed"))
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case8ConfigPolicyStatusPod, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		AfterAll(func() {
 			policies := []string{

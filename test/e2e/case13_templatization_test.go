@@ -81,12 +81,12 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13CfgPolCreateSecret, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13CfgPolCreateSecret, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Eventually(func() interface{} {
 				copiedSecret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
 					case13Secret, "default", true, defaultTimeoutSeconds)
@@ -98,12 +98,12 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13CfgPolCheckSecret, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13CfgPolCheckSecret, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("Clean up")
 			utils.KubectlDelete("configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
@@ -123,12 +123,12 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13CfgPolCreateSecret, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13CfgPolCreateSecret, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Eventually(func() interface{} {
 				copiedSecret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
 					case13Secret, "default", true, defaultTimeoutSeconds)
@@ -140,12 +140,12 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13CfgPolCheckSecret, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13CfgPolCheckSecret, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("Clean up")
 			utils.KubectlDelete("configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
@@ -165,23 +165,23 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13CfgPolCreatePod, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13CfgPolCreatePod, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			// check copied value with an inform policy
 			utils.Kubectl("apply", "-f", case13CfgPolVerifyPodYaml, "-n", testNamespace)
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13CfgPolVerifyPod, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13CfgPolVerifyPod, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			// check configmap by creating an inform policy that pulls the pod name from a configmap
 			utils.Kubectl("apply", "-f", case13ConfigMapYaml, "-n", "default")
 			cm := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
@@ -191,12 +191,12 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13CfgPolVerifyPodWithConfigMap, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13CfgPolVerifyPodWithConfigMap, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		AfterAll(func() {
 			utils.KubectlDelete("configurationpolicy", case13CfgPolCreatePod, "-n", testNamespace)
@@ -212,12 +212,12 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13LookupSecret, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13LookupSecret, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			// create inform policy to check clusterclaim using generic lookup
 			utils.Kubectl("apply", "-f", case13LookupClusterClaimYaml, "-n", testNamespace)
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -243,23 +243,23 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13Unterminated, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13Unterminated, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			// create policy with incomplete args in template
 			utils.Kubectl("apply", "-f", case13WrongArgsYaml, "-n", testNamespace)
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		AfterAll(func() {
 			deleteConfigPolicies([]string{case13Unterminated, case13WrongArgs})
@@ -439,12 +439,12 @@ var _ = Describe("Test templatization", Ordered, func() {
 			Expect(plc).NotTo(BeNil())
 
 			By("By verifying that the configurationpolicy is working well")
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13PruneTmpErr, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("By verifying that the configmap exist ")
 			Eventually(func() interface{} {
@@ -462,12 +462,12 @@ var _ = Describe("Test templatization", Ordered, func() {
 				"-n", testNamespace)
 
 			By("By verifying that the configurationpolicy is NonCompliant")
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13PruneTmpErr, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("By verifying that the configmap still exist ")
 			Consistently(func() interface{} {

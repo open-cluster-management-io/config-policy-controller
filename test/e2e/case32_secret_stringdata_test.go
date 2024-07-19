@@ -25,15 +25,15 @@ var _ = Describe("Test converted stringData being decoded before comparison for 
 
 	It("Verifies the config policy is initially compliant "+case32ConfigPolicyName+" in "+testNamespace, func() {
 		By("Waiting for " + case32ConfigPolicyName + " to become Compliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			cfgplc := utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy,
 				case32ConfigPolicyName, testNamespace,
 				true, defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(cfgplc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, cfgplc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 
 	It("Verifies that a secret is created by "+case32ConfigPolicyName+" in openshift-config", func() {
@@ -61,6 +61,7 @@ var _ = Describe("Test converted stringData being decoded before comparison for 
 		utils.KubectlDelete("configurationpolicy", case32ConfigPolicyName, "-n", testNamespace)
 		utils.KubectlDelete("secret", "htpasswd-secret", "-n", testNamespace)
 		utils.KubectlDelete("event",
-			"--field-selector=involvedObject.name="+case32ConfigPolicyName, "-n", "managed")
+			"--field-selector=involvedObject.name="+case32ConfigPolicyName,
+			"-n", "managed")
 	})
 })

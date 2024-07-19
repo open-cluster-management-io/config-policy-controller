@@ -44,12 +44,12 @@ var _ = Describe("Test resource creation when there are empty labels in configur
 
 	It("verifies the configmap "+case33ConfigMapName+" has the proper labels", func() {
 		By("waiting for policy compliance")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case33ConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
 
-			return utils.GetComplianceState(plc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, plc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("verifying label exists and correct")
 		Eventually(func() interface{} {
