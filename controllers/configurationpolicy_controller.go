@@ -898,6 +898,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 // validateConfigPolicy returns an error and increments the "invalid-template" error counter metric
 // if the configuration is invalid.
 func (r *ConfigurationPolicyReconciler) validateConfigPolicy(plc *policyv1.ConfigurationPolicy) error {
+	log := log.WithValues("policy", plc.GetName())
+
 	var invalidMessage string
 
 	if plc.Spec == nil {
@@ -1000,6 +1002,8 @@ func (r *ConfigurationPolicyReconciler) handleDeletion(plc *policyv1.Configurati
 		return nil
 	}
 
+	log := log.WithValues("policy", plc.GetName())
+
 	parentStatusUpdateNeeded := false
 
 	log.Info("Config policy has been deleted, handling child objects")
@@ -1044,6 +1048,8 @@ func (r *ConfigurationPolicyReconciler) handleDeletion(plc *policyv1.Configurati
 func (r *ConfigurationPolicyReconciler) handleTemplatization(
 	plc *policyv1.ConfigurationPolicy, usingWatch bool,
 ) (parentStatusUpdateNeeded bool, err error) {
+	log := log.WithValues("policy", plc.GetName())
+
 	if r.EnableMetrics {
 		startTime := time.Now().UTC()
 
@@ -1255,6 +1261,8 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObject(
 	errEvent *objectTmplEvalEvent,
 	mappingErr error,
 ) {
+	log := log.WithValues("policy", plc.GetName())
+
 	_, _, err := unstructured.UnstructuredJSONScheme.Decode(objectT.ObjectDefinition.Raw, nil, &desiredObj)
 	if err != nil {
 		log.Error(err, "Could not decode the objectDefinition", "index", index)
