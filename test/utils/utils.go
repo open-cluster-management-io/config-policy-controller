@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/ghodss/yaml"
 	. "github.com/onsi/ginkgo/v2"
@@ -23,15 +22,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
-
-// Pause sleep for given seconds
-func Pause(s uint) {
-	if s < 1 {
-		s = 1
-	}
-
-	time.Sleep(time.Duration(float64(s)) * time.Second)
-}
 
 // ParseYaml read given yaml file and unmarshal it to &unstructured.Unstructured{}
 func ParseYaml(file string) *unstructured.Unstructured {
