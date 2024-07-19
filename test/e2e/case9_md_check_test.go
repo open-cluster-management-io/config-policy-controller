@@ -154,6 +154,8 @@ var _ = Describe("Test pod obj template handling", func() {
 			}
 
 			deleteConfigPolicies(policies)
+			utils.Kubectl("delete", "pod", "nginx-pod-e2e-9", "-n", "default")
+			utils.KubectlDelete("ns", "case9-test")
 		})
 	})
 	Describe("Create a namespace policy on managed cluster in ns:"+testNamespace, Ordered, func() {

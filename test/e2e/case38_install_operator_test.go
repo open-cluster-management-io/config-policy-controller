@@ -55,6 +55,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 
 		compCheck := func(g Gomega) {
+			GinkgoHelper()
+
 			unstructPolicy, err := clientManagedDynamic.Resource(gvrOperatorPolicy).Namespace(ns).
 				Get(context.TODO(), polName, metav1.GetOptions{})
 			g.Expect(err).NotTo(HaveOccurred())

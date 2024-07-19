@@ -68,6 +68,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			}
 
 			deleteConfigPolicies(policies)
+			utils.Kubectl("delete", "pod", "nginx-pod-e2e-10", "-n", "managed")
 		})
 	})
 })
