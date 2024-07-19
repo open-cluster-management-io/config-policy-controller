@@ -116,9 +116,9 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 			Expect(name).ShouldNot(Equal("-"))
 		})
 		AfterAll(func() {
-			utils.Kubectl("delete", "-f", case37PolicyNSPath, "-n", testNamespace, "--ignore-not-found")
-			utils.Kubectl("delete", "-f", case37GoodIngressPath, "--ignore-not-found")
-			utils.Kubectl("delete", "-f", case37BadIngressPath, "--ignore-not-found")
+			utils.KubectlDelete("-f", case37PolicyNSPath, "-n", testNamespace)
+			utils.KubectlDelete("-f", case37GoodIngressPath)
+			utils.KubectlDelete("-f", case37BadIngressPath)
 			utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case37PolicyNSName, testNamespace, false, defaultTimeoutSeconds)
 		})
@@ -256,9 +256,9 @@ var _ = Describe("Test a namespace-scope policy that is missing name", Ordered, 
 			Expect(name).ShouldNot(Equal("-"))
 		})
 		AfterAll(func() {
-			utils.Kubectl("delete", "-f", case37PolicyNotHavePath, "-n", testNamespace, "--ignore-not-found")
-			utils.Kubectl("delete", "-f", case37GoodIngressPath, "--ignore-not-found")
-			utils.Kubectl("delete", "-f", case37BadIngressPath, "--ignore-not-found")
+			utils.KubectlDelete("-f", case37PolicyNotHavePath, "-n", testNamespace)
+			utils.KubectlDelete("-f", case37GoodIngressPath)
+			utils.KubectlDelete("-f", case37BadIngressPath)
 			utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case37PolicyMustnothaveName, testNamespace, false, defaultTimeoutSeconds)
 		})
@@ -328,8 +328,8 @@ var _ = Describe("Test a cluster-scope policy that is missing name ", Ordered, f
 			Expect(name).Should(Equal("-"))
 		})
 		AfterEach(func() {
-			utils.Kubectl("delete", "-f", case37PolicyCSPath, "-n", testNamespace, "--ignore-not-found")
-			utils.Kubectl("delete", "-f", case37BadIngressClassPath, "--ignore-not-found")
+			utils.KubectlDelete("-f", case37PolicyCSPath, "-n", testNamespace)
+			utils.KubectlDelete("-f", case37BadIngressClassPath)
 			utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case37PolicyCSName, testNamespace, false, defaultTimeoutSeconds)
 		})
@@ -387,8 +387,8 @@ var _ = Describe("Test a cluster-scope policy that is missing name ", Ordered, f
 			Expect(name).Should(Equal("-"))
 		})
 		AfterEach(func() {
-			utils.Kubectl("delete", "-f", case37PolicyCSMustnothavePath, "-n", testNamespace, "--ignore-not-found")
-			utils.Kubectl("delete", "-f", case37BadIngressClassPath, "--ignore-not-found")
+			utils.KubectlDelete("-f", case37PolicyCSMustnothavePath, "-n", testNamespace)
+			utils.KubectlDelete("-f", case37BadIngressClassPath)
 			utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case37PolicyCSMustnothaveName, testNamespace, false, defaultTimeoutSeconds)
 		})

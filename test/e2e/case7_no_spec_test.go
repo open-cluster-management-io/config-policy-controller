@@ -101,7 +101,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			utils.Kubectl("delete", "configurationpolicy", case7ConfigPolicyName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case7ConfigPolicyName, "-n", testNamespace)
 		})
 		It("should handle nullable fields properly", func() {
 			Consistently(func() interface{} {
@@ -123,7 +123,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			utils.Kubectl("delete", "configurationpolicy", case7ConfigPolicyNameNull, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case7ConfigPolicyNameNull, "-n", testNamespace)
 			expectedObj["priority"] = nil
 			Eventually(func() interface{} {
 				managedObj := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrSCC,
@@ -151,7 +151,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 
 				return matchToExpected(managedObj)
 			}, defaultTimeoutSeconds, 1).Should(Equal(true))
-			utils.Kubectl("delete", "configurationpolicy", case7ConfigPolicyName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case7ConfigPolicyName, "-n", testNamespace)
 		})
 		It("should generate violation if field type is invalid (enforce)", func() {
 			By("Creating " + case7ConfigPolicyNameInvalid + " on managed")

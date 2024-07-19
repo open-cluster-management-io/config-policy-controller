@@ -26,7 +26,7 @@ var _ = Describe("Test inform policies on ClusterRoles (RHBZ#2130985)", Ordered,
 		deleteConfigPolicies([]string{policyName})
 
 		By("Deleting the roles")
-		utils.Kubectl("delete", "-f", rolesYAML, "--ignore-not-found=true")
+		utils.KubectlDelete("-f", rolesYAML)
 	})
 
 	It("verifies an inform policy with the created ClusterRoles ", func() {

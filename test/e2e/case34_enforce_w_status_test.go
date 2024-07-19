@@ -81,18 +81,18 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 			}
 		}
 
-		utils.Kubectl("delete", "policy", policyName, "-n", "managed", "--ignore-not-found")
+		utils.KubectlDelete("policy", policyName, "-n", "managed")
 		configPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			cfgPlcName, "managed", false, defaultTimeoutSeconds,
 		)
 		Expect(configPlc).To(BeNil())
-		utils.Kubectl("delete", "configurationpolicy", nestedPlcName, "-n", "managed", "--ignore-not-found")
+		utils.KubectlDelete("configurationpolicy", nestedPlcName, "-n", "managed")
 		nestedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			nestedPlcName, "managed", false, defaultTimeoutSeconds,
 		)
 		Expect(nestedPlc).To(BeNil())
-		utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
-		utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+cfgPlcName, "-n", "managed")
-		utils.Kubectl("delete", "event", "--field-selector=involvedObject.name="+nestedPlcName, "-n", "managed")
+		utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
+		utils.KubectlDelete("event", "--field-selector=involvedObject.name="+cfgPlcName, "-n", "managed")
+		utils.KubectlDelete("event", "--field-selector=involvedObject.name="+nestedPlcName, "-n", "managed")
 	})
 })

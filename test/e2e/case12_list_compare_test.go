@@ -53,7 +53,7 @@ var _ = Describe("Test list handling for musthave", func() {
 
 			deleteConfigPolicies(policies)
 
-			utils.Kubectl("delete", "pod", podName, "-n", "default", "--ignore-not-found")
+			utils.KubectlDelete("pod", podName, "-n", "default")
 		})
 	})
 
@@ -191,7 +191,7 @@ var _ = Describe("Test list handling for musthave", func() {
 
 				return utils.GetComplianceState(managedPlc)
 			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			utils.Kubectl("delete", "-f", oauthCreateYaml, "-n", testNamespace)
+			utils.KubectlDelete("-f", oauthCreateYaml, "-n", testNamespace)
 
 			utils.Kubectl("apply", "-f", oauthPatchYaml, "-n", testNamespace)
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,

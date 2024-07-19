@@ -193,8 +193,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 	preFunc := func() {
 		utils.Kubectl("create", "ns", opPolTestNS)
-		utils.Kubectl(
-			"delete", "event", "--field-selector=involvedObject.name="+parentPolicyName, "-n", testNamespace,
+		utils.KubectlDelete(
+			"event", "--field-selector=involvedObject.name="+parentPolicyName, "-n", testNamespace, "--wait",
 		)
 
 		if IsHosted {
@@ -202,11 +202,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		}
 
 		DeferCleanup(func() {
-			utils.Kubectl("delete", "-n", testNamespace, "operatorpolicy", "--all")
-			utils.Kubectl(
-				"delete", "event", "--field-selector=involvedObject.name="+parentPolicyName, "-n", testNamespace,
+			utils.KubectlDelete("operatorpolicy", "-n", testNamespace, "--all", "--wait")
+			utils.KubectlDelete(
+				"event", "--field-selector=involvedObject.name="+parentPolicyName, "-n", testNamespace, "--wait",
 			)
-			utils.Kubectl("delete", "ns", opPolTestNS, "--ignore-not-found")
+			utils.KubectlDelete("ns", opPolTestNS, "--wait")
 
 			if IsHosted {
 				KubectlTarget("delete", "ns", opPolTestNS, "--ignore-not-found")
@@ -223,7 +223,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		)
 		BeforeAll(func() {
 			DeferCleanup(func() {
-				utils.Kubectl("delete", "ns", suggestedNS, "--ignore-not-found")
+				utils.KubectlDelete("ns", suggestedNS, "--wait")
 
 				if IsHosted {
 					KubectlTarget("delete", "ns", suggestedNS, "--ignore-not-found")
@@ -438,13 +438,13 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		)
 		BeforeAll(func() {
 			DeferCleanup(func() {
-				utils.Kubectl(
-					"delete", "-f", parentPolicyYAML, "-n", testNamespace, "--ignore-not-found", "--cascade=foreground",
+				utils.KubectlDelete(
+					"-f", parentPolicyYAML, "-n", testNamespace, "--cascade=foreground", "--wait",
 				)
 				if IsHosted {
 					KubectlTarget("delete", "ns", opPolTestNS, "--ignore-not-found")
 				}
-				utils.Kubectl("delete", "ns", opPolTestNS, "--ignore-not-found")
+				utils.KubectlDelete("ns", opPolTestNS, "--wait")
 			})
 
 			createObjWithParent(
@@ -3265,7 +3265,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 
 		It("Should remove the validation error when an overlapping policy is removed", func() {
-			utils.Kubectl("delete", "operatorpolicy", musthaveName, "-n", testNamespace)
+			utils.KubectlDelete("operatorpolicy", musthaveName, "-n", testNamespace)
 
 			check(
 				mustnothaveName,

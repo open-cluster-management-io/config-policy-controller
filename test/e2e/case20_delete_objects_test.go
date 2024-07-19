@@ -161,7 +161,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 
 			deleteConfigPolicies(policies)
 
-			utils.Kubectl("delete", "pod", case20PodName, "-n", "default", "--ignore-not-found")
+			utils.KubectlDelete("pod", case20PodName, "-n", "default")
 
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -223,7 +223,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		})
 		It("Should create DeleteIfCreated policy", func() {
 			// delete pod to reset
-			utils.Kubectl("delete", "pod", "nginx-pod-e2e20", "-n", "default")
+			utils.KubectlDelete("pod", "nginx-pod-e2e20", "-n", "default")
 			// create policy to create pod
 			By("Creating " + case20ConfigPolicyNameCreate + " on managed")
 			utils.Kubectl("apply", "-f", case20PolicyYamlCreate, "-n", testNamespace)
@@ -482,7 +482,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
 		})
 		It("Cleans up", func() {
-			utils.Kubectl("delete", "pod", case20PodName, "-n", "default")
+			utils.KubectlDelete("pod", case20PodName, "-n", "default")
 		})
 	})
 	Describe("Test behavior after manually deleting object", Ordered, func() {
@@ -508,7 +508,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		})
 		It("automatically recreates the pod after it's deleted", func() {
 			By("Deleting the pod with kubectl")
-			utils.Kubectl("delete", "pod/"+case20PodName, "-n", "default")
+			utils.KubectlDelete("pod/"+case20PodName, "-n", "default")
 
 			By("Verifying the pod was recreated and isn't still being deleted")
 			Eventually(func() interface{} {
@@ -572,7 +572,7 @@ var _ = Describe("Test objects are not deleted when the CRD is removed", Serial,
 		}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
 
 		By("Deleting the ConfigurationPolicy CRD")
-		utils.Kubectl("delete", "-f", case20ConfigPolicyCRDPath)
+		utils.KubectlDelete("-f", case20ConfigPolicyCRDPath)
 
 		By("Checking that the ConfigurationPolicy is gone")
 		Eventually(func(g Gomega) {

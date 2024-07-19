@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"fmt"
-	"os/exec"
 	"strconv"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -18,11 +17,7 @@ var _ = Describe("Test related object metrics", Ordered, func() {
 		policyYaml    = "../resources/case26_user_error_metric/case26-missing-crd.yaml"
 	)
 	cleanup := func() {
-		// Delete the policies and ignore any errors (in case it was deleted previously)
-		cmd := exec.Command("kubectl", "delete",
-			"-f", policyYaml,
-			"-n", testNamespace, "--ignore-not-found")
-		_, _ = cmd.CombinedOutput()
+		utils.KubectlDelete("-f", policyYaml, "-n", testNamespace)
 
 		By("Check configmap removed")
 		utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,

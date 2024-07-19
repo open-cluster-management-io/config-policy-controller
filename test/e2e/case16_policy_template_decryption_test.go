@@ -30,7 +30,7 @@ const (
 var _ = Describe("Test policy template decryption", Ordered, func() {
 	Describe("Test policy template decryption with new key", Ordered, func() {
 		It("deletes the namespace "+case16CreatedNamespace, func() {
-			utils.Kubectl("delete", "namespace", case16CreatedNamespace, "--ignore-not-found")
+			utils.KubectlDelete("namespace", case16CreatedNamespace)
 		})
 
 		It("creates the policy-encryption-key secret in "+testNamespace, func() {
@@ -90,11 +90,11 @@ var _ = Describe("Test policy template decryption", Ordered, func() {
 		})
 
 		AfterAll(func() {
-			utils.Kubectl("delete", "-f", case16Policy, "-n", testNamespace)
-			utils.Kubectl("delete", "-f", case16PolicyDiffKey, "-n", testNamespace)
-			utils.Kubectl("delete", "-f", case16Secret, "-n", testNamespace)
-			utils.Kubectl("delete", "namespace", case16CreatedNamespace, "--ignore-not-found")
-			utils.Kubectl("delete", "namespace", case16SecondCreatedNamespace, "--ignore-not-found")
+			utils.KubectlDelete("-f", case16Policy, "-n", testNamespace)
+			utils.KubectlDelete("-f", case16PolicyDiffKey, "-n", testNamespace)
+			utils.KubectlDelete("-f", case16Secret, "-n", testNamespace)
+			utils.KubectlDelete("namespace", case16CreatedNamespace)
+			utils.KubectlDelete("namespace", case16SecondCreatedNamespace)
 		})
 	})
 
@@ -123,8 +123,8 @@ var _ = Describe("Test policy template decryption", Ordered, func() {
 		})
 
 		AfterAll(func() {
-			utils.Kubectl("delete", "-f", case16PolicyInvalidKey, "-n", testNamespace)
-			utils.Kubectl("delete", "-f", case16Secret, "-n", testNamespace)
+			utils.KubectlDelete("-f", case16PolicyInvalidKey, "-n", testNamespace)
+			utils.KubectlDelete("-f", case16Secret, "-n", testNamespace)
 		})
 	})
 
@@ -155,8 +155,8 @@ var _ = Describe("Test policy template decryption", Ordered, func() {
 		})
 
 		AfterAll(func() {
-			utils.Kubectl("delete", "-f", case16PolicyInvalidIV, "-n", testNamespace)
-			utils.Kubectl("delete", "-f", case16Secret, "-n", testNamespace)
+			utils.KubectlDelete("-f", case16PolicyInvalidIV, "-n", testNamespace)
+			utils.KubectlDelete("-f", case16Secret, "-n", testNamespace)
 		})
 	})
 })

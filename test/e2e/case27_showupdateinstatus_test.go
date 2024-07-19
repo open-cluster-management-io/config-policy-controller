@@ -74,6 +74,6 @@ var _ = Describe("Verify status update after updating object", Ordered, func() {
 
 	AfterAll(func() {
 		deleteConfigPolicies([]string{case27ConfigPolicyName})
-		utils.Kubectl("delete", "configmap", "case27-map")
+		utils.KubectlDelete("configmap", "case27-map")
 	})
 })

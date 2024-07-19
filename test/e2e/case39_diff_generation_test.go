@@ -120,7 +120,7 @@ var _ = Describe("Generate the diff", Ordered, func() {
 
 	AfterAll(func() {
 		deleteConfigPolicies([]string{configPolicyName})
-		utils.Kubectl("delete", "configmap", "case39-map", "--ignore-not-found")
+		utils.KubectlDelete("configmap", "case39-map")
 	})
 })
 
@@ -142,7 +142,7 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 
 	AfterAll(func() {
 		deleteConfigPolicies([]string{noDiffObjTemplatesRaw, noDiffObjTemplates, noDiffOnSecret})
-		utils.Kubectl("-n", "default", "delete", "secret", secretName, "--ignore-not-found")
+		utils.KubectlDelete("-n", "default", "secret", secretName)
 	})
 
 	It("Does not automatically generate a diff when using fromSecret (object-templates-raw)", func() {

@@ -39,12 +39,12 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 		By("Applying prerequisites")
 		utils.Kubectl("apply", "-f", prereqYaml)
 		DeferCleanup(func() {
-			utils.Kubectl("delete", "-f", prereqYaml)
+			utils.KubectlDelete("-f", prereqYaml)
 		})
 
 		utils.Kubectl("apply", "-f", policyYaml, "-n", testNamespace)
 		DeferCleanup(func() {
-			utils.Kubectl("delete", "-f", policyYaml, "-n", testNamespace)
+			utils.KubectlDelete("-f", policyYaml, "-n", testNamespace)
 		})
 	})
 
@@ -58,7 +58,9 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(message))
+		}, defaultTimeoutSeconds, 1).Should(
+			Equal(message),
+			fmt.Sprintf("Unexpected message using patch '%s'", patch))
 	},
 		Entry("No namespaceSelector specified",
 			"{}",
@@ -111,7 +113,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 
 		utils.Kubectl("apply", "-f", policyYaml, "-n", testNamespace)
 		DeferCleanup(func() {
-			utils.Kubectl("delete", "-f", policyYaml, "-n", testNamespace)
+			utils.KubectlDelete("-f", policyYaml, "-n", testNamespace)
 		})
 
 		By("Verifying initial compliance message")
@@ -125,11 +127,11 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 	})
 
 	AfterAll(func() {
-		utils.Kubectl("delete", "ns", "case19b-1-e2e", "--ignore-not-found")
-		utils.Kubectl("delete", "ns", "case19b-2-e2e", "--ignore-not-found")
-		utils.Kubectl("delete", "ns", "case19b-3-e2e", "--ignore-not-found")
-		utils.Kubectl("delete", "ns", "case19b-4-e2e", "--ignore-not-found")
-		utils.Kubectl("delete", "ns", "kube-case19b-e2e", "--ignore-not-found")
+		utils.KubectlDelete("ns", "case19b-1-e2e")
+		utils.KubectlDelete("ns", "case19b-2-e2e")
+		utils.KubectlDelete("ns", "case19b-3-e2e")
+		utils.KubectlDelete("ns", "case19b-4-e2e")
+		utils.KubectlDelete("ns", "kube-case19b-e2e")
 	})
 
 	It("should evaluate when a matching labeled namespace is added", func() {

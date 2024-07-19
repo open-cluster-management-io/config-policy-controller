@@ -146,9 +146,9 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 	})
 
 	AfterAll(func() {
-		utils.Kubectl("delete", "-f", case17ParentPolicy, "-n", testNamespace)
-		utils.Kubectl("delete", "-f", case17Policy, "-n", testNamespace, "--ignore-not-found")
-		utils.Kubectl("delete", "-f", case17PolicyNever, "-n", testNamespace)
+		utils.KubectlDelete("-f", case17ParentPolicy, "-n", testNamespace)
+		utils.KubectlDelete("-f", case17Policy, "-n", testNamespace)
+		utils.KubectlDelete("-f", case17PolicyNever, "-n", testNamespace)
 
 		err := clientManaged.CoreV1().Namespaces().Delete(
 			context.TODO(), case17CreatedNamespaceName, v1.DeleteOptions{},

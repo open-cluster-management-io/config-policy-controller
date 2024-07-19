@@ -42,8 +42,8 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 				configPolicyNameBindingEnforce,
 			}
 			deleteConfigPolicies(policies)
-			utils.Kubectl("delete", "role", roleName, "-n", "default", "--ignore-not-found")
-			utils.Kubectl("delete", "rolebinding", bindingName, "-n", "default", "--ignore-not-found")
+			utils.KubectlDelete("role", roleName, "-n", "default")
+			utils.KubectlDelete("rolebinding", bindingName, "-n", "default")
 		})
 
 		It("should be created properly on the managed cluster", func() {

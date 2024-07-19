@@ -63,6 +63,6 @@ var _ = Describe("Test resource creation when there are empty labels in configur
 
 	AfterAll(func() {
 		deleteConfigPolicies([]string{case33ConfigPolicyName})
-		utils.Kubectl("delete", "configmap", case33ConfigMapName, "-n", testNamespace, "--ignore-not-found")
+		utils.KubectlDelete("configmap", case33ConfigMapName, "-n", testNamespace)
 	})
 })

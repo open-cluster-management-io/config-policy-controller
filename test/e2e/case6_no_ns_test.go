@@ -81,9 +81,9 @@ var _ = Describe("Test multiple obj template handling", func() {
 
 			deleteConfigPolicies(policies)
 
-			utils.Kubectl("delete", "ns", case6NSName1, "--ignore-not-found")
-			utils.Kubectl("delete", "ns", case6NSName2, "--ignore-not-found")
-			utils.Kubectl("delete", "role", case6ComboRole, "-n", "default", "--ignore-not-found")
+			utils.KubectlDelete("ns", case6NSName1)
+			utils.KubectlDelete("ns", case6NSName2)
+			utils.KubectlDelete("role", case6ComboRole, "-n", "default")
 		})
 	})
 })

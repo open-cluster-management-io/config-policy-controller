@@ -58,9 +58,9 @@ var _ = Describe("Test converted stringData being decoded before comparison for 
 	})
 
 	AfterAll(func() {
-		utils.Kubectl("delete", "configurationpolicy", case32ConfigPolicyName, "-n", testNamespace)
-		utils.Kubectl("delete", "secret", "htpasswd-secret", "-n", testNamespace)
-		utils.Kubectl("delete", "event",
+		utils.KubectlDelete("configurationpolicy", case32ConfigPolicyName, "-n", testNamespace)
+		utils.KubectlDelete("secret", "htpasswd-secret", "-n", testNamespace)
+		utils.KubectlDelete("event",
 			"--field-selector=involvedObject.name="+case32ConfigPolicyName, "-n", "managed")
 	})
 })
