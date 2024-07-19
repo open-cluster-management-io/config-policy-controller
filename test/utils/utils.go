@@ -45,12 +45,14 @@ func GetClusterLevelWithTimeout(
 	wantFound bool,
 	timeout int,
 ) *unstructured.Unstructured {
+	GinkgoHelper()
+
 	if timeout < 1 {
 		timeout = 1
 	}
 	var obj *unstructured.Unstructured
 
-	EventuallyWithOffset(1, func() error {
+	Eventually(func() error {
 		var err error
 		namespace := clientHubDynamic.Resource(gvr)
 		obj, err = namespace.Get(context.TODO(), name, metav1.GetOptions{})
@@ -83,12 +85,14 @@ func GetWithTimeout(
 	wantFound bool,
 	timeout int,
 ) *unstructured.Unstructured {
+	GinkgoHelper()
+
 	if timeout < 1 {
 		timeout = 1
 	}
 	var obj *unstructured.Unstructured
 
-	EventuallyWithOffset(1, func() error {
+	Eventually(func() error {
 		var err error
 		obj, err = clientHubDynamic.Resource(gvr).Namespace(namespace).
 			Get(context.TODO(), name, metav1.GetOptions{})
@@ -116,9 +120,11 @@ func GetWithTimeout(
 func GetMatchingEvents(
 	client kubernetes.Interface, namespace, objName, reasonRegex, msgRegex string, timeout int,
 ) []corev1.Event {
+	GinkgoHelper()
+
 	var eventList *corev1.EventList
 
-	EventuallyWithOffset(1, func() error {
+	Eventually(func() error {
 		var err error
 		eventList, err = client.CoreV1().Events(namespace).List(context.TODO(), metav1.ListOptions{})
 
@@ -319,7 +325,9 @@ func DoConfigPolicyMessageTest(clientHubDynamic dynamic.Interface,
 	gvrConfigPolicy schema.GroupVersionResource, namespace string, policyName string,
 	templateIdx int, timeout int, expectedMsg string,
 ) {
-	EventuallyWithOffset(1, func(g Gomega) string {
+	GinkgoHelper()
+
+	Eventually(func(g Gomega) string {
 		message, _, err := getConfigPolicyStatusMessages(clientHubDynamic,
 			gvrConfigPolicy, namespace, policyName, templateIdx)
 		g.Expect(err).ShouldNot(HaveOccurred())

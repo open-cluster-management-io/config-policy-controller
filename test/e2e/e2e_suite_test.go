@@ -270,12 +270,14 @@ func LoadConfig(url, kubeconfig, context string) (*rest.Config, error) {
 }
 
 func deleteConfigPolicies(policyNames []string) {
+	GinkgoHelper()
+
 	for _, policyName := range policyNames {
 		err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Delete(
 			context.TODO(), policyName, metav1.DeleteOptions{},
 		)
 		if !errors.IsNotFound(err) {
-			ExpectWithOffset(1, err).ToNot(HaveOccurred())
+			Expect(err).ToNot(HaveOccurred())
 		}
 	}
 
@@ -287,13 +289,15 @@ func deleteConfigPolicies(policyNames []string) {
 }
 
 func deletePods(podNames []string, namespaces []string) {
+	GinkgoHelper()
+
 	for _, podName := range podNames {
 		for _, ns := range namespaces {
 			err := clientManagedDynamic.Resource(gvrPod).Namespace(ns).Delete(
 				context.TODO(), podName, metav1.DeleteOptions{},
 			)
 			if !errors.IsNotFound(err) {
-				ExpectWithOffset(1, err).ToNot(HaveOccurred())
+				Expect(err).ToNot(HaveOccurred())
 			}
 		}
 	}

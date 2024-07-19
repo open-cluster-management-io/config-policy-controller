@@ -17,6 +17,8 @@ import (
 
 var _ = Describe("Test policy history messages when KubeAPI omits values in the returned object", func() {
 	doHistoryTest := func(policyName, configPolicyName string) {
+		GinkgoHelper()
+
 		By("Waiting until the policy is initially compliant")
 		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -70,7 +72,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			)
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
-			ExpectWithOffset(1, configlPlc).To(BeNil())
+			Expect(configlPlc).To(BeNil())
 		})
 	})
 
@@ -97,7 +99,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			)
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
-			ExpectWithOffset(1, configlPlc).To(BeNil())
+			Expect(configlPlc).To(BeNil())
 		})
 	})
 
@@ -124,7 +126,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			)
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
-			ExpectWithOffset(1, configlPlc).To(BeNil())
+			Expect(configlPlc).To(BeNil())
 		})
 	})
 
@@ -151,7 +153,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			)
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
-			ExpectWithOffset(1, configlPlc).To(BeNil())
+			Expect(configlPlc).To(BeNil())
 		})
 	})
 	Describe("policy message should not be truncated", Ordered, func() {
