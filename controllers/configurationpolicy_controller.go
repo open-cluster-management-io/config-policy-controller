@@ -1470,12 +1470,12 @@ func addConditionToStatus(
 		updateNeeded = true
 	} else {
 		oldCond := currentConds[len(currentConds)-1]
-		newConditionIsSimilar := reflect.DeepEqual(oldCond.Status, newCond.Status) &&
-			reflect.DeepEqual(oldCond.Reason, newCond.Reason) &&
-			reflect.DeepEqual(oldCond.Message, newCond.Message) &&
-			reflect.DeepEqual(oldCond.Type, newCond.Type)
+		newConditionIsSame := oldCond.Status == newCond.Status &&
+			oldCond.Reason == newCond.Reason &&
+			oldCond.Message == newCond.Message &&
+			oldCond.Type == newCond.Type
 
-		if !newConditionIsSimilar {
+		if !newConditionIsSame {
 			plc.Status.CompliancyDetails[index].Conditions[len(currentConds)-1] = *newCond
 			updateNeeded = true
 		}
