@@ -131,6 +131,7 @@ var _ = Describe("Test APIServer Config policy", Serial, func() {
 			}
 
 			deleteConfigPolicies(policies)
+			utils.KubectlDelete("apiserver", "cluster")
 		})
 	})
 })

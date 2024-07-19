@@ -234,8 +234,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Equal("pods [c13-pod] found as specified in namespace default"))
 
 			By("Clean up")
-			utils.Kubectl("delete", "configurationpolicy", case13LookupSecret, "-n", testNamespace)
-			utils.Kubectl("delete", "configurationpolicy", case13LookupClusterClaim, "-n", testNamespace)
+			deleteConfigPolicies([]string{case13LookupSecret, case13LookupClusterClaim})
+			utils.Kubectl("delete", "pod", "c13-pod", "-n", "default")
 		})
 	})
 	Describe("test invalid templates", Ordered, func() {
