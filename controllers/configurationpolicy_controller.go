@@ -1137,13 +1137,14 @@ func (r *ConfigurationPolicyReconciler) handleTemplatization(
 
 	// process object templates for go template usage
 	for i, rawData := range rawDataList {
-		if !templates.HasTemplate(rawData, "", true) && !isRawObjTemplate {
+		hasTemplate := templates.HasTemplate(rawData, "", true)
+
+		if !hasTemplate && !isRawObjTemplate {
 			continue
 		}
 
-		if !templates.HasTemplate(rawData, "", true) {
-			// Unmarshal raw template YAML into object if that has not already been done by the template
-			// resolution function
+		if !hasTemplate {
+			// Unmarshal raw template YAML into object as it doesn't need template resolution
 			err := yaml.Unmarshal(rawData, &objTemps)
 			if err != nil {
 				addTemplateErrorViolation("Error parsing the YAML in the object-templates-raw field", err.Error())
