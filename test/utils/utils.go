@@ -192,6 +192,16 @@ func GetStatusMessage(managedPlc *unstructured.Unstructured) (result interface{}
 	return nil
 }
 
+func CheckComplianceStatus(g Gomega, managedPlc *unstructured.Unstructured, expectedCompliance string) {
+	GinkgoHelper()
+
+	complianceStr, _ := GetComplianceState(managedPlc).(string)
+	msgStr, _ := GetStatusMessage(managedPlc).(string)
+
+	g.Expect(expectedCompliance).Should(Equal(complianceStr),
+		fmt.Sprintf("Unexpected compliance state. Status message: %s", msgStr))
+}
+
 // GetFieldFromSecret parses data field of secrets for the specified field
 func GetFieldFromSecret(secret *unstructured.Unstructured, field string) (result interface{}) {
 	if secret.Object["data"] != nil {

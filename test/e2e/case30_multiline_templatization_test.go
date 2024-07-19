@@ -53,7 +53,7 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 			Expect(plc).NotTo(BeNil())
 
 			By("Verifying that the " + case30RangePolicyName + " policy is compliant")
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(
 					clientManagedDynamic,
 					gvrConfigPolicy,
@@ -63,8 +63,8 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 					defaultTimeoutSeconds,
 				)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("Verifying that both configmaps have the updated data")
 			for _, cfgMapName := range []string{"30config1", "30config2"} {
@@ -93,7 +93,7 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 			Expect(plc).NotTo(BeNil())
 
 			By("Verifying that the " + case30NoTemplatePolicyName + " policy is compliant")
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(
 					clientManagedDynamic,
 					gvrConfigPolicy,
@@ -103,8 +103,8 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 					defaultTimeoutSeconds,
 				)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
 		AfterAll(func() {
@@ -181,12 +181,12 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case30WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case30WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case30WrongArgs, testNamespace, true, defaultTimeoutSeconds)
@@ -204,12 +204,12 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case30NoObject, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case30NoObject, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case30NoObject, testNamespace, true, defaultTimeoutSeconds)

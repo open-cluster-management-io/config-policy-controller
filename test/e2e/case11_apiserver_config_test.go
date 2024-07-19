@@ -32,12 +32,12 @@ var _ = Describe("Test APIServer Config policy", Serial, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				etcdEncryptionInformName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					etcdEncryptionInformName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(informPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, informPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		It("should be noncompliant for invalid encryption", func() {
 			By("Creating " + etcdEncryptionEnforceInvalidYaml + " on managed")
@@ -45,12 +45,12 @@ var _ = Describe("Test APIServer Config policy", Serial, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				etcdEncryptionEnforceName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					etcdEncryptionEnforceName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		It("should be compliant for aescbc encryption", func() {
 			By("Creating " + etcdEncryptionEnforceYaml + " on managed")
@@ -58,18 +58,18 @@ var _ = Describe("Test APIServer Config policy", Serial, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				etcdEncryptionEnforceName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					etcdEncryptionEnforceName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			Eventually(func() interface{} {
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					etcdEncryptionInformName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(informPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, informPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		It("should be noncompliant for no tls profile", func() {
 			By("Creating " + tlsProfileInformYaml + " on managed")
@@ -77,12 +77,12 @@ var _ = Describe("Test APIServer Config policy", Serial, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				tlsProfileInformName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					tlsProfileInformName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(informPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, informPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		It("should be noncompliant for invalid tls profile", func() {
 			By("Creating " + tlsProfileEnforceInvalidYaml + " on managed")
@@ -90,12 +90,12 @@ var _ = Describe("Test APIServer Config policy", Serial, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				tlsProfileEnforceName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					tlsProfileEnforceName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		It("should be compliant for intermediate tls profile", func() {
 			By("Creating " + tlsProfileEnforceYaml + " on managed")
@@ -103,24 +103,24 @@ var _ = Describe("Test APIServer Config policy", Serial, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				tlsProfileEnforceName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					tlsProfileEnforceName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			Eventually(func() interface{} {
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					tlsProfileInformName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(informPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			Eventually(func() interface{} {
+				utils.CheckComplianceStatus(g, informPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					etcdEncryptionInformName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(informPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, informPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		AfterAll(func() {
 			policies := []string{

@@ -29,22 +29,22 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case5ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case5ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			utils.Kubectl("apply", "-f", case5ComboYaml, "-n", testNamespace)
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case5ConfigPolicyNameCombo, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case5ConfigPolicyNameCombo, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		It("should create pods on managed cluster", func() {
 			By("creating " + case5ConfigPolicyNameEnforce + " on hub with spec.remediationAction = enforce")
@@ -52,24 +52,24 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case5ConfigPolicyNameEnforce, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case5ConfigPolicyNameEnforce, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			Eventually(func() interface{} {
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case5ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(informPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			Eventually(func() interface{} {
+				utils.CheckComplianceStatus(g, informPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+			Eventually(func(g Gomega) {
 				comboPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case5ConfigPolicyNameCombo, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(comboPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, comboPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			pod1 := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				case5PodName1, "default", true, defaultTimeoutSeconds)
 			Expect(pod1).NotTo(BeNil())
@@ -177,12 +177,12 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 			By("Configuration policy name " + case5NameMissPlcName +
 				" should be compliant after apply " + case5MultiObjTmpYaml)
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case5NameMissPlcName, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(plc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, plc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 		cleanup := func() {
 			policies := []string{

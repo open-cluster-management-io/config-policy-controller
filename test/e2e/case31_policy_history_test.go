@@ -18,12 +18,12 @@ import (
 var _ = Describe("Test policy history messages when KubeAPI omits values in the returned object", func() {
 	doHistoryTest := func(policyName, configPolicyName string) {
 		By("Waiting until the policy is initially compliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				configPolicyName, testNamespace, true, defaultTimeoutSeconds)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Checking the events on the configuration policy")
 		Consistently(func() int {

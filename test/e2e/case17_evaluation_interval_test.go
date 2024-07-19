@@ -110,7 +110,7 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 		By("Getting status.lastEvaluated")
 		var managedPlc *unstructured.Unstructured
 
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -120,8 +120,8 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		lastEvaluated, _ := utils.GetLastEvaluated(managedPlc)
 		_, err := time.Parse(time.RFC3339, lastEvaluated)

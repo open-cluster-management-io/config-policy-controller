@@ -49,13 +49,13 @@ var _ = Describe("Test that an array can be updated when using named objects", O
 		utils.Kubectl("apply", "-f", policyYAML, "-n", testNamespace)
 
 		By("Verifying that the " + policyName + " policy is compliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the pod's image was updated")
 		pod, err = clientManaged.CoreV1().Pods("default").Get(context.TODO(), podName, metav1.GetOptions{})

@@ -46,12 +46,12 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15AlwaysCompliantName, testNamespace, true, defaultTimeoutSeconds)
 		Expect(plc).NotTo(BeNil())
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case15AlwaysCompliantName, testNamespace, true, defaultTimeoutSeconds)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Checking events on the configurationpolicy")
 		Eventually(func() []v1.Event {
@@ -96,12 +96,12 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15NeverCompliantName, testNamespace, true, defaultTimeoutSeconds)
 		Expect(plc).NotTo(BeNil())
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case15NeverCompliantName, testNamespace, true, defaultTimeoutSeconds)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Checking events on the configurationpolicy")
 		compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
@@ -130,22 +130,22 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15BecomesCompliantName, testNamespace, true, defaultTimeoutSeconds)
 		Expect(plc).NotTo(BeNil())
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case15BecomesCompliantName, testNamespace, true, defaultTimeoutSeconds)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Enforcing the policy to make it compliant")
 		utils.Kubectl("patch", "configurationpolicy", case15BecomesCompliantName, `--type=json`,
 			`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", testNamespace)
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case15BecomesCompliantName, testNamespace, true, defaultTimeoutSeconds)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Checking for compliant events on the configurationpolicy and the parent policy")
 		Eventually(func() []v1.Event {
@@ -170,21 +170,21 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case15BecomesNonCompliantName, testNamespace, true, defaultTimeoutSeconds)
 		Expect(plc).NotTo(BeNil())
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case15BecomesNonCompliantName, testNamespace, true, defaultTimeoutSeconds)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Creating a pod to make it noncompliant")
 		utils.Kubectl("apply", "-f", case15PodForNonComplianceYaml)
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case15BecomesNonCompliantName, testNamespace, true, defaultTimeoutSeconds)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Checking for noncompliant events on the configurationpolicy and the parent policy")
 		Eventually(func() []v1.Event {

@@ -44,13 +44,13 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 		createObjWithParent(parentPolicyYAML, parentPolicyName, policyYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		By("Verifying that the " + policyName + " policy is compliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds*2, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds*2, 1).Should(Succeed())
 
 		By("Verifying that the " + policyName + " was created using the alternative kubeconfig")
 		_, err := targetK8sClient.CoreV1().Namespaces().Get(context.TODO(), namespaceName, metav1.GetOptions{})

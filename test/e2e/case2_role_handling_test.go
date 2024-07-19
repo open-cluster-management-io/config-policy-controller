@@ -52,12 +52,12 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				configPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					configPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
 		It("should create role on managed cluster", func() {
@@ -66,18 +66,18 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				configPolicyNameEnforce, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					configPolicyNameEnforce, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
-			Eventually(func() interface{} {
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					configPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(informPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, informPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			role := utils.GetWithTimeout(clientManagedDynamic, gvrRole, roleName,
 				"default", true, defaultTimeoutSeconds)
 			Expect(role).NotTo(BeNil())
@@ -88,32 +88,32 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				"policy-role-check-mnh", testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					"policy-role-check-mnh", testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			utils.Kubectl("apply", "-f", policyCheckMOHYaml, "-n", testNamespace)
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				"policy-role-check-moh", testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					"policy-role-check-moh", testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			utils.Kubectl("apply", "-f", policyCheckCompliant, "-n", testNamespace)
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				"policy-role-check-comp", testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					"policy-role-check-comp", testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
 		It("should create rolebinding on managed cluster", func() {
@@ -122,19 +122,19 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				configPolicyNameBindingEnforce, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					configPolicyNameBindingEnforce, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					configPolicyNameBindingEnforce, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(informPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, informPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			binding := utils.GetWithTimeout(clientManagedDynamic, gvrRoleBinding, bindingName,
 				"default", true, defaultTimeoutSeconds)
 			Expect(binding).NotTo(BeNil())
@@ -152,12 +152,12 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 
 			var managedPlc *unstructured.Unstructured
 
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					configPolicyNameBindingEnforce, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(managedPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("Verifying the diff in the status")
 			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
@@ -187,12 +187,12 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 			By("patching policy spec.remediationAction = enforce")
 			utils.Kubectl("patch", "configurationpolicy", configPolicyNameBindingEnforce, `--type=json`,
 				`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", testNamespace)
-			Eventually(func() interface{} {
+			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					configPolicyNameBindingEnforce, testNamespace, true, defaultTimeoutSeconds)
 
-				return utils.GetComplianceState(informPlc)
-			}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+				utils.CheckComplianceStatus(g, informPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			binding := utils.GetWithTimeout(clientManagedDynamic, gvrRoleBinding, bindingName,
 				"default", true, defaultTimeoutSeconds)
 			Expect(binding).NotTo(BeNil())

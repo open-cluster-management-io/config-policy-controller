@@ -34,12 +34,12 @@ var _ = Describe("Test inform policies on ClusterRoles (RHBZ#2130985)", Ordered,
 		utils.Kubectl("apply", "-f", policyYAML, "-n", testNamespace)
 
 		By("Verifying that the " + policyName + " policy is compliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 })

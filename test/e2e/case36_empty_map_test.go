@@ -35,7 +35,7 @@ var _ = Describe("Test resource creation when there are empty labels in configur
 		utils.Kubectl("apply", "-f", case36AddEmptyMap, "-n", testNamespace)
 
 		By("checking if the policy " + case36AddEmptyMapName + " is NonCompliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -45,8 +45,8 @@ var _ = Describe("Test resource creation when there are empty labels in configur
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("NonCompliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 
 	It("verifies the policy "+case36NoEmptyMapName+"is Compliant", func() {
@@ -54,7 +54,7 @@ var _ = Describe("Test resource creation when there are empty labels in configur
 		utils.Kubectl("apply", "-f", case36NoEmptyMap, "-n", testNamespace)
 
 		By("checking if the policy " + case36NoEmptyMapName + " is Compliant")
-		Eventually(func() interface{} {
+		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic,
 				gvrConfigPolicy,
@@ -64,7 +64,7 @@ var _ = Describe("Test resource creation when there are empty labels in configur
 				defaultTimeoutSeconds,
 			)
 
-			return utils.GetComplianceState(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 })
