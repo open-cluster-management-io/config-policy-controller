@@ -253,8 +253,9 @@ func main() {
 
 	// Configure secure metrics
 	if opts.secureMetrics {
-		metricsOptions.SecureServing = true
 		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
+		metricsOptions.SecureServing = true
+		metricsOptions.CertDir = "/var/run/metrics-cert"
 	}
 
 	// Set default manager options
@@ -715,8 +716,8 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 	flags.BoolVar(
 		&opts.secureMetrics,
 		"secure-metrics",
-		true,
-		"Enable secure metrics endpoint",
+		false,
+		"Enable secure metrics endpoint with certificates at /var/run/metrics-cert",
 	)
 
 	flags.StringVar(
