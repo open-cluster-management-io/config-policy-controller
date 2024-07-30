@@ -118,6 +118,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			err = json.Unmarshal(policyJSON, &policy)
 			g.Expect(err).NotTo(HaveOccurred())
 
+			g.Expect(policy.Status.ObservedGeneration).To(Equal(unstructPolicy.GetGeneration()))
+
 			if wantNonCompliant {
 				g.Expect(policy.Status.ComplianceState).To(Equal(policyv1.NonCompliant))
 			}
