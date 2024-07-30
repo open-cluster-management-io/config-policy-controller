@@ -199,6 +199,10 @@ type OperatorPolicyStatus struct {
 	// ComplianceState reports the most recent compliance state of the operator policy.
 	ComplianceState policyv1.ComplianceState `json:"compliant,omitempty"`
 
+	// ObservedGeneration is the latest generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// Conditions includes historic details on the condition of the operator policy.
 	//
 	//+listType=map

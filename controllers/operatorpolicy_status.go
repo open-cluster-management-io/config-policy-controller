@@ -57,7 +57,7 @@ func updateStatus(
 	if condChanged {
 		updatedComplianceCondition := calculateComplianceCondition(policy)
 
-		compCondIdx, _ := policy.Status.GetCondition(updatedComplianceCondition.Type)
+		compCondIdx, _ := policy.Status.GetCondition(compliantConditionType)
 		if compCondIdx == -1 {
 			policy.Status.Conditions = append(policy.Status.Conditions, updatedComplianceCondition)
 		} else {
@@ -148,7 +148,12 @@ func updateStatus(
 		}
 	}
 
-	return condChanged || relObjsChanged
+	genUpdated := policy.ObjectMeta.Generation != policy.Status.ObservedGeneration
+	if genUpdated {
+		policy.Status.ObservedGeneration = policy.ObjectMeta.Generation
+	}
+
+	return condChanged || relObjsChanged || genUpdated
 }
 
 func conditionChanged(updatedCondition, existingCondition metav1.Condition) bool {
