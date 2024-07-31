@@ -152,7 +152,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 						}
 					}
 
-					g.Expect(foundMatchingName).To(BeTrue())
+					g.Expect(foundMatchingName).To(BeTrue(), fmt.Sprintf(
+						"Should have related object %s with name '%s'",
+						expectedRelObj.Object.Kind, expectedRelObj.Object.Metadata.Name))
 				}
 			}
 
