@@ -1,0 +1,10 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: case41-parent
+  annotations:
+    policy.open-cluster-management.io/parent-policy-compliance-db-id: "23"
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates: []

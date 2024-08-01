@@ -1,0 +1,36 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case41
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    kind: Policy
+    name: case41-parent
+    uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
+spec:
+  customMessage:
+    compliant: '{{ range .nonterminated }}'
+    noncompliant: '{{ range .nonterminated }}'
+  remediationAction: inform
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default", "test-case-41"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: test-case-41
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-pod-e2e-41
+        spec:
+          containers:
+            - image: nginx:nonexist-v999
+              name: nginx
+              ports:
+                - containerPort: 80
