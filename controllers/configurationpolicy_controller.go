@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -706,6 +707,18 @@ func (r *ConfigurationPolicyReconciler) definitionIsDeleting() (bool, error) {
 	return false, fmt.Errorf("v1: %v, v1beta1: %v", v1err, v1beta1err) //nolint:errorlint
 }
 
+// currentlyUsingWatch determines if the dynamic watcher should be used based on
+// the current compliance and the evaluation interval settings.
+func currentlyUsingWatch(plc *policyv1.ConfigurationPolicy) bool {
+	if plc.Status.ComplianceState == policyv1.Compliant {
+		return plc.Spec.EvaluationInterval.IsWatchForCompliant()
+	}
+
+	// If the policy is not compliant (i.e. noncompliant or unknown), fall back to the noncompliant
+	// evaluation interval. This is a court of guilty until proven innocent.
+	return plc.Spec.EvaluationInterval.IsWatchForNonCompliant()
+}
+
 // handleObjectTemplates iterates through all policy templates in a given policy and processes them. If fields are
 // missing on the policy (excluding objectDefinition), an error of type ErrPolicyInvalid is returned.
 func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.ConfigurationPolicy) error {
@@ -720,14 +733,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		return err
 	}
 
-	// Determine if the watch library should be used based on the evaluation interval.
-	usingWatch := plc.Spec.EvaluationInterval.IsWatchForCompliant()
-
-	if plc.Status.ComplianceState != policyv1.Compliant {
-		// If the policy is not compliant (i.e. noncompliant or unknown), fall back to the noncompliant evaluation
-		// interval. This is a court of guilty until proven innocent.
-		usingWatch = plc.Spec.EvaluationInterval.IsWatchForNonCompliant()
-	}
+	usingWatch := currentlyUsingWatch(plc)
 
 	if usingWatch && r.DynamicWatcher != nil {
 		watcherObj := plc.ObjectIdentifier()
@@ -3210,7 +3216,8 @@ func (r *ConfigurationPolicyReconciler) recordInfoEvent(plc *policyv1.Configurat
 		plc,
 		eventType,
 		"policy: "+plc.GetName(),
-		convertPolicyStatusToString(plc),
+		// Always use the default message for info events
+		defaultComplianceMessage(plc),
 	)
 }
 
@@ -3236,7 +3243,7 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 			APIVersion: ownerRef.APIVersion,
 		},
 		Reason:  fmt.Sprintf(eventFmtStr, instance.Namespace, instance.Name),
-		Message: convertPolicyStatusToString(instance),
+		Message: r.customComplianceMessage(instance),
 		Source: corev1.EventSource{
 			Component: ControllerName,
 			Host:      r.InstanceName,
@@ -3279,29 +3286,130 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 	return r.Create(context.TODO(), event)
 }
 
-// convertPolicyStatusToString to be able to pass the status as event
-func convertPolicyStatusToString(plc *policyv1.ConfigurationPolicy) string {
+// defaultComplianceMessage looks through the policy's Compliance and CompliancyDetails and formats
+// a message that can be used for compliance events recognized by the framework.
+func defaultComplianceMessage(plc *policyv1.ConfigurationPolicy) string {
 	if plc.Status.ComplianceState == "" || plc.Status.ComplianceState == policyv1.UnknownCompliancy {
 		return "ComplianceState is still unknown"
 	}
 
-	result := string(plc.Status.ComplianceState)
+	defaultTemplate := `
+	{{- range .Status.CompliancyDetails -}}
+	  ; {{ if (index .Conditions 0) -}}
+	    {{- (index .Conditions 0).Type }} - {{ (index .Conditions 0).Message -}}
+	  {{- end -}}
+	{{- end }}`
 
-	if plc.Status.CompliancyDetails == nil || len(plc.Status.CompliancyDetails) == 0 {
-		return result
+	// `Must` is ok here because an invalid template would be caught by tests
+	t := template.Must(template.New("default-msg").Parse(defaultTemplate))
+
+	var result strings.Builder
+
+	result.WriteString(string(plc.Status.ComplianceState))
+
+	if err := t.Execute(&result, plc); err != nil {
+		log.Error(err, "failed to execute default template", "PolicyName", plc.Name)
+
+		// Fallback to just returning the compliance state - this will be recognized by the framework,
+		// but will be missing any details.
+		return string(plc.Status.ComplianceState)
 	}
 
-	for _, v := range plc.Status.CompliancyDetails {
-		result += "; "
-		for idx, cond := range v.Conditions {
-			result += cond.Type + " - " + cond.Message
-			if idx != len(v.Conditions)-1 {
-				result += ", "
+	return result.String()
+}
+
+// customComplianceMessage uses the custom template in the policy (if provided by the user) to
+// format a compliance message that can be used by the framework. If an error occurs with the
+// template, the default message will be used, appended with details for the error. If no custom
+// template was specified for the current compliance, then the default message is used.
+func (r *ConfigurationPolicyReconciler) customComplianceMessage(plc *policyv1.ConfigurationPolicy) string {
+	customTemplate := plc.Spec.CustomMessage.Compliant
+
+	if plc.Status.ComplianceState != policyv1.Compliant {
+		customTemplate = plc.Spec.CustomMessage.NonCompliant
+	}
+
+	defaultMessage := defaultComplianceMessage(plc)
+
+	// No custom template was provided for the current situation
+	if customTemplate == "" {
+		return defaultMessage
+	}
+
+	customMessage, err := r.doCustomMessage(plc, customTemplate, defaultMessage)
+	if err != nil {
+		return fmt.Sprintf("%v (failure processing the custom message: %v)", defaultMessage, err.Error())
+	}
+
+	// Add the compliance prefix if not present (it is required by the framework)
+	if !strings.HasPrefix(customMessage, string(plc.Status.ComplianceState)+"; ") {
+		customMessage = string(plc.Status.ComplianceState) + "; " + customMessage
+	}
+
+	return customMessage
+}
+
+// doCustomMessage parses and executes the custom template, returning an error if something goes
+// wrong. The data that the template receives includes the '.DefaultMessage' string and a '.Policy'
+// object, which has the full current state of the configuration policy, including status fields
+// like relatedObjects. If the policy is using the dynamic watcher, then the '.object' field on each
+// related object will have the *full* current state of that object, otherwise only some identifying
+// information is available there.
+func (r *ConfigurationPolicyReconciler) doCustomMessage(
+	plc *policyv1.ConfigurationPolicy, customTemplate string, defaultMessage string,
+) (string, error) {
+	tmpl, err := template.New("custom-msg").Parse(customTemplate)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse custom template: %w", err)
+	}
+
+	// Converting the policy to a map allows users to access fields via the yaml/json field names
+	// (ie the lowercase versions), which they are likely more familiar with.
+	plcMap, err := runtime.DefaultUnstructuredConverter.ToUnstructured(plc)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert policy to unstructured: %w)", err)
+	}
+
+	// Only add the full related object information when it can be pulled from the cache
+	if currentlyUsingWatch(plc) {
+		// Paranoid checks to ensure that the policy has a status of the right format
+		plcStatus, ok := plcMap["status"].(map[string]any)
+		if !ok {
+			goto messageTemplating
+		}
+
+		relObjs, ok := plcStatus["relatedObjects"].([]any)
+		if !ok {
+			goto messageTemplating
+		}
+
+		for i, relObj := range plc.Status.RelatedObjects {
+			objNS := relObj.Object.Metadata.Namespace
+			objName := relObj.Object.Metadata.Name
+			objGVK := schema.FromAPIVersionAndKind(relObj.Object.APIVersion, relObj.Object.Kind)
+
+			fullObj, err := r.getObjectFromCache(plc, objNS, objName, objGVK)
+			if err == nil && fullObj != nil {
+				if _, ok := relObjs[i].(map[string]any); ok {
+					relObjs[i].(map[string]any)["object"] = fullObj.Object
+				}
 			}
 		}
 	}
 
-	return result
+messageTemplating:
+	templateData := map[string]any{
+		"DefaultMessage": defaultMessage,
+		"Policy":         plcMap,
+	}
+
+	var customMsg strings.Builder
+
+	if err := tmpl.Execute(&customMsg, templateData); err != nil {
+		return "", fmt.Errorf("failed to execute: %w", err)
+	}
+
+	return customMsg.String(), nil
 }
 
 // getDeployment gets the Deployment object associated with this controller. If the controller is running outside of

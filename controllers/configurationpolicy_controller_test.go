@@ -166,7 +166,7 @@ func TestConvertPolicyStatusToString(t *testing.T) {
 		CompliancyDetails: compliantDetails,
 	}
 	samplePolicy.Status = samplePolicyStatus
-	policyInString := convertPolicyStatusToString(&samplePolicy)
+	policyInString := defaultComplianceMessage(&samplePolicy)
 
 	assert.NotNil(t, policyInString)
 }
@@ -188,7 +188,7 @@ func TestConvertPolicyStatusToStringLongMsg(t *testing.T) {
 			},
 		},
 	}
-	statusMsg := convertPolicyStatusToString(&samplePolicy)
+	statusMsg := defaultComplianceMessage(&samplePolicy)
 
 	assert.Greater(t, len(statusMsg), 1024)
 }

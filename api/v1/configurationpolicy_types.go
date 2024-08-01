@@ -39,6 +39,23 @@ func (ra RemediationAction) IsEnforce() bool {
 	return strings.EqualFold(string(ra), string(Enforce))
 }
 
+// CustomMessage configures the compliance messages emitted by the configuration policy, to use one
+// of the specified Go templates based on the current compliance. The data passed to the templates
+// include a `.DefaultMessage` string variable which matches the message that would be emitted if no
+// custom template was defined, and a `.Policy` object variable which contains the full current
+// state of the policy. If the policy is using Kubernetes API watches (default but can be configured
+// with EvaluationInterval), and the object exists, then the full state of each related object will
+// be available at `.Policy.status.relatedObjects[*].object`. Otherwise, only the identifier
+// information will be available there.
+type CustomMessage struct {
+	// Compliant is the template used for the compliance message when the policy is compliant.
+	Compliant string `json:"compliant,omitempty"`
+
+	// NonCompliant is the template used for the compliance message when the policy is not compliant,
+	// including when the status is unknown.
+	NonCompliant string `json:"noncompliant,omitempty"`
+}
+
 // Severity is a user-defined severity for when an object is noncompliant with this configuration
 // policy. The supported options are `low`, `medium`, `high`, and `critical`.
 //
@@ -264,6 +281,7 @@ func (o *ObjectTemplate) RecordDiffWithDefault() RecordDiff {
 // ConfigurationPolicySpec defines the desired configuration of objects on the cluster, along with
 // how the controller should handle when the cluster doesn't match the configuration policy.
 type ConfigurationPolicySpec struct {
+	CustomMessage      CustomMessage      `json:"customMessage,omitempty"`
 	Severity           Severity           `json:"severity,omitempty"`
 	RemediationAction  RemediationAction  `json:"remediationAction"`
 	EvaluationInterval EvaluationInterval `json:"evaluationInterval,omitempty"`
