@@ -324,6 +324,12 @@ func (r *NamespaceSelectorReconciler) update(namespace string, name string, sel 
 }
 
 func filter(allNSList corev1.NamespaceList, t policyv1.Target) ([]string, error) {
+	// If MatchLabels and MatchExpressions are nil, the resulting label selector matches all namespaces. This is to
+	// guard against that.
+	if t.MatchLabels == nil && t.MatchExpressions == nil && len(t.Include) == 0 {
+		return []string{}, nil
+	}
+
 	labelSelector := parseToLabelSelector(t)
 
 	selector, err := metav1.LabelSelectorAsSelector(&labelSelector)

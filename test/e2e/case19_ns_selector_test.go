@@ -48,6 +48,38 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 		})
 	})
 
+	Describe("No namespace or namespaceSelector specified", func() {
+		It("Verifies a no namespace error is consistent", func() {
+			By("Patching the policy with the empty selector")
+			utils.Kubectl(
+				"patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
+				fmt.Sprintf(nsSelectorPatchFmt, "{}"),
+			)
+
+			By("Verifying the policy has a no namespace error")
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					policyName, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetStatusMessage(managedPlc)
+			}, defaultTimeoutSeconds, 1).Should(Equal(noMatchesMsg))
+
+			By("Creating a random namespace to trigger the namespace NamespaceSelectorReconciler Reconcile method")
+			utils.Kubectl("create", "namespace", "case19-something-random")
+			DeferCleanup(func() {
+				utils.KubectlDelete("namespace", "case19-something-random")
+			})
+
+			By("Verifying the policy consistently has a no namespace error")
+			Consistently(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					policyName, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetStatusMessage(managedPlc)
+			}, 10, 1).Should(Equal(noMatchesMsg))
+		})
+	})
+
 	DescribeTable("Checking results of different namespaceSelectors", func(patch string, message string) {
 		By("patching policy with the test selector")
 		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
@@ -62,9 +94,6 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 			Equal(message),
 			fmt.Sprintf("Unexpected message using patch '%s'", patch))
 	},
-		Entry("No namespaceSelector specified",
-			"{}",
-			noMatchesMsg),
 		Entry("LabelSelector and exclude",
 			`{"exclude":["*19a-[3-4]-e2e"],"matchExpressions":[{"key":"case19a","operator":"Exists"}]}`,
 			fmt.Sprintf(notFoundMsgFmt, "case19a-2-e2e, case19a-5-e2e"),
