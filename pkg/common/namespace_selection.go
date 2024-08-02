@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -28,8 +27,6 @@ import (
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
-
-var log = ctrl.Log
 
 // Parse *Target.MatchLabels and *Target.MatchExpressions into metav1.LabelSelector for the k8s API
 func parseToLabelSelector(selector policyv1.Target) metav1.LabelSelector {
@@ -56,67 +53,6 @@ func parseToLabelSelector(selector policyv1.Target) metav1.LabelSelector {
 	}
 
 	return labelSelector
-}
-
-// GetSelectedNamespaces returns the list of filtered namespaces according to the policy namespace selector.
-func GetSelectedNamespaces(client kubernetes.Interface, selector policyv1.Target) ([]string, error) {
-	// Build LabelSelector from provided MatchLabels and MatchExpressions
-	labelSelector := parseToLabelSelector(selector)
-
-	// get all namespaces matching selector
-	allNamespaces, err := GetAllNamespaces(client, labelSelector)
-	if err != nil {
-		log.Error(err, "error retrieving namespaces")
-
-		return []string{}, err
-	}
-
-	// filter the list based on the included/excluded list of patterns
-	included := selector.Include
-	excluded := selector.Exclude
-	log.V(2).Info("Filtering namespace list using include/exclude lists", "include", included, "exclude", excluded)
-
-	finalList, err := Matches(allNamespaces, included, excluded)
-	if err != nil {
-		return []string{}, err
-	}
-
-	if len(finalList) == 0 {
-		log.V(2).Info("Filtered namespace list is empty.")
-	}
-
-	log.V(2).Info("Returning final filtered namespace list", "namespaces", finalList)
-
-	return finalList, err
-}
-
-// GetAllNamespaces gets the list of all namespaces from k8s that matches the input label selector.
-func GetAllNamespaces(client kubernetes.Interface, labelSelector metav1.LabelSelector) ([]string, error) {
-	parsedSelector, err := metav1.LabelSelectorAsSelector(&labelSelector)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing namespace LabelSelector: %w", err)
-	}
-
-	listOpt := metav1.ListOptions{
-		LabelSelector: parsedSelector.String(),
-	}
-
-	log.V(2).Info("Retrieving namespaces with LabelSelector", "LabelSelector", parsedSelector.String())
-
-	nsList, err := client.CoreV1().Namespaces().List(context.TODO(), listOpt)
-	if err != nil {
-		log.Error(err, "could not list namespaces from the API server")
-
-		return nil, err
-	}
-
-	var namespacesNames []string
-
-	for _, n := range nsList.Items {
-		namespacesNames = append(namespacesNames, n.Name)
-	}
-
-	return namespacesNames, nil
 }
 
 // SelectorReconciler keeps a cache of NamespaceSelector results, which it should update when
