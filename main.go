@@ -233,6 +233,13 @@ func main() {
 			}),
 		}
 
+		cacheByObject[&corev1.Secret{}] = cache.ByObject{
+			Field: fields.SelectorFromSet(fields.Set{
+				"metadata.namespace": watchNamespace,
+				"metadata.name":      "policy-encryption-key",
+			}),
+		}
+
 		if opts.enableOperatorPolicy {
 			cacheByObject[&policyv1beta1.OperatorPolicy{}] = cache.ByObject{
 				Field: fields.SelectorFromSet(fields.Set{
@@ -241,7 +248,13 @@ func main() {
 			}
 		}
 	} else {
-		log.Info("Skipping restrictions on the ConfigurationPolicy cache because watchNamespace is empty")
+		log.Info("Skipping namespace restrictions on the cache because watchNamespace is empty")
+
+		cacheByObject[&corev1.Secret{}] = cache.ByObject{
+			Field: fields.SelectorFromSet(fields.Set{
+				"metadata.name": "policy-encryption-key",
+			}),
+		}
 	}
 
 	// No need to resync every 10 hours.
@@ -273,13 +286,6 @@ func main() {
 		Cache: cache.Options{
 			ByObject:   cacheByObject,
 			SyncPeriod: &disableResync,
-		},
-		// Disable the cache for Secrets to avoid a watch getting created when the `policy-encryption-key`
-		// Secret is retrieved. Special cache handling is done by the controller.
-		Client: client.Options{
-			Cache: &client.CacheOptions{
-				DisableFor: []client.Object{&corev1.Secret{}},
-			},
 		},
 		// Override the EventBroadcaster so that the spam filter will not ignore events for the policy but with
 		// different messages if a large amount of events for that policy are sent in a short time.
