@@ -17,51 +17,13 @@ import (
 
 const IVAnnotation = "policy.open-cluster-management.io/encryption-iv"
 
-// getEncryptionKey will get the encryption key in the managed cluster namespace used for policy template encryption.
-func (r *ConfigurationPolicyReconciler) getEncryptionKey(namespace string) (*cachedEncryptionKey, error) {
-	// #nosec G101
-	const secretName = "policy-encryption-key"
-
-	ctx := context.TODO()
-	objectKey := types.NamespacedName{
-		Name:      secretName,
-		Namespace: namespace,
-	}
-	encryptionSecret := &corev1.Secret{}
-
-	err := r.Get(ctx, objectKey, encryptionSecret)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get the encryption key from Secret %s/%s: %w", namespace, secretName, err)
-	}
-
-	var key []byte
-	if len(encryptionSecret.Data["key"]) > 0 {
-		key = encryptionSecret.Data["key"]
-	}
-
-	var previousKey []byte
-	if len(encryptionSecret.Data["previousKey"]) > 0 {
-		previousKey = encryptionSecret.Data["previousKey"]
-	}
-
-	cachedKey := &cachedEncryptionKey{
-		key:         key,
-		previousKey: previousKey,
-	}
-
-	return cachedKey, nil
-}
-
 // getEncryptionConfig returns the encryption config for decrypting values that were encrypted using Hub templates.
 // The returned bool determines if the cache was used. This value can be helpful to know if the cache should be
 // refreshed if the decryption failed. The forceRefresh argument will skip the cache and update it with what the
 // API returns.
-func (r *ConfigurationPolicyReconciler) getEncryptionConfig(policy *policyv1.ConfigurationPolicy, forceRefresh bool) (
-	templates.EncryptionConfig, bool, error,
+func (r *ConfigurationPolicyReconciler) getEncryptionConfig(ctx context.Context, policy *policyv1.ConfigurationPolicy) (
+	templates.EncryptionConfig, error,
 ) {
-	log := log.WithValues("policy", policy.GetName())
-	usedCache := false
-
 	annotations := policy.GetAnnotations()
 	ivBase64 := annotations[IVAnnotation]
 
@@ -69,40 +31,32 @@ func (r *ConfigurationPolicyReconciler) getEncryptionConfig(policy *policyv1.Con
 	if err != nil {
 		err = fmt.Errorf(`the policy annotation of "%s" is not Base64: %w`, IVAnnotation, err)
 
-		return templates.EncryptionConfig{}, usedCache, err
+		return templates.EncryptionConfig{}, err
 	}
 
-	if r.cachedEncryptionKey == nil || forceRefresh {
-		r.cachedEncryptionKey = &cachedEncryptionKey{}
+	objectKey := types.NamespacedName{
+		Name:      "policy-encryption-key",
+		Namespace: policy.GetNamespace(),
 	}
 
-	if r.cachedEncryptionKey.key == nil {
-		log.V(2).Info(
-			"The encryption key is not cached, getting the encryption key from the server for the EncryptionConfig " +
-				"object",
+	encryptionSecret := &corev1.Secret{}
+
+	err = r.Get(ctx, objectKey, encryptionSecret)
+	if err != nil {
+		return templates.EncryptionConfig{}, fmt.Errorf(
+			"failed to get the encryption key from Secret %s/policy-encryption-key: %w", policy.GetNamespace(), err,
 		)
-
-		var err error
-
-		// The managed cluster namespace will be the same namespace as the ConfigurationPolicy
-		r.cachedEncryptionKey, err = r.getEncryptionKey(policy.GetNamespace())
-		if err != nil {
-			return templates.EncryptionConfig{}, usedCache, err
-		}
-	} else {
-		log.V(2).Info("Using the cached encryption key for the EncryptionConfig object")
-		usedCache = true
 	}
 
 	encryptionConfig := templates.EncryptionConfig{
-		AESKey:                r.cachedEncryptionKey.key,
-		AESKeyFallback:        r.cachedEncryptionKey.previousKey,
+		AESKey:                encryptionSecret.Data["key"],
+		AESKeyFallback:        encryptionSecret.Data["previousKey"],
 		DecryptionConcurrency: r.DecryptionConcurrency,
 		DecryptionEnabled:     true,
 		InitializationVector:  iv,
 	}
 
-	return encryptionConfig, usedCache, nil
+	return encryptionConfig, nil
 }
 
 // usesEncryption detects if the initialization vector is set on the policy. If it is, then there
