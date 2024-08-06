@@ -39,6 +39,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"k8s.io/klog/v2"
 	"open-cluster-management.io/addon-framework/pkg/lease"
+	addonutils "open-cluster-management.io/addon-framework/pkg/utils"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -355,6 +356,7 @@ func main() {
 	var targetK8sConfig *rest.Config
 	var targetClient client.Client
 	var nsSelMgr manager.Manager // A separate controller-manager is needed in hosted mode
+	var configFiles []string
 
 	if opts.targetKubeConfig == "" {
 		targetK8sConfig = cfg
@@ -369,6 +371,12 @@ func main() {
 		if err != nil {
 			log.Error(err, "Failed to load the target kubeconfig", "path", opts.targetKubeConfig)
 			os.Exit(1)
+		}
+
+		configFiles = append(configFiles, opts.targetKubeConfig)
+
+		if targetK8sConfig.TLSClientConfig.CertFile != "" {
+			configFiles = append(configFiles, targetK8sConfig.TLSClientConfig.CertFile)
 		}
 
 		targetK8sConfig.Burst = int(opts.clientBurst)
@@ -529,21 +537,11 @@ func main() {
 		}
 	}
 
-	//+kubebuilder:scaffold:builder
-
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		log.Error(err, "Unable to set up health check")
-		os.Exit(1)
-	}
-
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		log.Error(err, "Unable to set up ready check")
-		os.Exit(1)
-	}
-
 	// This lease is not related to leader election. This is to report the status of the controller
 	// to the addon framework. This can be seen in the "status" section of the ManagedClusterAddOn
 	// resource objects.
+	var hubCfg *rest.Config
+
 	if opts.enableLease {
 		operatorNs, err := common.GetOperatorNamespace()
 		if err != nil {
@@ -562,7 +560,7 @@ func main() {
 				kubernetes.NewForConfigOrDie(cfg), "config-policy-controller", operatorNs,
 			)
 
-			hubCfg, err := clientcmd.BuildConfigFromFlags("", opts.hubConfigPath)
+			hubCfg, err = clientcmd.BuildConfigFromFlags("", opts.hubConfigPath)
 			if err != nil {
 				log.Error(err, "Could not load hub config, lease updater not set with config")
 			} else {
@@ -573,6 +571,40 @@ func main() {
 		}
 	} else {
 		log.Info("Addon status reporting is not enabled")
+	}
+
+	if hubCfg != nil {
+		configFiles = append(configFiles, opts.hubConfigPath)
+
+		if hubCfg.TLSClientConfig.CertFile != "" {
+			configFiles = append(configFiles, hubCfg.TLSClientConfig.CertFile)
+		}
+	}
+
+	var healthzCheck healthz.Checker
+
+	if len(configFiles) == 0 {
+		healthzCheck = healthz.Ping
+	} else {
+		configChecker, err := addonutils.NewConfigChecker("config-policy-controller", configFiles...)
+		if err != nil {
+			log.Error(err, "unable to setup a configChecker")
+			os.Exit(1)
+		}
+
+		healthzCheck = configChecker.Check
+	}
+
+	//+kubebuilder:scaffold:builder
+
+	if err := mgr.AddHealthzCheck("healthz", healthzCheck); err != nil {
+		log.Error(err, "Unable to set up health check")
+		os.Exit(1)
+	}
+
+	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
+		log.Error(err, "Unable to set up ready check")
+		os.Exit(1)
 	}
 
 	log.Info("Starting managers")
