@@ -1,0 +1,17 @@
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: oppol-fake-operator
+  namespace: managed
+spec:
+  remediationAction: enforce
+  severity: medium
+  complianceType: musthave
+  subscription:
+    channel: stable-v0
+    name: fake-operator
+    namespace: managed
+    source: fake-catalog
+    sourceNamespace: managed
+    startingCSV: fake-operator.v0.0.1
+  upgradeApproval: Automatic

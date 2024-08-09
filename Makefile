@@ -28,6 +28,7 @@ WATCH_NAMESPACE ?= $(MANAGED_CLUSTER_NAME)
 KIND_NAME ?= test-$(MANAGED_CLUSTER_NAME)
 KIND_CLUSTER_NAME ?= kind-$(KIND_NAME)
 KIND_NAMESPACE ?= open-cluster-management-agent-addon
+KIND_REGISTRY_NAME = kind-registry
 # Test coverage threshold
 export COVERAGE_MIN ?= 75
 COVERAGE_E2E_OUT ?= coverage_e2e.out
@@ -153,7 +154,8 @@ kind-bootstrap-cluster: kind-bootstrap-cluster-dev kind-deploy-controller
 
 .PHONY: kind-bootstrap-cluster-dev
 kind-bootstrap-cluster-dev: CLUSTER_NAME = $(MANAGED_CLUSTER_NAME)
-kind-bootstrap-cluster-dev: kind-create-cluster install-crds kind-controller-kubeconfig
+kind-bootstrap-cluster-dev: KIND_ARGS += --config=./test/fake-operator-test/kind-registry-config.yaml
+kind-bootstrap-cluster-dev: kind-create-cluster install-crds kind-controller-kubeconfig kind-setup-fake-operator
 
 .PHONY: kind-deploy-controller
 kind-deploy-controller: generate-operator-yaml install-resources deploy
@@ -199,6 +201,8 @@ kind-additional-cluster: kind-create-cluster kind-controller-kubeconfig install-
 kind-delete-cluster:
 	-kind delete cluster --name $(KIND_NAME)
 	-kind delete cluster --name $(KIND_NAME)2
+	-docker container stop $(KIND_REGISTRY_NAME)
+	-docker container rm $(KIND_REGISTRY_NAME)
 
 .PHONY: kind-tests
 kind-tests: kind-delete-cluster kind-bootstrap-cluster-dev kind-deploy-controller-dev e2e-test
@@ -237,6 +241,11 @@ install-resources:
 	# deploying roles and service account
 	kubectl apply -k deploy/rbac
 	kubectl apply -f deploy/manager/service-account.yaml -n $(KIND_NAMESPACE)
+
+.PHONY: kind-setup-fake-operator
+kind-setup-fake-operator:
+	./test/fake-operator-test/scripts/local-registry.sh
+	./test/fake-operator-test/scripts/create-catalog.sh
 
 IS_HOSTED ?= false
 E2E_PROCS = 20
