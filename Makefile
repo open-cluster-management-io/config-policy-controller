@@ -222,6 +222,7 @@ install-crds:  $(OLM_INSTALLER)
 
 $(OLM_INSTALLER):
 	@echo getting OLM installer
+	mkdir -p $(LOCAL_BIN)
 	curl -L https://github.com/operator-framework/operator-lifecycle-manager/releases/download/$(OLM_VERSION)/install.sh -o $(LOCAL_BIN)/install.sh
 
 install-crds-hosted: export KUBECONFIG=./kubeconfig_managed$(MANAGED_CLUSTER_SUFFIX)_e2e
