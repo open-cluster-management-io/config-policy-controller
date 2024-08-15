@@ -19,7 +19,7 @@ import (
 
 	"github.com/go-logr/logr"
 	gocmp "github.com/google/go-cmp/cmp"
-	templates "github.com/stolostron/go-template-utils/v5/pkg/templates"
+	templates "github.com/stolostron/go-template-utils/v6/pkg/templates"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
@@ -1120,7 +1120,9 @@ func (r *ConfigurationPolicyReconciler) handleTemplatization(
 	var tmplResolver *templates.TemplateResolver
 
 	if usingWatch {
-		tmplResolver, err = templates.NewResolverWithDynamicWatcher(r.DynamicWatcher, templates.Config{})
+		tmplResolver, err = templates.NewResolverWithDynamicWatcher(
+			r.DynamicWatcher, templates.Config{SkipBatchManagement: true},
+		)
 		objID := plc.ObjectIdentifier()
 
 		resolveOptions.Watcher = &objID
