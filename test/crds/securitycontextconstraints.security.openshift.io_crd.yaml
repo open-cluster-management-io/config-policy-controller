@@ -1,12 +1,7 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  creationTimestamp: "2020-07-01T18:12:53Z"
-  generation: 1
   name: securitycontextconstraints.security.openshift.io
-  resourceVersion: "306"
-  selfLink: /apis/apiextensions.k8s.io/v1/customresourcedefinitions/securitycontextconstraints.security.openshift.io
-  uid: 6c41f1bb-278d-4414-8c1d-82de7c2d5135
 spec:
   conversion:
     strategy: None
@@ -325,22 +320,3 @@ spec:
         type: object
     served: true
     storage: true
-status:
-  acceptedNames:
-    kind: SecurityContextConstraints
-    listKind: SecurityContextConstraintsList
-    plural: securitycontextconstraints
-    singular: securitycontextconstraints
-  conditions:
-  - lastTransitionTime: "2020-07-01T18:12:53Z"
-    message: no conflicts found
-    reason: NoConflicts
-    status: "True"
-    type: NamesAccepted
-  - lastTransitionTime: "2020-07-01T18:12:53Z"
-    message: the initial names have been accepted
-    reason: InitialNamesAccepted
-    status: "True"
-    type: Established
-  storedVersions:
-  - v1
