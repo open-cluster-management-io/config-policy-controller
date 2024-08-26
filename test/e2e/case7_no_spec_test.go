@@ -13,81 +13,81 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case7ConfigPolicyName        string = "policy-securitycontextconstraints-1-sample-restricted-scc"
-	case7ObjName                 string = "sample-restricted-scc"
-	case7PolicyYaml              string = "../resources/case7_no_spec/case7_no_spec_enforce.yaml"
-	case7ConfigPolicyNameNull    string = "policy-securitycontextconstraints-1-sample-restricted-scc-null"
-	case7PolicyYamlNull          string = "../resources/case7_no_spec/case7_no_spec_enforce_null.yaml"
-	case7ConfigPolicyNameInvalid string = "policy-securitycontextconstraints-1-sample-restricted-scc-invalid"
-	case7PolicyYamlInvalid       string = "../resources/case7_no_spec/case7_no_spec_invalid_type.yaml"
-	//nolint:lll
-	case7ConfigPolicyNameInvalidInform string = "policy-securitycontextconstraints-1-sample-restricted-scc-invalid-inform"
-	case7PolicyYamlInvalidInform       string = "../resources/case7_no_spec/case7_no_spec_invalid_type_inform.yaml"
-)
+var _ = Describe("Test cluster version obj template handling", func() {
+	const (
+		case7ConfigPolicyName        string = "policy-securitycontextconstraints-1-sample-restricted-scc"
+		case7ObjName                 string = "sample-restricted-scc"
+		case7PolicyYaml              string = "../resources/case7_no_spec/case7_no_spec_enforce.yaml"
+		case7ConfigPolicyNameNull    string = "policy-securitycontextconstraints-1-sample-restricted-scc-null"
+		case7PolicyYamlNull          string = "../resources/case7_no_spec/case7_no_spec_enforce_null.yaml"
+		case7ConfigPolicyNameInvalid string = "policy-securitycontextconstraints-1-sample-restricted-scc-invalid"
+		case7PolicyYamlInvalid       string = "../resources/case7_no_spec/case7_no_spec_invalid_type.yaml"
+		//nolint:lll
+		case7ConfigPolicyNameInvalidInform string = "policy-securitycontextconstraints-1-sample-restricted-scc-invalid-inform"
+		case7PolicyYamlInvalidInform       string = "../resources/case7_no_spec/case7_no_spec_invalid_type_inform.yaml"
+	)
 
-var expectedObj = map[string]interface{}{
-	"allowHostDirVolumePlugin": false,
-	"allowHostIPC":             false,
-	"allowHostNetwork":         false,
-	"allowHostPID":             false,
-	"allowHostPorts":           false,
-	"allowPrivilegeEscalation": true,
-	"allowPrivilegedContainer": false,
-	"allowedCapabilities":      []string{},
-	"apiVersion":               "security.openshift.io/v1",
-	"defaultAddCapabilities":   []string{},
-	"fsGroup": map[string]string{
-		"type": "MustRunAs",
-	},
-	"groups": []string{
-		"system:authenticated",
-	},
-	"kind":                   "SecurityContextConstraints",
-	"priority":               int64(10),
-	"readOnlyRootFilesystem": false,
-	"requiredDropCapabilities": []string{
-		"KILL",
-		"MKNOD",
-		"SETUID",
-		"SETGID",
-	},
-	"runAsUser": map[string]string{
-		"type": "MustRunAsRange",
-	},
-	"seLinuxContext": map[string]string{
-		"type": "MustRunAs",
-	},
-	"supplementalGroups": map[string]string{
-		"type": "RunAsAny",
-	},
-	"users": []interface{}{},
-	"volumes": []string{
-		"configMap",
-		"downwardAPI",
-		"emptyDir",
-		"persistentVolumeClaim",
-		"projected",
-		"secret",
-	},
-}
-
-// GetPriority parses status field of object to get priority, a nullable field.
-// if updateTemplate fails the field will be null
-func matchToExpected(managedPlc *unstructured.Unstructured) (result bool) {
-	createdObj := managedPlc.Object
-	r := true
-
-	for key, val := range expectedObj {
-		if fmt.Sprintf("%v", createdObj[key]) != fmt.Sprintf("%v", val) {
-			r = false
-		}
+	expectedObj := map[string]interface{}{
+		"allowHostDirVolumePlugin": false,
+		"allowHostIPC":             false,
+		"allowHostNetwork":         false,
+		"allowHostPID":             false,
+		"allowHostPorts":           false,
+		"allowPrivilegeEscalation": true,
+		"allowPrivilegedContainer": false,
+		"allowedCapabilities":      []string{},
+		"apiVersion":               "security.openshift.io/v1",
+		"defaultAddCapabilities":   []string{},
+		"fsGroup": map[string]string{
+			"type": "MustRunAs",
+		},
+		"groups": []string{
+			"system:authenticated",
+		},
+		"kind":                   "SecurityContextConstraints",
+		"priority":               int64(10),
+		"readOnlyRootFilesystem": false,
+		"requiredDropCapabilities": []string{
+			"KILL",
+			"MKNOD",
+			"SETUID",
+			"SETGID",
+		},
+		"runAsUser": map[string]string{
+			"type": "MustRunAsRange",
+		},
+		"seLinuxContext": map[string]string{
+			"type": "MustRunAs",
+		},
+		"supplementalGroups": map[string]string{
+			"type": "RunAsAny",
+		},
+		"users": []interface{}{},
+		"volumes": []string{
+			"configMap",
+			"downwardAPI",
+			"emptyDir",
+			"persistentVolumeClaim",
+			"projected",
+			"secret",
+		},
 	}
 
-	return r
-}
+	// matchToExpected parses the expected object and returns a diff string if they
+	// don't match.
+	matchToExpected := func(managedPlc *unstructured.Unstructured) (result string) {
+		createdObj := managedPlc.Object
+		diffStr := ""
 
-var _ = Describe("Test cluster version obj template handling", func() {
+		for key, val := range expectedObj {
+			if fmt.Sprintf("%v", createdObj[key]) != fmt.Sprintf("%v", val) {
+				diffStr += fmt.Sprintf("\n+ %s: %v\n- %s: %v", key, createdObj[key], key, val)
+			}
+		}
+
+		return diffStr
+	}
+
 	Describe("create scc policy in namespace "+testNamespace, Ordered, func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case7ConfigPolicyName + " on managed")
@@ -104,16 +104,16 @@ var _ = Describe("Test cluster version obj template handling", func() {
 			utils.KubectlDelete("configurationpolicy", case7ConfigPolicyName, "-n", testNamespace)
 		})
 		It("should handle nullable fields properly", func() {
-			Consistently(func() interface{} {
+			Consistently(func() string {
 				managedObj := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrSCC,
 					case7ObjName, true, defaultTimeoutSeconds)
 
 				return matchToExpected(managedObj)
-			}, defaultConsistentlyDuration, 1).Should(Equal(true))
+			}, defaultConsistentlyDuration, 1).Should(BeEmpty(), "Should match the expected object")
 		})
 		It("should handle change field to null", func() {
 			By("Creating " + case7ConfigPolicyNameNull + " on managed")
-			utils.Kubectl("apply", "-f", case7PolicyYamlNull, "-n", testNamespace, "--validate=false")
+			utils.Kubectl("apply", "--server-side", "-f", case7PolicyYamlNull, "-n", testNamespace, "--validate=false")
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case7ConfigPolicyNameNull, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
@@ -125,12 +125,12 @@ var _ = Describe("Test cluster version obj template handling", func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			utils.KubectlDelete("configurationpolicy", case7ConfigPolicyNameNull, "-n", testNamespace)
 			expectedObj["priority"] = nil
-			Eventually(func() interface{} {
+			Eventually(func() string {
 				managedObj := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrSCC,
 					case7ObjName, true, defaultTimeoutSeconds)
 
 				return matchToExpected(managedObj)
-			}, defaultTimeoutSeconds, 1).Should(Equal(true))
+			}, defaultTimeoutSeconds, 1).Should(BeEmpty(), "Should match the expected object")
 		})
 		It("should change field back to 10", func() {
 			By("Creating " + case7ConfigPolicyName + " on managed")
@@ -145,12 +145,12 @@ var _ = Describe("Test cluster version obj template handling", func() {
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			expectedObj["priority"] = int64(10)
-			Eventually(func() interface{} {
+			Eventually(func() string {
 				managedObj := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrSCC,
 					case7ObjName, true, defaultTimeoutSeconds)
 
 				return matchToExpected(managedObj)
-			}, defaultTimeoutSeconds, 1).Should(Equal(true))
+			}, defaultTimeoutSeconds, 1).Should(BeEmpty(), "Should match the expected object")
 			utils.KubectlDelete("configurationpolicy", case7ConfigPolicyName, "-n", testNamespace)
 		})
 		It("should generate violation if field type is invalid (enforce)", func() {
