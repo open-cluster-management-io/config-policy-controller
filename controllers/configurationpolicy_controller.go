@@ -804,14 +804,14 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		return nil
 	}
 
-	var mappingErr error
+	errs := []error{}
 
 	for index, objectT := range plc.Spec.ObjectTemplates {
 		nsToResults := map[string]objectTmplEvalResult{}
 		desiredObj, scopedGVR, relevantNamespaces, errEvent, mapErr := r.determineDesiredObject(plc, index, objectT)
 
 		// Return all mapping errors encountered and let the caller decide if the errors should be retried
-		mappingErr = errors.Join(mappingErr, mapErr)
+		errs = append(errs, mapErr)
 
 		for _, ns := range relevantNamespaces {
 			log.V(1).Info("Handling the object template for the relevant namespace",
@@ -826,6 +826,10 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 			}
 
 			related, result := r.handleObjects(objectT, ns, desiredObj, index, plc, scopedGVR, usingWatch)
+
+			if result.enforcementErr != nil {
+				errs = append(errs, result.enforcementErr)
+			}
 
 			nsToResults[ns] = result
 
@@ -892,7 +896,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 
 	r.addForUpdate(plc, parentStatusUpdateNeeded)
 
-	return mappingErr
+	return apimachineryerrors.NewAggregate(errs)
 }
 
 // validateConfigPolicy returns an error and increments the "invalid-template" error counter metric
@@ -1527,9 +1531,9 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		)
 
 		result = objectTmplEvalResult{
-			[]string{desiredObjName},
-			namespace,
-			[]objectTmplEvalEvent{{false, "K8s missing namespace", msg}},
+			objectNames: []string{desiredObjName},
+			namespace:   namespace,
+			events:      []objectTmplEvalEvent{{false, "K8s missing namespace", msg}},
 		}
 
 		return nil, result
@@ -1656,7 +1660,10 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 			}
 		}
 
-		result = objectTmplEvalResult{objectNames: objNames, events: []objectTmplEvalEvent{resultEvent}}
+		result = objectTmplEvalResult{
+			objectNames: objNames,
+			events:      []objectTmplEvalEvent{resultEvent},
+		}
 
 		if shouldAddCondensedRelatedObj {
 			// relatedObjs name is -
@@ -1695,9 +1702,10 @@ type singleObject struct {
 }
 
 type objectTmplEvalResult struct {
-	objectNames []string
-	namespace   string
-	events      []objectTmplEvalEvent
+	objectNames    []string
+	namespace      string
+	events         []objectTmplEvalEvent
+	enforcementErr error
 }
 
 type objectTmplEvalEvent struct {
@@ -1756,6 +1764,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			if err != nil {
 				// violation created for handling error
 				objLog.Error(err, "Could not handle missing musthave object")
+				result.enforcementErr = err
 			} else {
 				created := true
 				objectProperties = &policyv1.ObjectProperties{
@@ -1774,6 +1783,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			completed, reason, msg, _, err := r.enforceByCreatingOrDeleting(obj)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
+				result.enforcementErr = err
 			}
 
 			result.events = append(result.events, objectTmplEvalEvent{completed, reason, msg})
