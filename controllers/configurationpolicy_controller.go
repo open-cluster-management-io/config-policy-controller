@@ -2042,6 +2042,20 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 			msg = fmt.Sprintf(
 				"%v %v is missing, and cannot be created, reason: `%v`", obj.scopedGVR.Resource, idStr, err,
 			)
+
+			statusErr := &k8serrors.StatusError{}
+
+			if errors.As(err, &statusErr) {
+				watchNSForChange := obj.scopedGVR.Namespaced &&
+					currentlyUsingWatch(obj.policy) &&
+					statusErr.ErrStatus.Reason == metav1.StatusReasonNotFound &&
+					statusErr.ErrStatus.Details.Kind == "namespaces"
+				if watchNSForChange {
+					// Start a watch on the namespace to wait for when this error could be resolved.
+					// Replace the existing error in order to retry only if this `get` fails.
+					_, err = r.getObjectFromCache(obj.policy, "", obj.namespace, namespaceGVK)
+				}
+			}
 		} else {
 			log.V(2).Info(
 				"Created missing must have object", "resource", obj.scopedGVR.Resource, "name", obj.name,
