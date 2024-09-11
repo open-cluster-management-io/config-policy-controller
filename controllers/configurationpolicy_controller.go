@@ -2045,12 +2045,17 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 
 			statusErr := &k8serrors.StatusError{}
 
-			if errors.As(err, &statusErr) {
-				watchNSForChange := obj.scopedGVR.Namespaced &&
-					currentlyUsingWatch(obj.policy) &&
+			if currentlyUsingWatch(obj.policy) && errors.As(err, &statusErr) {
+				namespaceNotFound := obj.scopedGVR.Namespaced &&
 					statusErr.ErrStatus.Reason == metav1.StatusReasonNotFound &&
 					statusErr.ErrStatus.Details.Kind == "namespaces"
-				if watchNSForChange {
+
+				namespaceTerminating := obj.scopedGVR.Namespaced &&
+					statusErr.ErrStatus.Reason == metav1.StatusReasonForbidden &&
+					len(statusErr.ErrStatus.Details.Causes) > 0 &&
+					statusErr.ErrStatus.Details.Causes[0].Type == corev1.NamespaceTerminatingCause
+
+				if namespaceNotFound || namespaceTerminating {
 					// Start a watch on the namespace to wait for when this error could be resolved.
 					// Replace the existing error in order to retry only if this `get` fails.
 					_, err = r.getObjectFromCache(obj.policy, "", obj.namespace, namespaceGVK)

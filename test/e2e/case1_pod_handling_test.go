@@ -219,7 +219,77 @@ var _ = Describe("Test pod obj template handling", Ordered, func() {
 			deleteConfigPolicies([]string{configPolicyName})
 			utils.KubectlDelete("pod", "nginx-pod-e2e", "-n", podNS)
 			utils.KubectlDelete("namespace", podNS)
-			utils.KubectlDelete("event", "--field-selector=involvedObject.name=case1-ns-nonexist", "-n", "managed")
+			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
+		})
+	})
+
+	Describe("Test pod obj handling when target namespace is being deleted", Ordered, func() {
+		const (
+			policyYaml       string = "../resources/case1_pod_handling/ns_deleting.yaml"
+			configPolicyName string = "case1-ns-deleting"
+			podNS            string = "case1-deleting"
+		)
+
+		It("should not be able to create the pod when the namespace is being deleted", func() {
+			By("Creating the namespace")
+			utils.Kubectl("create", "ns", podNS)
+
+			By("Applying a finalizer to the namespace")
+			utils.Kubectl("patch", "ns", podNS, "--type=merge", `-p={"metadata":{"finalizers":["test.io/case1"]}}`)
+
+			By("Starting deletion of the namespace")
+			utils.KubectlDelete("ns", podNS)
+
+			By("Creating " + policyYaml + " on managed")
+			utils.Kubectl("apply", "-f", policyYaml, "-n", testNamespace)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				configPolicyName, testNamespace, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					configPolicyName, testNamespace, true, defaultTimeoutSeconds)
+
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+			By("Verifying the status message reflects it could not be created")
+			Eventually(func() interface{} {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					configPolicyName, testNamespace, true, defaultTimeoutSeconds)
+
+				return utils.GetStatusMessage(managedPlc)
+			}, "10s", 1).Should(MatchRegexp("cannot be created.* in namespace " + podNS +
+				" because it is being terminated"))
+		})
+
+		It("should automatically reconcile and create the pod after the namespace is created", func() {
+			By("Waiting 15s for any initial re-reconciles to be completed")
+			time.Sleep(15 * time.Second)
+
+			By("Removing the finalizer on the namespace")
+			utils.Kubectl("patch", "ns", podNS, "--type=merge", `-p={"metadata":{"finalizers":[]}}`)
+
+			By("Waiting 5s for the namespace to finish being removed")
+			time.Sleep(5 * time.Second)
+
+			By("Re-creating the namespace")
+			utils.Kubectl("create", "ns", podNS)
+
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					configPolicyName, testNamespace, true, defaultTimeoutSeconds)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
+		AfterAll(func() {
+			By("Cleaning up")
+			deleteConfigPolicies([]string{configPolicyName})
+			utils.KubectlDelete("pod", "nginx-pod-e2e", "-n", podNS)
+			utils.Kubectl("patch", "ns", podNS, "--type=merge", `-p={"metadata":{"finalizers":[]}}`)
+			utils.KubectlDelete("namespace", podNS)
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
 		})
 	})
