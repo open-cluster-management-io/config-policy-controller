@@ -12,6 +12,8 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
+const ocmNs = "open-cluster-management-policies"
+
 var _ = Describe("Test pod obj template handling", Ordered, func() {
 	Describe("Test pod obj handling on managed cluster in ns:"+testNamespace, Ordered, func() {
 		const (
@@ -291,6 +293,63 @@ var _ = Describe("Test pod obj template handling", Ordered, func() {
 			utils.Kubectl("patch", "ns", podNS, "--type=merge", `-p={"metadata":{"finalizers":[]}}`)
 			utils.KubectlDelete("namespace", podNS)
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
+		})
+	})
+
+	Describe("Test pod obj in "+ocmNs+" namespace", Ordered, func() {
+		const (
+			configPolicyNameInform  string = "policy-pod-create-inform"
+			configPolicyNameEnforce string = "policy-pod-create"
+			podName                 string = "nginx-pod-e2e"
+			policyYamlInform        string = "../resources/case1_pod_handling/case1_pod_create_inform.yaml"
+			policyYamlEnforce       string = "../resources/case1_pod_handling/case1_pod_create_enforce.yaml"
+		)
+
+		BeforeAll(func() {
+			utils.Kubectl("create", "ns", ocmNs)
+		})
+		It("should be created properly on the managed cluster", func() {
+			By("Creating " + policyYamlInform + " on managed")
+			utils.Kubectl("apply", "-f", policyYamlInform, "-n", ocmNs)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				configPolicyNameInform, ocmNs, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					configPolicyNameInform, ocmNs, true, defaultTimeoutSeconds)
+
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+		It("should create pod on managed cluster", func() {
+			By("creating " + policyYamlEnforce + " on hub with spec.remediationAction = enforce")
+			utils.Kubectl("apply", "-f", policyYamlEnforce, "-n", ocmNs)
+			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				configPolicyNameEnforce, ocmNs, true, defaultTimeoutSeconds)
+			Expect(plc).NotTo(BeNil())
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					configPolicyNameEnforce, ocmNs, true, defaultTimeoutSeconds)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+			Eventually(func(g Gomega) {
+				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					configPolicyNameInform, ocmNs, true, defaultTimeoutSeconds)
+
+				utils.CheckComplianceStatus(g, informPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+			pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
+				podName, "default", true, defaultTimeoutSeconds)
+			Expect(pod).NotTo(BeNil())
+		})
+		AfterAll(func() {
+			utils.KubectlDelete("ns", ocmNs)
+
+			By("Delete pods")
+			pods := []string{podName}
+			namespaces := []string{"default"}
+			deletePods(pods, namespaces)
 		})
 	})
 })

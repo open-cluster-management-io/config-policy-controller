@@ -66,6 +66,10 @@ var (
 	log    = ctrl.Log.WithName("setup")
 )
 
+// Namespace for standalone policy users.
+// Policies applied by users are deployed here. Used only in non-hosted mode.
+const ocmPolicyNs = "open-cluster-management-policies"
+
 func printVersion() {
 	log.Info("Using", "OperatorVersion", version.Version, "GoVersion", runtime.Version(),
 		"GOOS", runtime.GOOS, "GOARCH", runtime.GOARCH)
@@ -83,22 +87,23 @@ func init() {
 }
 
 type ctrlOpts struct {
-	clusterName           string
-	hubConfigPath         string
-	targetKubeConfig      string
-	metricsAddr           string
-	secureMetrics         bool
-	probeAddr             string
-	operatorPolDefaultNS  string
-	clientQPS             float32
-	clientBurst           uint
-	evalBackoffSeconds    uint
-	decryptionConcurrency uint8
-	evaluationConcurrency uint8
-	enableLease           bool
-	enableLeaderElection  bool
-	enableMetrics         bool
-	enableOperatorPolicy  bool
+	clusterName              string
+	hubConfigPath            string
+	targetKubeConfig         string
+	metricsAddr              string
+	secureMetrics            bool
+	probeAddr                string
+	operatorPolDefaultNS     string
+	clientQPS                float32
+	clientBurst              uint
+	evalBackoffSeconds       uint
+	decryptionConcurrency    uint8
+	evaluationConcurrency    uint8
+	enableLease              bool
+	enableLeaderElection     bool
+	enableMetrics            bool
+	enableOperatorPolicy     bool
+	enableOcmPolicyNamespace bool
 }
 
 func main() {
@@ -227,11 +232,14 @@ func main() {
 
 	log.V(2).Info("Configured the watch namespace", "watchNamespace", watchNamespace)
 
+	configPolicy := &policyv1.ConfigurationPolicy{}
+	operatorPolicy := &policyv1beta1.OperatorPolicy{}
+
 	if watchNamespace != "" {
-		cacheByObject[&policyv1.ConfigurationPolicy{}] = cache.ByObject{
-			Field: fields.SelectorFromSet(fields.Set{
-				"metadata.namespace": watchNamespace,
-			}),
+		cacheByObject[configPolicy] = cache.ByObject{
+			Namespaces: map[string]cache.Config{
+				watchNamespace: {},
+			},
 		}
 
 		cacheByObject[&corev1.Secret{}] = cache.ByObject{
@@ -242,10 +250,21 @@ func main() {
 		}
 
 		if opts.enableOperatorPolicy {
-			cacheByObject[&policyv1beta1.OperatorPolicy{}] = cache.ByObject{
-				Field: fields.SelectorFromSet(fields.Set{
-					"metadata.namespace": watchNamespace,
-				}),
+			cacheByObject[operatorPolicy] = cache.ByObject{
+				Namespaces: map[string]cache.Config{
+					watchNamespace: {},
+				},
+			}
+		}
+
+		// ocmPolicyNs is cached only in non-hosted=mode
+		if opts.targetKubeConfig == "" && opts.enableOcmPolicyNamespace {
+			cacheByObject[configPolicy].
+				Namespaces[ocmPolicyNs] = cache.Config{}
+
+			if opts.enableOperatorPolicy {
+				cacheByObject[operatorPolicy].
+					Namespaces[ocmPolicyNs] = cache.Config{}
 			}
 		}
 	} else {
@@ -823,6 +842,13 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		"operator-policy-default-namespace",
 		"",
 		"The default namespace to be used by an OperatorPolicy if not specified in the policy.",
+	)
+
+	flags.BoolVar(
+		&opts.enableOcmPolicyNamespace,
+		"enable-ocm-policy-namespace",
+		true,
+		"Enable to use open-cluster-management-policies namespace",
 	)
 
 	_ = flags.Parse(args)
