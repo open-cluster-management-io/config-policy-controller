@@ -3,6 +3,7 @@ module open-cluster-management.io/config-policy-controller
 go 1.22.0
 
 require (
+	github.com/Masterminds/sprig/v3 v3.2.3
 	github.com/ghodss/yaml v1.0.1-0.20190212211648-25d852aebe32
 	github.com/go-logr/logr v1.4.2
 	github.com/go-logr/zapr v1.3.0
@@ -14,7 +15,7 @@ require (
 	github.com/prometheus/client_golang v1.19.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stolostron/go-log-utils v0.1.2
-	github.com/stolostron/go-template-utils/v6 v6.1.1
+	github.com/stolostron/go-template-utils/v6 v6.2.0
 	github.com/stolostron/kubernetes-dependency-watches v0.9.1
 	github.com/stretchr/testify v1.9.0
 	golang.org/x/mod v0.17.0
@@ -34,7 +35,6 @@ require (
 require (
 	github.com/Masterminds/goutils v1.1.1 // indirect
 	github.com/Masterminds/semver/v3 v3.2.1 // indirect
-	github.com/Masterminds/sprig/v3 v3.2.3 // indirect
 	github.com/antlr/antlr4/runtime/Go/antlr/v4 v4.0.0-20230305170008-8188dc5388df // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect

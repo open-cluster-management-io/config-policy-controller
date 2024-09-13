@@ -168,4 +168,22 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 			ContainSubstring("Compliant; notification - namespaces [test-case-41] found as specified; "),
 		))
 	})
+
+	It("Should be able to use sprig functions", func() {
+		By("Patching the policy")
+		template := `{{upper .DefaultMessage}}`
+		utils.Kubectl("patch", "configurationpolicy", policyName, "-n", testNamespace, "--type=json", "-p",
+			`[{"op": "replace", "path": "/spec/customMessage/compliant", "value": "`+template+`"}]`)
+
+		By("Verifying the event has the customized message")
+		Eventually(func(g Gomega) string {
+			events := utils.GetMatchingEvents(clientManaged, testNamespace, parentName, "policy:", "^Compliant;", 5)
+			g.Expect(events).ToNot(BeEmpty())
+
+			return events[len(events)-1].Message
+		}, 10, 1).Should(And(
+			ContainSubstring("TEST-CASE-41"),
+			ContainSubstring("FOUND AS SPECIFIED"),
+		))
+	})
 })

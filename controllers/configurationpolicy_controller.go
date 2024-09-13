@@ -17,6 +17,7 @@ import (
 	"text/template"
 	"time"
 
+	sprig "github.com/Masterminds/sprig/v3"
 	"github.com/go-logr/logr"
 	gocmp "github.com/google/go-cmp/cmp"
 	templates "github.com/stolostron/go-template-utils/v6/pkg/templates"
@@ -88,6 +89,19 @@ const (
 )
 
 var ErrPolicyInvalid = errors.New("the Policy is invalid")
+
+// commonSprigFuncMap includes only the sprig functions that are available in the
+// stolostron/go-template-utils library.
+var commonSprigFuncMap template.FuncMap
+
+func init() {
+	commonSprigFuncMap = template.FuncMap{}
+	sprigFuncMap := sprig.FuncMap()
+
+	for _, fname := range templates.AvailableSprigFunctions() {
+		commonSprigFuncMap[fname] = sprigFuncMap[fname]
+	}
+}
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ConfigurationPolicyReconciler) SetupWithManager(
@@ -3356,7 +3370,7 @@ func (r *ConfigurationPolicyReconciler) customComplianceMessage(plc *policyv1.Co
 func (r *ConfigurationPolicyReconciler) doCustomMessage(
 	plc *policyv1.ConfigurationPolicy, customTemplate string, defaultMessage string,
 ) (string, error) {
-	tmpl, err := template.New("custom-msg").Parse(customTemplate)
+	tmpl, err := template.New("custom-msg").Funcs(commonSprigFuncMap).Parse(customTemplate)
 	if err != nil {
 		return "", fmt.Errorf("failed to parse custom template: %w", err)
 	}
