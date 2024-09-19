@@ -344,6 +344,15 @@ var _ = Describe("Test pod obj template handling", Ordered, func() {
 			Expect(pod).NotTo(BeNil())
 		})
 		AfterAll(func() {
+			utils.KubectlDelete("configurationpolicy", configPolicyNameInform, "-n", ocmNs)
+			utils.KubectlDelete("configurationpolicy", configPolicyNameEnforce, "-n", ocmNs)
+			_ = utils.GetWithTimeout(
+				clientManagedDynamic, gvrConfigPolicy, configPolicyNameInform, ocmNs, false, defaultTimeoutSeconds,
+			)
+			_ = utils.GetWithTimeout(
+				clientManagedDynamic, gvrConfigPolicy, configPolicyNameEnforce, ocmNs, false, defaultTimeoutSeconds,
+			)
+
 			utils.KubectlDelete("ns", ocmNs)
 
 			By("Delete pods")
