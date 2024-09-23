@@ -83,6 +83,7 @@ func NewNamespaceSelectorReconciler(
 	return NamespaceSelectorReconciler{
 		client:        k8sClient,
 		updateChannel: updateChannel,
+		selections:    make(map[string]namespaceSelection),
 	}
 }
 
@@ -95,8 +96,6 @@ type namespaceSelection struct {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NamespaceSelectorReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	r.selections = make(map[string]namespaceSelection)
-
 	neverEnqueue := predicate.NewPredicateFuncs(func(o client.Object) bool { return false })
 
 	// Instead of reconciling for each Namespace, just reconcile once
