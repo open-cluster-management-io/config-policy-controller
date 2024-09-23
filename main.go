@@ -28,7 +28,6 @@ import (
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	k8sversion "k8s.io/apimachinery/pkg/version"
-	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -455,11 +454,9 @@ func main() {
 			os.Exit(1)
 		}
 
-		discoveryClient := discovery.NewDiscoveryClientForConfigOrDie(targetK8sConfig)
-
 		var serverVersionErr error
 
-		serverVersion, serverVersionErr = discoveryClient.ServerVersion()
+		serverVersion, serverVersionErr = targetK8sClient.Discovery().ServerVersion()
 		if serverVersionErr != nil {
 			log.Error(serverVersionErr, "unable to detect the managed cluster's Kubernetes version")
 			os.Exit(1)
@@ -496,7 +493,6 @@ func main() {
 		InstanceName:           instanceName,
 		TargetK8sClient:        targetK8sClient,
 		TargetK8sDynamicClient: targetK8sDynamicClient,
-		TargetK8sConfig:        targetK8sConfig,
 		SelectorReconciler:     &nsSelReconciler,
 		EnableMetrics:          opts.enableMetrics,
 		UninstallMode:          beingUninstalled,
