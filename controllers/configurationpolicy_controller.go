@@ -2062,10 +2062,12 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 			if currentlyUsingWatch(obj.policy) && errors.As(err, &statusErr) {
 				namespaceNotFound := obj.scopedGVR.Namespaced &&
 					statusErr.ErrStatus.Reason == metav1.StatusReasonNotFound &&
+					statusErr.ErrStatus.Details != nil &&
 					statusErr.ErrStatus.Details.Kind == "namespaces"
 
 				namespaceTerminating := obj.scopedGVR.Namespaced &&
 					statusErr.ErrStatus.Reason == metav1.StatusReasonForbidden &&
+					statusErr.ErrStatus.Details != nil &&
 					len(statusErr.ErrStatus.Details.Causes) > 0 &&
 					statusErr.ErrStatus.Details.Causes[0].Type == corev1.NamespaceTerminatingCause
 
