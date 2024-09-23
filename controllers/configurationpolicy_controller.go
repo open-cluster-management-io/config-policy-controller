@@ -26,7 +26,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -47,7 +46,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
-	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
@@ -105,7 +103,7 @@ func init() {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ConfigurationPolicyReconciler) SetupWithManager(
-	mgr ctrl.Manager, evaluationConcurrency uint8, rawSources ...*source.Channel,
+	mgr ctrl.Manager, evaluationConcurrency uint8, rawSources ...source.TypedSource[reconcile.Request],
 ) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		Named(ControllerName).
@@ -159,7 +157,7 @@ func (r *ConfigurationPolicyReconciler) SetupWithManager(
 
 	for _, rawSource := range rawSources {
 		if rawSource != nil {
-			builder = builder.WatchesRawSource(rawSource, &handler.EnqueueRequestForObject{})
+			builder = builder.WatchesRawSource(rawSource)
 		}
 	}
 
@@ -693,26 +691,16 @@ func (r *ConfigurationPolicyReconciler) definitionIsDeleting() (bool, error) {
 	key := types.NamespacedName{Name: CRDName}
 	v1def := extensionsv1.CustomResourceDefinition{}
 
-	v1err := r.Get(context.TODO(), key, &v1def)
-	if v1err == nil {
+	err := r.Get(context.TODO(), key, &v1def)
+	if err == nil {
 		return (v1def.ObjectMeta.DeletionTimestamp != nil), nil
 	}
 
-	v1beta1def := extensionsv1beta1.CustomResourceDefinition{}
-
-	v1beta1err := r.Get(context.TODO(), key, &v1beta1def)
-	if v1beta1err == nil {
-		return (v1beta1def.DeletionTimestamp != nil), nil
-	}
-
-	// It might not be possible to get a not-found on the CRD while reconciling the CR...
-	// But in that case, it seems reasonable to still consider it "deleting"
-	if k8serrors.IsNotFound(v1err) || k8serrors.IsNotFound(v1beta1err) {
+	if k8serrors.IsNotFound(err) {
 		return true, nil
 	}
 
-	// Both had unexpected errors, return them and retry later
-	return false, fmt.Errorf("v1: %v, v1beta1: %v", v1err, v1beta1err) //nolint:errorlint
+	return false, err
 }
 
 // currentlyUsingWatch determines if the dynamic watcher should be used based on
