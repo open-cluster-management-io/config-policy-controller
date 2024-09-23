@@ -119,7 +119,9 @@ type OperatorPolicyReconciler struct {
 
 // SetupWithManager sets up the controller with the Manager and will reconcile when the dynamic watcher
 // sees that an object is updated
-func (r *OperatorPolicyReconciler) SetupWithManager(mgr ctrl.Manager, depEvents *source.Channel) error {
+func (r *OperatorPolicyReconciler) SetupWithManager(
+	mgr ctrl.Manager, depEvents source.TypedSource[reconcile.Request],
+) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(OperatorControllerName).
 		For(
@@ -128,9 +130,7 @@ func (r *OperatorPolicyReconciler) SetupWithManager(mgr ctrl.Manager, depEvents 
 		Watches(
 			&policyv1beta1.OperatorPolicy{},
 			handler.EnqueueRequestsFromMapFunc(overlapMapper)).
-		WatchesRawSource(
-			depEvents,
-			&handler.EnqueueRequestForObject{}).
+		WatchesRawSource(depEvents).
 		Complete(r)
 }
 

@@ -23,7 +23,6 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
-	extensionsv1beta1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
@@ -45,10 +44,12 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 	"sigs.k8s.io/controller-runtime/pkg/event"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"
 
@@ -81,7 +82,6 @@ func init() {
 	utilruntime.Must(policyv1.AddToScheme(scheme))
 	utilruntime.Must(policyv1beta1.AddToScheme(scheme))
 	utilruntime.Must(extensionsv1.AddToScheme(scheme))
-	utilruntime.Must(extensionsv1beta1.AddToScheme(scheme))
 	utilruntime.Must(operatorv1alpha1.AddToScheme(scheme))
 	utilruntime.Must(operatorv1.AddToScheme(scheme))
 }
@@ -191,9 +191,6 @@ func main() {
 	// Set a field selector so that a watch on CRDs will be limited to just the configuration policy CRD.
 	cacheByObject := map[client.Object]cache.ByObject{
 		&extensionsv1.CustomResourceDefinition{}: {
-			Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
-		},
-		&extensionsv1beta1.CustomResourceDefinition{}: {
 			Field: fields.SelectorFromSet(fields.Set{"metadata.name": controllers.CRDName}),
 		},
 		&corev1.Namespace{}: {
@@ -437,8 +434,8 @@ func main() {
 	instanceName, _ := os.Hostname() // on an error, instanceName will be empty, which is ok
 
 	var nsSelReconciler common.NamespaceSelectorReconciler
-	var nsSelUpdatesSource *source.Channel
-	var objectTemplatesChannel *source.Channel
+	var nsSelUpdatesSource source.TypedSource[reconcile.Request]
+	var objectTemplatesChannel source.TypedSource[reconcile.Request]
 	var dynamicWatcher depclient.DynamicWatcher
 	var serverVersion *k8sversion.Info
 
@@ -450,10 +447,7 @@ func main() {
 		// Set the buffers to 20 to not take up too much memory. If the buffers get filled, that's okay because the
 		// recipient is really just parsing the event and adding it to a queue, so it should get capacity quickly.
 		nsSelUpdatesChan := make(chan event.GenericEvent, 20)
-		nsSelUpdatesSource = &source.Channel{
-			Source:         nsSelUpdatesChan,
-			DestBufferSize: 20,
-		}
+		nsSelUpdatesSource = source.Channel(nsSelUpdatesChan, &handler.EnqueueRequestForObject{})
 
 		nsSelReconciler = common.NewNamespaceSelectorReconciler(nsSelMgr.GetClient(), nsSelUpdatesChan)
 		if err = nsSelReconciler.SetupWithManager(nsSelMgr); err != nil {
