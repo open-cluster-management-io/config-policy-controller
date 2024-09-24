@@ -103,7 +103,7 @@ func init() {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ConfigurationPolicyReconciler) SetupWithManager(
-	mgr ctrl.Manager, evaluationConcurrency uint8, rawSources ...source.TypedSource[reconcile.Request],
+	mgr ctrl.Manager, evaluationConcurrency uint16, rawSources ...source.TypedSource[reconcile.Request],
 ) error {
 	builder := ctrl.NewControllerManagedBy(mgr).
 		Named(ControllerName).
@@ -199,7 +199,7 @@ type ConfigurationPolicyReconciler struct {
 	UninstallMode bool
 	// The number of seconds before a policy is eligible for reevaluation in watch mode (throttles frequently evaluated
 	// policies)
-	EvalBackoffSeconds uint
+	EvalBackoffSeconds uint32
 	// lastEvaluatedCache contains the value of ConfigurationPolicyStatus.LastEvaluated per ConfigurationPolicy UID.
 	// This is a workaround to account for race conditions where the status is updated but the controller-runtime cache
 	// has not updated yet.
