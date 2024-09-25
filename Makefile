@@ -80,6 +80,10 @@ gosec-scan: GOSEC_ARGS = -exclude-generated
 build:
 	CGO_ENABLED=1 go build -o build/_output/bin/$(IMG) ./
 
+.PHONY: build-cmd
+build-cmd: manifests
+	go build -o build/_output/bin/dryrun ./cmd/
+
 ############################################################
 # images section
 ############################################################
@@ -134,6 +138,7 @@ manifests: controller-gen kustomize
 	@printf -- "---\n" > deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
 	$(KUSTOMIZE) build deploy/crds/kustomize_configurationpolicy >> deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
 	$(KUSTOMIZE) build deploy/crds/kustomize_operatorpolicy >> deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
+	cp deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml ./cmd/dryrun/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

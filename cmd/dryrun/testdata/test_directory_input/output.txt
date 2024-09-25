@@ -1,0 +1,13 @@
+# Diffs:
+v1 Pod default/nginx-pod-e2e:
+
+v1 Pod default-2/nginx-pod-e2e:
+
+v1 Pod default-3/nginx-pod-e2e:
+
+v1 Pod default-4/nginx-pod-e2e:
+
+v1 Pod nonexist/nginx-pod-e2e:
+
+# Compliance messages:
+NonCompliant; notification - pods [nginx-pod-e2e] found as specified in namespace default; notification - pods [nginx-pod-e2e] found as specified in namespace default-2; notification - pods [nginx-pod-e2e] found as specified in namespace default-3; notification - pods [nginx-pod-e2e] found as specified in namespace default-4; violation - pods [nginx-pod-e2e] not found in namespace nonexist

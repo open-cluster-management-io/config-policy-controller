@@ -1,0 +1,20 @@
+# Diffs:
+v1 Pod default/nginx-pod-e2e:
+--- default/nginx-pod-e2e : existing
++++ default/nginx-pod-e2e : updated
+@@ -4,9 +4,13 @@
+   name: nginx-pod-e2e
+   namespace: default
+ spec:
+   containers:
+   - image: nginx:1.7.9
++    name: nginx
++    ports:
++    - containerPort: 80
++  - image: nginx:1.7.9
+     name: engine-x
+     ports:
+     - containerPort: 8080
+ 
+# Compliance messages:
+NonCompliant; violation - pods [nginx-pod-e2e] found but not as specified in namespace default
