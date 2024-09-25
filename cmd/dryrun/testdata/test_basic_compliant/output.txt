@@ -1,0 +1,5 @@
+# Diffs:
+v1 Pod default/nginx-pod-e2e:
+
+# Compliance messages:
+Compliant; notification - pods [nginx-pod-e2e] found as specified in namespace default
