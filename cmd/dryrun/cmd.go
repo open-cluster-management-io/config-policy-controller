@@ -25,10 +25,12 @@ var ErrNonCompliant = errors.New("policy is NonCompliant")
 func (d *DryRunner) GetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dryrun",
-		Short: "Locally execute a ConfigurationPolicy",
-		Long:  "Locally execute a ConfigurationPolicy",
-		RunE:  d.dryRun,
-		Args:  cobra.ArbitraryArgs,
+		Short: "(Dev Preview feature) Locally execute a ConfigurationPolicy",
+		Long: "(Dev Preview feature) Locally execute a ConfigurationPolicy against input files " +
+			"representing the cluster state, and view the diffs and any compliance events that " +
+			"would be generated.",
+		RunE: d.dryRun,
+		Args: cobra.ArbitraryArgs,
 	}
 
 	cmd.Flags().StringVarP(
@@ -87,7 +89,8 @@ func (d *DryRunner) GetCmd() *cobra.Command {
 		RunE: mappings.GenerateMappings,
 	})
 
-	cmd.SetOut(os.Stdout) // sets default output to stdout, otherwise it is stderr
+	cmd.SetOut(os.Stdout)   // sets default output to stdout, otherwise it is stderr
+	cmd.SilenceUsage = true // otherwise all errors will be followed by the usage doc
 
 	return cmd
 }

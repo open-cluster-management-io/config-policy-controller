@@ -46,16 +46,16 @@ import (
 func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 	cfgPolicy, err := d.readPolicy(cmd)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to read input policy: %w", err)
 	}
 
 	inputObjects, err := d.readInputResources(cmd, args)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to read input resources: %w", err)
 	}
 
 	if err := d.setupLogs(); err != nil {
-		return err
+		return fmt.Errorf("unable to setup the logging configuration: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(cmd.Context())
@@ -63,7 +63,7 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 
 	rec, err := d.setupReconciler(ctx, cfgPolicy)
 	if err != nil {
-		return err
+		return fmt.Errorf("unable to setup the dryrun reconciler: %w", err)
 	}
 
 	// Apply the user's resources to the fake cluster
@@ -72,7 +72,12 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 
 		scopedGVR, err := rec.DynamicWatcher.GVKToGVR(gvk)
 		if err != nil {
-			return err
+			if errors.Is(depclient.ErrNoVersionedResource, err) {
+				return fmt.Errorf("%w for kind %v: if this is a custom resource, it may need an "+
+					"entry in the mappings file", err, gvk.Kind)
+			}
+
+			return fmt.Errorf("unable to apply an input resource: %w", err)
 		}
 
 		var resInt dynamic.ResourceInterface
@@ -84,7 +89,7 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 		}
 
 		if _, err := resInt.Create(ctx, obj, metav1.CreateOptions{}); err != nil {
-			return err
+			return fmt.Errorf("unable to apply an input resource: %w", err)
 		}
 	}
 
@@ -94,16 +99,16 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 	}
 
 	if _, err := rec.Reconcile(ctx, runtime.Request{NamespacedName: cfgPolicyNN}); err != nil {
-		return err
+		return fmt.Errorf("unable to complete the dryrun reconcile: %w", err)
 	}
 
 	if err := rec.Get(ctx, cfgPolicyNN, cfgPolicy); err != nil {
-		return err
+		return fmt.Errorf("unable to get the resulting policy state: %w", err)
 	}
 
 	if d.statusPath != "" {
 		if err := d.saveStatus(cfgPolicy.Status); err != nil {
-			return err
+			return fmt.Errorf("unable to save the resulting policy state: %w", err)
 		}
 	}
 
@@ -112,12 +117,10 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := d.saveOrPrintComplianceMessages(ctx, cmd, rec.Client, cfgPolicy.Namespace); err != nil {
-		return err
+		return fmt.Errorf("unable to save or print the compliance messages: %w", err)
 	}
 
 	if cfgPolicy.Status.ComplianceState != policyv1.Compliant {
-		cmd.SilenceUsage = true
-
 		return ErrNonCompliant
 	}
 
