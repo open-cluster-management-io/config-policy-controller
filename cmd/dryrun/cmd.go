@@ -65,21 +65,16 @@ func (d *DryRunner) GetCmd() *cobra.Command {
 		"An optional file to save the full resulting status of the policy.",
 	)
 
+	mappingsPath := os.Getenv("DRYRUN_MAPPINGS_FILE") // empty if not set
+
 	cmd.Flags().StringVar(
 		&d.mappingsPath,
 		"mappings-file",
-		"",
+		mappingsPath,
 		"An optional set of API Mappings to use. If omitted a default set will "+
-			"be used. A compatible file may be created by the 'generate' command, "+
-			"and might be necessary if using custom resources.",
-	)
-
-	cmd.Flags().StringVar(
-		&d.logPath,
-		"log-path",
-		"",
-		"An optional file for the logs that would be emitted by the "+
-			"config-policy-controller. If omitted, logs will be discarded.",
+			"be used. A compatible file may be created by the 'generate' subcommand, "+
+			"and might be necessary if using custom resources. Can also be set via "+
+			"the DRYRUN_MAPPINGS_FILE environment variable.",
 	)
 
 	cmd.AddCommand(&cobra.Command{
