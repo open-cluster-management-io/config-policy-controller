@@ -1228,6 +1228,14 @@ func (r *ConfigurationPolicyReconciler) handleTemplatization(
 		plc.Spec.ObjectTemplates[i].ObjectDefinition.Raw = resolvedTemplate.ResolvedJSON
 	}
 
+	// Set the CompliancyDetails array length accordingly in case the number of
+	// object-templates was reduced (the status update will handle if it's longer).
+	// Note that this still works when using `object-templates-raw` because the
+	// ObjectTemplates are manually set above to match what was resolved
+	if len(plc.Spec.ObjectTemplates) < len(plc.Status.CompliancyDetails) {
+		plc.Status.CompliancyDetails = plc.Status.CompliancyDetails[:len(plc.Spec.ObjectTemplates)]
+	}
+
 	return parentStatusUpdateNeeded, nil
 }
 
