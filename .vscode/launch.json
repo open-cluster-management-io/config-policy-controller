@@ -94,6 +94,20 @@
                 "MANAGED_CONFIG": "${userHome}/git/governance-policy-framework/kubeconfig_managed",
                 "KUBECONFIG": "${userHome}/git/governance-policy-framework/kubeconfig_managed",
             }
+        },
+        // Set inputs in the args section.
+        {
+            "name": "Launch dryrun (instructions in launch.json)",
+            "type": "go",
+            "request": "launch",
+            "mode": "auto",
+            "program": "${workspaceFolder}/cmd/dryrun/main.go",
+            "console": "integratedTerminal",
+            "args": [
+                "-p",
+                "${workspaceFolder}/pkg/dryrun/testdata/test_basic_noncompliant/policy.yaml",
+                "${workspaceFolder}/pkg/dryrun/testdata/test_basic_noncompliant/input_1.yaml",
+            ]
         }
     ]
 }
