@@ -82,7 +82,7 @@ build:
 
 .PHONY: build-cmd
 build-cmd: manifests
-	go build -o build/_output/bin/dryrun ./cmd/
+	go build -o build/_output/bin/dryrun ./cmd/dryrun
 
 ############################################################
 # images section
@@ -138,7 +138,7 @@ manifests: controller-gen kustomize
 	@printf -- "---\n" > deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
 	$(KUSTOMIZE) build deploy/crds/kustomize_configurationpolicy >> deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
 	$(KUSTOMIZE) build deploy/crds/kustomize_operatorpolicy >> deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
-	cp deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml ./cmd/dryrun/
+	cp deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml ./pkg/dryrun/
 
 .PHONY: generate
 generate: controller-gen ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
