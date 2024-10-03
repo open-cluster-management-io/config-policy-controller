@@ -89,8 +89,7 @@ func (d *DryRunner) GetCmd() *cobra.Command {
 		RunE: mappings.GenerateMappings,
 	})
 
-	cmd.SetOut(os.Stdout)   // sets default output to stdout, otherwise it is stderr
-	cmd.SilenceUsage = true // otherwise all errors will be followed by the usage doc
+	cmd.SetOut(os.Stdout) // sets default output to stdout, otherwise it is stderr
 
 	return cmd
 }

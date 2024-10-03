@@ -44,6 +44,10 @@ import (
 )
 
 func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
+	// The "usage" output will still be emitted if a required flag is missing,
+	// or if an unknown flag was passed.
+	cmd.SilenceUsage = true
+
 	cfgPolicy, err := d.readPolicy(cmd)
 	if err != nil {
 		return fmt.Errorf("unable to read input policy: %w", err)
