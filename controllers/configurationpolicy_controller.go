@@ -121,12 +121,15 @@ func (r *ConfigurationPolicyReconciler) SetupWithManager(
 						return true
 					}
 
-					oldAnnotations := e.ObjectOld.GetAnnotations()
-					newAnnotations := e.ObjectNew.GetAnnotations()
+					oldAnnos := e.ObjectOld.GetAnnotations()
+					newAnnos := e.ObjectNew.GetAnnotations()
 
 					// These are the options that change evaluation behavior that aren't in the spec.
-					if oldAnnotations[disableTemplatesAnnotation] != newAnnotations[disableTemplatesAnnotation] ||
-						oldAnnotations[IVAnnotation] != newAnnotations[IVAnnotation] {
+					specialAnnoChanged := oldAnnos[IVAnnotation] != newAnnos[IVAnnotation] ||
+						oldAnnos[disableTemplatesAnnotation] != newAnnos[disableTemplatesAnnotation] ||
+						oldAnnos[common.UninstallingAnnotation] != newAnnos[common.UninstallingAnnotation]
+
+					if specialAnnoChanged {
 						return true
 					}
 
@@ -3449,5 +3452,12 @@ func IsBeingUninstalled(client client.Client) (bool, error) {
 		return false, err
 	}
 
-	return deployment.Annotations[common.UninstallingAnnotation] == "true", nil
+	value, found := deployment.Annotations[common.UninstallingAnnotation]
+	if !found {
+		return false, nil
+	}
+
+	notUninstalling := value == "false" || value == ""
+
+	return !notUninstalling, nil
 }
