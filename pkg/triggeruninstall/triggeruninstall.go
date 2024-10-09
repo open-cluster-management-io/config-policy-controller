@@ -45,7 +45,7 @@ func TriggerUninstall(
 		}
 
 		annotations := deployment.GetAnnotations()
-		annotations[common.UninstallingAnnotation] = "true"
+		annotations[common.UninstallingAnnotation] = time.Now().Format(time.RFC3339)
 		deployment.SetAnnotations(annotations)
 
 		_, err = deploymentRsrc.Update(ctx, deployment, metav1.UpdateOptions{})
@@ -77,9 +77,9 @@ func TriggerUninstall(
 		default:
 		}
 
-		configPolicies, err := dynamicClient.Resource(configPolicyGVR).Namespace(policyNamespace).List(
-			ctx, metav1.ListOptions{},
-		)
+		policyClient := dynamicClient.Resource(configPolicyGVR).Namespace(policyNamespace)
+
+		configPolicies, err := policyClient.List(ctx, metav1.ListOptions{})
 		if err != nil {
 			if k8serrors.IsServerTimeout(err) || k8serrors.IsTimeout(err) {
 				klog.Infof("Retrying listing the ConfigurationPolicy objects due to error: %s", err)
@@ -96,7 +96,17 @@ func TriggerUninstall(
 			if len(configPolicy.GetFinalizers()) != 0 {
 				cleanedUp = false
 
-				break
+				annos := configPolicy.GetAnnotations()
+				annos[common.UninstallingAnnotation] = time.Now().Format(time.RFC3339)
+
+				updatedPolicy := configPolicy.DeepCopy()
+
+				updatedPolicy.SetAnnotations(annos)
+
+				if _, err := policyClient.Update(ctx, updatedPolicy, metav1.UpdateOptions{}); err != nil {
+					klog.Errorf("Error updating policy %v/%v with an uninstalling annotation: %s",
+						configPolicy.GetNamespace(), configPolicy.GetName(), err)
+				}
 			}
 		}
 
@@ -104,8 +114,8 @@ func TriggerUninstall(
 			break
 		}
 
-		klog.Info("The uninstall preparation is not complete. Sleeping two seconds before checking again.")
-		time.Sleep(2 * time.Second)
+		klog.Info("The uninstall preparation is not complete. Sleeping five seconds before checking again.")
+		time.Sleep(5 * time.Second)
 	}
 
 	return nil

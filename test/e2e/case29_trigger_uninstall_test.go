@@ -53,6 +53,9 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 			g.Expect(policy2.GetFinalizers()).To(ContainElement(pruneObjectFinalizer))
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
+		By("Waiting 25 seconds to ensure there are no leftover reconciles")
+		time.Sleep(25 * time.Second)
+
 		By("Triggering an uninstall")
 		config, err := LoadConfig("", kubeconfigManaged, "")
 		Expect(err).ToNot(HaveOccurred())
@@ -73,9 +76,9 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 			context.TODO(), deploymentName, metav1.GetOptions{},
 		)
 		Expect(err).ToNot(HaveOccurred())
-		Expect(deployment.GetAnnotations()).To(HaveKeyWithValue(common.UninstallingAnnotation, "true"))
+		Expect(deployment.GetAnnotations()).To(HaveKey(common.UninstallingAnnotation))
 
-		By("Verifying that the ConfiguratioPolicy finalizers have been removed")
+		By("Verifying that the ConfigurationPolicy finalizers have been removed")
 		policy := utils.GetWithTimeout(
 			clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 		)
