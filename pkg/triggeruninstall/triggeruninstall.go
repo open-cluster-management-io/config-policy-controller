@@ -22,7 +22,11 @@ import (
 // TriggerUninstall will add an annotation to the controller's Deployment indicating that the controller needs to
 // prepare to be uninstalled. This function will run until all ConfigurationPolicy objects have no finalizers.
 func TriggerUninstall(
-	ctx context.Context, config *rest.Config, deploymentName, deploymentNamespace, policyNamespace string,
+	ctx context.Context,
+	config *rest.Config,
+	deploymentName string,
+	deploymentNamespace string,
+	policyNamespaces []string,
 ) error {
 	client := kubernetes.NewForConfigOrDie(config)
 	dynamicClient := dynamic.NewForConfigOrDie(config)
@@ -77,35 +81,35 @@ func TriggerUninstall(
 		default:
 		}
 
-		policyClient := dynamicClient.Resource(configPolicyGVR).Namespace(policyNamespace)
-
-		configPolicies, err := policyClient.List(ctx, metav1.ListOptions{})
-		if err != nil {
-			if k8serrors.IsServerTimeout(err) || k8serrors.IsTimeout(err) {
-				klog.Infof("Retrying listing the ConfigurationPolicy objects due to error: %s", err)
-
-				continue
-			}
-
-			return err
-		}
-
 		cleanedUp := true
 
-		for _, configPolicy := range configPolicies.Items {
-			if len(configPolicy.GetFinalizers()) != 0 {
-				cleanedUp = false
+		for _, ns := range policyNamespaces {
+			policyClient := dynamicClient.Resource(configPolicyGVR).Namespace(ns)
 
-				annos := configPolicy.GetAnnotations()
-				annos[common.UninstallingAnnotation] = time.Now().Format(time.RFC3339)
+			configPolicies, err := policyClient.List(ctx, metav1.ListOptions{})
+			if err != nil {
+				klog.Errorf("Error listing policies: %s", err)
 
-				updatedPolicy := configPolicy.DeepCopy()
+				return err
+			}
 
-				updatedPolicy.SetAnnotations(annos)
+			for _, configPolicy := range configPolicies.Items {
+				if len(configPolicy.GetFinalizers()) != 0 {
+					cleanedUp = false
 
-				if _, err := policyClient.Update(ctx, updatedPolicy, metav1.UpdateOptions{}); err != nil {
-					klog.Errorf("Error updating policy %v/%v with an uninstalling annotation: %s",
-						configPolicy.GetNamespace(), configPolicy.GetName(), err)
+					annos := configPolicy.GetAnnotations()
+					annos[common.UninstallingAnnotation] = time.Now().Format(time.RFC3339)
+
+					updatedPolicy := configPolicy.DeepCopy()
+
+					updatedPolicy.SetAnnotations(annos)
+
+					if _, err := policyClient.Update(ctx, updatedPolicy, metav1.UpdateOptions{}); err != nil {
+						klog.Errorf("Error updating policy %v/%v with an uninstalling annotation: %s",
+							configPolicy.GetNamespace(), configPolicy.GetName(), err)
+
+						return err
+					}
 				}
 			}
 		}
