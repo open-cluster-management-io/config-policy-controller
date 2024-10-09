@@ -663,7 +663,7 @@ func main() {
 func handleTriggerUninstall() {
 	triggerUninstallFlagSet := pflag.NewFlagSet("trigger-uninstall", pflag.ExitOnError)
 
-	var deploymentName, deploymentNamespace, policyNamespace string
+	var deploymentName, deploymentNamespace, policyNamespace, additionalNamespace string
 	var timeoutSeconds uint32
 
 	triggerUninstallFlagSet.StringVar(
@@ -677,6 +677,9 @@ func handleTriggerUninstall() {
 	)
 	triggerUninstallFlagSet.StringVar(
 		&policyNamespace, "policy-namespace", "", "The namespace of where ConfigurationPolicy objects are stored",
+	)
+	triggerUninstallFlagSet.StringVar(
+		&additionalNamespace, "additional-namespace", "", "An additional namespace for ConfigurationPolicy objects",
 	)
 	triggerUninstallFlagSet.Uint32Var(
 		&timeoutSeconds, "timeout-seconds", 300, "The number of seconds before the operation is canceled",
@@ -695,6 +698,12 @@ func handleTriggerUninstall() {
 		os.Exit(1)
 	}
 
+	namespacesToClean := []string{policyNamespace}
+
+	if additionalNamespace != "" {
+		namespacesToClean = append(namespacesToClean, additionalNamespace)
+	}
+
 	terminatingCtx := ctrl.SetupSignalHandler()
 	ctx, cancelCtx := context.WithDeadline(terminatingCtx, time.Now().Add(time.Duration(timeoutSeconds)*time.Second))
 
@@ -707,7 +716,7 @@ func handleTriggerUninstall() {
 		os.Exit(1)
 	}
 
-	err = triggeruninstall.TriggerUninstall(ctx, cfg, deploymentName, deploymentNamespace, policyNamespace)
+	err = triggeruninstall.TriggerUninstall(ctx, cfg, deploymentName, deploymentNamespace, namespacesToClean)
 	if err != nil {
 		klog.Errorf("Failed to trigger the uninstall due to the error: %s", err)
 		os.Exit(1)

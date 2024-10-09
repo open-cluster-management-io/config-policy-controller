@@ -68,7 +68,8 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 		)
 		defer ctxCancel()
 
-		err = triggeruninstall.TriggerUninstall(ctx, config, deploymentName, deploymentNamespace, testNamespace)
+		err = triggeruninstall.TriggerUninstall(
+			ctx, config, deploymentName, deploymentNamespace, []string{testNamespace})
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying that the uninstall annotation was set on the Deployment")
