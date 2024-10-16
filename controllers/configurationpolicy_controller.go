@@ -3133,16 +3133,6 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	policy *policyv1.ConfigurationPolicy, sendEvent bool,
 ) error {
-	if sendEvent {
-		log.Info("Sending parent policy compliance event")
-
-		// If the compliance event can't be created, then don't update the ConfigurationPolicy
-		// status. As long as that hasn't been updated, everything will be retried next loop.
-		if err := r.sendComplianceEvent(policy); err != nil {
-			return err
-		}
-	}
-
 	log.V(2).Info(
 		"Updating configurationPolicy status", "status", policy.Status.ComplianceState, "policy", policy.GetName(),
 	)
@@ -3180,6 +3170,15 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 
 			log.Info(fmt.Sprintf("Failed to update policy status. Retrying (attempt %d/%d): %s", i, maxRetries, err))
 		} else {
+			if sendEvent {
+				log.Info("Sending parent policy compliance event")
+				// If the compliance event can't be created, then don't update the ConfigurationPolicy
+				// status. As long as that hasn't been updated, everything will be retried next loop.
+				if err := r.sendComplianceEvent(policy); err != nil {
+					return err
+				}
+			}
+			
 			break
 		}
 	}
