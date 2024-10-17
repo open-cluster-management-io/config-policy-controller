@@ -394,36 +394,49 @@ func formatMetadata(metadata map[string]interface{}) (formatted map[string]inter
 }
 
 func fmtMetadataForCompare(
-	metadataTemp, metadataExisting map[string]interface{},
-) (formatted, formattedExisting map[string]interface{}) {
-	mdTemp := map[string]interface{}{}
-	mdExisting := map[string]interface{}{}
+	merged, existing map[string]interface{}, keepSCC bool,
+) (formattedMerged, formattedExisting map[string]interface{}) {
+	formattedMerged = formatMetadata(merged)
+	formattedExisting = formatMetadata(existing)
 
-	if labelsTemp, ok := metadataTemp["labels"]; ok {
-		mdTemp["labels"] = labelsTemp
+	if _, mergedHasLabels := formattedMerged["labels"]; !mergedHasLabels {
+		delete(formattedExisting, "labels")
+	}
 
-		if labelsExisting, ok := metadataExisting["labels"]; ok {
-			mdExisting["labels"] = labelsExisting
+	if _, mergedHasAnnos := formattedMerged["annotations"]; !mergedHasAnnos {
+		delete(formattedExisting, "annotations")
+
+		return formattedMerged, formattedExisting
+	}
+
+	if !keepSCC {
+		return formattedMerged, formattedExisting
+	}
+
+	existingAnnos, ok := formattedExisting["annotations"].(map[string]interface{})
+	if !ok {
+		return formattedMerged, formattedExisting
+	}
+
+	mergedAnnos, ok := formattedMerged["annotations"].(map[string]interface{})
+	if !ok {
+		return formattedMerged, formattedExisting
+	}
+
+	// Copy existing SCC annotations to the merged metadata
+	for key, val := range existingAnnos {
+		if !strings.HasPrefix(key, "openshift.io/sa.scc.") {
+			continue
+		}
+
+		if _, alreadyDefined := mergedAnnos[key]; !alreadyDefined {
+			mergedAnnos[key] = val
 		}
 	}
 
-	if annosTemp, ok := metadataTemp["annotations"]; ok {
-		if annos, ok := annosTemp.(map[string]interface{}); ok {
-			mdTemp["annotations"] = filterUnwantedAnnotations(annos)
-		} else {
-			mdTemp["annotations"] = annosTemp
-		}
+	formattedMerged["annotations"] = mergedAnnos
 
-		if annosExisting, ok := metadataExisting["annotations"]; ok {
-			if annos, ok := annosExisting.(map[string]interface{}); ok {
-				mdExisting["annotations"] = filterUnwantedAnnotations(annos)
-			} else {
-				mdExisting["annotations"] = annosExisting
-			}
-		}
-	}
-
-	return mdTemp, mdExisting
+	return formattedMerged, formattedExisting
 }
 
 // Format name of resource with its namespace (if it has one)

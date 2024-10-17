@@ -15,8 +15,12 @@ spec:
       - default
   object-templates:
     - complianceType: musthave
+      metadataComplianceType: mustonlyhave
       objectDefinition:
         kind: Namespace
         apiVersion: v1
         metadata:
           name: case9-test
+          annotations:
+            foo.bar/baz: hello world
+            openshift.io/sa.scc.policy: keep
