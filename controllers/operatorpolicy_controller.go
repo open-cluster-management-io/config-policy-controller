@@ -38,6 +38,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -124,9 +125,31 @@ func (r *OperatorPolicyReconciler) SetupWithManager(
 ) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(OperatorControllerName).
-		For(
-			&policyv1beta1.OperatorPolicy{},
-			builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		For(&policyv1beta1.OperatorPolicy{}, builder.WithPredicates(predicate.Funcs{
+			// Skip most pure status/metadata updates
+			UpdateFunc: func(e event.UpdateEvent) bool {
+				if e.ObjectOld.GetGeneration() != e.ObjectNew.GetGeneration() {
+					return true
+				}
+
+				if !e.ObjectNew.GetDeletionTimestamp().IsZero() {
+					return true
+				}
+
+				oldTyped, ok := e.ObjectOld.(*policyv1beta1.OperatorPolicy)
+				if !ok {
+					return false
+				}
+
+				newTyped, ok := e.ObjectNew.(*policyv1beta1.OperatorPolicy)
+				if !ok {
+					return false
+				}
+
+				// Handle the case where compliance was explicitly reset by the governance-policy-framework
+				return oldTyped.Status.ComplianceState != "" && newTyped.Status.ComplianceState == ""
+			},
+		})).
 		Watches(
 			&policyv1beta1.OperatorPolicy{},
 			handler.EnqueueRequestsFromMapFunc(overlapMapper)).
@@ -279,8 +302,11 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 
 	earlyComplianceEvents = make([]metav1.Condition, 0)
 
+	// If the status was "reset", consider the condition changed.
+	condChanged = policy.Status.ComplianceState == ""
+
 	desiredSub, desiredOG, changed, err := r.buildResources(ctx, policy)
-	condChanged = changed
+	condChanged = condChanged || changed
 
 	if err != nil {
 		opLog.Error(err, "Error building desired resources")
