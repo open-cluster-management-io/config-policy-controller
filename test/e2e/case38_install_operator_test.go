@@ -1524,7 +1524,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 	})
-	Describe("Testing CustomResourceDefinition reporting", Ordered, func() {
+	Describe("Testing full installation behavior, including CRD reporting", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
 			opPolName = "oppol-no-group"
@@ -1610,6 +1610,27 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				},
 				"there are CRDs present for the operator",
 			)
+		})
+
+		It("should send a new compliance event if the status is reset", func(ctx SpecContext) {
+			By("Waiting 10 seconds for any late reconciles")
+			time.Sleep(10 * time.Second)
+
+			originalEvents := utils.GetMatchingEvents(
+				clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
+			)
+
+			By("Resetting the status, and checking for a new event")
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "remove", "path": "/status/compliant"}]`, "--subresource=status")
+
+			Eventually(func(ctx SpecContext) int {
+				newEvents := utils.GetMatchingEvents(
+					clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
+				)
+
+				return len(newEvents)
+			}, 10, 1, ctx).Should(BeNumerically(">", len(originalEvents)))
 		})
 	})
 	Describe("Testing OperatorPolicy validation messages", Ordered, func() {
