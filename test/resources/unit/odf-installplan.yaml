@@ -1,0 +1,107 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: InstallPlan
+metadata:
+  creationTimestamp: "2024-10-17T14:57:31Z"
+  generateName: install-
+  generation: 1
+  labels:
+    operators.coreos.com/odf-operator.openshift-storage: ""
+  name: install-dxrlr
+  namespace: openshift-storage
+  ownerReferences:
+  - apiVersion: operators.coreos.com/v1alpha1
+    blockOwnerDeletion: false
+    controller: false
+    kind: Subscription
+    name: odf-operator
+    uid: 19d57638-2589-425e-8dc0-e67a97c0dcd6
+  resourceVersion: "184549"
+  uid: 910f5d87-7997-40d8-b381-409934d6126a
+spec:
+  approval: Manual
+  approved: false
+  clusterServiceVersionNames:
+  - ocs-operator.v4.16.3-rhodf
+  - ocs-client-operator.v4.16.3-rhodf
+  - odf-operator.v4.16.3-rhodf
+  - odf-prometheus-operator.v4.16.3-rhodf
+  - mcg-operator.v4.16.3-rhodf
+  - odf-csi-addons-operator.v4.16.3-rhodf
+  - recipe.v4.16.3-rhodf
+  - rook-ceph-operator.v4.16.3-rhodf
+  generation: 1
+status:
+  bundleLookups:
+  - catalogSourceRef:
+      name: redhat-operators
+      namespace: openshift-marketplace
+    identifier: ocs-operator.v4.16.3-rhodf
+    path: registry.redhat.io/odf4/ocs-operator-bundle@sha256:1bbc151acb46edd4c042acd66d028eaa6b514204ad79c8be708d89f07c9f9e81
+    properties: '{"properties":[{"type":"olm.gvk","value":{"group":"ocs.openshift.io","kind":"OCSInitialization","version":"v1"}},{"type":"olm.gvk","value":{"group":"ocs.openshift.io","kind":"StorageCluster","version":"v1"}},{"type":"olm.gvk","value":{"group":"ocs.openshift.io","kind":"StorageConsumer","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"ocs.openshift.io","kind":"StorageProfile","version":"v1"}},{"type":"olm.gvk","value":{"group":"ocs.openshift.io","kind":"StorageRequest","version":"v1alpha1"}},{"type":"olm.package","value":{"packageName":"ocs-operator","version":"4.16.3-rhodf"}},{"type":"olm.package.required","value":{"packageName":"rook-ceph-operator","versionRange":"\u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"rook-ceph-operator","versionRange":"\u003c=4.16.3"}}]}'
+    replaces: ocs-operator.v4.16.2-rhodf
+  - catalogSourceRef:
+      name: redhat-operators
+      namespace: openshift-marketplace
+    identifier: ocs-client-operator.v4.16.3-rhodf
+    path: registry.redhat.io/odf4/ocs-client-operator-bundle@sha256:123523041fe4092a36fd41cc6203802d903188642bde1a40f22515a5715fff81
+    properties: '{"properties":[{"type":"olm.gvk","value":{"group":"ocs.openshift.io","kind":"StorageClaim","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"ocs.openshift.io","kind":"StorageClient","version":"v1alpha1"}},{"type":"olm.package","value":{"packageName":"ocs-client-operator","version":"4.16.3-rhodf"}},{"type":"olm.package.required","value":{"packageName":"odf-csi-addons-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"odf-csi-addons-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}}]}'
+    replaces: ocs-client-operator.v4.16.2-rhodf
+  - catalogSourceRef:
+      name: redhat-operators
+      namespace: openshift-marketplace
+    identifier: odf-operator.v4.16.3-rhodf
+    path: registry.redhat.io/odf4/odf-operator-bundle@sha256:e5c49afe79002be166f7b51421d712069ad6fe67c54743c8a991afd97f9f30f6
+    properties: '{"properties":[{"type":"olm.gvk","value":{"group":"odf.openshift.io","kind":"StorageSystem","version":"v1alpha1"}},{"type":"olm.maxOpenShiftVersion","value":"4.17"},{"type":"olm.package","value":{"packageName":"odf-operator","version":"4.16.3-rhodf"}},{"type":"olm.package.required","value":{"packageName":"mcg-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"ocs-client-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"ocs-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"odf-csi-addons-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"odf-prometheus-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"recipe","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"mcg-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"ocs-client-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"ocs-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"odf-csi-addons-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"odf-prometheus-operator","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}},{"type":"olm.package.required","value":{"packageName":"recipe","versionRange":"\u003e=4.9.0
+      \u003c=4.16.3"}}]}'
+    replaces: odf-operator.v4.16.2-rhodf
+  - catalogSourceRef:
+      name: redhat-operators
+      namespace: openshift-marketplace
+    identifier: odf-prometheus-operator.v4.16.3-rhodf
+    path: registry.redhat.io/odf4/odf-prometheus-operator-bundle@sha256:5ddcb5b3ff0a69c80857e5185dcfd9e397ba0ad1272e66cd98acd729996d006a
+    properties: '{"properties":[{"type":"olm.package","value":{"packageName":"odf-prometheus-operator","version":"4.16.3-rhodf"}}]}'
+    replaces: odf-prometheus-operator.v4.16.2-rhodf
+  - catalogSourceRef:
+      name: redhat-operators
+      namespace: openshift-marketplace
+    identifier: mcg-operator.v4.16.3-rhodf
+    path: registry.redhat.io/odf4/mcg-operator-bundle@sha256:5dc780b845bf22a5ed8350a0c8783d1fb8a0fef4ce2e1c3265db82fd236ea3e1
+    properties: '{"properties":[{"type":"olm.gvk","value":{"group":"noobaa.io","kind":"BackingStore","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"noobaa.io","kind":"BucketClass","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"noobaa.io","kind":"NamespaceStore","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"noobaa.io","kind":"NooBaa","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"noobaa.io","kind":"NooBaaAccount","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"objectbucket.io","kind":"ObjectBucket","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"objectbucket.io","kind":"ObjectBucketClaim","version":"v1alpha1"}},{"type":"olm.package","value":{"packageName":"mcg-operator","version":"4.16.3-rhodf"}}]}'
+    replaces: mcg-operator.v4.16.2-rhodf
+  - catalogSourceRef:
+      name: redhat-operators
+      namespace: openshift-marketplace
+    identifier: odf-csi-addons-operator.v4.16.3-rhodf
+    path: registry.redhat.io/odf4/odf-csi-addons-operator-bundle@sha256:8721c6de61a7ee31e1312856e5887a36be7b1ce930fcba24b720097d286be6f6
+    properties: '{"properties":[{"type":"olm.gvk","value":{"group":"csiaddons.openshift.io","kind":"CSIAddonsNode","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"csiaddons.openshift.io","kind":"NetworkFence","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"csiaddons.openshift.io","kind":"ReclaimSpaceCronJob","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"csiaddons.openshift.io","kind":"ReclaimSpaceJob","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"replication.storage.openshift.io","kind":"VolumeReplication","version":"v1alpha1"}},{"type":"olm.gvk","value":{"group":"replication.storage.openshift.io","kind":"VolumeReplicationClass","version":"v1alpha1"}},{"type":"olm.package","value":{"packageName":"odf-csi-addons-operator","version":"4.16.3-rhodf"}}]}'
+    replaces: odf-csi-addons-operator.v4.16.2-rhodf
+  - catalogSourceRef:
+      name: redhat-operators
+      namespace: openshift-marketplace
+    identifier: recipe.v4.16.3-rhodf
+    path: registry.redhat.io/odf4/odr-recipe-operator-bundle@sha256:f221b43415c44080b49785f4a35447dc529e0d27c17a76057df6b80992ac5388
+    properties: '{"properties":[{"type":"olm.gvk","value":{"group":"ramendr.openshift.io","kind":"Recipe","version":"v1alpha1"}},{"type":"olm.package","value":{"packageName":"recipe","version":"4.16.3-rhodf"}}]}'
+    replaces: recipe.v4.16.2-rhodf
+  - catalogSourceRef:
+      name: redhat-operators
+      namespace: openshift-marketplace
+    identifier: rook-ceph-operator.v4.16.3-rhodf
+    path: registry.redhat.io/odf4/rook-ceph-operator-bundle@sha256:d97b31272d77f0b0552844cc58749b772d71bef73d40bd2bf7befdad86d139e4
+    properties: '{"properties":[{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephBlockPool","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephBlockPoolRadosNamespace","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephBucketNotification","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephBucketTopic","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephCOSIDriver","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephClient","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephCluster","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephFilesystem","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephFilesystemMirror","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephFilesystemSubVolumeGroup","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephNFS","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephObjectRealm","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephObjectStore","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephObjectStoreUser","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephObjectZone","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephObjectZoneGroup","version":"v1"}},{"type":"olm.gvk","value":{"group":"ceph.rook.io","kind":"CephRBDMirror","version":"v1"}},{"type":"olm.package","value":{"packageName":"rook-ceph-operator","version":"4.16.3-rhodf"}}]}'
+    replaces: rook-ceph-operator.v4.16.2-rhodf
+  catalogSources:
+  - redhat-operators
+  phase: RequiresApproval

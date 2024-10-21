@@ -2,6 +2,8 @@ package controllers
 
 import (
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
@@ -9,7 +11,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/yaml"
 
+	v1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 )
 
@@ -256,5 +261,79 @@ func TestMessageIncludesSubscription(t *testing.T) {
 				assert.Equal(t, match, test.expected)
 			},
 		)
+	}
+}
+
+func TestGetApprovedCSVs(t *testing.T) {
+	odfIPRaw, err := os.ReadFile("../test/resources/unit/odf-installplan.yaml")
+	if err != nil {
+		t.Fatalf("Encountered an error when reading the odf-installplan.yaml: %v", err)
+	}
+
+	odfIP := &operatorv1alpha1.InstallPlan{}
+
+	err = yaml.Unmarshal(odfIPRaw, odfIP)
+	if err != nil {
+		t.Fatalf("Encountered an error when umarshaling the odf-installplan.yaml: %v", err)
+	}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			UpgradeApproval:   "Automatic",
+			RemediationAction: "enforce",
+			Versions:          []v1.NonEmptyString{"odf-operator.v4.16.3-rhodf"},
+		},
+	}
+
+	subscription := &operatorv1alpha1.Subscription{
+		Spec: &operatorv1alpha1.SubscriptionSpec{},
+		Status: operatorv1alpha1.SubscriptionStatus{
+			InstalledCSV: "odf-operator.v4.16.0-rhodf",
+			CurrentCSV:   "odf-operator.v4.16.3-rhodf",
+		},
+	}
+
+	csvs := getApprovedCSVs(policy, subscription, odfIP)
+
+	expectedCSVs := sets.Set[string]{}
+	expectedCSVs.Insert(odfIP.Spec.ClusterServiceVersionNames...)
+
+	if !csvs.Equal(expectedCSVs) {
+		t.Fatalf(
+			"Expected all CSVs to be approved, but missing: %s",
+			strings.Join(expectedCSVs.Difference(csvs).UnsortedList(), ", "),
+		)
+	}
+
+	// Set versions to empty to approve all versions
+	policy = &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			UpgradeApproval:   "Automatic",
+			RemediationAction: "enforce",
+			Versions:          []v1.NonEmptyString{},
+		},
+	}
+
+	csvs = getApprovedCSVs(policy, subscription, odfIP)
+
+	if !csvs.Equal(expectedCSVs) {
+		t.Fatalf(
+			"Expected all CSVs to be approved, but missing: %s",
+			strings.Join(expectedCSVs.Difference(csvs).UnsortedList(), ", "),
+		)
+	}
+
+	// Set an old approved version
+	policy = &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			UpgradeApproval:   "Automatic",
+			RemediationAction: "enforce",
+			Versions:          []v1.NonEmptyString{"odf-operator.v4.16.0-rhodf"},
+		},
+	}
+
+	csvs = getApprovedCSVs(policy, subscription, odfIP)
+	if len(csvs) != 0 {
+		t.Fatalf("Expected no CSVs to be approved, but got: %s", strings.Join(csvs.UnsortedList(), ", "))
 	}
 }
