@@ -205,6 +205,15 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	policy := &policyv1beta1.OperatorPolicy{}
 	watcher := opPolIdentifier(req.Namespace, req.Name)
 
+	opLog.Info("Reconciling OperatorPolicy")
+
+	defer func() {
+		// ACM-14617: This log is to help identify if a deferred function call is getting stuck on
+		// a lock. This message must be at INFO level because the issue may not be reproduced if the
+		// log level is adjusted *after* the problem occurs.
+		opLog.Info("All deferred functions for the reconcile are complete")
+	}()
+
 	// Get the applied OperatorPolicy
 	err := r.Get(ctx, req.NamespacedName, policy)
 	if err != nil {
@@ -240,9 +249,6 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			opLog.Error(err, "Could not end query batch for the watcher")
 		}
 	}()
-
-	// handle the policy
-	opLog.Info("Reconciling OperatorPolicy")
 
 	errs := make([]error, 0)
 
