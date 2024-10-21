@@ -1737,7 +1737,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		), nil
 	}
 
-	remainingCSVsToApprove, err := r.getRemainingCSVApprovals(ctx, policy, sub, ipCSVs)
+	remainingCSVsToApprove, err := r.getRemainingCSVApprovals(ctx, policy, sub, &latestInstallPlan)
 	if err != nil {
 		return false, fmt.Errorf("error finding the InstallPlan approvals: %w", err)
 	}
@@ -1774,19 +1774,16 @@ func (r *OperatorPolicyReconciler) getRemainingCSVApprovals(
 	ctx context.Context,
 	currentPolicy *policyv1beta1.OperatorPolicy,
 	currentSub *operatorv1alpha1.Subscription,
-	csvNames []string,
+	installPlan *operatorv1alpha1.InstallPlan,
 ) ([]string, error) {
+	csvNames := installPlan.Spec.ClusterServiceVersionNames
+
 	requiredCSVs := sets.New(csvNames...)
-	approvedCSVs := sets.New[string]()
-
 	// First try the current OperatorPolicy without checking others.
-	approvedCSV := r.getApprovedCSV(currentPolicy, currentSub, csvNames)
-	if approvedCSV != "" {
-		approvedCSVs.Insert(approvedCSV)
+	approvedCSVs := getApprovedCSVs(currentPolicy, currentSub, installPlan)
 
-		if requiredCSVs.Equal(approvedCSVs) {
-			return nil, nil
-		}
+	if approvedCSVs.IsSuperset(requiredCSVs) {
+		return nil, nil
 	}
 
 	watcher := opPolIdentifier(currentPolicy.Namespace, currentPolicy.Name)
@@ -1843,10 +1840,7 @@ func (r *OperatorPolicyReconciler) getRemainingCSVApprovals(
 			continue
 		}
 
-		approvedCSV := r.getApprovedCSV(&policy, &subTyped, csvNames)
-		if approvedCSV != "" {
-			approvedCSVs.Insert(approvedCSV)
-		}
+		approvedCSVs = approvedCSVs.Union(getApprovedCSVs(&policy, &subTyped, installPlan))
 	}
 
 	unapprovedCSVs := requiredCSVs.Difference(approvedCSVs).UnsortedList()
@@ -1856,14 +1850,14 @@ func (r *OperatorPolicyReconciler) getRemainingCSVApprovals(
 	return unapprovedCSVs, nil
 }
 
-// getApprovedCSV returns the CSV in the passed in csvNames that can be approved. If no approval can take place, an
-// empty string is returned.
-func (r *OperatorPolicyReconciler) getApprovedCSV(
-	policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription, csvNames []string,
-) string {
+// getApprovedCSVs returns the CSVs in the passed in subscription that can be approved. If no approval can take place,
+// an empty list is returned.
+func getApprovedCSVs(
+	policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription, installPlan *operatorv1alpha1.InstallPlan,
+) sets.Set[string] {
 	// Only enforce policies can approve InstallPlans
 	if !policy.Spec.RemediationAction.IsEnforce() {
-		return ""
+		return nil
 	}
 
 	initialInstall := sub.Status.InstalledCSV == ""
@@ -1872,33 +1866,128 @@ func (r *OperatorPolicyReconciler) getApprovedCSV(
 	// If the operator is already installed and isn't configured for automatic upgrades, then it can't approve
 	// InstallPlans.
 	if !autoUpgrade && !initialInstall {
-		return ""
+		return nil
 	}
 
-	allowedCSVs := make([]policyv1.NonEmptyString, 0, len(policy.Spec.Versions)+1)
-	allowedCSVs = append(allowedCSVs, policy.Spec.Versions...)
+	subscriptionCSV := sub.Status.CurrentCSV
 
-	if sub.Spec.StartingCSV != "" {
-		allowedCSVs = append(allowedCSVs, policyv1.NonEmptyString(sub.Spec.StartingCSV))
+	if subscriptionCSV == "" {
+		return nil
 	}
 
-	// All versions for the operator are allowed if no version is specified
+	approvedSubCSV := false
+
 	if len(policy.Spec.Versions) == 0 {
-		// currentCSV is the CSV related to the latest InstallPlan
-		if sub.Status.CurrentCSV != "" {
-			return sub.Status.CurrentCSV
-		}
+		approvedSubCSV = true
 	} else {
+		allowedCSVs := make([]policyv1.NonEmptyString, 0, len(policy.Spec.Versions)+1)
+		allowedCSVs = append(allowedCSVs, policy.Spec.Versions...)
+
+		if sub.Spec != nil && sub.Spec.StartingCSV != "" {
+			allowedCSVs = append(allowedCSVs, policyv1.NonEmptyString(sub.Spec.StartingCSV))
+		}
+
 		for _, allowedCSV := range allowedCSVs {
-			for _, csvName := range csvNames {
-				if string(allowedCSV) == csvName {
-					return csvName
-				}
+			if string(allowedCSV) == subscriptionCSV {
+				approvedSubCSV = true
+
+				break
 			}
 		}
 	}
 
-	return ""
+	if !approvedSubCSV {
+		return nil
+	}
+
+	packageDependencies := getBundleDependencies(installPlan, subscriptionCSV, "")
+
+	approvedCSVs := sets.Set[string]{}
+	approvedCSVs.Insert(subscriptionCSV)
+
+	// Approve all CSVs that are dependencies of the subscription CSV.
+	for _, packageDependency := range packageDependencies.UnsortedList() {
+		for _, csvName := range installPlan.Spec.ClusterServiceVersionNames {
+			if strings.HasPrefix(csvName, packageDependency+".v") {
+				approvedCSVs.Insert(csvName)
+			}
+		}
+	}
+
+	return approvedCSVs
+}
+
+// getBundleDependencies recursively gets the dependencies from a target CSV or package name. If the package name is
+// provided instead of the target CSV, then it assumes the CSVs are in the format of `<package>.v<version>`. The
+// returned set is of package names and not the CSV (i.e. no version in it).
+func getBundleDependencies(
+	installPlan *operatorv1alpha1.InstallPlan, targetCSV string, packageName string,
+) sets.Set[string] {
+	packageDependencies := sets.Set[string]{}
+
+	if targetCSV == "" && packageName == "" {
+		return packageDependencies
+	}
+
+	for i, bundle := range installPlan.Status.BundleLookups {
+		if targetCSV != "" && bundle.Identifier != targetCSV {
+			continue
+		}
+
+		if packageName != "" && !strings.HasPrefix(bundle.Identifier, packageName+".v") {
+			continue
+		}
+
+		if bundle.Properties == "" {
+			break
+		}
+
+		props := map[string]interface{}{}
+
+		err := json.Unmarshal([]byte(bundle.Properties), &props)
+		if err != nil {
+			log.Error(
+				err,
+				"The bundle properties on the InstallPlan are invalid. Will skip check for operator dependencies.",
+				"path", fmt.Sprintf("status.bundleLookups[%d]", i),
+				"installPlan", installPlan.Name,
+				"namespace", installPlan.Namespace,
+			)
+
+			break
+		}
+
+		propsList, ok := props["properties"].([]interface{})
+		if !ok {
+			break
+		}
+
+		for _, prop := range propsList {
+			propMap, ok := prop.(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			if propMap["type"] != "olm.package.required" {
+				continue
+			}
+
+			propValue, ok := propMap["value"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+
+			depPackageName, ok := propValue["packageName"].(string)
+			if !ok || depPackageName == "" {
+				continue
+			}
+
+			packageDependencies.Insert(depPackageName)
+			packageDependencies = packageDependencies.Union(getBundleDependencies(installPlan, "", depPackageName))
+		}
+	}
+
+	return packageDependencies
 }
 
 func (r *OperatorPolicyReconciler) mustnothaveInstallPlan(
