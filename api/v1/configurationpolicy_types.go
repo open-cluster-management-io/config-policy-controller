@@ -318,7 +318,7 @@ type ComplianceState string
 const (
 	Compliant         ComplianceState = "Compliant"
 	NonCompliant      ComplianceState = "NonCompliant"
-	UnknownCompliancy ComplianceState = "UnknownCompliancy"
+	UnknownCompliancy ComplianceState = ""
 	Terminating       ComplianceState = "Terminating"
 )
 
