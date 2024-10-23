@@ -3307,7 +3307,7 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 // defaultComplianceMessage looks through the policy's Compliance and CompliancyDetails and formats
 // a message that can be used for compliance events recognized by the framework.
 func defaultComplianceMessage(plc *policyv1.ConfigurationPolicy) string {
-	if plc.Status.ComplianceState == "" || plc.Status.ComplianceState == policyv1.UnknownCompliancy {
+	if plc.Status.ComplianceState == policyv1.UnknownCompliancy {
 		return "ComplianceState is still unknown"
 	}
 
