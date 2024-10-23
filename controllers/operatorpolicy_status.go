@@ -1223,7 +1223,7 @@ var noExistingCSVObj = policyv1.RelatedObject{
 			Name: "-",
 		},
 	},
-	Compliant: string(policyv1.UnknownCompliancy),
+	Compliant: "UnknownCompliancy",
 	Reason:    "No relevant ClusterServiceVersion found",
 }
 
@@ -1239,7 +1239,7 @@ var noExistingCRDObj = policyv1.RelatedObject{
 			Name: "-",
 		},
 	},
-	Compliant: string(policyv1.UnknownCompliancy),
+	Compliant: "UnknownCompliancy",
 	Reason:    "No relevant CustomResourceDefinitions found",
 }
 
@@ -1285,7 +1285,7 @@ var noExistingDeploymentObj = policyv1.RelatedObject{
 			Name: "-",
 		},
 	},
-	Compliant: string(policyv1.UnknownCompliancy),
+	Compliant: "UnknownCompliancy",
 	Reason:    "No relevant deployments found",
 }
 
