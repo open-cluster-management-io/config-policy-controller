@@ -1223,13 +1223,13 @@ var noExistingCSVObj = policyv1.RelatedObject{
 			Name: "-",
 		},
 	},
-	Compliant: "UnknownCompliancy",
+	Compliant: "Inapplicable",
 	Reason:    "No relevant ClusterServiceVersion found",
 }
 
 // noExistingCRDObj is a RelatedObject for CustomResourceDefinitions,
 // with Reason 'No relevant CustomResourceDefinitions found'. It is considered
-// UnknownCompliancy because the lack of a CRD does not imply Compliance
+// Inapplicable because the lack of a CRD does not imply Compliance
 // or NonCompliance.
 var noExistingCRDObj = policyv1.RelatedObject{
 	Object: policyv1.ObjectResource{
@@ -1239,7 +1239,7 @@ var noExistingCRDObj = policyv1.RelatedObject{
 			Name: "-",
 		},
 	},
-	Compliant: "UnknownCompliancy",
+	Compliant: "Inapplicable",
 	Reason:    "No relevant CustomResourceDefinitions found",
 }
 
@@ -1275,7 +1275,7 @@ func existingDeploymentObj(
 
 // noExistingDeploymentObj is a Compliant RelatedObject for Deployments,
 // with Reason 'No relevant Deployments found'. It is considered
-// UnknownCompliancy because the lack of a Deployment does not imply
+// Inapplicable because the lack of a Deployment does not imply
 // Compliance or NonCompliance.
 var noExistingDeploymentObj = policyv1.RelatedObject{
 	Object: policyv1.ObjectResource{
@@ -1285,7 +1285,7 @@ var noExistingDeploymentObj = policyv1.RelatedObject{
 			Name: "-",
 		},
 	},
-	Compliant: "UnknownCompliancy",
+	Compliant: "Inapplicable",
 	Reason:    "No relevant deployments found",
 }
 
