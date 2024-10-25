@@ -449,7 +449,7 @@ func (d *DryRunner) setupReconciler(
 		}
 
 		apiMappings := []mappings.APIMapping{}
-		if err := json.NewDecoder(reader).Decode(&apiMappings); err != nil {
+		if err := yaml.NewDecoder(reader).Decode(&apiMappings); err != nil {
 			return nil, err
 		}
 
