@@ -28,33 +28,6 @@ import (
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
-// Parse *Target.MatchLabels and *Target.MatchExpressions into metav1.LabelSelector for the k8s API
-func parseToLabelSelector(selector policyv1.Target) metav1.LabelSelector {
-	// Build LabelSelector from provided MatchLabels and MatchExpressions
-	var labelSelector metav1.LabelSelector
-
-	// Handle when MatchLabels/MatchExpressions were not provided to prevent nil pointer dereference.
-	// This is needed so that `include` can function independently. Not fetching any objects is the
-	// responsibility of the calling function for when MatchLabels/MatchExpressions are both nil.
-	matchLabels := map[string]string{}
-	matchExpressions := []metav1.LabelSelectorRequirement{}
-
-	if selector.MatchLabels != nil {
-		matchLabels = *selector.MatchLabels
-	}
-
-	if selector.MatchExpressions != nil {
-		matchExpressions = *selector.MatchExpressions
-	}
-
-	labelSelector = metav1.LabelSelector{
-		MatchLabels:      matchLabels,
-		MatchExpressions: matchExpressions,
-	}
-
-	return labelSelector
-}
-
 // SelectorReconciler keeps a cache of NamespaceSelector results, which it should update when
 // namespaces are created, deleted, or re-labeled.
 type SelectorReconciler interface {
@@ -205,7 +178,8 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 	// unlock for now, the list filtering could take a non-trivial amount of time
 	r.lock.Unlock()
 
-	if t.MatchLabels == nil && t.MatchExpressions == nil && len(t.Include) == 0 {
+	// Return no namespaces when both include and label selector are empty
+	if t.LabelSelector == nil && len(t.Include) == 0 {
 		log.V(2).Info("Updating selection from Reconcile for empty selector",
 			"namespace", objNS, "policy", objName)
 
@@ -221,28 +195,35 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 
 	// New, or the target has changed.
 	nsList := corev1.NamespaceList{}
-
-	labelSelector := parseToLabelSelector(t)
-
-	selector, err := metav1.LabelSelectorAsSelector(&labelSelector)
-	if err != nil {
-		err = fmt.Errorf("error parsing namespace LabelSelector: %w", err)
-
-		log.V(2).Info("Updating selection from Reconcile with parsing error",
-			"namespace", objNS, "policy", objName, "error", err)
-
-		r.update(objNS, objName, namespaceSelection{
-			target:     t,
-			namespaces: []string{},
-			hasUpdate:  false,
-			err:        err,
-		})
-
-		return []string{}, fmt.Errorf("error parsing namespace LabelSelector: %w", err)
+	// Default to fetching all Namespaces
+	listOpts := client.ListOptions{
+		LabelSelector: labels.Everything(),
 	}
 
-	// This List will be from the controller-runtime cache
-	if err := r.client.List(context.TODO(), &nsList, &client.ListOptions{LabelSelector: selector}); err != nil {
+	// Parse the label selector if it's provided
+	if t.LabelSelector != nil {
+		selector, err := metav1.LabelSelectorAsSelector(t.LabelSelector)
+		if err != nil {
+			err = fmt.Errorf("error parsing namespace LabelSelector: %w", err)
+
+			log.V(2).Info("Updating selection from Reconcile with parsing error",
+				"namespace", objNS, "policy", objName, "error", err)
+
+			r.update(objNS, objName, namespaceSelection{
+				target:     t,
+				namespaces: []string{},
+				hasUpdate:  false,
+				err:        err,
+			})
+
+			return []string{}, fmt.Errorf("error parsing namespace LabelSelector: %w", err)
+		}
+
+		listOpts.LabelSelector = selector
+	}
+
+	// Fetch namespaces -- this List will be from the controller-runtime cache
+	if err := r.client.List(context.TODO(), &nsList, &listOpts); err != nil {
 		log.Error(err, "Unable to list namespaces from the cache")
 
 		return nil, err
@@ -323,17 +304,22 @@ func (r *NamespaceSelectorReconciler) update(namespace string, name string, sel 
 }
 
 func filter(allNSList corev1.NamespaceList, t policyv1.Target) ([]string, error) {
-	// If MatchLabels and MatchExpressions are nil, the resulting label selector matches all namespaces. This is to
-	// guard against that.
-	if t.MatchLabels == nil && t.MatchExpressions == nil && len(t.Include) == 0 {
+	// If MatchLabels and MatchExpressions are nil, the resulting label selector
+	// matches all namespaces. This is to guard against that.
+	if t.LabelSelector == nil && len(t.Include) == 0 {
 		return []string{}, nil
 	}
 
-	labelSelector := parseToLabelSelector(t)
+	// List all namespaces by default, otherwise use provided LabelSelector
+	selector := labels.Everything()
 
-	selector, err := metav1.LabelSelectorAsSelector(&labelSelector)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing namespace LabelSelector: %w", err)
+	if t.LabelSelector != nil {
+		var err error
+
+		selector, err = metav1.LabelSelectorAsSelector(t.LabelSelector)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing namespace LabelSelector: %w", err)
+		}
 	}
 
 	nsToFilter := make([]string, 0)

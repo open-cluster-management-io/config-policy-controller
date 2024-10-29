@@ -70,11 +70,6 @@ var (
 // Policies applied by users are deployed here. Used only in non-hosted mode.
 const ocmPolicyNs = "open-cluster-management-policies"
 
-func printVersion() {
-	log.Info("Using", "OperatorVersion", version.Version, "GoVersion", runtime.Version(),
-		"GOOS", runtime.GOOS, "GOARCH", runtime.GOARCH)
-}
-
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
@@ -163,7 +158,8 @@ func main() {
 		panic("The --evaluation-concurrency option cannot be less than 1")
 	}
 
-	printVersion()
+	log.Info("Using", "OperatorVersion", version.Version, "GoVersion", runtime.Version(),
+		"GOOS", runtime.GOOS, "GOARCH", runtime.GOARCH)
 
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()

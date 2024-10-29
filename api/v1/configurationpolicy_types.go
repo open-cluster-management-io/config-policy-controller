@@ -70,35 +70,24 @@ type Severity string
 type PruneObjectBehavior string
 
 type Target struct {
+	*metav1.LabelSelector `json:",inline"`
+
 	// Include is an array of filepath expressions to include objects by name.
 	Include []NonEmptyString `json:"include,omitempty"`
 
 	// Exclude is an array of filepath expressions to exclude objects by name.
 	Exclude []NonEmptyString `json:"exclude,omitempty"`
-
-	// MatchLabels is a map of {key,value} pairs matching objects by label.
-	MatchLabels *map[string]string `json:"matchLabels,omitempty"`
-
-	// MatchExpressions is an array of label selector requirements matching objects by label.
-	MatchExpressions *[]metav1.LabelSelectorRequirement `json:"matchExpressions,omitempty"`
 }
 
 // Define String() so that the LabelSelector is dereferenced in the logs
 func (t Target) String() string {
 	fmtSelectorStr := "{include:%s,exclude:%s,matchLabels:%+v,matchExpressions:%+v}"
-	if t.MatchLabels == nil && t.MatchExpressions == nil {
+
+	if t.LabelSelector == nil {
 		return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, nil, nil)
 	}
 
-	if t.MatchLabels == nil {
-		return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, nil, *t.MatchExpressions)
-	}
-
-	if t.MatchExpressions == nil {
-		return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, *t.MatchLabels, nil)
-	}
-
-	return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, *t.MatchLabels, *t.MatchExpressions)
+	return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, t.MatchLabels, t.MatchExpressions)
 }
 
 // EvaluationInterval configures the minimum elapsed time before a configuration policy is
@@ -292,7 +281,8 @@ type ConfigurationPolicySpec struct {
 	// `spec["object-templates"]`. All selector rules are combined. If 'include' is not provided but
 	// `matchLabels` and/or `matchExpressions` are, `include` will behave as if `['*']` were given. If
 	// `matchExpressions` and `matchLabels` are both not provided, `include` must be provided to
-	// retrieve namespaces.
+	// retrieve namespaces. If there is a namespace defined in the `objectDefinition`, the
+	// `namespaceSelector` is ignored.
 	NamespaceSelector Target `json:"namespaceSelector,omitempty"`
 
 	// The `object-templates` is an array of object configurations for the configuration policy to

@@ -55,24 +55,11 @@ import (
 )
 
 const (
-	ControllerName             string = "configuration-policy-controller"
-	CRDName                    string = "configurationpolicies.policy.open-cluster-management.io"
-	pruneObjectFinalizer       string = "policy.open-cluster-management.io/delete-related-objects"
-	disableTemplatesAnnotation string = "policy.open-cluster-management.io/disable-templates"
-)
+	ControllerName             = "configuration-policy-controller"
+	CRDName                    = "configurationpolicies.policy.open-cluster-management.io"
+	pruneObjectFinalizer       = "policy.open-cluster-management.io/delete-related-objects"
+	disableTemplatesAnnotation = "policy.open-cluster-management.io/disable-templates"
 
-var log = ctrl.Log.WithName(ControllerName)
-
-// PlcChan a channel used to pass policies ready for update
-var PlcChan chan *policyv1.ConfigurationPolicy
-
-var (
-	eventNormal  = "Normal"
-	eventWarning = "Warning"
-	eventFmtStr  = "policy: %s/%s"
-)
-
-const (
 	reasonWantFoundExists    = "Resource found as expected"
 	reasonWantFoundCreated   = "K8s creation success"
 	reasonUpdateSuccess      = "K8s update success"
@@ -85,11 +72,19 @@ const (
 	reasonFoundNotApplicable = "Resource found but will not be handled in mustnothave mode"
 )
 
-var ErrPolicyInvalid = errors.New("the Policy is invalid")
+var (
+	log = ctrl.Log.WithName(ControllerName)
 
-// commonSprigFuncMap includes only the sprig functions that are available in the
-// stolostron/go-template-utils library.
-var commonSprigFuncMap template.FuncMap
+	eventNormal  = "Normal"
+	eventWarning = "Warning"
+	eventFmtStr  = "policy: %s/%s"
+
+	ErrPolicyInvalid = errors.New("the Policy is invalid")
+
+	// commonSprigFuncMap includes only the sprig functions that are available in the
+	// stolostron/go-template-utils library.
+	commonSprigFuncMap template.FuncMap
+)
 
 func init() {
 	commonSprigFuncMap = template.FuncMap{}
@@ -444,8 +439,7 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 		return true, 0
 	}
 
-	usesSelector := policy.Spec.NamespaceSelector.MatchLabels != nil ||
-		policy.Spec.NamespaceSelector.MatchExpressions != nil ||
+	usesSelector := policy.Spec.NamespaceSelector.LabelSelector != nil ||
 		len(policy.Spec.NamespaceSelector.Include) != 0
 
 	if usesSelector && r.SelectorReconciler.HasUpdate(policy.Namespace, policy.Name) {
@@ -1269,8 +1263,8 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObject(
 		}
 	}
 
-	// strings.TrimSpace() is needed here because a multi-line value will have '\n' in it. This is kept for
-	// backwards compatibility.
+	// strings.TrimSpace() is needed here because a multi-line value will have
+	// '\n' in it. This is kept for backwards compatibility.
 	desiredObj.SetName(strings.TrimSpace(desiredObj.GetName()))
 	desiredObj.SetNamespace(strings.TrimSpace(desiredObj.GetNamespace()))
 	desiredObj.SetKind(strings.TrimSpace(desiredObj.GetKind()))
@@ -1289,11 +1283,16 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObject(
 		}
 	}
 
-	if scopedGVR.Namespaced && desiredObj.GetNamespace() == "" {
-		selectedNamespaces, err := r.SelectorReconciler.Get(plc.Namespace, plc.Name, plc.Spec.NamespaceSelector)
+	// Fetch and filter namespaces using provided namespaceSelector
+	desiredNs := desiredObj.GetNamespace()
+
+	if scopedGVR.Namespaced && desiredNs == "" {
+		nsSelector := plc.Spec.NamespaceSelector
+
+		selectedNamespaces, err := r.SelectorReconciler.Get(plc.Namespace, plc.Name, nsSelector)
 		if err != nil {
 			log.Error(err, "Failed to select the namespaces",
-				"namespaceSelector", fmt.Sprintf("%+v", plc.Spec.NamespaceSelector))
+				"namespaceSelector", nsSelector.String())
 
 			msg := fmt.Sprintf("Error filtering namespaces with provided namespaceSelector: %v", err)
 
@@ -1308,12 +1307,12 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObject(
 		}
 
 		if len(selectedNamespaces) == 0 {
-			relevantNamespaces = []string{desiredObj.GetNamespace()}
+			relevantNamespaces = []string{desiredNs}
 		} else {
 			relevantNamespaces = selectedNamespaces
 		}
 	} else {
-		relevantNamespaces = []string{desiredObj.GetNamespace()}
+		relevantNamespaces = []string{desiredNs}
 	}
 
 	return desiredObj, scopedGVR, relevantNamespaces, errEvent, mappingErr
