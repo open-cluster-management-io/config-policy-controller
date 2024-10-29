@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -3593,7 +3592,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 						installPlan.Object, "spec", "clusterServiceVersionNames",
 					)
 
-					sort.Strings(csvNames)
+					slices.Sort(csvNames)
 
 					if !reflect.DeepEqual(
 						csvNames, []string{"argocd-operator.v0.9.1", "strimzi-cluster-operator.v0.35.0"},

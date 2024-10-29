@@ -12,7 +12,6 @@ import (
 	"reflect"
 	"regexp"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1845,7 +1844,7 @@ func (r *OperatorPolicyReconciler) getRemainingCSVApprovals(
 
 	unapprovedCSVs := requiredCSVs.Difference(approvedCSVs).UnsortedList()
 
-	sort.Strings(unapprovedCSVs)
+	slices.Sort(unapprovedCSVs)
 
 	return unapprovedCSVs, nil
 }
