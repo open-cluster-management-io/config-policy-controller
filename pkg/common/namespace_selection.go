@@ -7,7 +7,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 
@@ -254,7 +254,7 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 	}
 
 	selected, err := Matches(nsToMatch, t.Include, t.Exclude)
-	sort.Strings(selected)
+	slices.Sort(selected)
 
 	log.V(2).Info("Updating selection from Reconcile with matches",
 		"namespace", objNS, "policy", objName, "selection", selected, "error", err)
@@ -345,7 +345,7 @@ func filter(allNSList corev1.NamespaceList, t policyv1.Target) ([]string, error)
 	}
 
 	namespaces, err := Matches(nsToFilter, t.Include, t.Exclude)
-	sort.Strings(namespaces)
+	slices.Sort(namespaces)
 
 	return namespaces, err
 }

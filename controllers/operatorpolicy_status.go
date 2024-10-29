@@ -3,6 +3,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -701,13 +702,13 @@ func installPlanUpgradeCond(
 		Reason: "InstallPlanRequiresApproval",
 	}
 
-	sort.Strings(csvsInInstallPlan)
+	slices.Sort(csvsInInstallPlan)
 	cond.Message = fmt.Sprintf(
 		"an InstallPlan to update to [%s] is available for approval", strings.Join(csvsInInstallPlan, ", "),
 	)
 
 	if len(remainingCSVsToApprove) > 0 {
-		sort.Strings(remainingCSVsToApprove)
+		slices.Sort(remainingCSVsToApprove)
 
 		cond.Message += fmt.Sprintf(
 			" but approval for [%v] is required", strings.Join(remainingCSVsToApprove, ", "),

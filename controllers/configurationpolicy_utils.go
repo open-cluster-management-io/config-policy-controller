@@ -6,6 +6,7 @@ package controllers
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -441,7 +442,7 @@ func fmtMetadataForCompare(
 
 // Format name of resource with its namespace (if it has one)
 func identifierStr(names []string, namespace string) (nameStr string) {
-	sort.Strings(names)
+	slices.Sort(names)
 
 	nameStr = "["
 
@@ -535,7 +536,7 @@ func createStatus(
 		}
 	}
 
-	sort.Strings(otherReasons)
+	slices.Sort(otherReasons)
 	orderedReasons = append(orderedReasons, otherReasons...)
 
 	// The "reason" is more specific in the compliancyDetails section than in the relatedObjects section.
@@ -552,7 +553,7 @@ func createStatus(
 			sortedNamespaces = append(sortedNamespaces, ns)
 		}
 
-		sort.Strings(sortedNamespaces)
+		slices.Sort(sortedNamespaces)
 
 		// If the object template was unnamed, then the object names can be different per namespace. If it was named,
 		// all will be the same, but this accounts for both.
@@ -574,7 +575,7 @@ func createStatus(
 			objectNameStrsToNamespaces[namesStr] = append(objectNameStrsToNamespaces[namesStr], ns)
 		}
 
-		sort.Strings(sortedObjectNamesStrs)
+		slices.Sort(sortedObjectNamesStrs)
 
 		// Process the object name strings in order to ensure a deterministic reason and message.
 		for i, namesStr := range sortedObjectNamesStrs {
