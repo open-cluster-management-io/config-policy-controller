@@ -106,7 +106,8 @@ spec:
                   `spec["object-templates"]`. All selector rules are combined. If 'include' is not provided but
                   `matchLabels` and/or `matchExpressions` are, `include` will behave as if `['*']` were given. If
                   `matchExpressions` and `matchLabels` are both not provided, `include` must be provided to
-                  retrieve namespaces.
+                  retrieve namespaces. If there is a namespace defined in the `objectDefinition`, the
+                  `namespaceSelector` is ignored.
                 properties:
                   exclude:
                     description: Exclude is an array of filepath expressions to exclude
@@ -123,8 +124,8 @@ spec:
                       type: string
                     type: array
                   matchExpressions:
-                    description: MatchExpressions is an array of label selector requirements
-                      matching objects by label.
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
                     items:
                       description: |-
                         A label selector requirement is a selector that contains values, a key, and an operator that
@@ -154,13 +155,17 @@ spec:
                       - operator
                       type: object
                     type: array
+                    x-kubernetes-list-type: atomic
                   matchLabels:
                     additionalProperties:
                       type: string
-                    description: MatchLabels is a map of {key,value} pairs matching
-                      objects by label.
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
                     type: object
                 type: object
+                x-kubernetes-map-type: atomic
               object-templates:
                 description: |-
                   The `object-templates` is an array of object configurations for the configuration policy to
