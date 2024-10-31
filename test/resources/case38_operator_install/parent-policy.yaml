@@ -2,8 +2,6 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: Policy
 metadata:
   name: parent-policy
-  annotations:
-    policy.open-cluster-management.io/parent-policy-compliance-db-id: "124"
 spec:
   remediationAction: inform
   disabled: false

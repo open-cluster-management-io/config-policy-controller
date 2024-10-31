@@ -18,7 +18,6 @@ import (
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
-	common "open-cluster-management.io/config-policy-controller/pkg/common"
 )
 
 // updateStatus takes one condition to update, and related objects for that condition. The related
@@ -349,21 +348,6 @@ func (r *OperatorPolicyReconciler) emitComplianceEvent(
 		},
 		ReportingController: ControllerName,
 		ReportingInstance:   r.InstanceName,
-	}
-
-	eventAnnotations := map[string]string{}
-
-	policyAnnotations := policy.GetAnnotations()
-	if policyAnnotations[common.ParentDBIDAnnotation] != "" {
-		eventAnnotations[common.ParentDBIDAnnotation] = policyAnnotations[common.ParentDBIDAnnotation]
-	}
-
-	if policyAnnotations[common.PolicyDBIDAnnotation] != "" {
-		eventAnnotations[common.PolicyDBIDAnnotation] = policyAnnotations[common.PolicyDBIDAnnotation]
-	}
-
-	if len(eventAnnotations) > 0 {
-		event.Annotations = eventAnnotations
 	}
 
 	if policy.Status.ComplianceState != policyv1.Compliant {

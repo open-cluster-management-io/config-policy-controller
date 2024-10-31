@@ -13,8 +13,6 @@ import (
 
 const (
 	UninstallingAnnotation string = "policy.open-cluster-management.io/uninstalling"
-	PolicyDBIDAnnotation   string = "policy.open-cluster-management.io/policy-compliance-db-id"
-	ParentDBIDAnnotation   string = "policy.open-cluster-management.io/parent-policy-compliance-db-id"
 )
 
 // CreateRecorder return recorder
