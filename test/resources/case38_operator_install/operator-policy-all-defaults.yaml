@@ -2,9 +2,6 @@ apiVersion: policy.open-cluster-management.io/v1beta1
 kind: OperatorPolicy
 metadata:
   name: oppol-all-defaults
-  annotations:
-    policy.open-cluster-management.io/parent-policy-compliance-db-id: "124"
-    policy.open-cluster-management.io/policy-compliance-db-id: "64"
   labels:
     policy.open-cluster-management.io/cluster-name: "managed"
     policy.open-cluster-management.io/cluster-namespace: "managed"

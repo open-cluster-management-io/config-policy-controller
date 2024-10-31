@@ -3281,21 +3281,6 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 		ReportingInstance:   r.InstanceName,
 	}
 
-	eventAnnotations := map[string]string{}
-
-	instanceAnnotations := instance.GetAnnotations()
-	if instanceAnnotations[common.ParentDBIDAnnotation] != "" {
-		eventAnnotations[common.ParentDBIDAnnotation] = instanceAnnotations[common.ParentDBIDAnnotation]
-	}
-
-	if instanceAnnotations[common.PolicyDBIDAnnotation] != "" {
-		eventAnnotations[common.PolicyDBIDAnnotation] = instanceAnnotations[common.PolicyDBIDAnnotation]
-	}
-
-	if len(eventAnnotations) > 0 {
-		event.Annotations = eventAnnotations
-	}
-
 	if instance.Status.ComplianceState != policyv1.Compliant {
 		event.Type = "Warning"
 	}
