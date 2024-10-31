@@ -53,6 +53,7 @@ var (
 	gvrOperatorGroup            schema.GroupVersionResource
 	gvrInstallPlan              schema.GroupVersionResource
 	gvrClusterServiceVersion    schema.GroupVersionResource
+	gvrPackageManifest          schema.GroupVersionResource
 	defaultImageRegistry        string
 	IsHosted                    bool
 	targetK8sClient             kubernetes.Interface
@@ -121,6 +122,11 @@ var _ = BeforeSuite(func() {
 		Group:    "operators.coreos.com",
 		Version:  "v1alpha1",
 		Resource: "clusterserviceversions",
+	}
+	gvrPackageManifest = schema.GroupVersionResource{
+		Group:    "packages.operators.coreos.com",
+		Version:  "v1",
+		Resource: "packagemanifests",
 	}
 	gvrAPIService = schema.GroupVersionResource{
 		Group:    "apiregistration.k8s.io",

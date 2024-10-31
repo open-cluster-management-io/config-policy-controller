@@ -246,6 +246,19 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
 		})
+		AfterAll(func(ctx context.Context) {
+			By("Fixing the catalog source")
+			KubectlTarget("patch", "catalogsource", "operatorhubio-catalog", "--namespace=olm", "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:latest"}]`)
+
+			By("Waiting for a packagemanifest to reappear")
+			Eventually(func() error {
+				_, err := targetK8sDynamic.Resource(gvrPackageManifest).Namespace("default").Get(
+					ctx, "airflow-helm-operator", metav1.GetOptions{})
+
+				return err
+			}, olmWaitTimeout*2, 3).Should(Succeed())
+		})
 
 		It("Should create the Subscription with default values", func(ctx context.Context) {
 			By("Verifying the policy is compliant")
@@ -283,6 +296,34 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 			sourceNamespace, _, _ := unstructured.NestedString(sub.Object, "spec", "sourceNamespace")
 			Expect(sourceNamespace).To(Equal("olm"))
+		})
+
+		It("Should adopt an existing subscription if removed from the catalog", func(ctx context.Context) {
+			By("Breaking the catalog source")
+			KubectlTarget("patch", "catalogsource", "operatorhubio-catalog", "--namespace=olm", "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:broken"}]`)
+
+			By("ensuring the packagemanifest is gone")
+			Eventually(func() error {
+				_, err := targetK8sDynamic.Resource(gvrPackageManifest).Namespace("default").Get(
+					ctx, "airflow-helm-operator", metav1.GetOptions{})
+
+				return err
+			}, olmWaitTimeout, 3).ShouldNot(Succeed())
+
+			By("Checking the validation condition")
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionTrue,
+					Reason:  "PolicyValidated",
+					Message: `the policy spec is valid`,
+				},
+				`the policy spec is valid`,
+			)
 		})
 	})
 

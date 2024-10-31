@@ -571,7 +571,8 @@ func (r *OperatorPolicyReconciler) checkSubOverlap(
 }
 
 // applySubscriptionDefaults will set the subscription channel, source, and sourceNamespace when they are unset by
-// utilizing the PackageManifest API.
+// utilizing the PackageManifest API. If the PackageManifest can not be found, and a subscription already exists for the
+// operator, then information from the found subscription will be used.
 func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, subscription *operatorv1alpha1.Subscription,
 ) error {
@@ -594,10 +595,14 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 	)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
-			return fmt.Errorf(
-				"%wthe subscription defaults could not be determined because the PackageManifest was not found",
-				ErrPackageManifest,
-			)
+			if !r.usingExistingSubIfFound(policy, subscription) {
+				return fmt.Errorf(
+					"%wthe subscription defaults could not be determined because the PackageManifest was not found",
+					ErrPackageManifest,
+				)
+			}
+
+			return nil
 		}
 
 		log.Error(err, "Failed to get the PackageManifest", "name", subSpec.Package)
@@ -677,6 +682,55 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 	}
 
 	return nil
+}
+
+// usingExistingSubIfFound attempts to find an existing subscription for the operator, and uses values
+// from that object to help build the desired subscription. It is meant to be used when the PackageManifest
+// for the operator is not found. It returns true when a subscription was found and used successfully.
+func (r *OperatorPolicyReconciler) usingExistingSubIfFound(
+	policy *policyv1beta1.OperatorPolicy, subscription *operatorv1alpha1.Subscription,
+) bool {
+	if subscription.Namespace == "" {
+		// check for an already-known subscription to "adopt"
+		subs := policy.Status.RelatedObjsOfKind("Subscription")
+
+		if len(subs) == 1 {
+			// Note: RelatedObjsOfKind returns a map - in this case we just want the one object
+			for _, sub := range subs {
+				subscription.Namespace = sub.Object.Metadata.Namespace
+			}
+		}
+	}
+
+	if subscription.Namespace != "" {
+		watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+		gotSub, err := r.DynamicWatcher.Get(watcher, subscriptionGVK, subscription.Namespace, subscription.Name)
+		if err != nil || gotSub == nil {
+			return false
+		}
+
+		foundSub := new(operatorv1alpha1.Subscription)
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(gotSub.Object, foundSub); err != nil {
+			return false
+		}
+
+		if subscription.Spec.Channel == "" {
+			subscription.Spec.Channel = foundSub.Spec.Channel
+		}
+
+		if subscription.Spec.CatalogSource == "" {
+			subscription.Spec.CatalogSource = foundSub.Spec.CatalogSource
+		}
+
+		if subscription.Spec.CatalogSourceNamespace == "" {
+			subscription.Spec.CatalogSourceNamespace = foundSub.Spec.CatalogSourceNamespace
+		}
+
+		return true
+	}
+
+	return false
 }
 
 // buildSubscription bootstraps the subscription spec defined in the operator policy
