@@ -5,13 +5,12 @@ package e2e
 
 import (
 	"context"
-	"fmt"
-	"strconv"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -254,12 +253,26 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
+
+			var managedPlc *unstructured.Unstructured
+
 			Eventually(func(g Gomega) {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13WrongArgs, testNamespace, true, defaultTimeoutSeconds)
 
 				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+			// Verify that the first object template failing template resolution doesn't prevent the other
+			// object templates from being evaluated.
+			compliancyDetails, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "compliancyDetails")
+			Expect(compliancyDetails).To(HaveLen(2))
+
+			firstObjTemplate := compliancyDetails[0].(map[string]interface{})
+			Expect(firstObjTemplate["Compliant"]).To(Equal("NonCompliant"))
+
+			secondObjTemplate := compliancyDetails[1].(map[string]interface{})
+			Expect(secondObjTemplate["Compliant"]).To(Equal("Compliant"))
 		})
 		AfterAll(func() {
 			deleteConfigPolicies([]string{case13Unterminated, case13WrongArgs})
@@ -274,13 +287,13 @@ var _ = Describe("Test templatization", Ordered, func() {
 			It("Should have the expected ConfigMap created", func() {
 				By("Creating the ConfigMap to reference")
 				configMap := corev1.ConfigMap{
-					ObjectMeta: v1.ObjectMeta{
+					ObjectMeta: metav1.ObjectMeta{
 						Name: configMapName,
 					},
 					Data: map[string]string{"message": "Hello Raleigh!"},
 				}
 				_, err := clientManaged.CoreV1().ConfigMaps("default").Create(
-					context.TODO(), &configMap, v1.CreateOptions{},
+					context.TODO(), &configMap, metav1.CreateOptions{},
 				)
 				Expect(err).ToNot(HaveOccurred())
 				By("Creating the configuration policy that references the ConfigMap")
@@ -306,50 +319,15 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				By("By verifying that the replicated ConfigMap has the expected data")
 				replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
-					context.TODO(), configMapReplName, v1.GetOptions{},
+					context.TODO(), configMapReplName, metav1.GetOptions{},
 				)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(replConfigMap.Data["message"]).To(Equal("Hello Raleigh!\n"))
 
-				By("Checking metric endpoint for policy template counter for policy " + case13UpdateRefObject)
-				Eventually(func() interface{} {
-					return utils.GetMetrics(
-						"config_policy_templates_process_total",
-						fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
-					)
-				}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
-				templatesTotalCounter := utils.GetMetrics(
-					"config_policy_templates_process_total",
-					fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
-				)
-				totalCounter, err := strconv.Atoi(templatesTotalCounter[0])
-				Expect(err).ToNot(HaveOccurred())
-				if err == nil {
-					Expect(totalCounter).To(BeNumerically(">", 0))
-				}
-				By("Policy " + case13UpdateRefObject + " total template process counter : " + templatesTotalCounter[0])
-
-				Eventually(func() interface{} {
-					return utils.GetMetrics(
-						"config_policy_templates_process_seconds_total",
-						fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
-					)
-				}, defaultTimeoutSeconds, 1).Should(Not(BeNil()))
-				templatesTotalSeconds := utils.GetMetrics(
-					"config_policy_templates_process_seconds_total",
-					fmt.Sprintf(`name=\"%s\"`, case13UpdateRefObject),
-				)
-				templatesSeconds, err := strconv.ParseFloat(templatesTotalSeconds[0], 32)
-				Expect(err).ToNot(HaveOccurred())
-				if err == nil {
-					Expect(templatesSeconds).To(BeNumerically(">", 0))
-				}
-				By("Policy " + case13UpdateRefObject + " total template process seconds : " + templatesTotalSeconds[0])
-
 				By("Updating the referenced ConfigMap")
 				configMap.Data["message"] = "Hello world!"
 				_, err = clientManaged.CoreV1().ConfigMaps("default").Update(
-					context.TODO(), &configMap, v1.UpdateOptions{},
+					context.TODO(), &configMap, metav1.UpdateOptions{},
 				)
 				Expect(err).ToNot(HaveOccurred())
 
@@ -357,7 +335,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 				Eventually(
 					func() interface{} {
 						replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
-							context.TODO(), configMapReplName, v1.GetOptions{},
+							context.TODO(), configMapReplName, metav1.GetOptions{},
 						)
 						if err != nil {
 							return ""
@@ -381,13 +359,13 @@ var _ = Describe("Test templatization", Ordered, func() {
 		It("Should have the expected ConfigMap created", func() {
 			By("Creating the ConfigMap to reference")
 			configMap := corev1.ConfigMap{
-				ObjectMeta: v1.ObjectMeta{
+				ObjectMeta: metav1.ObjectMeta{
 					Name: configMapName,
 				},
 				Data: map[string]string{"message": "Hello Raleigh!"},
 			}
 			_, err := clientManaged.CoreV1().ConfigMaps("default").Create(
-				context.TODO(), &configMap, v1.CreateOptions{},
+				context.TODO(), &configMap, metav1.CreateOptions{},
 			)
 			Expect(err).ToNot(HaveOccurred())
 			By("Creating the configuration policy that references the ConfigMap")
@@ -413,7 +391,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 			By("By verifying that the replicated ConfigMap has the expected data")
 			replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
-				context.TODO(), configMapReplName, v1.GetOptions{},
+				context.TODO(), configMapReplName, metav1.GetOptions{},
 			)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(replConfigMap.Data["message"]).To(Equal("Hello Raleigh!"))
@@ -481,6 +459,94 @@ var _ = Describe("Test templatization", Ordered, func() {
 			utils.KubectlDelete("configurationpolicy", case13PruneTmpErr, "-n", testNamespace)
 			utils.KubectlDelete("configmap", case13PruneTmpErr+"-configmap", "-n", "default")
 			utils.KubectlDelete("secret", case13Secret, "-n", "default")
+		})
+	})
+	Describe("Policy with the ObjectNamespace variables", Ordered, func() {
+		const (
+			preReqs           = "../resources/case13_templatization/case13_object_variables_prereqs.yaml"
+			policyYAML        = "../resources/case13_templatization/case13_object_variables.yaml"
+			policyName        = "case13-object-variables"
+			invalidPolicyYAML = "../resources/case13_templatization/case13_invalid_ns.yaml"
+			invalidPolicyName = "case13-invalid-ns"
+		)
+
+		It("Should enforce the labels on the e2e-object-variable ConfigMaps", func(ctx SpecContext) {
+			By("Creating the prerequisites")
+			utils.Kubectl("apply", "-f", preReqs)
+
+			By("Applying the " + policyName + " ConfigurationPolicy")
+			utils.Kubectl("apply", "-n", testNamespace, "-f", policyYAML)
+
+			By("By verifying that the ConfigurationPolicy is compliant and has the correct related objects")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+
+				relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+				g.Expect(relatedObjects).To(HaveLen(2))
+
+				relatedObject1, ok := relatedObjects[0].(map[string]interface{})
+				g.Expect(ok).To(BeTrue(), "Related object is not a map")
+
+				relatedObject1NS, _, _ := unstructured.NestedString(relatedObject1, "object", "metadata", "namespace")
+				g.Expect(relatedObject1NS).To(
+					Equal("case13-e2e-object-variables"), "Related object namespace should match",
+				)
+
+				relatedObject2, ok := relatedObjects[1].(map[string]interface{})
+				g.Expect(ok).To(BeTrue(), "Related object is not a map")
+
+				relatedObject2NS, _, _ := unstructured.NestedString(relatedObject2, "object", "metadata", "namespace")
+				g.Expect(relatedObject2NS).To(Equal("default"), "Related object namespace should match")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+			By("By verifying the ConfigMaps")
+			configMap1, err := clientManaged.CoreV1().ConfigMaps("case13-e2e-object-variables").Get(
+				ctx, "case13-e2e-object-variables", metav1.GetOptions{},
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(configMap1.ObjectMeta.Labels).To(HaveKeyWithValue("case13", "passed"))
+			Expect(configMap1.ObjectMeta.Labels).To(HaveKeyWithValue("namespace", "case13-e2e-object-variables"))
+
+			configMap2, err := clientManaged.CoreV1().ConfigMaps("default").Get(
+				ctx, "case13-e2e-object-variables", metav1.GetOptions{},
+			)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(configMap2.ObjectMeta.Labels).To(HaveKeyWithValue("case13", "passed"))
+			Expect(configMap2.ObjectMeta.Labels).To(HaveKeyWithValue("namespace", "default"))
+		})
+
+		It("Should fail when the namespace doesn't match after template resolution", func(ctx SpecContext) {
+			By("Applying the " + policyName + " ConfigurationPolicy")
+			utils.Kubectl("apply", "-n", testNamespace, "-f", invalidPolicyYAML)
+
+			By("By verifying that the ConfigurationPolicy is noncompliant")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic,
+					gvrConfigPolicy,
+					invalidPolicyName,
+					testNamespace,
+					true,
+					defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+				g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(
+					"The object definition's namespace must match the selected namespace after template resolution",
+				))
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
+		AfterAll(func() {
+			utils.KubectlDelete("configurationpolicy", policyName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", invalidPolicyName, "-n", testNamespace)
+			utils.KubectlDelete("-f", preReqs)
 		})
 	})
 })

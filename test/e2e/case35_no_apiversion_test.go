@@ -25,8 +25,10 @@ var _ = Describe("Test a policy with an objectDefinition that is missing apiVers
 
 		By("Checking there is a NonCompliant event on the policy")
 		Eventually(func() interface{} {
-			return utils.GetMatchingEvents(clientManaged, testNamespace,
-				policyName, cfgPlcName, "^NonCompliant;.*missing apiVersion", defaultTimeoutSeconds)
+			return utils.GetMatchingEvents(
+				clientManaged, testNamespace, policyName, cfgPlcName,
+				"^NonCompliant;.*kind and apiVersion fields are required", defaultTimeoutSeconds,
+			)
 		}, defaultTimeoutSeconds, 5).ShouldNot(BeEmpty())
 
 		By("Checking there are no Compliant events on the policy")

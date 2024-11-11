@@ -2533,7 +2533,7 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	existing *unstructured.Unstructured,
 	complianceType policyv1.ComplianceType,
 ) (updateNeeded, updateIsForbidden bool, err error) {
-	desiredObj := unstructured.Unstructured{Object: desired}
+	desiredObj := &unstructured.Unstructured{Object: desired}
 
 	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
 	existingObjectCopy := existing.DeepCopy()

@@ -3,7 +3,7 @@ kind: ConfigurationPolicy
 metadata:
   name: case13-policy-pod-create-wrong-args
 spec:
-  remediationAction: enforce
+  remediationAction: inform
   namespaceSelector:
     exclude: ["kube-*"]
     include: ["default"]
@@ -20,3 +20,9 @@ spec:
               name: nginx
               ports:
                 - containerPort: 80
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: default
