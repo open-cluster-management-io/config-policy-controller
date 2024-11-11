@@ -190,7 +190,17 @@ func GetComplianceState(managedPlc *unstructured.Unstructured) (result interface
 // GetStatusMessage parses status field to get message
 func GetStatusMessage(managedPlc *unstructured.Unstructured) (result interface{}) {
 	if managedPlc.Object["status"] != nil {
-		detail := managedPlc.Object["status"].(map[string]interface{})["compliancyDetails"].([]interface{})[0]
+		status, ok := managedPlc.Object["status"].(map[string]interface{})
+		if !ok {
+			return nil
+		}
+
+		complianceDetails, ok := status["compliancyDetails"].([]interface{})
+		if !ok || len(complianceDetails) == 0 {
+			return nil
+		}
+
+		detail := complianceDetails[0]
 
 		return detail.(map[string]interface{})["conditions"].([]interface{})[0].(map[string]interface{})["message"]
 	}

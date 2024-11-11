@@ -568,7 +568,7 @@ status:
 		t.Error(err)
 	}
 
-	desiredObj := unstructured.Unstructured{Object: policyObjDef}
+	desiredObj := &unstructured.Unstructured{Object: policyObjDef}
 	existingObjOrderOne := unstructured.Unstructured{Object: orderOneObj}
 	existingObjOrderTwo := unstructured.Unstructured{Object: orderTwoObj}
 
@@ -1057,7 +1057,7 @@ secrets:
 	compType := policyv1.MustOnlyHave
 	mdCompType := policyv1.MustOnlyHave
 
-	throwSpecViolation, _, updateNeeded, statusMismatch := handleKeys(desiredObj, &existingObj,
+	throwSpecViolation, _, updateNeeded, statusMismatch := handleKeys(&desiredObj, &existingObj,
 		&existingObjCopy, compType, mdCompType)
 
 	assert.False(t, throwSpecViolation)
@@ -1524,7 +1524,7 @@ func TestShouldHandleSingleKeyFalse(t *testing.T) {
 		unstruct.Object = test.input
 		unstructObj.Object = test.fromAPI
 		key := test.expectResult.key
-		_, update, _, skip = handleSingleKey(key, unstruct, &unstructObj, "musthave", true)
+		_, update, _, skip = handleSingleKey(key, &unstruct, &unstructObj, "musthave", true)
 		assert.Equal(t, update, test.expectResult.expect)
 		assert.False(t, skip)
 	}

@@ -359,7 +359,7 @@ func filterUnwantedAnnotations(input map[string]interface{}) map[string]interfac
 }
 
 // formatTemplate returns the value of the input key in a manner that the controller can use for comparisons.
-func formatTemplate(unstruct unstructured.Unstructured, key string) (obj interface{}) {
+func formatTemplate(unstruct *unstructured.Unstructured, key string) (obj interface{}) {
 	if key == "metadata" {
 		metadata, ok := unstruct.Object[key].(map[string]interface{})
 		if !ok {

@@ -148,22 +148,14 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 			utils.Kubectl("apply", "-f", case5MultiEnforceErrYaml)
 
 			By("Kind missing")
-			kindErrMsg := "Decoding error, please check your policy file! Aborting handling the " +
-				"object template at index [0] in policy `policy-multi-namespace-enforce-kind-missing` with " +
-				"error = `Object 'Kind' is missing in '{\"apiVersion\":\"v1\",\"metadata\":" +
-				"{\"name\":\"case5-multi-namespace-enforce-kind-missing-pod\"}," +
-				"\"spec\":{\"containers\":[{\"image\":\"nginx:1.7.9\",\"imagePullPolicy\":\"Never\",\"name\":" +
-				"\"nginx\",\"ports\":[{\"containerPort\":80}]}]}}'`"
+			kindErrMsg := "The kind and apiVersion fields are required on the object template at index 0 in policy " +
+				"policy-multi-namespace-enforce-kind-missing"
 			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
 				case5KindMissPlcName, 0, defaultTimeoutSeconds, kindErrMsg)
 
 			By("Kind and Name missing")
-			kindNameErrMsg := "Decoding error, please check your policy file! Aborting handling the " +
-				"object template at index [0] in policy `policy-multi-namespace-enforce-both-missing` " +
-				"with error = `Object 'Kind' is missing in " +
-				"'{\"apiVersion\":\"v1\",\"metadata\":{\"name\":\"\"},\"spec\":{\"containers\":" +
-				"[{\"image\":\"nginx:1.7.9\",\"imagePullPolicy\":\"Never\"," +
-				"\"name\":\"nginx\",\"ports\":[{\"containerPort\":80}]}]}}'`"
+			kindNameErrMsg := "The kind and apiVersion fields are required on the object template at index 0 in " +
+				"policy policy-multi-namespace-enforce-both-missing"
 			utils.DoConfigPolicyMessageTest(clientManagedDynamic, gvrConfigPolicy, testNamespace,
 				case5KindNameMissPlcName, 0, defaultTimeoutSeconds, kindNameErrMsg)
 
