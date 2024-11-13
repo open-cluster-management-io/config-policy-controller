@@ -14,7 +14,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	v1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 )
 
@@ -281,7 +280,7 @@ func TestGetApprovedCSVs(t *testing.T) {
 		Spec: policyv1beta1.OperatorPolicySpec{
 			UpgradeApproval:   "Automatic",
 			RemediationAction: "enforce",
-			Versions:          []v1.NonEmptyString{"odf-operator.v4.16.3-rhodf"},
+			Versions:          []string{"odf-operator.v4.16.3-rhodf"},
 		},
 	}
 
@@ -310,7 +309,7 @@ func TestGetApprovedCSVs(t *testing.T) {
 		Spec: policyv1beta1.OperatorPolicySpec{
 			UpgradeApproval:   "Automatic",
 			RemediationAction: "enforce",
-			Versions:          []v1.NonEmptyString{},
+			Versions:          []string{},
 		},
 	}
 
@@ -328,7 +327,7 @@ func TestGetApprovedCSVs(t *testing.T) {
 		Spec: policyv1beta1.OperatorPolicySpec{
 			UpgradeApproval:   "Automatic",
 			RemediationAction: "enforce",
-			Versions:          []v1.NonEmptyString{"odf-operator.v4.16.0-rhodf"},
+			Versions:          []string{"odf-operator.v4.16.0-rhodf"},
 		},
 	}
 

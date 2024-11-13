@@ -206,10 +206,10 @@ spec:
                 type: string
               versions:
                 description: |-
-                  Versions is a list of non-empty strings that specifies which installed versions are compliant
-                  when in `inform` mode and which `InstallPlans` are approved when in `enforce` mode.
+                  Versions is a list of templatable strings that specifies which installed ClusterServiceVersion names are
+                  compliant when in `inform` mode and which `InstallPlans` are approved when in `enforce` mode. Empty or whitespace
+                  only strings are ignored. An empty list approves all ClusterServiceVersion names. The default value is empty.
                 items:
-                  minLength: 1
                   type: string
                 type: array
             required:
