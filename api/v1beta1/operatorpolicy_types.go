@@ -165,9 +165,10 @@ type OperatorPolicySpec struct {
 	//+kubebuilder:pruning:PreserveUnknownFields
 	Subscription runtime.RawExtension `json:"subscription"`
 
-	// Versions is a list of non-empty strings that specifies which installed versions are compliant
-	// when in `inform` mode and which `InstallPlans` are approved when in `enforce` mode.
-	Versions []policyv1.NonEmptyString `json:"versions,omitempty"`
+	// Versions is a list of templatable strings that specifies which installed ClusterServiceVersion names are
+	// compliant when in `inform` mode and which `InstallPlans` are approved when in `enforce` mode. Empty or whitespace
+	// only strings are ignored. An empty list approves all ClusterServiceVersion names. The default value is empty.
+	Versions []string `json:"versions,omitempty"`
 
 	// Use RemovalBehavior to define what resources need to be removed when enforcing `mustnothave`
 	// policies. When in `inform` mode, any resources that are deleted if the policy is set to

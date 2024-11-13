@@ -424,10 +424,17 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		)
 		if err != nil {
 			validationErrors = append(validationErrors, fmt.Errorf("unable to create template resolver: %w", err))
+		} else {
+			err := resolveVersionsTemplates(policy, tmplResolver)
+			if err != nil {
+				validationErrors = append(validationErrors, err)
+			}
 		}
 	} else {
 		opLog.V(1).Info("Templates disabled by annotation")
 	}
+
+	removeEmptyVersions(policy)
 
 	sub, subErr := buildSubscription(policy, tmplResolver)
 	if subErr == nil {
@@ -731,6 +738,67 @@ func (r *OperatorPolicyReconciler) usingExistingSubIfFound(
 	}
 
 	return false
+}
+
+// resolveVersionsTemplates will resolve all templates in spec.versions. Any versions that resolve to an empty string
+// are discarded.
+func resolveVersionsTemplates(
+	policy *policyv1beta1.OperatorPolicy, tmplResolver *templates.TemplateResolver,
+) error {
+	if tmplResolver == nil {
+		return nil
+	}
+
+	var hasTemplate bool
+
+	for _, version := range policy.Spec.Versions {
+		if templates.HasTemplate([]byte(version), "", false) {
+			hasTemplate = true
+
+			break
+		}
+	}
+
+	if !hasTemplate {
+		return nil
+	}
+
+	versionsJSON, err := json.Marshal(policy.Spec.Versions)
+	if err != nil {
+		return fmt.Errorf("failed to marshal the spec.versions field to JSON: %w", err)
+	}
+
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	resolvedTmpl, err := tmplResolver.ResolveTemplate(versionsJSON, nil, &templates.ResolveOptions{Watcher: &watcher})
+	if err != nil {
+		return fmt.Errorf("could not resolve the version template: %w", err)
+	}
+
+	policy.Spec.Versions = make([]string, 0, len(policy.Spec.Versions))
+
+	err = json.Unmarshal(resolvedTmpl.ResolvedJSON, &policy.Spec.Versions)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal the spec.versions field after template resolution: %w", err)
+	}
+
+	return nil
+}
+
+// removeEmptyVersions removes erroneous white space from versions to help the user and remove versions that are just
+// empty strings.
+func removeEmptyVersions(policy *policyv1beta1.OperatorPolicy) {
+	nonEmptyVersions := make([]string, 0, len(policy.Spec.Versions))
+
+	for _, version := range policy.Spec.Versions {
+		trimmedVersion := strings.TrimSpace(version)
+
+		if trimmedVersion != "" {
+			nonEmptyVersions = append(nonEmptyVersions, trimmedVersion)
+		}
+	}
+
+	policy.Spec.Versions = nonEmptyVersions
 }
 
 // buildSubscription bootstraps the subscription spec defined in the operator policy
@@ -1934,7 +2002,12 @@ func getApprovedCSVs(
 		approvedSubCSV = true
 	} else {
 		allowedCSVs := make([]policyv1.NonEmptyString, 0, len(policy.Spec.Versions)+1)
-		allowedCSVs = append(allowedCSVs, policy.Spec.Versions...)
+
+		for _, version := range policy.Spec.Versions {
+			if version != "" {
+				allowedCSVs = append(allowedCSVs, policyv1.NonEmptyString(version))
+			}
+		}
 
 		if sub.Spec != nil && sub.Spec.StartingCSV != "" {
 			allowedCSVs = append(allowedCSVs, policyv1.NonEmptyString(sub.Spec.StartingCSV))
@@ -2111,7 +2184,12 @@ func (r *OperatorPolicyReconciler) handleCSV(
 	// Check if the CSV is an approved version
 	if len(policy.Spec.Versions) != 0 {
 		allowedVersions := make([]policyv1.NonEmptyString, 0, len(policy.Spec.Versions)+1)
-		allowedVersions = append(allowedVersions, policy.Spec.Versions...)
+
+		for _, version := range policy.Spec.Versions {
+			if version != "" {
+				allowedVersions = append(allowedVersions, policyv1.NonEmptyString(version))
+			}
+		}
 
 		if sub.Spec.StartingCSV != "" {
 			allowedVersions = append(allowedVersions, policyv1.NonEmptyString(sub.Spec.StartingCSV))

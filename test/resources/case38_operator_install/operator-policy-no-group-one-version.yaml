@@ -22,5 +22,7 @@ spec:
     sourceNamespace: olm
     startingCSV: quay-operator.v3.10.0
   versions:
-    - quay-operator.v3.10.0
+    - '{{ if false }}some value to test empty string is discarded{{ end }}'
+    - '{{ if true }}quay-operator.v3.10.0{{ end }}'
+    - '{{ if false }}some other value to test empty string is discarded{{ end }}'
   upgradeApproval: None
