@@ -1448,6 +1448,17 @@ func (r *OperatorPolicyReconciler) considerResolutionFailed(
 	opLog := ctrl.LoggerFrom(ctx)
 	subResFailed := mergedSub.Status.GetCondition(operatorv1alpha1.SubscriptionResolutionFailed)
 
+	// Handle non-ConstraintsNotSatisfiable reasons separately
+	if !strings.EqualFold(subResFailed.Reason, "ConstraintsNotSatisfiable") {
+		changed := updateStatus(policy, subResFailedCond(subResFailed), nonCompObj(mergedSub, subResFailed.Reason))
+
+		if policy.Status.SubscriptionInterventionExpired() {
+			policy.Status.SubscriptionInterventionTime = nil
+		}
+
+		return mergedSub, nil, changed, nil
+	}
+
 	// The resolution failed, but OLM includes the status of all subscriptions in the namespace.
 	// For example, if you have two subscriptions, where one is referencing a valid operator and the other isn't,
 	// both will have a failed subscription resolution condition. So check for 'this' subscription.
@@ -1461,16 +1472,13 @@ func (r *OperatorPolicyReconciler) considerResolutionFailed(
 	}
 
 	if !includesSubscription {
-		if policy.Status.SubscriptionInterventionExpired() {
-			policy.Status.SubscriptionInterventionTime = nil
+		// It is ConstraintsNotSatisfiable, but does not include the subscription for "this" policy.
+		// Preserve an existing subscription condition if it exists, otherwise set one.
+		changed := false
+
+		if condIdx, _ := policy.Status.GetCondition(subConditionType); condIdx == -1 {
+			changed = updateStatus(policy, subResFailedCond(subResFailed), nonCompObj(mergedSub, subResFailed.Reason))
 		}
-
-		return mergedSub, nil, false, nil
-	}
-
-	// Handle non-ConstraintsNotSatisfiable reasons separately
-	if !strings.EqualFold(subResFailed.Reason, "ConstraintsNotSatisfiable") {
-		changed := updateStatus(policy, subResFailedCond(subResFailed), nonCompObj(mergedSub, subResFailed.Reason))
 
 		if policy.Status.SubscriptionInterventionExpired() {
 			policy.Status.SubscriptionInterventionTime = nil
