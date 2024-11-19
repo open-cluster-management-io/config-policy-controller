@@ -215,12 +215,10 @@ OLM_INSTALLER = $(LOCAL_BIN)/install.sh
 install-crds:  $(OLM_INSTALLER)
 	chmod +x $(LOCAL_BIN)/install.sh
 	$(LOCAL_BIN)/install.sh $(OLM_VERSION)
-	@echo installing crds
-	kubectl apply -f test/crds/clusterversions.config.openshift.io.yaml
-	kubectl apply -f test/crds/securitycontextconstraints.security.openshift.io_crd.yaml
-	kubectl apply -f test/crds/apiservers.config.openshift.io_crd.yaml
-	kubectl apply -f test/crds/clusterclaims.cluster.open-cluster-management.io.yaml
-	kubectl apply -f test/crds/oauths.config.openshift.io_crd.yaml
+	# Installing crds
+	for file in test/crds/*; do \
+		kubectl apply -f $${file} || exit 1; \
+	done
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_policies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml

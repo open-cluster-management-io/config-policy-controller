@@ -67,6 +67,9 @@ const (
 )
 
 var _ = Describe("Test templatization", Ordered, func() {
+	AfterAll(func() {
+		utils.KubectlDelete("-f", case13ClusterClaimYaml)
+	})
 	Describe("Create a secret and pull data from it into a configurationPolicy", func() {
 		It("should be created properly on the managed cluster", func() {
 			By("Creating " + case13CfgPolCreateSecret + " and " + case13CfgPolCheckSecret + " on managed")

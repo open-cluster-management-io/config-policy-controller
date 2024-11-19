@@ -1,0 +1,6 @@
+apiVersion: config-policy-controller.io/v1
+kind: FakeAPI
+metadata:
+  labels:
+    case42: case42-3-e2e
+  name: case42-3-e2e

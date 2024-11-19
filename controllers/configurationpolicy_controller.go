@@ -960,7 +960,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 	var skipCleanupChildObjects bool
 
 	for index, objectT := range plc.Spec.ObjectTemplates {
-		nsToResults := map[string]objectTmplEvalResult{}
+		nsNameToResults := map[string]objectTmplEvalResult{}
 
 		var resolverToUse *templates.TemplateResolver
 
@@ -980,7 +980,7 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		}
 
 		if errEvent != nil {
-			nsToResults["ns"] = objectTmplEvalResult{
+			nsNameToResults["ns"] = objectTmplEvalResult{
 				events: []objectTmplEvalEvent{*errEvent},
 			}
 		} else if err != nil {
@@ -988,8 +988,12 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 		}
 
 		for _, desiredObj := range desiredObjects {
+			ns := desiredObj.GetNamespace()
+			name := desiredObj.GetName()
+			resultKey := fmt.Sprintf("%s/%s", ns, name)
+
 			log.V(1).Info("Handling the object template for the relevant namespace",
-				"namespace", desiredObj.GetNamespace(), "desiredName", desiredObj.GetName(), "index", index)
+				"namespace", ns, "desiredName", name, "index", index)
 
 			related, result := r.handleObjects(objectT, desiredObj, index, plc, *scopedGVR, usingWatch)
 
@@ -997,14 +1001,14 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 				errs = append(errs, result.enforcementErr)
 			}
 
-			nsToResults[desiredObj.GetNamespace()] = result
+			nsNameToResults[resultKey] = result
 
 			for _, object := range related {
 				relatedObjects = addOrUpdateRelatedObject(relatedObjects, object)
 			}
 		}
 
-		eventBatches := batchedEvents(nsToResults)
+		eventBatches := batchedEvents(nsNameToResults)
 
 		var resourceName string
 
@@ -1247,10 +1251,11 @@ func (m minimumMetadata) GroupVersionKind() schema.GroupVersionKind {
 	}
 }
 
-// determineDesiredObjects resolves templates if tmplResolver is provided, decodes the object definition, gets its
-// mapping, and determines which namespaces are relevant (using the policy's selector if a namespace is not set in the
-// object definition). If an error occurs during this process, it returns an evaluation event with more details about
-// the error. The list of desired objects is returned.
+// determineDesiredObjects resolves templates if tmplResolver is provided, decodes the object
+// definition, gets its mapping, and determines which namespaces and names are relevant (using the
+// policy's selectors if a namespace or name is not set in the object definition). If an error
+// occurs during this process, it returns an evaluation event with more details about the error. The
+// list of desired objects is returned.
 func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 	plc *policyv1.ConfigurationPolicy,
 	index int,
@@ -1265,6 +1270,8 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 ) {
 	log := log.WithValues("policy", plc.GetName())
 
+	// Unmarshal the objectDefinition into a minimal struct with only metadata to
+	// determine whether it's a known API and to handle the namespace and name.
 	parsedMinMetadata := minimumMetadata{}
 
 	err := json.Unmarshal(objectT.ObjectDefinition.Raw, &parsedMinMetadata)
@@ -1307,17 +1314,36 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		return nil, nil, errEvent, err
 	}
 
-	relevantNamespaces := []string{}
+	// Set up relevant object namespace-names map to populate with the
+	// namespaceSelector and objectSelector
+	relevantNsNames := map[string][]string{}
 
-	// Fetch and filter namespaces using provided namespaceSelector
 	desiredNs := parsedMinMetadata.Metadata.Namespace
 
 	// If the namespace is templated, consider it not explicitly set
-	if templates.HasTemplate([]byte(parsedMinMetadata.Metadata.Namespace), "", true) {
+	if templates.HasTemplate([]byte(desiredNs), "", true) {
 		desiredNs = ""
 	}
 
-	// The object is namespaced and either has no namespace specified or it is templated in the object definition
+	desiredName := parsedMinMetadata.Metadata.Name
+
+	// If the name is templated, consider it not explicitly set
+	if templates.HasTemplate([]byte(desiredName), "", true) {
+		desiredName = ""
+	}
+
+	// Set up default name array to be used for each namespace. If no
+	// objectSelector is provided, add the desired name as the default.
+	defaultNamesPerNs := []string{}
+	objectSelector := objectT.ObjectSelector
+
+	if desiredName != "" || objectSelector == nil {
+		defaultNamesPerNs = []string{desiredName}
+	}
+
+	// The object is namespaced and either has no namespace specified or it is
+	// templated in the object definition. Fetch and filter namespaces using
+	// provided namespaceSelector.
 	if scopedGVR.Namespaced && desiredNs == "" {
 		nsSelector := plc.Spec.NamespaceSelector
 
@@ -1328,7 +1354,6 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 
 			msg := fmt.Sprintf("Error filtering namespaces with provided namespaceSelector: %v", err)
 
-			// only report this error if there wasn't another yet
 			errEvent := &objectTmplEvalEvent{
 				compliant: false,
 				reason:    "namespaceSelector error",
@@ -1339,16 +1364,19 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		}
 
 		if len(selectedNamespaces) != 0 {
-			relevantNamespaces = selectedNamespaces
+			for _, ns := range selectedNamespaces {
+				relevantNsNames[ns] = defaultNamesPerNs
+			}
 		}
 	} else if scopedGVR.Namespaced {
-		relevantNamespaces = []string{desiredNs}
+		// Namespaced, but a namespace was provided
+		relevantNsNames[desiredNs] = defaultNamesPerNs
 	} else {
 		// Cluster scoped
-		relevantNamespaces = []string{""}
+		relevantNsNames[""] = defaultNamesPerNs
 	}
 
-	if len(relevantNamespaces) == 0 {
+	if len(relevantNsNames) == 0 {
 		log.Info(
 			"The object template is namespaced but no namespace is specified. Cannot process.",
 			"name", parsedMinMetadata.Metadata.Name,
@@ -1371,97 +1399,196 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		return nil, &scopedGVR, errEvent, nil
 	}
 
-	desiredObjects := []*unstructured.Unstructured{}
-	hasTemplate := templates.HasTemplate(objectT.ObjectDefinition.Raw, "", true)
-	needsPerNamespaceTemplating := templateHasObjectNamespaceRegex.Match(objectT.ObjectDefinition.Raw)
-
-	var desiredObj *unstructured.Unstructured
-
-	for _, ns := range relevantNamespaces {
-		var rawDesiredObject []byte
-
-		// Process templating only on the first loop if the ObjectNamespace template variable isn't used
-		if tmplResolver != nil && hasTemplate && (desiredObj == nil || needsPerNamespaceTemplating) {
-			r.processedPolicyCache.Delete(plc.GetUID())
-
-			templateContext := struct{ ObjectNamespace string }{ObjectNamespace: ns}
-
-			resolvedTemplate, err := tmplResolver.ResolveTemplate(
-				objectT.ObjectDefinition.Raw, templateContext, resolveOptions,
-			)
-			if err != nil {
-				var complianceMsg string
-
-				complianceMsg, err := getFormattedTemplateErr(err)
-
-				errEvent := &objectTmplEvalEvent{
-					compliant: false,
-					reason:    reasonTemplateError,
-					message:   complianceMsg,
-				}
-
-				return nil, &scopedGVR, errEvent, err
-			}
-
-			if objectT.RecordDiff == "" && resolvedTemplate.HasSensitiveData {
-				log.V(1).Info(
-					"Not automatically turning on recordDiff due to templates interacting with sensitive data",
-					"objectTemplateIndex", index,
-				)
-
-				objectT.RecordDiff = policyv1.RecordDiffCensored
-			}
-
-			rawDesiredObject = resolvedTemplate.ResolvedJSON
-		} else if desiredObj == nil {
-			rawDesiredObject = objectT.ObjectDefinition.Raw
-		} else {
-			// No need to parse the JSON again if the object isn't going to change from the previous loop.
-			desiredObj = desiredObj.DeepCopy()
-			desiredObj.SetNamespace(strings.TrimSpace(ns))
-
-			desiredObjects = append(desiredObjects, desiredObj)
-
-			continue
-		}
-
-		desiredObj = &unstructured.Unstructured{}
-
-		_, _, err = unstructured.UnstructuredJSONScheme.Decode(rawDesiredObject, nil, desiredObj)
+	// If no name or a templated name, populate the names from the objectSelector
+	if desiredName == "" && objectSelector != nil {
+		// Parse the objectSelector to determine whether it's valid
+		objSelector, err := metav1.LabelSelectorAsSelector(objectSelector)
 		if err != nil {
-			log.Error(err, "Could not decode the objectDefinition", "index", index)
+			log.Error(err, "Failed to select the resources",
+				"objectSelector", fmt.Sprint(objectT.ObjectSelector.String()))
+
+			msg := fmt.Sprintf(
+				"Error parsing provided objectSelector in the object-template at index [%d]: %v",
+				index, err,
+			)
 
 			errEvent := &objectTmplEvalEvent{
 				compliant: false,
-				reason:    "K8s decode object definition error",
-				message: fmt.Sprintf("Decoding error, please check your policy file!"+
-					" Aborting handling the object template at index [%v] in policy `%v` with error = `%v`",
-					index, plc.Name, err),
+				reason:    "objectSelector error",
+				message:   msg,
 			}
 
 			return nil, &scopedGVR, errEvent, err
 		}
 
-		// strings.TrimSpace() is needed here because a multi-line value will have
-		// '\n' in it. This is kept for backwards compatibility.
-		desiredObj.SetName(strings.TrimSpace(desiredObj.GetName()))
-		desiredObj.SetKind(strings.TrimSpace(desiredObj.GetKind()))
-		desiredObj.SetNamespace(strings.TrimSpace(desiredObj.GetNamespace()))
+		// Has a valid objectSelector, so list the names for each namespace using the objectSelector
+		for ns := range relevantNsNames {
+			filteredObjects, err := r.DynamicWatcher.List(plc.ObjectIdentifier(), objGVK, ns, objSelector)
+			if err != nil {
+				log.Error(err, "Failed to fetch the resources",
+					"objectSelector", fmt.Sprint(objectT.ObjectSelector.String()))
 
-		if desiredObj.GetNamespace() != desiredNs && desiredObj.GetNamespace() != ns {
-			errEvent := &objectTmplEvalEvent{
-				compliant: false,
-				reason:    reasonTemplateError,
-				message: "The object definition's namespace must match the selected namespace after template " +
-					"resolution",
+				msg := fmt.Sprintf(
+					"Error listing resources with provided objectSelector in the object-template at index [%d]: %v",
+					index, err,
+				)
+
+				errEvent := &objectTmplEvalEvent{
+					compliant: false,
+					reason:    "objectSelector error",
+					message:   msg,
+				}
+
+				return nil, &scopedGVR, errEvent, err
 			}
 
-			return nil, &scopedGVR, errEvent, nil
+			// Populate names from objectSelector results
+			for _, res := range filteredObjects {
+				relevantNsNames[ns] = append(relevantNsNames[ns], res.GetName())
+			}
+		}
+	}
+
+	// Resolve Go templates in order to generate a definitive list of
+	// objectDefinitions to compare with objects on the cluster for this
+	// object-template.
+	desiredObjects := []*unstructured.Unstructured{}
+
+	// Detect templates
+	hasTemplate := templates.HasTemplate(objectT.ObjectDefinition.Raw, "", true)
+	needsPerNamespaceTemplating := false
+
+	// Detect .ObjectNamespace template context variables
+	if hasTemplate {
+		needsPerNamespaceTemplating = templateHasObjectNamespaceRegex.Match(objectT.ObjectDefinition.Raw)
+	}
+
+	// Establish a single desired object from which to base Go template resolution
+	// for this object-template. If this stays nil on each loop, it's a signal to
+	// the following loop that the Go templates should be resolved again for that
+	// name and/or namespace.
+	var desiredObj *unstructured.Unstructured
+
+	// Iterate over the parsed object namespace to name map to resolve Go templates
+	for ns, names := range relevantNsNames {
+		for nameIdx, name := range names {
+			var rawDesiredObject []byte
+
+			// Process templating only on the first loop if the ObjectNamespace
+			// template variable isn't used.
+			//
+			// If object-templates-raw was used, the templates were already resolved
+			// and a resolver is not passed in for this function to use since parsing
+			// templates again is undesirable.
+			if nameIdx == 0 && tmplResolver != nil &&
+				hasTemplate && (desiredObj == nil || needsPerNamespaceTemplating) {
+				r.processedPolicyCache.Delete(plc.GetUID())
+
+				templateContext := struct{ ObjectNamespace string }{ObjectNamespace: ns}
+
+				resolvedTemplate, err := tmplResolver.ResolveTemplate(
+					objectT.ObjectDefinition.Raw, templateContext, resolveOptions,
+				)
+				if err != nil {
+					var complianceMsg string
+
+					complianceMsg, err := getFormattedTemplateErr(err)
+
+					errEvent := &objectTmplEvalEvent{
+						compliant: false,
+						reason:    reasonTemplateError,
+						message:   complianceMsg,
+					}
+
+					return nil, &scopedGVR, errEvent, err
+				}
+
+				if objectT.RecordDiff == "" && resolvedTemplate.HasSensitiveData {
+					log.V(1).Info(
+						"Not automatically turning on recordDiff due to templates interacting with sensitive data",
+						"objectTemplateIndex", index,
+					)
+
+					objectT.RecordDiff = policyv1.RecordDiffCensored
+				}
+
+				rawDesiredObject = resolvedTemplate.ResolvedJSON
+			} else if desiredObj == nil {
+				rawDesiredObject = objectT.ObjectDefinition.Raw
+			} else {
+				// No need to parse the JSON again if the object isn't going to change from the previous loop.
+				desiredObj = desiredObj.DeepCopy()
+				desiredObj.SetName(strings.TrimSpace(name))
+				desiredObj.SetNamespace(strings.TrimSpace(ns))
+
+				desiredObjects = append(desiredObjects, desiredObj)
+
+				continue
+			}
+
+			desiredObj = &unstructured.Unstructured{}
+
+			_, _, err = unstructured.UnstructuredJSONScheme.Decode(rawDesiredObject, nil, desiredObj)
+			if err != nil {
+				log.Error(err, "Could not decode the objectDefinition", "index", index)
+
+				errEvent := &objectTmplEvalEvent{
+					compliant: false,
+					reason:    "K8s decode object definition error",
+					message: fmt.Sprintf("Decoding error, please check your policy file!"+
+						" Aborting handling the object template at index [%v] in policy `%v` with error = `%v`",
+						index, plc.Name, err),
+				}
+
+				return nil, &scopedGVR, errEvent, err
+			}
+
+			// strings.TrimSpace() is needed here because a multi-line value will have
+			// '\n' in it. This is kept for backwards compatibility.
+			desiredObj.SetName(strings.TrimSpace(desiredObj.GetName()))
+			desiredObj.SetKind(strings.TrimSpace(desiredObj.GetKind()))
+			desiredObj.SetNamespace(strings.TrimSpace(desiredObj.GetNamespace()))
+
+			if desiredObj.GetNamespace() != desiredNs && desiredObj.GetNamespace() != ns {
+				errEvent := &objectTmplEvalEvent{
+					compliant: false,
+					reason:    reasonTemplateError,
+					message: "The object definition's namespace must match the selected namespace after template " +
+						"resolution",
+				}
+
+				return nil, &scopedGVR, errEvent, nil
+			}
+
+			// Populate the namespace and name if they're not empty strings
+			if name != "" {
+				desiredObj.SetName(strings.TrimSpace(name))
+			}
+
+			if ns != "" {
+				desiredObj.SetNamespace(strings.TrimSpace(ns))
+			}
+
+			desiredObjects = append(desiredObjects, desiredObj)
+		}
+	}
+
+	// No valid objectDefintions were generated by Go template processing
+	if len(desiredObjects) == 0 {
+		log.Info("Final desired object list is empty after processing selectors")
+
+		msg := fmt.Sprintf("object of kind %s has no name specified "+
+			"from the policy objectSelector nor the object metadata",
+			objGVK.Kind,
+		)
+
+		errEvent := &objectTmplEvalEvent{
+			compliant: false,
+			reason:    "objectSelector error",
+			message:   msg,
 		}
 
-		desiredObj.SetNamespace(strings.TrimSpace(ns))
-
-		desiredObjects = append(desiredObjects, desiredObj)
+		return nil, &scopedGVR, errEvent, err
 	}
 
 	return desiredObjects, &scopedGVR, nil, nil
@@ -1470,10 +1597,10 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 // batchedEvents combines compliance events into batches that should be emitted in order. For example,
 // if an object didn't match and was enforced, there would be an event that it didn't match in the first
 // batch, and then the second batch would be that it was updated successfully.
-func batchedEvents(nsToResults map[string]objectTmplEvalResult) (
+func batchedEvents(nsNameToResults map[string]objectTmplEvalResult) (
 	eventBatches []map[string]*objectTmplEvalResultWithEvent,
 ) {
-	for ns, result := range nsToResults {
+	for nsName, result := range nsNameToResults {
 		// Ensure eventBatches has enough batch entries for the number of compliance events for this namespace.
 		if len(eventBatches) < len(result.events) {
 			eventBatches = append(
@@ -1494,7 +1621,7 @@ func batchedEvents(nsToResults map[string]objectTmplEvalResult) (
 				eventBatches[batchIndex] = map[string]*objectTmplEvalResultWithEvent{}
 			}
 
-			eventBatches[batchIndex][ns] = &objectTmplEvalResultWithEvent{result: result, event: event}
+			eventBatches[batchIndex][nsName] = &objectTmplEvalResultWithEvent{result: result, event: event}
 		}
 	}
 
@@ -3223,9 +3350,9 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 	policy.Status.LastEvaluated = time.Now().UTC().Format(time.RFC3339)
 	policy.Status.LastEvaluatedGeneration = policy.Generation
 
-	err := r.updatePolicyStatus(policy, sendEvent)
 	policyLog := log.WithValues("name", policy.Name, "namespace", policy.Namespace)
 
+	err := r.updatePolicyStatus(policy, sendEvent)
 	if k8serrors.IsConflict(err) {
 		policyLog.Error(err, "Tried to re-update status before previous update could be applied, retrying next loop")
 	} else if err != nil {
