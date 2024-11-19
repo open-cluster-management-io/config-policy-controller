@@ -476,35 +476,35 @@ func identifierStr(names []string, namespace string) (nameStr string) {
 // createStatus generates the status reason and message for the object template after processing. resourceName indicates
 // the name of the resource (e.g. namespaces), and not the kind (e.g. Namespace).
 func createStatus(
-	resourceName string, namespaceToEvent map[string]*objectTmplEvalResultWithEvent,
+	resourceName string, nsNameToEvent map[string]*objectTmplEvalResultWithEvent,
 ) (
 	compliant bool, compliancyDetailsReason, compliancyDetailsMsg string,
 ) {
-	reasonToNamespaceToEvent := map[string]map[string]*objectTmplEvalResultWithEvent{}
+	reasonToNsNameToEvent := map[string]map[string]*objectTmplEvalResultWithEvent{}
 	compliant = true
 	// If all objects are compliant, this only contains compliant events. If there is at least one noncompliant
 	// object, then this will only contain noncompliant events.
-	filteredNamespaceToEvent := map[string]*objectTmplEvalResultWithEvent{}
+	filteredNsNameToEvent := map[string]*objectTmplEvalResultWithEvent{}
 
-	for namespace, eventWithCtx := range namespaceToEvent {
+	for nsName, eventWithCtx := range nsNameToEvent {
 		// If a noncompliant event is encountered, then reset the maps to only include noncompliant events.
 		if compliant && !eventWithCtx.event.compliant {
 			compliant = false
-			filteredNamespaceToEvent = map[string]*objectTmplEvalResultWithEvent{}
-			reasonToNamespaceToEvent = map[string]map[string]*objectTmplEvalResultWithEvent{}
+			filteredNsNameToEvent = map[string]*objectTmplEvalResultWithEvent{}
+			reasonToNsNameToEvent = map[string]map[string]*objectTmplEvalResultWithEvent{}
 		}
 
 		if compliant != eventWithCtx.event.compliant {
 			continue
 		}
 
-		filteredNamespaceToEvent[namespace] = eventWithCtx
+		filteredNsNameToEvent[nsName] = eventWithCtx
 
-		if _, ok := reasonToNamespaceToEvent[eventWithCtx.event.reason]; !ok {
-			reasonToNamespaceToEvent[eventWithCtx.event.reason] = map[string]*objectTmplEvalResultWithEvent{}
+		if _, ok := reasonToNsNameToEvent[eventWithCtx.event.reason]; !ok {
+			reasonToNsNameToEvent[eventWithCtx.event.reason] = map[string]*objectTmplEvalResultWithEvent{}
 		}
 
-		reasonToNamespaceToEvent[eventWithCtx.event.reason][namespace] = eventWithCtx
+		reasonToNsNameToEvent[eventWithCtx.event.reason][nsName] = eventWithCtx
 	}
 
 	// Create an order of the reasons so that the generated reason and compliance message is deterministic.
@@ -520,7 +520,7 @@ func createStatus(
 	}
 	otherReasons := []string{}
 
-	for reason := range reasonToNamespaceToEvent {
+	for reason := range reasonToNsNameToEvent {
 		found := false
 
 		for _, orderedReason := range orderedReasons {
@@ -542,37 +542,37 @@ func createStatus(
 	// The "reason" is more specific in the compliancyDetails section than in the relatedObjects section.
 	// It may be worth using the same message in both eventually.
 	for _, reason := range orderedReasons {
-		namespaceToEvent, ok := reasonToNamespaceToEvent[reason]
+		nsNameToEvent, ok := reasonToNsNameToEvent[reason]
 		if !ok {
 			continue
 		}
 
-		sortedNamespaces := make([]string, 0, len(namespaceToEvent))
+		sortedNsNames := make([]string, 0, len(nsNameToEvent))
 
-		for ns := range namespaceToEvent {
-			sortedNamespaces = append(sortedNamespaces, ns)
+		for nsName := range nsNameToEvent {
+			sortedNsNames = append(sortedNsNames, nsName)
 		}
 
-		slices.Sort(sortedNamespaces)
+		slices.Sort(sortedNsNames)
 
 		// If the object template was unnamed, then the object names can be different per namespace. If it was named,
 		// all will be the same, but this accounts for both.
 		sortedObjectNamesStrs := []string{}
 		// Note that the namespace slices will be ordered based on how they are populated.
-		objectNameStrsToNamespaces := map[string][]string{}
+		objectNameStrsToNsNames := map[string][]string{}
 
-		for _, ns := range sortedNamespaces {
-			namesStr := ""
+		for _, nsName := range sortedNsNames {
+			_, namesStr, _ := strings.Cut(nsName, "/")
 
-			if len(namespaceToEvent[ns].result.objectNames) > 0 {
-				namesStr = " [" + strings.Join(namespaceToEvent[ns].result.objectNames, ", ") + "]"
+			if len(nsNameToEvent[nsName].result.objectNames) > 0 {
+				namesStr = " [" + strings.Join(nsNameToEvent[nsName].result.objectNames, ", ") + "]"
 			}
 
-			if _, ok := objectNameStrsToNamespaces[namesStr]; !ok {
+			if _, ok := objectNameStrsToNsNames[namesStr]; !ok {
 				sortedObjectNamesStrs = append(sortedObjectNamesStrs, namesStr)
 			}
 
-			objectNameStrsToNamespaces[namesStr] = append(objectNameStrsToNamespaces[namesStr], ns)
+			objectNameStrsToNsNames[namesStr] = append(objectNameStrsToNsNames[namesStr], nsName)
 		}
 
 		slices.Sort(sortedObjectNamesStrs)
@@ -621,12 +621,12 @@ func createStatus(
 					compliancyDetailsReason += reason
 				}
 
-				for j, ns := range objectNameStrsToNamespaces[namesStr] {
+				for j, nsName := range objectNameStrsToNsNames[namesStr] {
 					if j != 0 {
 						compliancyDetailsMsg += "; "
 					}
 
-					compliancyDetailsMsg += namespaceToEvent[ns].event.message
+					compliancyDetailsMsg += nsNameToEvent[nsName].event.message
 				}
 
 				// Assume the included messages include the namespace.
@@ -647,14 +647,23 @@ func createStatus(
 			// If it is namespaced, include the namespaces that were checked. A namespace of "" indicates
 			// cluster scoped. This length check is not necessary but is added for additional safety in case the logic
 			// above is changed.
-			if len(objectNameStrsToNamespaces[namesStr]) > 0 && objectNameStrsToNamespaces[namesStr][0] != "" {
-				if len(objectNameStrsToNamespaces[namesStr]) > 1 {
-					compliancyDetailsMsg += fmt.Sprintf(
-						" in namespaces: %s", strings.Join(objectNameStrsToNamespaces[namesStr], ", "),
-					)
-				} else {
-					compliancyDetailsMsg += fmt.Sprintf(" in namespace %s", objectNameStrsToNamespaces[namesStr][0])
+			nsList := []string{}
+
+			for _, nsName := range objectNameStrsToNsNames[namesStr] {
+				ns, _, _ := strings.Cut(nsName, "/")
+				if ns != "" {
+					nsList = append(nsList, ns)
 				}
+			}
+
+			if len(nsList) > 0 {
+				if len(objectNameStrsToNsNames[namesStr]) > 1 {
+					compliancyDetailsMsg += " in namespaces: "
+				} else {
+					compliancyDetailsMsg += " in namespace "
+				}
+
+				compliancyDetailsMsg += strings.Join(nsList, ", ")
 			}
 		}
 	}
@@ -729,7 +738,7 @@ func generateDiff(existingObj, updatedObj *unstructured.Unstructured) (string, e
 	}
 
 	splitDiff := strings.Split(diff, "\n")
-	// Keep a maxmium of 50 lines of diff + 3 lines for the header
+	// Keep a maximum of 50 lines of diff + 3 lines for the header
 	if len(splitDiff) > 53 {
 		diff = fmt.Sprintf(
 			"# Truncated: showing 50/%d diff lines:\n%s", len(splitDiff), strings.Join(splitDiff[:53], "\n"),

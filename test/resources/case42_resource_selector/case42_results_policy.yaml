@@ -1,0 +1,14 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case42-selector-results-e2e
+spec:
+  namespaceSelector:
+    include:
+      - case42-e2e-1
+  remediationAction: inform
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: config-policy-controller.io/v1
+        kind: FakeAPI

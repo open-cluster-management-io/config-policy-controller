@@ -235,6 +235,10 @@ type ObjectTemplate struct {
 	// `OAuthAuthorizeTokens`, `Route`, and `Secret`, or when a templated `objectDefinition`
 	// references sensitive data. For all other kinds, the default value is `InStatus`.
 	RecordDiff RecordDiff `json:"recordDiff,omitempty"`
+
+	// ObjectSelector defines the label selector for objects defined in the `objectDefinition`. If
+	// there is an object name defined in the `objectDefinition`, the `objectSelector` is ignored.
+	ObjectSelector *metav1.LabelSelector `json:"objectSelector,omitempty"`
 }
 
 // RecordDiffWithDefault parses the `objectDefinition` in the policy for the kind and returns the
@@ -369,11 +373,11 @@ type ObjectMetadata struct {
 type ObjectResource struct {
 	Metadata ObjectMetadata `json:"metadata,omitempty"`
 
-	// Kind of the related object.
-	Kind string `json:"kind,omitempty"`
-
 	// API version of the related object.
 	APIVersion string `json:"apiVersion,omitempty"`
+
+	// Kind of the related object.
+	Kind string `json:"kind,omitempty"`
 }
 
 // ObjectResourceFromObj mutates a Kubernetes object into an ObjectResource type to populate the
