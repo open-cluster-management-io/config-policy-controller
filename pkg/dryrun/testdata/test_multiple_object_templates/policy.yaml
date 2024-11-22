@@ -1,0 +1,23 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: example-config-policy
+  namespace: default
+spec:
+  remediationAction: enforce
+  object-templates-raw: |
+    {{range $ns := (list "another" "default" "nonexist")}}
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-pod
+          namespace: {{$ns}}
+        spec:
+          containers:
+            - image: nginx:1.7.9
+              name: nginx
+              ports:
+                - containerPort: 8080
+    {{end}}
