@@ -88,6 +88,7 @@ var (
 	commonSprigFuncMap template.FuncMap
 
 	templateHasObjectNamespaceRegex = regexp.MustCompile(`(\.ObjectNamespace)`)
+	templateHasObjectNameRegex      = regexp.MustCompile(`(\.ObjectName)\W`)
 )
 
 func init() {
@@ -1379,19 +1380,19 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 	if len(relevantNsNames) == 0 {
 		log.Info(
 			"The object template is namespaced but no namespace is specified. Cannot process.",
-			"name", parsedMinMetadata.Metadata.Name,
+			"name", desiredName,
 			"kind", objGVK.Kind,
 		)
 
 		var space string
-		if parsedMinMetadata.Metadata.Name != "" {
+		if desiredName != "" {
 			space = " "
 		}
 
 		// namespaced but none specified, generate violation
 		msg := fmt.Sprintf("namespaced object%s%s of kind %s has no namespace specified "+
 			"from the policy namespaceSelector nor the object metadata",
-			space, parsedMinMetadata.Metadata.Name, objGVK.Kind,
+			space, desiredName, objGVK.Kind,
 		)
 
 		errEvent := &objectTmplEvalEvent{false, "K8s missing namespace", msg}
@@ -1457,9 +1458,11 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 	// Detect templates
 	hasTemplate := templates.HasTemplate(objectT.ObjectDefinition.Raw, "", true)
 	needsPerNamespaceTemplating := false
+	needsPerNameTemplating := false
 
-	// Detect .ObjectNamespace template context variables
+	// Detect .ObjectNamespace and .ObjectName template context variables
 	if hasTemplate {
+		needsPerNameTemplating = templateHasObjectNameRegex.Match(objectT.ObjectDefinition.Raw)
 		needsPerNamespaceTemplating = templateHasObjectNamespaceRegex.Match(objectT.ObjectDefinition.Raw)
 	}
 
@@ -1474,17 +1477,23 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		for nameIdx, name := range names {
 			var rawDesiredObject []byte
 
-			// Process templating only on the first loop if the ObjectNamespace
-			// template variable isn't used.
-			//
 			// If object-templates-raw was used, the templates were already resolved
 			// and a resolver is not passed in for this function to use since parsing
-			// templates again is undesirable.
-			if nameIdx == 0 && tmplResolver != nil &&
-				hasTemplate && (desiredObj == nil || needsPerNamespaceTemplating) {
+			// templates again is undesirable. Process templating when the templates
+			// and resolver are present, and:
+			// - Every time if the ObjectName variable is used
+			// - Only on the first name (inner) loop if the ObjectName variable isn't
+			//   used but ObjectNamespace is
+			// - Only on the first namespace (outer) loop if the ObjectNamespace
+			//   template variable isn't used
+			if tmplResolver != nil && hasTemplate &&
+				(needsPerNameTemplating || (nameIdx == 0 && needsPerNamespaceTemplating) || desiredObj == nil) {
 				r.processedPolicyCache.Delete(plc.GetUID())
 
-				templateContext := struct{ ObjectNamespace string }{ObjectNamespace: ns}
+				templateContext := struct {
+					ObjectNamespace string
+					ObjectName      string
+				}{ObjectNamespace: ns, ObjectName: name}
 
 				resolvedTemplate, err := tmplResolver.ResolveTemplate(
 					objectT.ObjectDefinition.Raw, templateContext, resolveOptions,
@@ -1549,11 +1558,24 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			desiredObj.SetKind(strings.TrimSpace(desiredObj.GetKind()))
 			desiredObj.SetNamespace(strings.TrimSpace(desiredObj.GetNamespace()))
 
-			if desiredObj.GetNamespace() != desiredNs && desiredObj.GetNamespace() != ns {
+			// If the namespace doesn't match the original, return an error
+			if needsPerNamespaceTemplating && desiredObj.GetNamespace() != ns {
 				errEvent := &objectTmplEvalEvent{
 					compliant: false,
 					reason:    reasonTemplateError,
 					message: "The object definition's namespace must match the selected namespace after template " +
+						"resolution",
+				}
+
+				return nil, &scopedGVR, errEvent, nil
+			}
+
+			// If the name doesn't match the original, return an error
+			if needsPerNameTemplating && desiredObj.GetName() != name {
+				errEvent := &objectTmplEvalEvent{
+					compliant: false,
+					reason:    reasonTemplateError,
+					message: "The object definition's name must match the selected name after template " +
 						"resolution",
 				}
 
