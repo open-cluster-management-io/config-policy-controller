@@ -26,8 +26,7 @@ var _ = Describe("Test results of resource selection", Ordered, func() {
 		policyName = "case42-selector-results-e2e"
 
 		filterErrMsgFmt = "Error parsing provided objectSelector in the object-template at index [0]: %s"
-		noMatchesMsg    = "object of kind FakeAPI has no name specified from " +
-			"the policy objectSelector nor the object metadata"
+		noMatchesMsg    = "No objects of kind FakeAPI were matched from the policy objectSelector"
 	)
 
 	// Test setup for resource selection policy tests:
@@ -61,7 +60,7 @@ var _ = Describe("Test results of resource selection", Ordered, func() {
 	})
 
 	DescribeTable("ObjectSelector matching all is specified", func(patch string) {
-		By("Verifying policy is noncompliant and returns no objects")
+		By("Verifying policy is compliant and returns no objects")
 		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
 			fmt.Sprintf(objectSelectorPatchFmt, `{"matchLabels":{"selects":"nothing"}}`),
 		)

@@ -1472,9 +1472,23 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 	// name and/or namespace.
 	var desiredObj *unstructured.Unstructured
 
+	var skipObjectCalled bool
+
 	// Iterate over the parsed object namespace to name map to resolve Go templates
 	for ns, names := range relevantNsNames {
-		for nameIdx, name := range names {
+		// If the templates use the .ObjectNamespace template variable, the desired object cannot be resused across
+		// namespaces.
+		if needsPerNamespaceTemplating {
+			desiredObj = nil
+		}
+
+		for _, name := range names {
+			// If the templates use the .ObjectName template variable, the desired object cannot be resused across
+			// names.
+			if needsPerNameTemplating {
+				desiredObj = nil
+			}
+
 			var rawDesiredObject []byte
 
 			// If object-templates-raw was used, the templates were already resolved
@@ -1486,8 +1500,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			//   used but ObjectNamespace is
 			// - Only on the first namespace (outer) loop if the ObjectNamespace
 			//   template variable isn't used
-			if tmplResolver != nil && hasTemplate &&
-				(needsPerNameTemplating || (nameIdx == 0 && needsPerNamespaceTemplating) || desiredObj == nil) {
+			if tmplResolver != nil && hasTemplate && desiredObj == nil {
 				r.processedPolicyCache.Delete(plc.GetUID())
 
 				templateContext := struct {
@@ -1495,9 +1508,28 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 					ObjectName      string
 				}{ObjectNamespace: ns, ObjectName: name}
 
+				skipObject := false
+
+				resolveOptions.CustomFunctions = map[string]interface{}{
+					"skipObject": func() string {
+						skipObject = true
+
+						return ""
+					},
+				}
+
 				resolvedTemplate, err := tmplResolver.ResolveTemplate(
 					objectT.ObjectDefinition.Raw, templateContext, resolveOptions,
 				)
+
+				if skipObject {
+					log.V(1).Info("skipObject called", "namespace", ns, "name", name, "objectTemplateIndex", index)
+
+					skipObjectCalled = true
+
+					continue
+				}
+
 				if err != nil {
 					var complianceMsg string
 
@@ -1599,18 +1631,23 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 	if len(desiredObjects) == 0 {
 		log.Info("Final desired object list is empty after processing selectors")
 
-		msg := fmt.Sprintf("object of kind %s has no name specified "+
-			"from the policy objectSelector nor the object metadata",
-			objGVK.Kind,
-		)
+		var msg string
 
-		errEvent := &objectTmplEvalEvent{
-			compliant: false,
-			reason:    "objectSelector error",
-			message:   msg,
+		if skipObjectCalled {
+			msg = "All objects of kind %s were skipped by the `skipObject` template function"
+		} else if objectSelector != nil {
+			msg = "No objects of kind %s were matched from the policy objectSelector"
+		} else {
+			msg = "No objects of kind %s were matched from the objectDefinition metadata"
 		}
 
-		return nil, &scopedGVR, errEvent, err
+		event := &objectTmplEvalEvent{
+			compliant: true,
+			reason:    "",
+			message:   fmt.Sprintf(msg, objGVK.Kind),
+		}
+
+		return nil, &scopedGVR, event, nil
 	}
 
 	return desiredObjects, &scopedGVR, nil, nil
