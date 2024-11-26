@@ -16,7 +16,7 @@ require (
 	github.com/spf13/cobra v1.8.1
 	github.com/spf13/pflag v1.0.5
 	github.com/stolostron/go-log-utils v0.1.2
-	github.com/stolostron/go-template-utils/v6 v6.3.0
+	github.com/stolostron/go-template-utils/v6 v6.4.0
 	github.com/stolostron/kubernetes-dependency-watches v0.10.0
 	github.com/stretchr/testify v1.9.0
 	go.uber.org/zap v1.27.0

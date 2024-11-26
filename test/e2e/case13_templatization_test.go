@@ -571,14 +571,16 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 	Describe("Policy with the ObjectName variable", Ordered, func() {
 		const (
-			preReqs           = case13RsrcPath + "/case13_objectname_var_prereqs.yaml"
-			policyYAML        = case13RsrcPath + "/case13_objectname_var.yaml"
-			policyName        = "case13-objectname-var"
-			e2eBaseName       = "case13-e2e-objectname-var"
-			invalidPolicyYAML = case13RsrcPath + "/case13_objectname_var_invalid_name.yaml"
-			invalidPolicyName = "case13-invalid-name"
-			emptyPolicyYAML   = case13RsrcPath + "/case13_objectname_var_empty_name.yaml"
-			emptyPolicyName   = "case13-empty-name"
+			preReqs              = case13RsrcPath + "/case13_objectname_var_prereqs.yaml"
+			policyYAML           = case13RsrcPath + "/case13_objectname_var.yaml"
+			policyName           = "case13-objectname-var"
+			e2eBaseName          = "case13-e2e-objectname-var"
+			invalidPolicyYAML    = case13RsrcPath + "/case13_objectname_var_invalid_name.yaml"
+			invalidPolicyName    = "case13-invalid-name"
+			emptyPolicyYAML      = case13RsrcPath + "/case13_objectname_var_empty_name.yaml"
+			emptyPolicyName      = "case13-empty-name"
+			allSkippedPolicyYAML = case13RsrcPath + "/case13_objectname_var_all_skipped.yaml"
+			allSkippedPolicyName = "case13-objectname-var-all-skipped"
 		)
 
 		BeforeEach(func() {
@@ -598,19 +600,19 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 				g.Expect(utils.GetStatusMessage(managedPlc)).Should(Equal(fmt.Sprintf(
-					"configmaps [case13-e2e-objectname-var1] found as specified in namespace %[1]s; "+
-						"configmaps [case13-e2e-objectname-var2] found as specified in namespace %[1]s; "+
+					"configmaps [case13-e2e-objectname-var2] found as specified in namespace %[1]s; "+
 						"configmaps [case13-e2e-objectname-var3] found as specified in namespace %[1]s", e2eBaseName)))
 
 				relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
-				g.Expect(relatedObjects).To(HaveLen(3))
+				g.Expect(relatedObjects).To(HaveLen(2))
 
 				for idx := range relatedObjects {
 					relatedObject, ok := relatedObjects[idx].(map[string]interface{})
 					g.Expect(ok).To(BeTrue(), "Related object is not a map")
 					relatedObject1NS, _, _ := unstructured.NestedString(relatedObject, "object", "metadata", "name")
+					// The first object is skipped.
 					g.Expect(relatedObject1NS).To(
-						Equal(fmt.Sprintf("%s%d", e2eBaseName, idx+1)),
+						Equal(fmt.Sprintf("%s%d", e2eBaseName, idx+2)),
 						"Related object name should match")
 				}
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
@@ -624,6 +626,10 @@ var _ = Describe("Test templatization", Ordered, func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			for _, cm := range configMaps.Items {
+				if cm.Name == "case13-e2e-objectname-var1" {
+					continue
+				}
+
 				Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("case13", "passed"))
 				Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("name", cm.GetName()))
 				Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("namespace", cm.GetNamespace()))
@@ -674,10 +680,33 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
+		It("Should be compliant when all objects are skipped with skipObject", func(ctx SpecContext) {
+			By("Applying the " + allSkippedPolicyName + " ConfigurationPolicy")
+			utils.Kubectl("apply", "-n", testNamespace, "-f", allSkippedPolicyYAML)
+
+			By("By verifying that the ConfigurationPolicy is compliant")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic,
+					gvrConfigPolicy,
+					allSkippedPolicyName,
+					testNamespace,
+					true,
+					defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+				g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(
+					"All objects of kind ConfigMap were skipped by the `skipObject` template function",
+				))
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
 		AfterEach(func() {
 			utils.KubectlDelete("configurationpolicy", policyName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", invalidPolicyName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", emptyPolicyName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", allSkippedPolicyName, "-n", testNamespace)
 			utils.KubectlDelete("configmaps", "-n", e2eBaseName, "--all")
 		})
 

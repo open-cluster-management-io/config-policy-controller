@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: case13-objectname-var
+  name: case13-objectname-var-all-skipped
 spec:
   remediationAction: enforce
   namespaceSelector:
@@ -17,7 +17,7 @@ spec:
         apiVersion: v1
         kind: ConfigMap
         metadata:
-          name: '{{ if eq .ObjectName "case13-e2e-objectname-var1" }}{{ skipObject }}{{ else }}{{ .ObjectName }}{{ end }}'
+          name: '{{ if true }}{{ skipObject }}{{ end }}'
           namespace: "{{ .ObjectNamespace }}"
           labels:
             case13: passed
