@@ -179,7 +179,7 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 	r.lock.Unlock()
 
 	// Return no namespaces when both include and label selector are empty
-	if t.LabelSelector == nil && len(t.Include) == 0 {
+	if t.IsEmpty() {
 		log.V(2).Info("Updating selection from Reconcile for empty selector",
 			"namespace", objNS, "policy", objName)
 
@@ -306,7 +306,7 @@ func (r *NamespaceSelectorReconciler) update(namespace string, name string, sel 
 func filter(allNSList corev1.NamespaceList, t policyv1.Target) ([]string, error) {
 	// If MatchLabels and MatchExpressions are nil, the resulting label selector
 	// matches all namespaces. This is to guard against that.
-	if t.LabelSelector == nil && len(t.Include) == 0 {
+	if t.IsEmpty() {
 		return []string{}, nil
 	}
 
