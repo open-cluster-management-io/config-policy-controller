@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: case13-empty-name
+  name: case13-outside-name
 spec:
   remediationAction: enforce
   namespaceSelector:
@@ -17,5 +17,7 @@ spec:
         apiVersion: v1
         kind: ConfigMap
         metadata:
-          name: "{{ if false }}{{ .ObjectName }}{{ end }}"
-          namespace: "{{ .ObjectNamespace }}"
+          labels:
+            case13: passed
+            object-name: '{{ if (hasSuffix "3" .ObjectName) }}{{ .ObjectName }}{{ else }}{{ skipObject }}{{ end }}'
+            object-namespace: "{{ .ObjectNamespace }}"
