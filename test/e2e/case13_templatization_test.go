@@ -601,8 +601,9 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 				g.Expect(utils.GetStatusMessage(managedPlc)).Should(Equal(fmt.Sprintf(
-					"configmaps [case13-e2e-objectname-var2] found as specified in namespace %[1]s; "+
-						"configmaps [case13-e2e-objectname-var3] found as specified in namespace %[1]s", e2eBaseName)))
+					"configmaps [case13-e2e-objectname-var2, case13-e2e-objectname-var3] "+
+						"found as specified in namespace %[1]s",
+					e2eBaseName)))
 
 				relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 				g.Expect(relatedObjects).To(HaveLen(2))
