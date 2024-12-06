@@ -81,11 +81,8 @@ var _ = Describe("Test results of resource selection", Ordered, func() {
 
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
-			"fakeapis [case42-1-e2e] found as specified in namespace %[1]s; "+
-				"fakeapis [case42-2-e2e] found as specified in namespace %[1]s; "+
-				"fakeapis [case42-3-e2e] found as specified in namespace %[1]s; "+
-				"fakeapis [case42-4-e2e] found as specified in namespace %[1]s; "+
-				"fakeapis [case42-5-e2e] found as specified in namespace %[1]s", targetNs)))
+			"fakeapis [case42-1-e2e, case42-2-e2e, case42-3-e2e, case42-4-e2e, case42-5-e2e]"+
+				" found as specified in namespace %s", targetNs)))
 	},
 		Entry("Empty label selector", `{}`),
 		Entry("Empty matchLabels", `{"matchLabels":{}}`),
@@ -152,8 +149,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
-			"fakeapis [case42-1-e2e] found but not as specified in namespace %[1]s; "+
-				"fakeapis [case42-2-e2e] found but not as specified in namespace %[1]s", targetNs)))
+			"fakeapis [case42-1-e2e, case42-2-e2e] found but not as specified in namespace %s", targetNs)))
 	})
 
 	It("should evaluate when a matching labeled resource is added", func(ctx SpecContext) {
@@ -166,7 +162,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).Should(HaveSuffix(
-			fmt.Sprintf("; fakeapis [case42-3-e2e] found but not as specified in namespace %s", targetNs)))
+			fmt.Sprintf("case42-3-e2e] found but not as specified in namespace %s", targetNs)))
 	})
 
 	It("should not change when a non-matching resource is added", func(ctx SpecContext) {
@@ -190,7 +186,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).Should(HaveSuffix(
-			fmt.Sprintf("; fakeapis [case42-4-e2e] found but not as specified in namespace %s", targetNs)))
+			fmt.Sprintf("case42-4-e2e] found but not as specified in namespace %s", targetNs)))
 	})
 
 	It("should evaluate when a matching resource label is removed", func() {
@@ -202,7 +198,8 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).ShouldNot(ContainSubstring(
-			fmt.Sprintf("fakeapis [case42-3-e2e] found but not as specified in namespace %s", targetNs)))
+			"case42-3-e2e",
+			fmt.Sprintf("found but not as specified in namespace %s", targetNs)))
 	})
 
 	It("should become compliant when enforced", func() {
@@ -220,9 +217,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
-			"fakeapis [case42-1-e2e] found as specified in namespace %[1]s; "+
-				"fakeapis [case42-2-e2e] found as specified in namespace %[1]s; "+
-				"fakeapis [case42-4-e2e] found as specified in namespace %[1]s", targetNs)))
+			"fakeapis [case42-1-e2e, case42-2-e2e, case42-4-e2e] found as specified in namespace %s", targetNs)))
 	})
 
 	It("should ignore the objectSelector when a name is provided", func() {
