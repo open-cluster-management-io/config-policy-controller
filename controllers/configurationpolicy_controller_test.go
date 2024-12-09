@@ -790,8 +790,8 @@ func TestCreateStatus(t *testing.T) {
 			},
 			true,
 			"K8s `must have` object already exists",
-			"secrets [bo-peep] found as specified in namespace toy-story4; secrets [buzz] found as specified in " +
-				"namespace toy-story",
+			"secrets [buzz] found as specified in namespace toy-story; " +
+				"secrets [bo-peep] found as specified in namespace toy-story4",
 		},
 		{
 			"must have single object created",
@@ -958,6 +958,34 @@ func TestCreateStatus(t *testing.T) {
 			"K8s missing namespace",
 			"namespaced object of kind ConfigMap has no namespace specified from the policy namespaceSelector " +
 				"nor the object metadata",
+		},
+		{
+			"unnamed object multiple error",
+			"configmaps",
+			map[string]*objectTmplEvalResultWithEvent{
+				"toy-story1": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"rex", "woody"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: false,
+						reason:    reasonWantFoundNoMatch,
+					},
+				},
+				"toy-story2": {
+					result: objectTmplEvalResult{
+						objectNames: []string{"buzz", "potato"},
+					},
+					event: objectTmplEvalEvent{
+						compliant: false,
+						reason:    reasonWantFoundNoMatch,
+					},
+				},
+			},
+			false,
+			"K8s does not have a `must have` object",
+			"configmaps [rex, woody] found but not as specified in namespace toy-story1; " +
+				"configmaps [buzz, potato] found but not as specified in namespace toy-story2",
 		},
 		{
 			"multiple errors",

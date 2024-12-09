@@ -565,7 +565,7 @@ func createStatus(
 			_, namesStr, _ := strings.Cut(nsName, "/")
 
 			if len(nsNameToEvent[nsName].result.objectNames) > 0 {
-				namesStr = " [" + strings.Join(nsNameToEvent[nsName].result.objectNames, ", ") + "]"
+				namesStr = strings.Join(nsNameToEvent[nsName].result.objectNames, ", ")
 			}
 
 			if _, ok := objectNameStrsToNsNames[namesStr]; !ok {
@@ -577,98 +577,161 @@ func createStatus(
 
 		slices.Sort(sortedObjectNamesStrs)
 
-		// Process the object name strings in order to ensure a deterministic reason and message.
-		for i, namesStr := range sortedObjectNamesStrs {
-			if compliancyDetailsMsg != "" {
-				compliancyDetailsMsg += "; "
-			}
+		var msgMap map[string][]string
 
-			var generatedReason, generatedMsg string
+		msgMap, compliancyDetailsReason, compliancyDetailsMsg = generateMessageWithReason(sortedObjectNamesStrs,
+			objectNameStrsToNsNames, nsNameToEvent,
+			compliancyDetailsReason, compliancyDetailsMsg, reason)
 
-			switch reason {
-			case reasonWantFoundExists:
-				generatedReason = "K8s `must have` object already exists"
-				generatedMsg = fmt.Sprintf("%s%s found as specified", resourceName, namesStr)
-			case reasonWantFoundCreated:
-				generatedReason = reasonWantFoundCreated
-				generatedMsg = fmt.Sprintf("%s%s was created successfully", resourceName, namesStr)
-			case reasonUpdateSuccess:
-				generatedReason = reasonUpdateSuccess
-				generatedMsg = fmt.Sprintf("%s%s was updated successfully", resourceName, namesStr)
-			case reasonDeleteSuccess:
-				generatedReason = reasonDeleteSuccess
-				generatedMsg = fmt.Sprintf("%s%s was deleted successfully", resourceName, namesStr)
-			case reasonWantFoundDNE:
-				generatedReason = "K8s does not have a `must have` object"
-				compliancyDetailsMsg += fmt.Sprintf("%s%s not found", resourceName, namesStr)
-			case reasonWantFoundNoMatch:
-				generatedReason = "K8s does not have a `must have` object"
-				compliancyDetailsMsg += fmt.Sprintf("%s%s found but not as specified", resourceName, namesStr)
-			case reasonWantNotFoundExists:
-				generatedReason = "K8s has a `must not have` object"
-				compliancyDetailsMsg += fmt.Sprintf("%s%s found", resourceName, namesStr)
-			case reasonWantNotFoundDNE:
-				generatedReason = "K8s `must not have` object already missing"
-				compliancyDetailsMsg += fmt.Sprintf("%s%s missing as expected", resourceName, namesStr)
-			default:
-				// If it's not one of the above reasons, then skip consolidation. This is likely an error being
-				// reported.
-				if i == 0 {
-					if compliancyDetailsReason != "" {
-						compliancyDetailsReason += "; "
-					}
+		compliancyDetailsMsg = getCombinedCompliancyDetailsMsg(msgMap, resourceName, compliancyDetailsMsg)
+	}
 
-					compliancyDetailsReason += reason
-				}
+	return
+}
 
-				for j, nsName := range objectNameStrsToNsNames[namesStr] {
-					if j != 0 {
-						compliancyDetailsMsg += "; "
-					}
+func setCompliancyDetailsMsgEnd(compliancyDetailsMsg string) string {
+	if compliancyDetailsMsg != "" && !strings.HasSuffix(compliancyDetailsMsg, "; ") {
+		compliancyDetailsMsg += "; "
+	}
 
-					compliancyDetailsMsg += nsNameToEvent[nsName].event.message
-				}
+	return compliancyDetailsMsg
+}
 
-				// Assume the included messages include the namespace.
-				continue
-			}
+// Process the object name strings in order to ensure a deterministic reason and message.
+func getCombinedCompliancyDetailsMsg(msgMap map[string][]string,
+	resourceName string, compliancyDetailsMsg string,
+) string {
+	// Sort msgTemplate keys for consistent processing
+	msgTemplates := make([]string, 0, len(msgMap))
+	for k := range msgMap {
+		msgTemplates = append(msgTemplates, k)
+	}
 
-			// This prevents repeating the same reason for each unique object name list.
+	slices.Sort(msgTemplates)
+
+	for j, msgTemplate := range msgTemplates {
+		names := msgMap[msgTemplate]
+		slices.Sort(names) // Sort names for consistent output
+
+		if j != 0 {
+			compliancyDetailsMsg += "; "
+		}
+
+		joinedNames := strings.Join(names, ", ")
+		if joinedNames != "" {
+			joinedNames = fmt.Sprintf(" [%s]", joinedNames)
+		}
+
+		compliancyDetailsMsg += fmt.Sprintf(msgTemplate, resourceName, joinedNames)
+	}
+
+	return compliancyDetailsMsg
+}
+
+// This function returns msgMap, which is a map where the key is a message template
+// and the value is a list of resource names that share the same message template.
+func generateMessageWithReason(sortedObjectNamesStrs []string,
+	objectNameStrsToNsNames map[string][]string,
+	nsNameToEvent map[string]*objectTmplEvalResultWithEvent,
+	compliancyDetailsReason string,
+	compliancyDetailsMsg string,
+	reason string,
+) (map[string][]string, string, string) {
+	msgMap := map[string][]string{}
+
+	for i, namesStr := range sortedObjectNamesStrs {
+		compliancyDetailsMsg = setCompliancyDetailsMsgEnd(compliancyDetailsMsg)
+
+		var generatedReason, msgTemplate string
+
+		// Generate reason and message template based on the 'reason' value.
+		switch reason {
+		case reasonWantFoundExists:
+			generatedReason = "K8s `must have` object already exists"
+			msgTemplate = "%s%s found as specified"
+		case reasonWantFoundCreated:
+			generatedReason = reasonWantFoundCreated
+			msgTemplate = "%s%s was created successfully"
+		case reasonUpdateSuccess:
+			generatedReason = reasonUpdateSuccess
+			msgTemplate = "%s%s was updated successfully"
+		case reasonDeleteSuccess:
+			generatedReason = reasonDeleteSuccess
+			msgTemplate = "%s%s was deleted successfully"
+		case reasonWantFoundDNE:
+			generatedReason = "K8s does not have a `must have` object"
+			msgTemplate = "%s%s not found"
+		case reasonWantFoundNoMatch:
+			generatedReason = "K8s does not have a `must have` object"
+			msgTemplate = "%s%s found but not as specified"
+		case reasonWantNotFoundExists:
+			generatedReason = "K8s has a `must not have` object"
+			msgTemplate = "%s%s found"
+		case reasonWantNotFoundDNE:
+			generatedReason = "K8s `must not have` object already missing"
+			msgTemplate = "%s%s missing as expected"
+		default:
+			// If it's not one of the above reasons, then skip consolidation. This is likely an error being
+			// reported.
 			if i == 0 {
 				if compliancyDetailsReason != "" {
 					compliancyDetailsReason += "; "
 				}
 
-				compliancyDetailsReason += generatedReason
+				compliancyDetailsReason += reason
 			}
 
-			compliancyDetailsMsg += generatedMsg
-
-			// If it is namespaced, include the namespaces that were checked. A namespace of "" indicates
-			// cluster scoped. This length check is not necessary but is added for additional safety in case the logic
-			// above is changed.
-			nsList := []string{}
-
-			for _, nsName := range objectNameStrsToNsNames[namesStr] {
-				ns, _, _ := strings.Cut(nsName, "/")
-				if ns != "" {
-					nsList = append(nsList, ns)
+			for j, nsName := range objectNameStrsToNsNames[namesStr] {
+				if j != 0 {
+					compliancyDetailsMsg += "; "
 				}
+
+				compliancyDetailsMsg += nsNameToEvent[nsName].event.message
+			}
+			// Assume the included messages include the namespace.
+			continue
+		}
+
+		// This prevents repeating the same reason for each unique object name list.
+		if i == 0 {
+			if compliancyDetailsReason != "" {
+				compliancyDetailsReason += "; "
 			}
 
-			if len(nsList) > 0 {
-				if len(objectNameStrsToNsNames[namesStr]) > 1 {
-					compliancyDetailsMsg += " in namespaces: "
-				} else {
-					compliancyDetailsMsg += " in namespace "
-				}
+			compliancyDetailsReason += generatedReason
+		}
 
-				compliancyDetailsMsg += strings.Join(nsList, ", ")
+		// If it is namespaced, include the namespaces that were checked. A namespace of "" indicates
+		// cluster scoped. This length check is not necessary but is added for additional safety in case the logic
+		// above is changed.
+		nsList := []string{}
+
+		for _, nsName := range objectNameStrsToNsNames[namesStr] {
+			ns, _, _ := strings.Cut(nsName, "/")
+			if ns != "" {
+				nsList = append(nsList, ns)
 			}
 		}
+
+		if len(nsList) > 0 {
+			if len(objectNameStrsToNsNames[namesStr]) > 1 {
+				msgTemplate += " in namespaces: "
+			} else {
+				msgTemplate += " in namespace "
+			}
+
+			sort.Strings(nsList)
+			msgTemplate += strings.Join(nsList, ", ")
+		}
+
+		if _, ok := msgMap[msgTemplate]; !ok {
+			msgMap[msgTemplate] = []string{}
+		}
+
+		msgMap[msgTemplate] = append(msgMap[msgTemplate], namesStr)
 	}
 
-	return
+	return msgMap, compliancyDetailsReason, compliancyDetailsMsg
 }
 
 func objHasFinalizer(obj metav1.Object, finalizer string) bool {
