@@ -557,7 +557,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 				g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(
-					"The object definition's namespace must match the selected namespace after template resolution",
+					"The object definition's namespace must match the result " +
+						"from the namespace selector after template resolution",
 				))
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
@@ -577,8 +578,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 			e2eBaseName          = "case13-e2e-objectname-var"
 			invalidPolicyYAML    = case13RsrcPath + "/case13_objectname_var_invalid_name.yaml"
 			invalidPolicyName    = "case13-invalid-name"
-			emptyPolicyYAML      = case13RsrcPath + "/case13_objectname_var_empty_name.yaml"
-			emptyPolicyName      = "case13-empty-name"
+			outsidePolicyYAML    = case13RsrcPath + "/case13_objectname_var_outside_name.yaml"
+			outsidePolicyName    = "case13-outside-name"
 			allSkippedPolicyYAML = case13RsrcPath + "/case13_objectname_var_all_skipped.yaml"
 			allSkippedPolicyName = "case13-objectname-var-all-skipped"
 		)
@@ -636,26 +637,42 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}
 		})
 
-		It("Should fail when the name is empty after template resolution", func(ctx SpecContext) {
-			By("Applying the " + emptyPolicyName + " ConfigurationPolicy")
-			utils.Kubectl("apply", "-n", testNamespace, "-f", emptyPolicyYAML)
+		It("Should succeed when context vars are in use but name/namespace are left empty", func(ctx SpecContext) {
+			By("Applying the " + outsidePolicyName + " ConfigurationPolicy")
+			utils.Kubectl("apply", "-n", testNamespace, "-f", outsidePolicyYAML)
 
-			By("By verifying that the ConfigurationPolicy is noncompliant")
+			By("By verifying that the ConfigurationPolicy is compliant and has the correct related objects")
 			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(
 					clientManagedDynamic,
 					gvrConfigPolicy,
-					emptyPolicyName,
+					outsidePolicyName,
 					testNamespace,
 					true,
 					defaultTimeoutSeconds,
 				)
 
-				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
-				g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(
-					"The object definition's name must match the selected name after template resolution",
-				))
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+				g.Expect(utils.GetStatusMessage(managedPlc)).Should(Equal(fmt.Sprintf(
+					"configmaps [case13-e2e-objectname-var3] found as specified in namespace %s", e2eBaseName)))
+
+				relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+				g.Expect(relatedObjects).To(HaveLen(1))
+				relatedObject, ok := relatedObjects[0].(map[string]interface{})
+				g.Expect(ok).To(BeTrue(), "Related object is not a map")
+				relatedObject1NS, _, _ := unstructured.NestedString(relatedObject, "object", "metadata", "name")
+				g.Expect(relatedObject1NS).To(
+					Equal(fmt.Sprintf("%s%d", e2eBaseName, 3)),
+					"Related object name should match")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+			By("By verifying the ConfigMaps")
+			cm, err := clientManaged.CoreV1().ConfigMaps(e2eBaseName).Get(
+				ctx, "case13-e2e-objectname-var3", metav1.GetOptions{})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("case13", "passed"))
+			Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("object-name", cm.GetName()))
+			Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("object-namespace", cm.GetNamespace()))
 		})
 
 		It("Should fail when the name doesn't match after template resolution", func(ctx SpecContext) {
@@ -675,7 +692,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 				g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(
-					"The object definition's name must match the selected name after template resolution",
+					"The object definition's name must match the result " +
+						"from the object selector after template resolution",
 				))
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
@@ -705,7 +723,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 		AfterEach(func() {
 			utils.KubectlDelete("configurationpolicy", policyName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", invalidPolicyName, "-n", testNamespace)
-			utils.KubectlDelete("configurationpolicy", emptyPolicyName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", outsidePolicyName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", allSkippedPolicyName, "-n", testNamespace)
 			utils.KubectlDelete("configmaps", "-n", e2eBaseName, "--all")
 		})

@@ -79,6 +79,11 @@ type Target struct {
 	Exclude []NonEmptyString `json:"exclude,omitempty"`
 }
 
+// IsEmpty returns whether the defined Target would always return no objects.
+func (t Target) IsEmpty() bool {
+	return t.LabelSelector == nil && len(t.Include) == 0
+}
+
 // Define String() so that the LabelSelector is dereferenced in the logs
 func (t Target) String() string {
 	fmtSelectorStr := "{include:%s,exclude:%s,matchLabels:%+v,matchExpressions:%+v}"

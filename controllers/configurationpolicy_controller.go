@@ -1584,43 +1584,43 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				return nil, &scopedGVR, errEvent, err
 			}
 
+			// Populate the namespace and name if applicable
+			if desiredObj.GetName() == "" && name != "" {
+				desiredObj.SetName(strings.TrimSpace(name))
+			}
+
+			if desiredObj.GetNamespace() == "" && ns != "" {
+				desiredObj.SetNamespace(strings.TrimSpace(ns))
+			}
+
 			// strings.TrimSpace() is needed here because a multi-line value will have
 			// '\n' in it. This is kept for backwards compatibility.
 			desiredObj.SetName(strings.TrimSpace(desiredObj.GetName()))
 			desiredObj.SetKind(strings.TrimSpace(desiredObj.GetKind()))
 			desiredObj.SetNamespace(strings.TrimSpace(desiredObj.GetNamespace()))
 
-			// If the namespace doesn't match the original, return an error
-			if needsPerNamespaceTemplating && desiredObj.GetNamespace() != ns {
+			// Error if the namespace doesn't match the parsed namespace from the namespaceSelector
+			if !plc.Spec.NamespaceSelector.IsEmpty() && desiredObj.GetNamespace() != ns {
 				errEvent := &objectTmplEvalEvent{
 					compliant: false,
 					reason:    reasonTemplateError,
-					message: "The object definition's namespace must match the selected namespace after template " +
-						"resolution",
+					message: "The object definition's namespace must match the result " +
+						"from the namespace selector after template resolution",
 				}
 
 				return nil, &scopedGVR, errEvent, nil
 			}
 
-			// If the name doesn't match the original, return an error
-			if needsPerNameTemplating && desiredObj.GetName() != name {
+			// Error if the name doesn't match the parsed name from the objectSelector
+			if objectSelector != nil && desiredObj.GetName() != name {
 				errEvent := &objectTmplEvalEvent{
 					compliant: false,
 					reason:    reasonTemplateError,
-					message: "The object definition's name must match the selected name after template " +
-						"resolution",
+					message: "The object definition's name must match the result " +
+						"from the object selector after template resolution",
 				}
 
 				return nil, &scopedGVR, errEvent, nil
-			}
-
-			// Populate the namespace and name if they're not empty strings
-			if name != "" {
-				desiredObj.SetName(strings.TrimSpace(name))
-			}
-
-			if ns != "" {
-				desiredObj.SetNamespace(strings.TrimSpace(ns))
 			}
 
 			desiredObjects = append(desiredObjects, desiredObj)
