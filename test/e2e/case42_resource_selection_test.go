@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -236,5 +237,113 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
 			"fakeapis [case42-3-e2e] found as specified in namespace %s", targetNs)))
+	})
+})
+
+var _ = Describe("Test evaluation of resource selection", Ordered, func() {
+	const (
+		targetNs   = "case42-e2e-3"
+		prereqYaml = "../resources/case42_resource_selector/case42_eval_prereq.yaml"
+		policyYaml = "../resources/case42_resource_selector/case42_eval_policy.yaml"
+		policyName = "case42-selector-eval-e2e"
+	)
+
+	BeforeAll(func() {
+		By("Applying prerequisites")
+		utils.Kubectl("apply", "-n", targetNs, "-f", prereqYaml)
+		DeferCleanup(func() {
+			utils.KubectlDelete("-n", targetNs, "-f", prereqYaml)
+		})
+
+		utils.Kubectl("apply", "-f", policyYaml, "-n", testNamespace)
+		DeferCleanup(func() {
+			utils.KubectlDelete("-f", policyYaml, "-n", testNamespace)
+		})
+
+		By("Verifying initial compliance message")
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			return utils.GetStatusMessage(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
+			"fakeapis [case42-1-e2e] found but not as specified in namespace %s", targetNs)))
+	})
+
+	It("does not re-evaluate when the evaluation interval is in watch", func() {
+		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			policyName, testNamespace, true, defaultTimeoutSeconds)
+
+		evalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+		Expect(evalTime).ToNot(BeEmpty())
+		Expect(found).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Verifying it does not evaluate again")
+		Consistently(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			newestEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(newestEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+
+			return newestEvalTime
+		}, defaultConsistentlyDuration, "3s").Should(Equal(evalTime))
+	})
+
+	It("re-evaluates when the evaluation interval is set to a duration", func() {
+		managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+			policyName, testNamespace, true, defaultTimeoutSeconds)
+
+		By("Fetching the current evaluation timestamp")
+		currentEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+		Expect(currentEvalTime).ToNot(BeEmpty())
+		Expect(found).To(BeTrue())
+		Expect(err).ToNot(HaveOccurred())
+
+		By("Updating the evaluationInterval to 5s")
+		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
+			`--patch=[{
+				"op": "replace",
+				"path": "/spec/evaluationInterval",
+				"value": {
+					"compliant": "5s",
+					"noncompliant": "5s",
+				}
+			}]`,
+		)
+
+		var nextEvalTime string
+
+		By("Waiting for the first evaluation after the spec update")
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			nextEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(nextEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+
+			return nextEvalTime
+		}, defaultTimeoutSeconds, 1).ShouldNot(Equal(currentEvalTime))
+
+		By("Verifying it evaluates each interval")
+		Consistently(func() interface{} {
+			currentEvalTime = nextEvalTime
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			nextEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
+			Expect(nextEvalTime).ToNot(BeEmpty())
+			Expect(found).To(BeTrue())
+			Expect(err).ToNot(HaveOccurred())
+			Expect(utils.GetStatusMessage(managedPlc)).To(Equal(fmt.Sprintf(
+				"fakeapis [case42-1-e2e] found but not as specified in namespace %s", targetNs)))
+
+			return nextEvalTime
+		}, defaultConsistentlyDuration*2, "10s").ShouldNot(Equal(currentEvalTime))
 	})
 })
