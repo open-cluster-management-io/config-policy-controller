@@ -1,0 +1,22 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case42-selector-eval-e2e
+spec:
+  evaluationInterval:
+    compliant: watch
+    noncompliant: watch
+  remediationAction: inform
+  object-templates:
+    - complianceType: musthave
+      objectSelector:
+        matchExpressions:
+          - key: case42
+            operator: Exists
+      objectDefinition:
+        apiVersion: config-policy-controller.io/v1
+        kind: FakeAPI
+        metadata:
+          labels:
+            selected: "true"
+          namespace: case42-e2e-3

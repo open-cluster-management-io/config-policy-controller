@@ -1422,9 +1422,30 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			return nil, &scopedGVR, errEvent, err
 		}
 
+		usingWatch := currentlyUsingWatch(plc)
+		listOpts := metav1.ListOptions{
+			LabelSelector: objSelector.String(),
+		}
+
 		// Has a valid objectSelector, so list the names for each namespace using the objectSelector
 		for ns := range relevantNsNames {
-			filteredObjects, err := r.DynamicWatcher.List(plc.ObjectIdentifier(), objGVK, ns, objSelector)
+			var filteredObjects []unstructured.Unstructured
+			var err error
+
+			// If watch is enabled, use the dynamic watcher, otherwise use the controller dynamic client
+			if usingWatch {
+				filteredObjects, err = r.DynamicWatcher.List(plc.ObjectIdentifier(), objGVK, ns, objSelector)
+			} else {
+				var filteredObjectList *unstructured.UnstructuredList
+				filteredObjectList, err = r.TargetK8sDynamicClient.Resource(
+					scopedGVR.GroupVersionResource,
+				).Namespace(ns).List(context.TODO(), listOpts)
+
+				if err == nil {
+					filteredObjects = filteredObjectList.Items
+				}
+			}
+
 			if err != nil {
 				log.Error(err, "Failed to fetch the resources",
 					"objectSelector", fmt.Sprint(objectT.ObjectSelector.String()))

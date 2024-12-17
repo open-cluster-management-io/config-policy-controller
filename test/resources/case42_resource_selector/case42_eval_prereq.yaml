@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: case42-e2e-3
+---
+apiVersion: config-policy-controller.io/v1
+kind: FakeAPI
+metadata:
+  labels:
+    case42: case42-1-e2e
+  name: case42-1-e2e
