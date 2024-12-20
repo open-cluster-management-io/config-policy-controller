@@ -3647,7 +3647,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		const (
 			opPolYAML     = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
 			opPolName     = "oppol-no-group-enforce"
-			latestQuay310 = "quay-operator.v3.10.6"
+			latestQuay310 = "quay-operator.v3.10.7"
 		)
 
 		BeforeEach(func() {
@@ -3658,18 +3658,18 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 
 		It("Should start compliant", func(ctx SpecContext) {
-			Eventually(func(ctx SpecContext) string {
-				csv, _ := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
+			Eventually(func(ctx SpecContext) (map[string]interface{}, error) {
+				csv, err := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
 					Get(ctx, latestQuay310, metav1.GetOptions{})
 
-				if csv == nil {
-					return ""
+				if csv == nil || err != nil {
+					return map[string]interface{}{}, err
 				}
 
-				reason, _, _ := unstructured.NestedString(csv.Object, "status", "reason")
+				status, _, _ := unstructured.NestedMap(csv.Object, "status")
 
-				return reason
-			}, olmWaitTimeout, 5, ctx).Should(Equal("InstallSucceeded"))
+				return status, nil
+			}, olmWaitTimeout, 5, ctx).Should(HaveKeyWithValue("reason", "InstallSucceeded"))
 
 			check(
 				opPolName,
