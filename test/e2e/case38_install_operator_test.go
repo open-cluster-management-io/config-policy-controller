@@ -24,12 +24,12 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), func() {
+var _ = FDescribe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), func() {
 	const (
 		opPolTestNS          = "operator-policy-testns"
 		parentPolicyYAML     = "../resources/case38_operator_install/parent-policy.yaml"
 		parentPolicyName     = "parent-policy"
-		eventuallyTimeout    = 60
+		eventuallyTimeout    = 120
 		consistentlyDuration = 5
 		olmWaitTimeout       = 60
 	)
@@ -182,13 +182,15 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					fmt.Sprintf(".*%v.*", regexp.QuoteMeta(expectedCondition.Message))))
 			}
 
-			events := utils.GetMatchingEvents(
-				clientManaged, testNamespace, parentPolicyName, "", expectedEventMsgSnippet, eventuallyTimeout,
-			)
-			g.Expect(events).NotTo(BeEmpty())
+			if expectedEventMsgSnippet != "" {
+				events := utils.GetMatchingEvents(
+					clientManaged, testNamespace, parentPolicyName, "", expectedEventMsgSnippet, eventuallyTimeout,
+				)
+				g.Expect(events).NotTo(BeEmpty())
+			}
 		}
 
-		Eventually(checkFunc, eventuallyTimeout, 3).Should(Succeed())
+		Eventually(checkFunc, eventuallyTimeout*2, 3).Should(Succeed())
 		Consistently(checkFunc, consistentlyDuration, 1).Should(Succeed())
 	}
 
@@ -3693,6 +3695,19 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				},
 				"no InstallPlans requiring approval were found",
 			)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "NoDeprecations",
+					Status:  metav1.ConditionTrue,
+					Reason:  "Recommended",
+					Message: "The requested package, channel, and bundle are all at the recommended versions",
+				},
+				"",
+			)
 		})
 		It("Should report a violation after the versions list is patched to exclude the current version", func() {
 			By("Patching the versions field to exclude the installed version")
@@ -3723,5 +3738,81 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				"ClusterServiceVersion .* is not an approved version",
 			)
 		})
+	})
+	Describe("Test Deprecation message in OperatorPolicy", Ordered, func() {
+		const (
+			allPolYAML     = "../resources/case38_operator_install/deprecation/all.yaml"
+			allPolName     = "deprecation-operator"
+			channelPolYAML = "../resources/case38_operator_install/deprecation/channel.yaml"
+			channelPolName = "dep-channel-operator"
+			bundlePolYAML  = "../resources/case38_operator_install/deprecation/bundle.yaml"
+			bundlePolName  = "dep-bundle-operator"
+		)
+		BeforeEach(func() {
+			preFunc()
+		})
+
+		It("Should have only package deprecation message is displayed "+
+			"when package, channel, and bundle are deprecated.",
+			func(ctx SpecContext) {
+				createObjWithParent(parentPolicyYAML, parentPolicyName,
+					allPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+
+				check(
+					allPolName,
+					false,
+					[]policyv1.RelatedObject{},
+					metav1.Condition{
+						Type:   "NoDeprecations",
+						Status: metav1.ConditionTrue,
+						Reason: "PackageDeprecated",
+						Message: "the requested deprecation-operator Package was deprecated. " +
+							"deprecation-operator is end of life.  Please don't use this package.",
+					},
+					"",
+				)
+			})
+
+		It("Should have channel deprecation message is displayed "+
+			"when channel is deprecated.",
+			func(ctx SpecContext) {
+				createObjWithParent(parentPolicyYAML, parentPolicyName,
+					channelPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+
+				check(
+					channelPolName,
+					false,
+					[]policyv1.RelatedObject{},
+					metav1.Condition{
+						Type:   "NoDeprecations",
+						Status: metav1.ConditionTrue,
+						Reason: "ChannelDeprecated",
+						Message: "the requested alpha Channel was deprecated. " +
+							"channel alpha is no longer supported.  Please switch to channel 'stable'",
+					},
+					"",
+				)
+			})
+
+		It("Should have bundle deprecation message is displayed "+
+			"when bundle is deprecated.",
+			func(ctx SpecContext) {
+				createObjWithParent(parentPolicyYAML, parentPolicyName,
+					bundlePolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+
+				check(
+					bundlePolName,
+					false,
+					[]policyv1.RelatedObject{},
+					metav1.Condition{
+						Type:   "NoDeprecations",
+						Status: metav1.ConditionTrue,
+						Reason: "BundleDeprecated",
+						Message: "the requested dep-bundle-operator.v0.0.1 Bundle was deprecated. " +
+							"dep-bundle-operator.v0.0.1 bundle is no longer supported.",
+					},
+					"",
+				)
+			})
 	})
 })

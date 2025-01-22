@@ -1,0 +1,19 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: CatalogSource
+metadata:
+  name: grc-mock-source
+  # The OLM namespace has all the permissions required by the subscription.
+  # Use `openshift-marketplace` namespace in openshift
+  # e.g For example, you can install an operator in the namespace of your choice.
+  namespace: olm
+spec:
+  sourceType: grpc
+  image: quay.io/stolostron-grc/grc-mock-operators-catalog:latest
+  displayName: GRC mock operators
+  grpcPodConfig:
+    securityContextConfig: restricted
+  publisher: grc-mock.io
+  updateStrategy:
+    registryPoll:
+      interval: 60m
+

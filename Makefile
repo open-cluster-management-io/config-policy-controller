@@ -208,7 +208,7 @@ kind-delete-cluster:
 .PHONY: kind-tests
 kind-tests: kind-delete-cluster kind-bootstrap-cluster-dev kind-deploy-controller-dev e2e-test
 
-OLM_VERSION := v0.26.0
+OLM_VERSION := v0.30.0
 OLM_INSTALLER = $(LOCAL_BIN)/install.sh
 
 .PHONY: install-crds
@@ -222,6 +222,9 @@ install-crds:  $(OLM_INSTALLER)
 	kubectl apply -f https://raw.githubusercontent.com/open-cluster-management-io/governance-policy-propagator/main/deploy/crds/policy.open-cluster-management.io_policies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml
 	kubectl apply -f deploy/crds/policy.open-cluster-management.io_operatorpolicies.yaml
+	# deploying GRC fake operators
+	kubectl create -f test/resources/grc-operators/catalog.yaml
+	./build/common/scripts/check_catalog.sh
 
 $(OLM_INSTALLER):
 	@echo getting OLM installer
@@ -232,6 +235,9 @@ install-crds-hosted: export KUBECONFIG=./kubeconfig_managed$(MANAGED_CLUSTER_SUF
 install-crds-hosted: $(OLM_INSTALLER)
 	chmod +x $(LOCAL_BIN)/install.sh
 	$(LOCAL_BIN)/install.sh $(OLM_VERSION)
+	# deploying GRC fake operators
+	kubectl create -f test/resources/grc-operators/catalog.yaml
+	./build/common/scripts/check_catalog.sh
 
 .PHONY: install-resources
 install-resources:

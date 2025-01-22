@@ -282,6 +282,20 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		}
 	}
 
+	idx, cond = policy.Status.GetCondition(deprecationType)
+	if !policy.Spec.ComplianceType.IsMustNotHave() {
+		if idx == -1 {
+			messages = append(messages, "The deprecation status is unknown")
+			foundNonCompliant = true
+		} else {
+			messages = append(messages, cond.Message)
+
+			if cond.Status != metav1.ConditionTrue {
+				foundNonCompliant = true
+			}
+		}
+	}
+
 	if foundNonCompliant {
 		return metav1.Condition{
 			Type:               compliantConditionType,
@@ -367,6 +381,7 @@ const (
 	deploymentConditionType  = "DeploymentCompliant"
 	catalogSrcConditionType  = "CatalogSourcesUnhealthy"
 	installPlanConditionType = "InstallPlanCompliant"
+	deprecationType          = "NoDeprecations"
 )
 
 func condType(kind string) string {
@@ -549,6 +564,30 @@ func updatedCond(kind string) metav1.Condition {
 		Status:  metav1.ConditionTrue,
 		Reason:  kind + "Updated",
 		Message: "the " + kind + " was updated to match the policy",
+	}
+}
+
+type Schema string
+
+const (
+	Bundle  Schema = "Bundle"
+	Channel Schema = "Channel"
+	Package Schema = "Package"
+)
+
+func (s Schema) toString() string {
+	return string(s)
+}
+
+// deprecationCond returns a Compliant condition (without affecting the condition itself),
+// and a message in the format: 'The ____ (Package, Channel, Bundle) was deprecated.'
+// + additional details from packageManifest.
+func deprecationCond(depSchemaName string, depSchema Schema, message string) metav1.Condition {
+	return metav1.Condition{
+		Type:    deprecationType,
+		Status:  metav1.ConditionFalse,
+		Reason:  depSchema.toString() + "Deprecated",
+		Message: "the requested " + depSchemaName + " " + depSchema.toString() + " was deprecated. " + message,
 	}
 }
 

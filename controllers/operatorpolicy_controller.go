@@ -363,6 +363,11 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
+	err = r.updateDeprecationStatus(ctx, policy, subscription, csv)
+	if err != nil {
+		return earlyComplianceEvents, condChanged, err
+	}
+
 	earlyConds, changed, err = r.handleCRDs(ctx, policy, subscription)
 	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
 	condChanged = condChanged || changed
@@ -1438,6 +1443,135 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	updateStatus(policy, updatedCond("Subscription"), updatedObj(mergedSub))
 
 	return mergedSub, earlyConds, true, nil
+}
+
+// updateDeprecationStatus checks the deprecation status of a package, channel, or bundle
+// and updates the policy's status accordingly. It prioritizes deprecation status in the following order:
+// 1. Package-level deprecation
+// 2. Channel-level deprecation
+// 3. Bundle-level deprecation
+// The function only proceeds if the policy's compliance type is "MustHave".
+func (r *OperatorPolicyReconciler) updateDeprecationStatus(ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	desiredSub *operatorv1alpha1.Subscription,
+	csv *operatorv1alpha1.ClusterServiceVersion,
+) error {
+	opLog := ctrl.LoggerFrom(ctx)
+
+	// Handle the case where 'sub' is null in other functions
+	if !policy.Spec.ComplianceType.IsMustHave() || desiredSub == nil {
+		return nil
+	}
+
+	packageManifest, err := r.DynamicClient.Resource(packageManifestGVR).Namespace("default").Get(
+		ctx, desiredSub.Spec.Package, metav1.GetOptions{},
+	)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			// Handle the case where 'packageManifest' is null in other functions
+			opLog.Info("PackageManifest not found; skipping DeprecationStatus check",
+				"PackageManifestName", desiredSub.Spec.Package)
+
+			return nil
+		}
+
+		return fmt.Errorf("failed to get the PackageManifest %q %w", desiredSub.Spec.Package, err)
+	}
+
+	// Extract package name
+	packageName, ok, err := unstructured.NestedString(packageManifest.Object, "status", "packageName")
+	if err != nil || !ok {
+		return fmt.Errorf("failed to get packageName in the pakcageManifest %q %w", desiredSub.Spec.Package, err)
+	}
+
+	// Check if the package is deprecated
+	if deprecation, ok, _ := unstructured.NestedMap(packageManifest.Object, "status", "deprecation"); ok {
+		message, _, _ := unstructured.NestedString(deprecation, "message")
+		updateStatus(policy, deprecationCond(packageName, Package, message))
+
+		return nil
+	}
+
+	// Check the selected channel is deprecated
+	selectedChannelName := desiredSub.Spec.Channel
+	if selectedChannelName == "" {
+		defaultChannel, ok, err := unstructured.NestedString(packageManifest.Object, "status", "defaultChannel")
+		if err != nil || !ok {
+			return fmt.Errorf("failed to retrieve default channel in PackageManifest %q: %w",
+				desiredSub.Spec.Package, err)
+		}
+
+		selectedChannelName = defaultChannel
+	}
+
+	// Extract channels
+	channels, ok, err := unstructured.NestedSlice(packageManifest.Object, "status", "channels")
+	if err != nil || !ok {
+		return fmt.Errorf("failed to retrieve channels in PackageManifest %q: %w", desiredSub.Spec.Package, err)
+	}
+
+	// Check for deprecation in the selected channel
+	for _, channel := range channels {
+		channelMap, ok := channel.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("failed to parse channel in PackageManifest %q: %w", desiredSub.Spec.Package, err)
+		}
+
+		channelName, ok := channelMap["name"].(string)
+		if !ok || channelName != selectedChannelName {
+			continue
+		}
+
+		// Check if the channel is deprecated
+		if channelDep, ok := channelMap["deprecation"].(map[string]interface{}); ok {
+			message, _, _ := unstructured.NestedString(channelDep, "message")
+			updateStatus(policy, deprecationCond(channelName, Channel, message))
+
+			return nil
+		}
+
+		// Check bundle Deprecation
+		if csv == nil {
+			return nil
+		}
+
+		csvName := csv.GetName()
+
+		entries, ok, err := unstructured.NestedSlice(channelMap, "entries")
+		if err != nil || !ok {
+			return fmt.Errorf("failed to parse entries in channel %q of PackageManifest %q: %w",
+				channelName, desiredSub.Spec.Package, err)
+		}
+
+		for i, entry := range entries {
+			entryMap, ok := entry.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf(
+					"failed to parse entry index [%d] in channel %q of PackageManifest %q: %w",
+					i, channelName, desiredSub.Spec.Package, err,
+				)
+			}
+
+			entryName, _, _ := unstructured.NestedString(entryMap, "name")
+			if entryName == csvName {
+				if bundleDeprecation, ok := entryMap["deprecation"].(map[string]interface{}); ok {
+					message, _, _ := unstructured.NestedString(bundleDeprecation, "message")
+					updateStatus(policy, deprecationCond(entryName, Bundle, message))
+
+					return nil
+				}
+			}
+		}
+	}
+
+	updateStatus(policy, metav1.Condition{
+		Type:    deprecationType,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Recommended",
+		Message: "The requested package, channel, and bundle are all at the recommended versions",
+	})
+
+	return nil
 }
 
 func (r *OperatorPolicyReconciler) considerResolutionFailed(
