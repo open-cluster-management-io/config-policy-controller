@@ -1,0 +1,28 @@
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: deprecation-operator
+  labels:
+    policy.open-cluster-management.io/cluster-name: "managed"
+    policy.open-cluster-management.io/cluster-namespace: "managed"
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    kind: Policy
+    name: parent-policy
+    uid: d539d757-5183-48b2-93aa-c3c50165529d #
+spec:
+  remediationAction: enforce
+  severity: medium
+  complianceType: musthave
+  operatorGroup: # optional
+    name: grc-dep-group
+    namespace: operator-policy-testns
+    targetNamespaces:
+      - operator-policy-testns
+  subscription:
+    name: deprecation-operator
+    namespace: grc-dep
+    channel: alpha
+    source: grc-mock-source
+    sourceNamespace: olm
+  upgradeApproval: Automatic
