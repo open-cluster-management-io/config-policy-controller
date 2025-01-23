@@ -24,12 +24,12 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = FDescribe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), func() {
+var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), func() {
 	const (
 		opPolTestNS          = "operator-policy-testns"
 		parentPolicyYAML     = "../resources/case38_operator_install/parent-policy.yaml"
 		parentPolicyName     = "parent-policy"
-		eventuallyTimeout    = 120
+		eventuallyTimeout    = 90
 		consistentlyDuration = 5
 		olmWaitTimeout       = 60
 	)
@@ -909,21 +909,19 @@ var _ = FDescribe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), f
 			opPolName        = "oppol-no-group-enforce-one-version"
 			opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
 			opPolNoExistName = "oppol-no-exist-enforce"
+			operatorName     = "example-operator.v0.0.3"
 		)
 		BeforeAll(func() {
 			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolNoExistYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
 		})
 
 		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
 			Eventually(func(ctx SpecContext) string {
 				csv, _ := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
-					Get(ctx, "quay-operator.v3.10.0", metav1.GetOptions{})
+					Get(ctx, operatorName, metav1.GetOptions{})
 
 				if csv == nil {
 					return ""
@@ -949,11 +947,11 @@ var _ = FDescribe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), f
 					Type:   "ClusterServiceVersionCompliant",
 					Status: metav1.ConditionTrue,
 					Reason: "InstallSucceeded",
-					Message: "ClusterServiceVersion (quay-operator.v3.10.0) - install strategy completed with " +
+					Message: "ClusterServiceVersion (" + operatorName + ") - install strategy completed with " +
 						"no errors",
 				},
 				regexp.QuoteMeta(
-					"ClusterServiceVersion (quay-operator.v3.10.0) - install strategy completed with no errors",
+					"ClusterServiceVersion ("+operatorName+") - install strategy completed with no errors",
 				),
 			)
 		})
@@ -981,6 +979,9 @@ var _ = FDescribe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), f
 		})
 
 		It("Should only be noncompliant if the subscription error relates to the one in the operator policy", func() {
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				opPolNoExistYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+
 			By("Checking that " + opPolNoExistName + " is NonCompliant")
 			check(
 				opPolNoExistName,
@@ -3451,7 +3452,7 @@ var _ = FDescribe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), f
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
 			opPolName = "oppol-no-group-enforce"
-			subName   = "project-quay"
+			subName   = "example-operator"
 		)
 
 		scenarioTriggered := true
@@ -3649,10 +3650,11 @@ var _ = FDescribe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), f
 		const (
 			opPolYAML     = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
 			opPolName     = "oppol-no-group-enforce"
-			latestQuay310 = "quay-operator.v3.10.7"
+			latestExample = "example-operator.v0.0.3"
 		)
 
-		BeforeEach(func() {
+		// The first 'It' test is a prerequisite for the second 'It' test.
+		BeforeAll(func() {
 			preFunc()
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
@@ -3662,7 +3664,7 @@ var _ = FDescribe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), f
 		It("Should start compliant", func(ctx SpecContext) {
 			Eventually(func(ctx SpecContext) (map[string]interface{}, error) {
 				csv, err := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
-					Get(ctx, latestQuay310, metav1.GetOptions{})
+					Get(ctx, latestExample, metav1.GetOptions{})
 
 				if csv == nil || err != nil {
 					return map[string]interface{}{}, err
@@ -3723,17 +3725,17 @@ var _ = FDescribe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), f
 						APIVersion: "operators.coreos.com/v1alpha1",
 						Metadata: policyv1.ObjectMetadata{
 							Namespace: opPolTestNS,
-							Name:      latestQuay310,
+							Name:      latestExample,
 						},
 					},
 					Compliant: "NonCompliant",
-					Reason:    "ClusterServiceVersion (" + latestQuay310 + ") is not an approved version",
+					Reason:    "ClusterServiceVersion (" + latestExample + ") is not an approved version",
 				}},
 				metav1.Condition{
 					Type:    "ClusterServiceVersionCompliant",
 					Status:  metav1.ConditionFalse,
 					Reason:  "UnapprovedVersion",
-					Message: "ClusterServiceVersion (" + latestQuay310 + ") is not an approved version",
+					Message: "ClusterServiceVersion (" + latestExample + ") is not an approved version",
 				},
 				"ClusterServiceVersion .* is not an approved version",
 			)

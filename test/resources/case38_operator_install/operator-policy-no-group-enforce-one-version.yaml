@@ -15,12 +15,12 @@ spec:
   severity: medium
   complianceType: musthave
   subscription:
-    channel: stable-3.10
-    name: project-quay
+    channel: stable
+    name: example-operator
     namespace: operator-policy-testns
-    source: operatorhubio-catalog
+    source: grc-mock-source
     sourceNamespace: olm
-    startingCSV: quay-operator.v3.10.0
+    startingCSV: example-operator.v0.0.3
   versions:
-  - quay-operator.v3.10.0
+  - example-operator.v0.0.3
   upgradeApproval: Automatic
