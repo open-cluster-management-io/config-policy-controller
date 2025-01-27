@@ -134,6 +134,13 @@ type ComplianceConfig struct {
 	//
 	//+kubebuilder:default=Compliant
 	UpgradesAvailable ComplianceConfigAction `json:"upgradesAvailable,omitempty"`
+	// DeprecationsPresent specifies how the overall policy compliance is affected by deprecations.
+	// The default value is `Compliant`. If any deprecations are detected
+	// while DeprecationsPresent = NonCompliant,
+	// then the policy compliance will be set to `NonCompliant`.
+	//
+	// +kubebuilder:default=Compliant
+	DeprecationsPresent ComplianceConfigAction `json:"deprecationsPresent,omitempty"`
 }
 
 // OperatorPolicySpec defines the desired state of a particular operator on the cluster.
