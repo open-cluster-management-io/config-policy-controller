@@ -70,6 +70,17 @@ spec:
                     - Compliant
                     - NonCompliant
                     type: string
+                  deprecationsPresent:
+                    default: Compliant
+                    description: |-
+                      DeprecationsPresent specifies how the overall policy compliance is affected by deprecations.
+                      The default value is `Compliant`. If any deprecations are detected
+                      while DeprecationsPresent = NonCompliant,
+                      then the policy compliance will be set to `NonCompliant`.
+                    enum:
+                    - Compliant
+                    - NonCompliant
+                    type: string
                   upgradesAvailable:
                     default: Compliant
                     description: |-

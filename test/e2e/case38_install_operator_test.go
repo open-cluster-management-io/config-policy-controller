@@ -3766,7 +3766,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					[]policyv1.RelatedObject{},
 					metav1.Condition{
 						Type:   "NoDeprecations",
-						Status: metav1.ConditionTrue,
+						Status: metav1.ConditionFalse,
 						Reason: "PackageDeprecated",
 						Message: "the requested deprecation-operator Package was deprecated. " +
 							"deprecation-operator is end of life.  Please don't use this package.",
@@ -3787,7 +3787,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					[]policyv1.RelatedObject{},
 					metav1.Condition{
 						Type:   "NoDeprecations",
-						Status: metav1.ConditionTrue,
+						Status: metav1.ConditionFalse,
 						Reason: "ChannelDeprecated",
 						Message: "the requested alpha Channel was deprecated. " +
 							"channel alpha is no longer supported.  Please switch to channel 'stable'",
@@ -3808,7 +3808,32 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					[]policyv1.RelatedObject{},
 					metav1.Condition{
 						Type:   "NoDeprecations",
-						Status: metav1.ConditionTrue,
+						Status: metav1.ConditionFalse,
+						Reason: "BundleDeprecated",
+						Message: "the requested dep-bundle-operator.v0.0.1 Bundle was deprecated. " +
+							"dep-bundle-operator.v0.0.1 bundle is no longer supported.",
+					},
+					"",
+				)
+			})
+		It("Should have deprecation message is displayed and policy compliance is Compliant "+
+			"when bundle is deprecated and deprecationAvaliable is set to NonCompliant",
+			func(_ SpecContext) {
+				createObjWithParent(parentPolicyYAML, parentPolicyName,
+					bundlePolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+
+				utils.Kubectl("patch", "operatorpolicy", bundlePolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace",
+					"path": "/spec/complianceConfig/deprecationsPresent",
+					"value": "NonCompliant"}]`)
+
+				check(
+					bundlePolName,
+					true,
+					[]policyv1.RelatedObject{},
+					metav1.Condition{
+						Type:   "NoDeprecations",
+						Status: metav1.ConditionFalse,
 						Reason: "BundleDeprecated",
 						Message: "the requested dep-bundle-operator.v0.0.1 Bundle was deprecated. " +
 							"dep-bundle-operator.v0.0.1 bundle is no longer supported.",

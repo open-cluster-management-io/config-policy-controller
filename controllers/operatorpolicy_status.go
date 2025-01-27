@@ -283,7 +283,8 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 	}
 
 	idx, cond = policy.Status.GetCondition(deprecationType)
-	if !policy.Spec.ComplianceType.IsMustNotHave() {
+	if !policy.Spec.ComplianceType.IsMustNotHave() &&
+		policy.Spec.ComplianceConfig.DeprecationsPresent == "NonCompliant" {
 		if idx == -1 {
 			messages = append(messages, "The deprecation status is unknown")
 			foundNonCompliant = true
