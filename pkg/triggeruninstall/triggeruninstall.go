@@ -49,6 +49,10 @@ func TriggerUninstall(
 		}
 
 		annotations := deployment.GetAnnotations()
+		if annotations == nil {
+			annotations = map[string]string{}
+		}
+
 		annotations[common.UninstallingAnnotation] = time.Now().Format(time.RFC3339)
 		deployment.SetAnnotations(annotations)
 
@@ -98,6 +102,10 @@ func TriggerUninstall(
 					cleanedUp = false
 
 					annos := configPolicy.GetAnnotations()
+					if annos == nil {
+						annos = map[string]string{}
+					}
+
 					annos[common.UninstallingAnnotation] = time.Now().Format(time.RFC3339)
 
 					updatedPolicy := configPolicy.DeepCopy()
