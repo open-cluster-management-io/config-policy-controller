@@ -1,0 +1,20 @@
+# Status compare:
+[31m.compliancyDetails[0].Compliant: 'Compliant' does not match 'NonCompliant'[0m
+[31m.compliancyDetails[0].conditions[0].message: 'hello not match' does not match 'pods [nginx-pod-e2e] not found in namespace default'[0m
+[31m.compliancyDetails[0].conditions[0] does not match any elements[0m
+[31m.compliancyDetails[0].conditions does not match the elements[0m
+[31m.compliancyDetails[0] does not match any elements[0m
+[31m.compliancyDetails does not match the elements[0m
+[31m.compliant: 'Compliant' does not match 'NonCompliant'[0m
+[32m.relatedObjects[0].compliant: 'NonCompliant' does match 'NonCompliant'[0m
+[32m.relatedObjects[0].object.apiVersion: 'v1' does match 'v1'[0m
+[32m.relatedObjects[0].object.kind: 'Pod' does match 'Pod'[0m
+[32m.relatedObjects[0] matches[0m
+[32m.relatedObjects matches[0m
+[31m[1m Expected status does not match the actual status [0m[0m
+
+# Diffs:
+v1 Pod default/nginx-pod-e2e:
+
+# Compliance messages:
+NonCompliant; violation - pods [nginx-pod-e2e] not found in namespace default

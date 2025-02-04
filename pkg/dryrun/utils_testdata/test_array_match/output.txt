@@ -1,0 +1,11 @@
+# Status compare:
+[32m.compliancyDetails[0].Compliant: 'Compliant' does match 'Compliant'[0m
+[32m.compliancyDetails[0].conditions[0].message: 'namespaces [test1] found as specified' does match 'namespaces [test1] found as specified'[0m
+[32m.compliancyDetails[0].conditions[0].reason: 'K8s `must have` object already exists' does match 'K8s `must have` object already exists'[0m
+[32m.compliancyDetails[0].conditions[0] matches[0m
+[32m.compliancyDetails[0].conditions matches[0m
+[32m.compliancyDetails[0] matches[0m
+[32m.compliancyDetails matches[0m
+[32m.compliant: 'Compliant' does match 'Compliant'[0m
+[32m.lastEvaluatedGeneration: '1' does match '1'[0m
+[32m[1m Expected status matches the actual status [0m[0m

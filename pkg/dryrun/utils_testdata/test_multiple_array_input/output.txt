@@ -1,0 +1,11 @@
+# Status compare:
+[32m.compliant: 'Compliant' does match 'Compliant'[0m
+[32m.relatedObjects[0].compliant: 'Compliant' does match 'Compliant'[0m
+[32m.relatedObjects[0].object.apiVersion: 'v1' does match 'v1'[0m
+[31m.relatedObjects[0].object.kind: 'ConfigMap' does not match 'Namespace'[0m
+[32m.relatedObjects[0].compliant: 'Compliant' does match 'Compliant'[0m
+[32m.relatedObjects[0].object.apiVersion: 'v1' does match 'v1'[0m
+[31m.relatedObjects[0].object.kind: 'ConfigMap' does not match 'Pod'[0m
+[31m.relatedObjects[0] does not match any elements[0m
+[31m.relatedObjects does not match the elements[0m
+[31m[1m Expected status does not match the actual status [0m[0m

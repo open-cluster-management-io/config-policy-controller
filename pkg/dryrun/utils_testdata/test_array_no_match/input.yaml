@@ -1,0 +1,13 @@
+compliancyDetails:
+- Compliant: Compliant
+  Validity: {}
+  conditions:
+  - message: not match
+relatedObjects:
+- compliant: Compliant
+  object:
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: test1
+  properties: not match

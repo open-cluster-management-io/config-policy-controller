@@ -1,0 +1,3 @@
+# Status compare:
+.compliant: 'NonCompliant' does not match 'Compliant'
+[1m Expected status does not match the actual status [0m

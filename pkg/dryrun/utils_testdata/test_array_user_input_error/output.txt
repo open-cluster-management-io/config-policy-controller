@@ -1,0 +1,4 @@
+# Status compare:
+[31mThe input status field '.compliancyDetails' is not the right type - expected '[]interface {}'[0m
+[33mskip lastEvaluatedGeneration, .lastEvaluatedGeneration is not array,[0m
+[31m[1m Expected status does not match the actual status [0m[0m
