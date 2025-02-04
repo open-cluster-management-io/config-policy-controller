@@ -128,8 +128,7 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Enforcing the policy to make it compliant")
-		utils.Kubectl("patch", "configurationpolicy", case15BecomesCompliantName, `--type=json`,
-			`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", testNamespace)
+		utils.EnforceConfigurationPolicy(case15BecomesCompliantName, testNamespace)
 		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case15BecomesCompliantName, testNamespace, true, defaultTimeoutSeconds)

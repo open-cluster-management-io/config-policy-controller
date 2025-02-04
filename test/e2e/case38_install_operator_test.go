@@ -392,8 +392,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 		It("Should create the OperatorGroup when it is enforced", func() {
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
 			check(
 				opPolName,
 				false,
@@ -615,8 +614,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 		It("Should update the OperatorGroup when it is changed to enforce", func() {
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
 			check(
 				opPolName,
 				false,
@@ -719,8 +717,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 		It("Should not create the Subscription when another OperatorGroup already exists", func() {
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
 			check(
 				opPolName,
 				true,
@@ -1149,8 +1146,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should remain compliant when policy is enforced", func() {
 			By("Enforcing the policy")
-			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.EnforceOperatorPolicy(OpPlcName, testNamespace)
 
 			By("Checking the condition fields")
 			check(
@@ -1595,8 +1591,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 
 		It("Should generate conditions and relatedobjects of CRD", func(ctx SpecContext) {
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
 			By("Waiting for a CRD to appear, which should indicate the operator is installing")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
 				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
@@ -2290,8 +2285,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should not remove anything when enforced while set to Keep everything", func(ctx SpecContext) {
 			// Enforce the policy
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
 			By("Checking the OperatorPolicy status")
 			keptChecks()
 			check(
@@ -3097,8 +3091,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				otherYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
 
 			// enforce the other policy
-			utils.Kubectl("patch", "operatorpolicy", "oppol-authorino", "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.EnforceOperatorPolicy("oppol-authorino", testNamespace)
 
 			By("Waiting for the policy to become compliant, indicating the operator is installed")
 			checkCompliance("oppol-authorino", testNamespace, olmWaitTimeout, policyv1.Compliant)
@@ -3253,10 +3246,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 		It("Should display a validation error when both are enforced", func() {
 			// enforce the policies
-			utils.Kubectl("patch", "operatorpolicy", mustnothaveName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
-			utils.Kubectl("patch", "operatorpolicy", musthaveName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.EnforceOperatorPolicy(mustnothaveName, testNamespace)
+			utils.EnforceOperatorPolicy(musthaveName, testNamespace)
 
 			check(
 				mustnothaveName,
@@ -3368,9 +3359,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 
 		It("Should lookup values for operator policy resources when enforced", func(ctx SpecContext) {
-			// enforce the policy
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
 
 			check(
 				opPolName,

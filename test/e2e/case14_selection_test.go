@@ -178,8 +178,7 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 	It("should update relatedObjects after enforcing the policy", func() {
 		for _, policy := range policyTests {
 			By("Patching " + policy.name + " to enforce")
-			utils.Kubectl("patch", "configurationpolicy", policy.name, `--type=json`,
-				`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", testNamespace)
+			utils.EnforceConfigurationPolicy(policy.name, testNamespace)
 			By("Checking that " + policy.name + " is Compliant")
 			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,

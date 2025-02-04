@@ -244,10 +244,7 @@ var _ = Describe("Diff generation with sensitive input", Ordered, func() {
 		))
 
 		By("Enforcing the policy removes the diff message")
-		utils.Kubectl(
-			"patch", "configurationpolicy", noDiffOnSecret, `--type=json`,
-			`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", testNamespace,
-		)
+		utils.EnforceConfigurationPolicy(noDiffOnSecret, testNamespace)
 
 		By("Verifying the diff in the status no longer contains instructions to set recordDiff")
 		Eventually(func(g Gomega) {

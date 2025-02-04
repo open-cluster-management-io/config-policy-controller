@@ -50,8 +50,7 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 
 	It("Should still become compliant when enforced despite the invalid message template", func() {
 		By("Patching the remediationAction")
-		utils.Kubectl("patch", "configurationpolicy", policyName, "-n", testNamespace, "--type=json", "-p",
-			`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+		utils.EnforceConfigurationPolicy(policyName, testNamespace)
 
 		By("Verifying the ConfigurationPolicy becomes Compliant")
 		Eventually(func() interface{} {

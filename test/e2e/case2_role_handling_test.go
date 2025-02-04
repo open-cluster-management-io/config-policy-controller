@@ -185,8 +185,7 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 			Expect(diff).To(Equal(expectedDiff))
 
 			By("patching policy spec.remediationAction = enforce")
-			utils.Kubectl("patch", "configurationpolicy", configPolicyNameBindingEnforce, `--type=json`,
-				`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", testNamespace)
+			utils.EnforceConfigurationPolicy(configPolicyNameBindingEnforce, testNamespace)
 			Eventually(func(g Gomega) {
 				informPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					configPolicyNameBindingEnforce, testNamespace, true, defaultTimeoutSeconds)
