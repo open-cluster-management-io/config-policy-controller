@@ -279,8 +279,9 @@ func (o *ObjectTemplate) RecordDiffWithDefault() RecordDiff {
 // ConfigurationPolicySpec defines the desired configuration of objects on the cluster, along with
 // how the controller should handle when the cluster doesn't match the configuration policy.
 type ConfigurationPolicySpec struct {
-	CustomMessage      CustomMessage      `json:"customMessage,omitempty"`
-	Severity           Severity           `json:"severity,omitempty"`
+	CustomMessage CustomMessage `json:"customMessage,omitempty"`
+	Severity      Severity      `json:"severity,omitempty"`
+	// +kubebuilder:default=inform
 	RemediationAction  RemediationAction  `json:"remediationAction"`
 	EvaluationInterval EvaluationInterval `json:"evaluationInterval,omitempty"`
 	// +kubebuilder:default:=None

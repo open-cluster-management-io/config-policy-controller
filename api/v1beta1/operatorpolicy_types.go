@@ -145,8 +145,9 @@ type ComplianceConfig struct {
 
 // OperatorPolicySpec defines the desired state of a particular operator on the cluster.
 type OperatorPolicySpec struct {
-	Severity          policyv1.Severity          `json:"severity,omitempty"`
-	RemediationAction policyv1.RemediationAction `json:"remediationAction,omitempty"`
+	Severity policyv1.Severity `json:"severity,omitempty"`
+	// +kubebuilder:default=inform
+	RemediationAction policyv1.RemediationAction `json:"remediationAction"`
 
 	// ComplianceType specifies the desired state of the operator on the cluster. If set to
 	// `musthave`, the policy is compliant when the operator is found. If set to `mustnothave`,
