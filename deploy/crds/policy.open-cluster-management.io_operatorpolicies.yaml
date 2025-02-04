@@ -113,6 +113,7 @@ spec:
                 type: object
                 x-kubernetes-preserve-unknown-fields: true
               remediationAction:
+                default: inform
                 description: |-
                   RemediationAction is the remediation of the policy. The parameter values are `enforce` and
                   `inform`.
@@ -231,6 +232,7 @@ spec:
                 type: array
             required:
             - complianceType
+            - remediationAction
             - subscription
             - upgradeApproval
             type: object

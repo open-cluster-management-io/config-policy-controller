@@ -305,6 +305,7 @@ spec:
                 - None
                 type: string
               remediationAction:
+                default: inform
                 description: |-
                   RemediationAction is the remediation of the policy. The parameter values are `enforce` and
                   `inform`.
