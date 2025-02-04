@@ -178,6 +178,18 @@ func KubectlDelete(args ...string) {
 	Kubectl(append(deleteArgs, args...)...)
 }
 
+// EnforceConfigurationPolicy patches the remediationAction to "enforce"
+func EnforceConfigurationPolicy(name string, namespace string) {
+	Kubectl("patch", "configurationpolicy", name, `--type=json`,
+		`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", namespace)
+}
+
+// EnforceConfigurationPolicy patches the remediationAction to "enforce"
+func EnforceOperatorPolicy(name string, namespace string) {
+	Kubectl("patch", "operatorpolicy", name, `--type=json`,
+		`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", namespace)
+}
+
 // GetComplianceState parses status field of configurationPolicy to get compliance
 func GetComplianceState(managedPlc *unstructured.Unstructured) (result interface{}) {
 	if managedPlc.Object["status"] != nil {

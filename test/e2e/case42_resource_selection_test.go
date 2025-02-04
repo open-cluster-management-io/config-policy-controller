@@ -204,13 +204,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 	})
 
 	It("should become compliant when enforced", func() {
-		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
-			`--patch=[{
-				"op":"replace",
-				"path":"/spec/remediationAction",
-				"value":"enforce"
-			}]`,
-		)
+		utils.EnforceConfigurationPolicy(policyName, testNamespace)
 
 		Eventually(func() interface{} {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
