@@ -1,0 +1,10 @@
+compliant: Compliant
+relatedObjects:
+- compliant: Compliant
+  object:
+    apiVersion: v1
+    kind: ConfigMap
+- compliant: Compliant
+  object:
+    apiVersion: v1
+    kind: Namespace

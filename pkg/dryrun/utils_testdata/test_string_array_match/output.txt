@@ -1,0 +1,9 @@
+# Status compare:
+[32m.relatedObjects[0].compliant: 'Compliant' does match 'Compliant'[0m
+[32m.relatedObjects[0].object.apiVersion: 'v1' does match 'v1'[0m
+[32m.relatedObjects[0].object.data: '[one two]' does match '[one two]'[0m
+[32m.relatedObjects[0].object.kind: 'ConfigMap' does match 'ConfigMap'[0m
+[32m.relatedObjects[0].object.metadata.name: 'test1' does match 'test1'[0m
+[32m.relatedObjects[0] matches[0m
+[32m.relatedObjects matches[0m
+[32m[1m Expected status matches the actual status [0m[0m

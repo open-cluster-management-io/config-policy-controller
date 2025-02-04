@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"embed"
 	"errors"
+	"os"
 	"path"
 	"strings"
 	"testing"
@@ -83,6 +84,14 @@ func cliTest(scenarioPath string) func(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		desiredStatusPath := path.Join(scenarioPath, "desired_status.yaml")
+		if pathExists(desiredStatusPath) {
+			err = cmd.Flags().Set("desired-status", desiredStatusPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
 		err = cmd.Execute()
 		if err != nil && !errors.Is(err, ErrNonCompliant) {
 			t.Fatal(err)
@@ -117,4 +126,15 @@ func cliTest(scenarioPath string) func(t *testing.T) {
 			t.Fatalf("Mismatch in resolved output; diff:\n%v", diff)
 		}
 	}
+}
+
+func pathExists(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+
+	f.Close()
+
+	return true
 }

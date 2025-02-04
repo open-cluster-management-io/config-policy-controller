@@ -1,0 +1,5 @@
+compliancyDetails:
+  notMatch:
+    name: mymatch
+lastEvaluatedGeneration:
+  - name: typeNotMatch

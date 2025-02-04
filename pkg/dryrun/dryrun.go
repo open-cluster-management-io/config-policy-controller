@@ -110,6 +110,14 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unable to get the resulting policy state: %w", err)
 	}
 
+	if d.desiredStatus != "" {
+		if err := d.compareStatus(cmd, cfgPolicy.Status); err != nil {
+			return fmt.Errorf("unable to compare desired status: %w", err)
+		}
+
+		cmd.Print("\n")
+	}
+
 	if d.statusPath != "" {
 		if err := d.saveStatus(cfgPolicy.Status); err != nil {
 			return fmt.Errorf("unable to save the resulting policy state: %w", err)
@@ -465,6 +473,33 @@ func (d *DryRunner) setupReconciler(
 	<-rec.DynamicWatcher.Started()
 
 	return &rec, nil
+}
+
+func (d *DryRunner) compareStatus(cmd *cobra.Command, status policyv1.ConfigurationPolicyStatus) error {
+	reader, err := os.Open(d.desiredStatus)
+	if err != nil {
+		return err
+	}
+
+	configBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return err
+	}
+
+	inputMap := map[string]interface{}{}
+
+	if err := yaml.Unmarshal(configBytes, &inputMap); err != nil {
+		return err
+	}
+
+	resultMap := toMap(status)
+	if resultMap == nil {
+		return errors.New("unable to convert ConfigurationPolicyStatus to unstructured")
+	}
+
+	compareStatus(cmd, inputMap, resultMap, d.noColors)
+
+	return nil
 }
 
 func (d *DryRunner) saveStatus(status policyv1.ConfigurationPolicyStatus) error {

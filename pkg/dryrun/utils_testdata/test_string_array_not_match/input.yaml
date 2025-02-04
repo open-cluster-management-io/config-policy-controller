@@ -1,0 +1,8 @@
+relatedObjects:
+- compliant: Compliant
+  object:
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: test1
+    data: ["one","two","not match"]

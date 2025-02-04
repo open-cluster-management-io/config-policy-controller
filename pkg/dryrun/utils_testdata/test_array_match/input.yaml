@@ -1,0 +1,7 @@
+compliancyDetails:
+  - Compliant: Compliant
+    conditions:
+    - message: namespaces [test1] found as specified
+      reason: K8s `must have` object already exists
+compliant: Compliant
+lastEvaluatedGeneration: 1

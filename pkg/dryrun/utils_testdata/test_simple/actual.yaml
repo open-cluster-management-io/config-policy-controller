@@ -1,0 +1,23 @@
+compliancyDetails:
+- Compliant: Compliant
+  Validity: {}
+  conditions:
+  - lastTransitionTime: "2025-01-30T15:15:56Z"
+    message: namespaces [test1] found as specified
+    reason: K8s `must have` object already exists
+    status: "True"
+    type: notification
+compliant: Compliant
+lastEvaluated: "2025-01-30T15:15:56Z"
+lastEvaluatedGeneration: 1
+relatedObjects:
+- compliant: Compliant
+  object:
+    apiVersion: v1
+    kind: Namespace
+    metadata:
+      name: test1
+  properties:
+    createdByPolicy: true
+    uid: e40a8473-dfcc-4826-bd5f-7df81cc79f5f
+  reason: Resource found as expected
