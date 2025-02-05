@@ -1,0 +1,14 @@
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: case28-operatorpolicy
+spec:
+  remediationAction: inform
+  complianceType: musthave
+  subscription:
+    channel: stable
+    name: example-operator
+    namespace: default
+    source: grc-mock-source
+    sourceNamespace: olm
+  upgradeApproval: Automatic

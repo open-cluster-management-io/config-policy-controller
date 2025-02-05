@@ -265,11 +265,13 @@ func GetLastEvaluated(configPolicy *unstructured.Unstructured) (string, int64) {
 // metric(s).
 func GetMetrics(metricPatterns ...string) []string {
 	podCmd := exec.Command("kubectl", "get", "pod", "-n=open-cluster-management-agent-addon",
-		"-l=name=config-policy-controller", "--no-headers")
+		"-l=name=config-policy-controller", "--no-headers", "--kubeconfig=../../kubeconfig_managed_e2e")
 
-	propPodInfo, err := podCmd.Output()
+	propPodInfo, err := podCmd.CombinedOutput()
 	if err != nil {
-		return []string{err.Error()}
+		return []string{
+			fmt.Sprintf("error running '%s'\n: %s: %s", strings.Join(podCmd.Args, " "), propPodInfo, err.Error()),
+		}
 	}
 
 	var cmd *exec.Cmd
@@ -284,7 +286,7 @@ func GetMetrics(metricPatterns ...string) []string {
 		cmd = exec.Command("bash", "-c", metricsCmd)
 	} else {
 		cmd = exec.Command("kubectl", "exec", "-n=open-cluster-management-agent-addon", propPodName, "-c",
-			"config-policy-controller", "--", "bash", "-c", metricsCmd)
+			"config-policy-controller", "--kubeconfig=../../kubeconfig_managed_e2e", "--", "bash", "-c", metricsCmd)
 	}
 
 	matchingMetricsRaw, err := cmd.Output()
@@ -293,7 +295,9 @@ func GetMetrics(metricPatterns ...string) []string {
 			return []string{} // exit 1 indicates that grep couldn't find a match.
 		}
 
-		return []string{err.Error()}
+		return []string{
+			fmt.Sprintf("error running '%s'\n: %s: %s", strings.Join(cmd.Args, " "), matchingMetricsRaw, err.Error()),
+		}
 	}
 
 	matchingMetrics := strings.Split(strings.TrimSpace(string(matchingMetricsRaw)), "\n")
