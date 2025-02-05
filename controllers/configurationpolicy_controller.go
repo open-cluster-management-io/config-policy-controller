@@ -285,6 +285,11 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 	duration := time.Now().UTC().Sub(before)
 	seconds := float64(duration) / float64(time.Second)
 
+	configPolicyStatusGauge.WithLabelValues(
+		policy.Name, policy.Namespace,
+	).Set(
+		getStatusValue(policy.Status.ComplianceState),
+	)
 	policyEvalSecondsCounter.WithLabelValues(policy.Name).Add(seconds)
 	policyEvalCounter.WithLabelValues(policy.Name).Inc()
 

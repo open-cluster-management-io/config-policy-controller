@@ -218,6 +218,7 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			opLog.Info("Operator policy could not be found")
+			removeOperatorPolicyMetrics(req)
 
 			err = r.DynamicWatcher.RemoveWatcher(watcher)
 			if err != nil {
@@ -284,6 +285,12 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 			result.RequeueAfter = time.Until(policy.Status.SubscriptionInterventionTime.Add(time.Second))
 		}
 	}
+
+	operatorPolicyStatusGauge.WithLabelValues(
+		policy.Name, policy.Namespace,
+	).Set(
+		getStatusValue(policy.Status.ComplianceState),
+	)
 
 	opLog.Info("Reconciling complete", "finalErr", finalErr,
 		"conditionChanged", conditionChanged, "eventCount", len(conditionsToEmit))
