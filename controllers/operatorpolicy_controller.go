@@ -110,11 +110,13 @@ var (
 // OperatorPolicyReconciler reconciles a OperatorPolicy object
 type OperatorPolicyReconciler struct {
 	client.Client
-	DynamicClient    dynamic.Interface
-	DynamicWatcher   depclient.DynamicWatcher
-	InstanceName     string
-	DefaultNamespace string
-	TargetClient     client.Client
+	DynamicClient     dynamic.Interface
+	DynamicWatcher    depclient.DynamicWatcher
+	InstanceName      string
+	DefaultNamespace  string
+	TargetClient      client.Client
+	HubDynamicWatcher depclient.DynamicWatcher
+	ClusterName       string
 }
 
 // SetupWithManager sets up the controller with the Manager and will reconcile when the dynamic watcher
@@ -316,6 +318,13 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 
 	// If the status was "reset", consider the condition changed.
 	condChanged = policy.Status.ComplianceState == ""
+
+	err = r.resolveHubTemplates(ctx, policy)
+	if err != nil {
+		changed := updateStatus(policy, validationCond([]error{err}))
+
+		return earlyComplianceEvents, condChanged || changed, err
+	}
 
 	desiredSub, desiredOG, changed, err := r.buildResources(ctx, policy)
 	condChanged = condChanged || changed
