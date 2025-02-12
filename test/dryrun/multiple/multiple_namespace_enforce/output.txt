@@ -1,0 +1,9 @@
+# Diffs:
+v1 Pod n1/case5-multi-namespace-enforce-pod:
+
+v1 Pod n2/case5-multi-namespace-enforce-pod:
+
+v1 Pod n3/case5-multi-namespace-enforce-pod:
+
+# Compliance messages:
+Compliant; notification - pods [case5-multi-namespace-enforce-pod] found as specified in namespaces: n1, n2, n3

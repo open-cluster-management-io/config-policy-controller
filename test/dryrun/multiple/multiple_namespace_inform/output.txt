@@ -1,0 +1,9 @@
+# Diffs:
+v1 Pod n1/case5-multi-namespace-inform-pod:
+
+v1 Pod n2/case5-multi-namespace-inform-pod:
+
+v1 Pod n3/case5-multi-namespace-inform-pod:
+
+# Compliance messages:
+NonCompliant; violation - pods [case5-multi-namespace-inform-pod] not found in namespaces: n1, n2, n3

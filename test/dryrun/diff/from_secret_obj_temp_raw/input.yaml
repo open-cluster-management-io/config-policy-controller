@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: case39-secret
+  namespace: default
+type: Opaque
+data:
+  message: VGhlcmUncyBhIHNuYWtlIGluIG15IGJvb3Qh

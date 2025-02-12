@@ -1,0 +1,7 @@
+relatedObjects:
+  - object:
+      kind: Ingress
+      metadata:
+        name: good-ingress
+    reason: Resource found but should not exist
+compliant: NonCompliant

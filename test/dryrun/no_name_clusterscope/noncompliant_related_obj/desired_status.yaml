@@ -1,0 +1,7 @@
+relatedObjects:
+  - object:
+      kind: IngressClass
+      metadata:
+        name: '-'
+    reason: Resource found but does not match
+compliant: NonCompliant

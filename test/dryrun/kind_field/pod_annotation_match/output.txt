@@ -1,0 +1,7 @@
+# Diffs:
+v1 Namespace default:
+
+v1 Pod managed/nginx-pod-e2e-10:
+
+# Compliance messages:
+Compliant; notification - namespaces [default] found as specified; notification - pods [nginx-pod-e2e-10] found as specified in namespace managed

@@ -1,0 +1,9 @@
+# Diffs:
+v1 Pod n1/-:
+
+v1 Pod n2/-:
+
+v1 Pod n3/-:
+
+# Compliance messages:
+NonCompliant; violation - pods not found in namespaces: n1, n2, n3

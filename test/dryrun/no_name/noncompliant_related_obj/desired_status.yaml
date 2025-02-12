@@ -1,0 +1,6 @@
+relatedObjects:
+  - object:
+      kind: Ingress
+      metadata:
+        name: '-'
+    reason: Resource found but does not match

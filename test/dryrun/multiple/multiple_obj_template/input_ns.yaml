@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: n1
+spec: {}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: n2
+spec: {}
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: n3
+spec: {}

@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  namespace: n3
+  name: case5-multi-namespace-enforce-kind-missing-pod
+spec:
+  containers:
+    - image: nginx:1.7.9
+      name: nginx
+      imagePullPolicy: Never
+      ports:
+        - containerPort: 80

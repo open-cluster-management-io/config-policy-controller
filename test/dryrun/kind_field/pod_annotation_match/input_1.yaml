@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-pod-e2e-10
+  namespace: managed
+  annotations:
+    test: e2e10
+  labels:
+    test: e2e10
+spec:
+  containers:
+    - image: nginx:1.7.9
+      name: nginx
+      ports:
+        - containerPort: 80

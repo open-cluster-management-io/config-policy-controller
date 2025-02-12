@@ -1,0 +1,18 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-kind-labels-fail
+spec:
+  remediationAction: inform # will be overridden by remediationAction in parent policy
+  severity: low
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          namespace: managed
+          annotations:
+            test: fail
+          labels:
+            test: fail

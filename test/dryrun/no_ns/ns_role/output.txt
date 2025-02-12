@@ -1,0 +1,7 @@
+# Status compare:
+[32m.compliant: 'NonCompliant' does match 'NonCompliant'[0m
+[32m[1m Expected status matches the actual status [0m[0m
+
+# Diffs:
+# Compliance messages:
+NonCompliant; violation - namespaced object case6-role-policy-e2e of kind Role has no namespace specified from the policy namespaceSelector nor the object metadata

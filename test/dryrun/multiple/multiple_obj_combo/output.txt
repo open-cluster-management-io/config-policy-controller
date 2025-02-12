@@ -1,0 +1,7 @@
+# Diffs:
+v1 Pod default/nginx-pod-1:
+
+v1 Pod default/nginx-pod-2:
+
+# Compliance messages:
+NonCompliant; violation - pods [nginx-pod-1] found in namespace default; notification - pods [nginx-pod-2] found as specified in namespace default
