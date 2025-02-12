@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case43-with-hub-template
+  ownerReferences:
+    - apiVersion: policy.open-cluster-management.io/v1
+      kind: Policy
+      name: case43-parent
+      uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          namespace: default
+          name: case43-output
+        data:
+          outfo: '{{hub fromConfigMap "default" "case43-input" "info" hub}}'

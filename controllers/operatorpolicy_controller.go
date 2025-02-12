@@ -34,6 +34,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/validation"
 	"k8s.io/client-go/dynamic"
+	"k8s.io/client-go/kubernetes"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -110,11 +111,14 @@ var (
 // OperatorPolicyReconciler reconciles a OperatorPolicy object
 type OperatorPolicyReconciler struct {
 	client.Client
-	DynamicClient    dynamic.Interface
-	DynamicWatcher   depclient.DynamicWatcher
-	InstanceName     string
-	DefaultNamespace string
-	TargetClient     client.Client
+	DynamicClient     dynamic.Interface
+	DynamicWatcher    depclient.DynamicWatcher
+	InstanceName      string
+	DefaultNamespace  string
+	TargetClient      client.Client
+	HubDynamicWatcher depclient.DynamicWatcher
+	HubClient         *kubernetes.Clientset
+	ClusterName       string
 }
 
 // SetupWithManager sets up the controller with the Manager and will reconcile when the dynamic watcher
@@ -132,6 +136,17 @@ func (r *OperatorPolicyReconciler) SetupWithManager(
 				}
 
 				if !e.ObjectNew.GetDeletionTimestamp().IsZero() {
+					return true
+				}
+
+				oldAnnos := e.ObjectOld.GetAnnotations()
+				newAnnos := e.ObjectNew.GetAnnotations()
+
+				// These are the options that change evaluation behavior that aren't in the spec.
+				specialAnnoChanged := oldAnnos[IVAnnotation] != newAnnos[IVAnnotation] ||
+					oldAnnos[disableTemplatesAnnotation] != newAnnos[disableTemplatesAnnotation]
+
+				if specialAnnoChanged {
 					return true
 				}
 
@@ -316,6 +331,13 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 
 	// If the status was "reset", consider the condition changed.
 	condChanged = policy.Status.ComplianceState == ""
+
+	err = r.resolveHubTemplates(ctx, policy)
+	if err != nil {
+		changed := updateStatus(policy, validationCond([]error{err}))
+
+		return earlyComplianceEvents, condChanged || changed, err
+	}
 
 	desiredSub, desiredOG, changed, err := r.buildResources(ctx, policy)
 	condChanged = condChanged || changed

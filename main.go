@@ -98,6 +98,8 @@ type ctrlOpts struct {
 	enableMetrics            bool
 	enableOperatorPolicy     bool
 	enableOcmPolicyNamespace bool
+
+	standaloneHubTemplateKubeConfigPath string
 }
 
 func main() {
@@ -226,6 +228,7 @@ func main() {
 
 	configPolicy := &policyv1.ConfigurationPolicy{}
 	operatorPolicy := &policyv1beta1.OperatorPolicy{}
+	secret := &corev1.Secret{}
 
 	if watchNamespace != "" {
 		cacheByObject[configPolicy] = cache.ByObject{
@@ -234,11 +237,10 @@ func main() {
 			},
 		}
 
-		cacheByObject[&corev1.Secret{}] = cache.ByObject{
-			Field: fields.SelectorFromSet(fields.Set{
-				"metadata.namespace": watchNamespace,
-				"metadata.name":      "policy-encryption-key",
-			}),
+		cacheByObject[secret] = cache.ByObject{
+			Namespaces: map[string]cache.Config{
+				watchNamespace: {},
+			},
 		}
 
 		if opts.enableOperatorPolicy {
@@ -251,22 +253,16 @@ func main() {
 
 		// ocmPolicyNs is cached only in non-hosted=mode
 		if opts.targetKubeConfig == "" && opts.enableOcmPolicyNamespace {
-			cacheByObject[configPolicy].
-				Namespaces[ocmPolicyNs] = cache.Config{}
+			cacheByObject[configPolicy].Namespaces[ocmPolicyNs] = cache.Config{}
+
+			cacheByObject[secret].Namespaces[ocmPolicyNs] = cache.Config{}
 
 			if opts.enableOperatorPolicy {
-				cacheByObject[operatorPolicy].
-					Namespaces[ocmPolicyNs] = cache.Config{}
+				cacheByObject[operatorPolicy].Namespaces[ocmPolicyNs] = cache.Config{}
 			}
 		}
 	} else {
 		log.Info("Skipping namespace restrictions on the cache because watchNamespace is empty")
-
-		cacheByObject[&corev1.Secret{}] = cache.ByObject{
-			Field: fields.SelectorFromSet(fields.Set{
-				"metadata.name": "policy-encryption-key",
-			}),
-		}
 	}
 
 	// No need to resync every 10 hours.
@@ -395,6 +391,7 @@ func main() {
 
 		targetK8sClient = kubernetes.NewForConfigOrDie(targetK8sConfig)
 		targetK8sDynamicClient = dynamic.NewForConfigOrDie(targetK8sConfig)
+
 		targetClient, err = client.New(targetK8sConfig, client.Options{Scheme: scheme})
 		if err != nil {
 			log.Error(err, "Failed to load the target kubeconfig", "path", opts.targetKubeConfig)
@@ -433,6 +430,9 @@ func main() {
 	var objectTemplatesChannel source.TypedSource[reconcile.Request]
 	var dynamicWatcher depclient.DynamicWatcher
 	var serverVersion *k8sversion.Info
+	var standaloneHubCfg *rest.Config
+	var configPolHubDynamicWatcher depclient.DynamicWatcher
+	var hubClient *kubernetes.Clientset
 
 	managerCtx, managerCancel := context.WithCancel(terminatingCtx)
 
@@ -478,6 +478,38 @@ func main() {
 				panic(err)
 			}
 		}()
+
+		// Wait until the dynamic watcher has started
+		<-dynamicWatcher.Started()
+
+		if opts.standaloneHubTemplateKubeConfigPath != "" {
+			standaloneHubCfg, err = clientcmd.BuildConfigFromFlags("", opts.standaloneHubTemplateKubeConfigPath)
+			if err != nil {
+				log.Error(err, "Could not load governance-standalone-hub-templating hub kubeconfig")
+			}
+
+			configPolHubDynamicWatcher, err = depclient.New(
+				standaloneHubCfg,
+				watcherReconciler,
+				&depclient.Options{DisableInitialReconcile: true, EnableCache: true},
+			)
+			if err != nil {
+				log.Error(err, "Unable to setup the governance-standalone-hub-templating dynamic watcher",
+					"controller", "ConfigurationPolicy")
+			}
+
+			hubClient = kubernetes.NewForConfigOrDie(standaloneHubCfg)
+
+			go func() {
+				err := configPolHubDynamicWatcher.Start(terminatingCtx)
+				if err != nil {
+					panic(err)
+				}
+			}()
+
+			// wait for the watcher to start
+			<-configPolHubDynamicWatcher.Started()
+		}
 	}
 
 	reconciler := controllers.ConfigurationPolicyReconciler{
@@ -494,6 +526,9 @@ func main() {
 		UninstallMode:          beingUninstalled,
 		ServerVersion:          serverVersion.String(),
 		EvalBackoffSeconds:     opts.evalBackoffSeconds,
+		HubDynamicWatcher:      configPolHubDynamicWatcher,
+		HubClient:              hubClient,
+		ClusterName:            opts.clusterName,
 	}
 
 	if err = reconciler.SetupWithManager(
@@ -527,13 +562,40 @@ func main() {
 		// Wait until the dynamic watcher has started.
 		<-watcher.Started()
 
+		var opPolHubDynamicWatcher depclient.DynamicWatcher
+
+		if opts.standaloneHubTemplateKubeConfigPath != "" {
+			opPolHubDynamicWatcher, err = depclient.New(
+				standaloneHubCfg,
+				depReconciler,
+				&depclient.Options{DisableInitialReconcile: true, EnableCache: true},
+			)
+			if err != nil {
+				log.Error(err, "Unable to setup the governance-standalone-hub-templating dynamic watcher",
+					"controller", "ConfigurationPolicy")
+			}
+
+			go func() {
+				err := opPolHubDynamicWatcher.Start(terminatingCtx)
+				if err != nil {
+					panic(err)
+				}
+			}()
+
+			// wait for the watcher to start
+			<-opPolHubDynamicWatcher.Started()
+		}
+
 		OpReconciler := controllers.OperatorPolicyReconciler{
-			Client:           mgr.GetClient(),
-			DynamicClient:    targetK8sDynamicClient,
-			DynamicWatcher:   watcher,
-			InstanceName:     instanceName,
-			DefaultNamespace: opts.operatorPolDefaultNS,
-			TargetClient:     targetClient,
+			Client:            mgr.GetClient(),
+			DynamicClient:     targetK8sDynamicClient,
+			DynamicWatcher:    watcher,
+			InstanceName:      instanceName,
+			DefaultNamespace:  opts.operatorPolDefaultNS,
+			TargetClient:      targetClient,
+			HubDynamicWatcher: opPolHubDynamicWatcher,
+			HubClient:         hubClient,
+			ClusterName:       opts.clusterName,
 		}
 
 		if err = OpReconciler.SetupWithManager(mgr, depEvents); err != nil {
@@ -560,9 +622,11 @@ func main() {
 			log.V(2).Info("Got operator namespace", "Namespace", operatorNs)
 			log.Info("Starting lease controller to report status")
 
+			leaseClientset := kubernetes.NewForConfigOrDie(cfg)
+
 			leaseUpdater := lease.NewLeaseUpdater(
 				// Always use the cluster that is running the controller for the lease.
-				kubernetes.NewForConfigOrDie(cfg), "config-policy-controller", operatorNs,
+				leaseClientset, "config-policy-controller", operatorNs,
 			)
 
 			hubCfg, err = clientcmd.BuildConfigFromFlags("", opts.hubConfigPath)
@@ -573,6 +637,22 @@ func main() {
 			}
 
 			go leaseUpdater.Start(context.TODO())
+
+			if standaloneHubCfg != nil {
+				log.Info("Starting lease controller for governance-standalone-hub-templating")
+
+				standaloneLeaseUpdater := lease.NewLeaseUpdater(
+					leaseClientset, "governance-standalone-hub-templating", operatorNs,
+				).WithHubLeaseConfig(standaloneHubCfg, opts.clusterName)
+
+				go standaloneLeaseUpdater.Start(context.TODO())
+
+				configFiles = append(configFiles, opts.standaloneHubTemplateKubeConfigPath)
+
+				if standaloneHubCfg.TLSClientConfig.CertFile != "" {
+					configFiles = append(configFiles, standaloneHubCfg.TLSClientConfig.CertFile)
+				}
+			}
 		}
 	} else {
 		log.Info("Addon status reporting is not enabled")
@@ -844,6 +924,14 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		"enable-ocm-policy-namespace",
 		true,
 		"Enable to use open-cluster-management-policies namespace",
+	)
+
+	flags.StringVar(
+		&opts.standaloneHubTemplateKubeConfigPath,
+		"standalone-hub-templates-kubeconfig-path",
+		"",
+		"The kubeconfig for the hub cluster, to be used for hub templates. "+
+			"If not set, hub templates must be resolved by the policy-framework.",
 	)
 
 	_ = flags.Parse(args)
