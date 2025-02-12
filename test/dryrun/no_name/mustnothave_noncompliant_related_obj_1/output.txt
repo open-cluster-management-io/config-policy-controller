@@ -1,0 +1,14 @@
+# Status compare:
+[32m.compliant: 'NonCompliant' does match 'NonCompliant'[0m
+[32m.relatedObjects[0].object.kind: 'Ingress' does match 'Ingress'[0m
+[32m.relatedObjects[0].object.metadata.name: 'good-ingress' does match 'good-ingress'[0m
+[32m.relatedObjects[0].reason: 'Resource found but should not exist' does match 'Resource found but should not exist'[0m
+[32m.relatedObjects[0] matches[0m
+[32m.relatedObjects matches[0m
+[32m[1m Expected status matches the actual status [0m[0m
+
+# Diffs:
+networking.k8s.io/v1 Ingress default/good-ingress:
+
+# Compliance messages:
+NonCompliant; violation - ingresses [good-ingress] found in namespace default

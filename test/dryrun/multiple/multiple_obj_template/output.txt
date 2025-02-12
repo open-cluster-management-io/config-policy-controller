@@ -1,0 +1,21 @@
+# Diffs:
+v1 Pod n1/multi-obj-temp-pod-11:
+
+v1 Pod n1/multi-obj-temp-pod-22:
+
+v1 Pod n1/multi-obj-temp-pod-33:
+
+v1 Pod n2/multi-obj-temp-pod-11:
+
+v1 Pod n2/multi-obj-temp-pod-22:
+
+v1 Pod n2/multi-obj-temp-pod-33:
+
+v1 Pod n3/multi-obj-temp-pod-11:
+
+v1 Pod n3/multi-obj-temp-pod-22:
+
+v1 Pod n3/multi-obj-temp-pod-33:
+
+# Compliance messages:
+Compliant; notification - pods [multi-obj-temp-pod-11] found as specified in namespaces: n1, n2, n3; notification - pods [multi-obj-temp-pod-22] found as specified in namespaces: n1, n2, n3; notification - pods [multi-obj-temp-pod-33] found as specified in namespaces: n1, n2, n3

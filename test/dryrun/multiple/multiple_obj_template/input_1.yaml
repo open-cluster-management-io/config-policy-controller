@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  namespace: n1
+  name: multi-obj-temp-pod-11
+spec:
+  containers:
+    - image: nginx:1.7.9
+      imagePullPolicy: Never
+      name: nginx
+      ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  namespace: n2
+  name: multi-obj-temp-pod-11
+spec:
+  containers:
+    - image: nginx:1.7.9
+      imagePullPolicy: Never
+      name: nginx
+      ports:
+        - containerPort: 80
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  namespace: n3
+  name: multi-obj-temp-pod-11
+spec:
+  containers:
+    - image: nginx:1.7.9
+      imagePullPolicy: Never
+      name: nginx
+      ports:
+        - containerPort: 80

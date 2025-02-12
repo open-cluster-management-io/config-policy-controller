@@ -1,0 +1,3 @@
+# Diffs:
+# Compliance messages:
+NonCompliant; violation - The kind and apiVersion fields are required on the object template at index 0 in policy policy-multi-namespace-enforce-kind-missing

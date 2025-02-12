@@ -1,0 +1,7 @@
+relatedObjects:
+  - object:
+      kind: IngressClass
+      metadata:
+        name: '-'
+    reason: Resource not found as expected
+compliant: Compliant

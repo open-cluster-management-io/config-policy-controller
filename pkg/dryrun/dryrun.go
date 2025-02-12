@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
@@ -94,6 +95,12 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 
 		if _, err := resInt.Create(ctx, obj, metav1.CreateOptions{}); err != nil {
 			return fmt.Errorf("unable to apply an input resource: %w", err)
+		}
+
+		// Manually convert resources from the dynamic client to the runtime client
+		err = rec.Client.Create(ctx, obj)
+		if err != nil {
+			return err
 		}
 	}
 
@@ -546,6 +553,7 @@ func (d *DryRunner) saveOrPrintComplianceMessages(
 		}
 	} else {
 		cmd.Println("# Compliance messages:")
+
 		for _, msg := range messages {
 			cmd.Println(msg)
 		}
@@ -567,10 +575,11 @@ func (d *DryRunner) outputDiffs(cmd *cobra.Command, status policyv1.Configuratio
 
 		cmd.Printf("%v %v %v:\n", obj.APIVersion, obj.Kind, name)
 
-		if relObj.Properties != nil && relObj.Properties.Diff != "" {
-			cmd.Print(relObj.Properties.Diff)
+		if relObj.Properties == nil || relObj.Properties.Diff == "" {
+			cmd.Println() // Ensures a newline is printed
 		} else {
-			cmd.Print("\n")
+			// For long diff
+			cmd.Println(strings.TrimSuffix(relObj.Properties.Diff, "\n"))
 		}
 	}
 }

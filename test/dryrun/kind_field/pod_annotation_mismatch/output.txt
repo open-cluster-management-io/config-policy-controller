@@ -1,0 +1,5 @@
+# Diffs:
+v1 Pod managed/-:
+
+# Compliance messages:
+NonCompliant; violation - pods found but not as specified in namespace managed

@@ -5,6 +5,7 @@ package dryrun
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"sort"
 
@@ -285,4 +286,15 @@ func toMap(obj policyv1.ConfigurationPolicyStatus) map[string]interface{} {
 	}
 
 	return statusMap
+}
+
+func PathExists(path string) bool {
+	f, err := os.Open(path) // #nosec G304 -- files accessed here are on the user's local system
+	if err != nil {
+		return false
+	}
+
+	err = f.Close()
+
+	return err == nil
 }

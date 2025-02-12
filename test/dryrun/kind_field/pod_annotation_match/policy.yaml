@@ -1,0 +1,25 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-kind-labels
+spec:
+  remediationAction: inform # will be overridden by remediationAction in parent policy
+  severity: low
+  object-templates:
+    # The first object template is ensure no regression for https://issues.redhat.com/browse/ACM-8731
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: default
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          namespace: managed
+          annotations:
+            test: e2e10
+          labels:
+            test: e2e10

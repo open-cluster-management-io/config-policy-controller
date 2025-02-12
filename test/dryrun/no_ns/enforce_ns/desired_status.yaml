@@ -1,0 +1,7 @@
+relatedObjects:
+  - object:
+      kind: Namespace
+      metadata:
+        name: e2etest
+    reason: Resource found as expected
+compliant: Compliant
