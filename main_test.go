@@ -26,5 +26,9 @@ func TestRunMain(t *testing.T) {
 		"--enable-operator-policy=true",
 	)
 
+	if hubTmplKubeconfig := os.Getenv("HUB_TEMPLATES_KUBECONFIG_PATH"); hubTmplKubeconfig != "" {
+		os.Args = append(os.Args, "--standalone-hub-templates-kubeconfig-path="+hubTmplKubeconfig)
+	}
+
 	main()
 }

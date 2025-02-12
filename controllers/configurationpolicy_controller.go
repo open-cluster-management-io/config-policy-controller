@@ -205,6 +205,11 @@ type ConfigurationPolicyReconciler struct {
 	// This is a workaround to account for race conditions where the status is updated but the controller-runtime cache
 	// has not updated yet.
 	lastEvaluatedCache sync.Map
+	// for standalone hub templating
+	HubDynamicWatcher depclient.DynamicWatcher
+	HubClient         *kubernetes.Clientset
+	// name of the cluster
+	ClusterName string
 }
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
@@ -270,6 +275,18 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 	// If the ConfigurationPolicy's spec field was updated, clear the cache of evaluated objects.
 	if policy.Status.LastEvaluatedGeneration != policy.Generation {
 		r.processedPolicyCache.Delete(policy.GetUID())
+	}
+
+	if err := r.resolveHubTemplates(ctx, policy); err != nil {
+		statusChanged := addConditionToStatus(policy, -1, false, "Hub template resolution failure", err.Error())
+
+		if statusChanged {
+			r.recordInfoEvent(policy, true)
+		}
+
+		r.addForUpdate(policy, statusChanged)
+
+		return reconcile.Result{}, err
 	}
 
 	shouldEvaluate, durationLeft := r.shouldEvaluatePolicy(policy, (uninstalling || crdDeleting))

@@ -1,0 +1,17 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case43-with-hub-template
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          namespace: default
+          name: case43-output
+        data:
+          outfo: '{{hub fromConfigMap "default" "case43-input" "info" hub}}'
+          other: '{{hub fromConfigMap "default" "case43-input" "info" hub}}'

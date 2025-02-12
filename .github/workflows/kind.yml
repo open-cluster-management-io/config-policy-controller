@@ -183,8 +183,61 @@ jobs:
         run: |
           make kind-delete-cluster
 
+  hub-template-tests:
+    name: Standalone Hub Template KinD tests
+    runs-on: ubuntu-latest
+    env:
+      REGISTRY: localhost:5000
+    strategy:
+      fail-fast: false
+      matrix:
+        # Run tests on minimum and newest supported OCP Kubernetes
+        # The "minimum" tag is set in the Makefile
+        # KinD tags: https://hub.docker.com/r/kindest/node/tags
+        kind:
+          - "minimum"
+          - "latest"
+    steps:
+      - name: Checkout Config Policy Controller
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Create K8s KinD Clusters - ${{ matrix.kind }}
+        env:
+          KIND_VERSION: ${{ matrix.kind }}
+        run: |
+          make kind-bootstrap-cluster-dev
+          KUBECONFIG=${PWD}/kubeconfig_managed make kind-ensure-sa
+          make kind-additional-cluster
+
+      - name: E2E tests with standalone hub templates enabled
+        run: |
+          export GOPATH=$(go env GOPATH)
+          KUBECONFIG=${PWD}/kubeconfig_managed make e2e-test-standalone-templates-coverage
+
+      - name: Upload Hub Templates Enabled Coverage
+        uses: actions/upload-artifact@v4
+        if: ${{ matrix.kind == 'latest' }}
+        with:
+          name: coverage_e2e_hub_templates
+          path: coverage_e2e_hub_templates.out
+
+      - name: Debug
+        if: ${{ failure() }}
+        run: |
+          make e2e-debug
+
+      - name: Clean up cluster
+        if: ${{ always() }}
+        run: |
+          make kind-delete-cluster
+
   coverage-verification:
-    needs: [preflight-tests, kind-tests, hosted-tests]
+    needs: [preflight-tests, kind-tests, hosted-tests, hub-template-tests]
     defaults:
       run:
         working-directory: '.'
