@@ -20,8 +20,8 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 		cfgPlcYAML    = rsrcPath + "config-policy.yaml"
 		updatedCfgPlc = rsrcPath + "config-policy-updated.yaml"
 		cfgPlcName    = "case34-cfgpol"
-		nestedPlcYAML = rsrcPath + "nested-cfgpol-updated.yaml"
-		nestedPlcName = "case34-cfgpol-nested"
+		nsName        = "case34-ns"
+		finalizerName = "policy.open-cluster-management.io/stuck-test"
 	)
 
 	It("Should have the expected events", func() {
@@ -49,11 +49,19 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 				policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
 		}, defaultConsistentlyDuration, 5).Should(BeEmpty())
 
-		By("Updating the nested policy to increment its generation")
-		utils.Kubectl("apply", "-f", nestedPlcYAML, "-n", testNamespace)
-		nestedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-			nestedPlcName, testNamespace, true, defaultTimeoutSeconds)
-		Expect(nestedPlc.GetGeneration()).To(BeNumerically("==", 3))
+		By("Setting a finalizer on the namespace")
+		utils.Kubectl("patch", "ns", nsName, "--type=merge",
+			`-p={"metadata":{"finalizers":["`+finalizerName+`"]}}`)
+		Eventually(func(g Gomega) []string {
+			ns := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrNS,
+				nsName, true, defaultTimeoutSeconds)
+			g.Expect(ns).ShouldNot(BeNil())
+
+			return ns.GetFinalizers()
+		}, defaultTimeoutSeconds, 2).Should(ContainElement(finalizerName))
+
+		By("Marking the namespace for deletion")
+		utils.Kubectl("delete", "ns", nsName, "--wait=false")
 
 		By("Checking there is now a Compliant event on the policy")
 		Eventually(func() interface{} {
@@ -86,13 +94,10 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 			cfgPlcName, "managed", false, defaultTimeoutSeconds,
 		)
 		Expect(configPlc).To(BeNil())
-		utils.KubectlDelete("configurationpolicy", nestedPlcName, "-n", "managed")
-		nestedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-			nestedPlcName, "managed", false, defaultTimeoutSeconds,
-		)
-		Expect(nestedPlc).To(BeNil())
+
+		utils.Kubectl("patch", "ns", nsName, "--type=merge", `-p={"metadata":{"finalizers":[]}}`)
+		utils.KubectlDelete("ns", nsName)
 		utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
 		utils.KubectlDelete("event", "--field-selector=involvedObject.name="+cfgPlcName, "-n", "managed")
-		utils.KubectlDelete("event", "--field-selector=involvedObject.name="+nestedPlcName, "-n", "managed")
 	})
 })

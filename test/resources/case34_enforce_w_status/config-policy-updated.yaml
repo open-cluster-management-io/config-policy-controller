@@ -8,20 +8,11 @@ spec:
   object-templates:
     - complianceType: musthave
       objectDefinition:
-        apiVersion: policy.open-cluster-management.io/v1
-        kind: ConfigurationPolicy
+        apiVersion: v1
+        kind: Namespace
         metadata:
-          name: case34-cfgpol-nested
-          namespace: managed
-        spec:
-          remediationAction: inform
-          severity: low
-          object-templates:
-            - complianceType: musthave
-              objectDefinition:
-                apiVersion: v1
-                kind: Namespace
-                metadata:
-                  name: default
+          name: case34-ns
+          labels:
+            policy.open-cluster-management.io/test: case34
         status:
-          lastEvaluatedGeneration: 3
+          phase: Terminating
