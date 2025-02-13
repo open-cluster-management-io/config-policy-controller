@@ -54,27 +54,9 @@ func updateStatus(
 		policy.Status.Conditions[condIdx] = updatedCondition
 	}
 
-	if condChanged {
-		updatedComplianceCondition := calculateComplianceCondition(policy)
-
-		compCondIdx, _ := policy.Status.GetCondition(compliantConditionType)
-		if compCondIdx == -1 {
-			policy.Status.Conditions = append(policy.Status.Conditions, updatedComplianceCondition)
-		} else {
-			policy.Status.Conditions[compCondIdx] = updatedComplianceCondition
-		}
-
-		// Sort the conditions based on their type.
-		sort.SliceStable(policy.Status.Conditions, func(i, j int) bool {
-			return policy.Status.Conditions[i].Type < policy.Status.Conditions[j].Type
-		})
-
-		if updatedComplianceCondition.Status == metav1.ConditionTrue {
-			policy.Status.ComplianceState = policyv1.Compliant
-		} else {
-			policy.Status.ComplianceState = policyv1.NonCompliant
-		}
-	}
+	// Update updateComplianceCondition even if condChanged is false
+	// to ensure ComplianceConfigAction changes are reflected.
+	updateComplianceCondition(policy)
 
 	relObjsChanged := false
 
@@ -154,6 +136,29 @@ func updateStatus(
 	}
 
 	return condChanged || relObjsChanged || genUpdated
+}
+
+// Update ComplianceCondition and Sort conditions
+func updateComplianceCondition(policy *policyv1beta1.OperatorPolicy) {
+	updatedComplianceCondition := calculateComplianceCondition(policy)
+	compCondIdx, _ := policy.Status.GetCondition(compliantConditionType)
+
+	if compCondIdx == -1 {
+		policy.Status.Conditions = append(policy.Status.Conditions, updatedComplianceCondition)
+	} else {
+		policy.Status.Conditions[compCondIdx] = updatedComplianceCondition
+	}
+
+	// Sort the conditions based on their type.
+	sort.SliceStable(policy.Status.Conditions, func(i, j int) bool {
+		return policy.Status.Conditions[i].Type < policy.Status.Conditions[j].Type
+	})
+
+	if updatedComplianceCondition.Status == metav1.ConditionTrue {
+		policy.Status.ComplianceState = policyv1.Compliant
+	} else {
+		policy.Status.ComplianceState = policyv1.NonCompliant
+	}
 }
 
 func conditionChanged(updatedCondition, existingCondition metav1.Condition) bool {

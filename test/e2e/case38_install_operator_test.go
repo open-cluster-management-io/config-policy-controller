@@ -3816,19 +3816,16 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					"path": "/spec/complianceConfig/deprecationsPresent",
 					"value": "NonCompliant"}]`)
 
-				check(
-					bundlePolName,
-					true,
-					[]policyv1.RelatedObject{},
-					metav1.Condition{
-						Type:   "NoDeprecations",
-						Status: metav1.ConditionFalse,
-						Reason: "BundleDeprecated",
-						Message: "the requested dep-bundle-operator.v0.0.1 Bundle was deprecated. " +
-							"dep-bundle-operator.v0.0.1 bundle is no longer supported.",
-					},
-					"",
-				)
+				checkCompliance(bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.NonCompliant)
+
+				By("Should have status.compliant is Compliant again when deprecationsPresent config changes")
+
+				utils.Kubectl("patch", "operatorpolicy", bundlePolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace",
+				"path": "/spec/complianceConfig/deprecationsPresent",
+				"value": "Compliant"}]`)
+
+				checkCompliance(bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
 			})
 	})
 })
