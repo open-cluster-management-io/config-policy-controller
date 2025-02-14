@@ -1546,10 +1546,16 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			if tmplResolver != nil && hasTemplate && desiredObj == nil {
 				r.processedPolicyCache.Delete(plc.GetUID())
 
-				templateContext := struct {
-					ObjectNamespace string
-					ObjectName      string
-				}{ObjectNamespace: ns, ObjectName: name}
+				var templateContext interface{}
+
+				// If both name and namespace are empty, the policy is missing the
+				// objectSelector required to use the context variables
+				if ns != "" && name != "" {
+					templateContext = struct {
+						ObjectNamespace string
+						ObjectName      string
+					}{ObjectNamespace: ns, ObjectName: name}
+				}
 
 				skipObject := false
 
