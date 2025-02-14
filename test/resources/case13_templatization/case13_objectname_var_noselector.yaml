@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case13-no-selector
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    include:
+      - case13-e2e-objectname-var
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: '{{ if eq .ObjectName "case13-e2e-objectname-var1" }}{{ skipObject }}{{ else }}{{ .ObjectName }}{{ end }}'
+          namespace: "{{ .ObjectNamespace }}"
+          labels:
+            case13: passed
+            name: "{{ .ObjectName }}"
+            namespace: "{{ .ObjectNamespace }}"

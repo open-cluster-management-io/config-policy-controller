@@ -579,6 +579,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 			invalidPolicyYAML    = case13RsrcPath + "/case13_objectname_var_invalid_name.yaml"
 			invalidPolicyName    = "case13-invalid-name"
 			outsidePolicyYAML    = case13RsrcPath + "/case13_objectname_var_outside_name.yaml"
+			noSelectorName       = "case13-no-selector"
+			noSelectorPolicyYAML = case13RsrcPath + "/case13_objectname_var_noselector.yaml"
 			outsidePolicyName    = "case13-outside-name"
 			allSkippedPolicyYAML = case13RsrcPath + "/case13_objectname_var_all_skipped.yaml"
 			allSkippedPolicyName = "case13-objectname-var-all-skipped"
@@ -699,6 +701,29 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
+		It("Should fail when context variables are used without a selector", func(ctx SpecContext) {
+			By("Applying the " + noSelectorName + " ConfigurationPolicy")
+			utils.Kubectl("apply", "-n", testNamespace, "-f", noSelectorPolicyYAML)
+
+			By("By verifying that the ConfigurationPolicy is noncompliant")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic,
+					gvrConfigPolicy,
+					noSelectorName,
+					testNamespace,
+					true,
+					defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+				g.Expect(utils.GetStatusMessage(managedPlc)).To(ContainSubstring(
+					`template: tmpl:6:14: executing "tmpl" at <.ObjectName>: ` +
+						`can't evaluate field ObjectName in type struct {}`,
+				))
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
 		It("Should be compliant when all objects are skipped with skipObject", func(ctx SpecContext) {
 			By("Applying the " + allSkippedPolicyName + " ConfigurationPolicy")
 			utils.Kubectl("apply", "-n", testNamespace, "-f", allSkippedPolicyYAML)
@@ -724,6 +749,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 		AfterEach(func() {
 			utils.KubectlDelete("configurationpolicy", policyName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", invalidPolicyName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", noSelectorName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", outsidePolicyName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", allSkippedPolicyName, "-n", testNamespace)
 			utils.KubectlDelete("configmaps", "-n", e2eBaseName, "--all")
