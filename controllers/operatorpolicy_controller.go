@@ -301,8 +301,8 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		}
 	}
 
-	operatorPolicyStatusGauge.WithLabelValues(
-		policy.Name, policy.Namespace,
+	policyStatusGauge.WithLabelValues(
+		"OperatorPolicy", policy.Name, policy.Namespace, string(policy.Spec.Severity),
 	).Set(
 		getStatusValue(policy.Status.ComplianceState),
 	)

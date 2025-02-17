@@ -11,26 +11,17 @@ import (
 )
 
 var (
-	configPolicyStatusGauge = prometheus.NewGaugeVec(
+	policyStatusGauge = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "configurationpolicy_governance_info",
-			Help: "The compliance status of the named ConfigurationPolicy. " +
+			Name: "cluster_policy_governance_info",
+			Help: "The compliance status of the named managed cluster policy. " +
 				"0 == Compliant. 1 == NonCompliant. -1 == Unknown/Pending",
 		},
 		[]string{
-			"policy",           // The name of the configuration policy
-			"policy_namespace", // The namespace where the configuration policy is defined
-		},
-	)
-	operatorPolicyStatusGauge = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "operatorpolicy_governance_info",
-			Help: "The compliance status of the named OperatorPolicy. " +
-				"0 == Compliant. 1 == NonCompliant. -1 == Unknown/Pending",
-		},
-		[]string{
-			"policy",           // The name of the operator policy
-			"policy_namespace", // The namespace where the operator policy is defined
+			"kind",             // The kind of the policy
+			"policy",           // The name of the policy
+			"policy_namespace", // The namespace where the policy is defined
+			"severity",         // The severity of the policy
 		},
 	)
 	policyEvalSecondsCounter = prometheus.NewCounterVec(
@@ -92,8 +83,7 @@ var (
 func init() {
 	// Register custom metrics with the global Prometheus registry
 	metrics.Registry.MustRegister(
-		configPolicyStatusGauge,
-		operatorPolicyStatusGauge,
+		policyStatusGauge,
 		policyEvalSecondsCounter,
 		policyEvalCounter,
 		compareObjSecondsCounter,
@@ -124,7 +114,8 @@ func getStatusValue(complianceState v1.ComplianceState) float64 {
 }
 
 func removeOperatorPolicyMetrics(request ctrl.Request) {
-	_ = operatorPolicyStatusGauge.DeletePartialMatch(prometheus.Labels{
+	_ = policyStatusGauge.DeletePartialMatch(prometheus.Labels{
+		"kind":             "OperatorPolicy",
 		"policy":           request.Name,
 		"policy_namespace": request.Namespace,
 	})
@@ -132,7 +123,8 @@ func removeOperatorPolicyMetrics(request ctrl.Request) {
 
 func removeConfigPolicyMetrics(request ctrl.Request) {
 	// If a metric has an error while deleting, that means the policy was never evaluated so it can be ignored.
-	_ = configPolicyStatusGauge.DeletePartialMatch(prometheus.Labels{
+	_ = policyStatusGauge.DeletePartialMatch(prometheus.Labels{
+		"kind":             "ConfigurationPolicy",
 		"policy":           request.Name,
 		"policy_namespace": request.Namespace,
 	})
