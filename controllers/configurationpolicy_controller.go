@@ -1548,13 +1548,23 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 
 				var templateContext interface{}
 
-				// If the name is empty, the policy is missing the
-				// objectSelector required to use the context variables
-				if name != "" {
+				// Only populate context variables as they are available:
+				// - Namespaced object with metadata.name or objectSelector
+				if name != "" && ns != "" {
 					templateContext = struct {
 						ObjectNamespace string
 						ObjectName      string
 					}{ObjectNamespace: ns, ObjectName: name}
+				} else if name != "" {
+					// - Cluster-scoped object with metadata.name or objectSelector
+					templateContext = struct {
+						ObjectName string
+					}{ObjectName: ns}
+				} else if ns != "" {
+					// - Unnamed namespaced object
+					templateContext = struct {
+						ObjectNamespace string
+					}{ObjectNamespace: ns}
 				}
 
 				skipObject := false
