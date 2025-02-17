@@ -1548,9 +1548,9 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 
 				var templateContext interface{}
 
-				// If both name and namespace are empty, the policy is missing the
+				// If the name is empty, the policy is missing the
 				// objectSelector required to use the context variables
-				if ns != "" && name != "" {
+				if name != "" {
 					templateContext = struct {
 						ObjectNamespace string
 						ObjectName      string

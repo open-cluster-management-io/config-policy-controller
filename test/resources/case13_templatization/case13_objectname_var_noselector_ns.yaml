@@ -1,0 +1,17 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case13-no-selector-ns
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: "{{ .ObjectName }}"
+          labels:
+            case13: passed
+            name: "{{ .ObjectName }}"
+            namespace: "{{ .ObjectNamespace }}"
