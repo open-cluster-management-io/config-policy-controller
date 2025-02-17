@@ -58,20 +58,20 @@ var _ = Describe("Test config policy metrics", Ordered, func() {
 		By("Checking metric endpoint for configuration policy status")
 		Eventually(
 			metricCheck, defaultTimeoutSeconds, 1,
-		).WithArguments("configurationpolicy_governance_info", "policy", policyName).Should(BeNumerically("==", 1))
+		).WithArguments("cluster_policy_governance_info", "policy", policyName).Should(BeNumerically("==", 1))
 
 		By("Enforcing the policy")
 		utils.EnforceConfigurationPolicy(policyName, testNamespace)
 		Eventually(
 			metricCheck, defaultTimeoutSeconds, 1,
-		).WithArguments("configurationpolicy_governance_info", "policy", policyName).Should(BeNumerically("==", 0))
+		).WithArguments("cluster_policy_governance_info", "policy", policyName).Should(BeNumerically("==", 0))
 	})
 
 	It("should report status for the operatorpolicy", func() {
 		By("Checking metric endpoint for operator policy status")
 		Eventually(
 			metricCheck, defaultTimeoutSeconds, 1,
-		).WithArguments("operatorpolicy_governance_info", "policy", operatorPolicyName).Should(BeNumerically("==", 1))
+		).WithArguments("cluster_policy_governance_info", "policy", operatorPolicyName).Should(BeNumerically("==", 1))
 	})
 
 	AfterAll(func() {
@@ -82,8 +82,7 @@ var _ = Describe("Test config policy metrics", Ordered, func() {
 		for metricName, label := range map[string]string{
 			"config_policy_evaluation_total":         "name",
 			"config_policy_evaluation_seconds_total": "name",
-			"configurationpolicy_governance_info":    "policy",
-			"operatorpolicy_governance_info":         "policy",
+			"cluster_policy_governance_info":         "policy",
 		} {
 			Eventually(
 				utils.GetMetrics, defaultTimeoutSeconds, 1,
