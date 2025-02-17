@@ -704,19 +704,21 @@ var _ = Describe("Test templatization", Ordered, func() {
 		})
 
 		It("Should fail when context variables are used without a selector", func(ctx SpecContext) {
-			for name, file := range map[string]string{
-				noSelectorName:   noSelectorPolicyYAML,
-				noSelectorNsName: noSelectorNsPolicyYAML,
+			for name, test := range map[string]struct {
+				file, expectedStruct string
+			}{
+				noSelectorName:   {file: noSelectorPolicyYAML, expectedStruct: " ObjectNamespace string "},
+				noSelectorNsName: {file: noSelectorNsPolicyYAML},
 			} {
 				By("Applying the " + name + " ConfigurationPolicy")
-				utils.Kubectl("apply", "-n", testNamespace, "-f", file)
+				utils.Kubectl("apply", "-n", testNamespace, "-f", test.file)
 
 				By("By verifying that the ConfigurationPolicy is noncompliant")
 				Eventually(func(g Gomega) {
 					managedPlc := utils.GetWithTimeout(
 						clientManagedDynamic,
 						gvrConfigPolicy,
-						noSelectorName,
+						name,
 						testNamespace,
 						true,
 						defaultTimeoutSeconds,
@@ -725,7 +727,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 					utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 					g.Expect(utils.GetStatusMessage(managedPlc)).To(ContainSubstring(
 						`template: tmpl:6:14: executing "tmpl" at <.ObjectName>: ` +
-							`can't evaluate field ObjectName in type struct {}`,
+							`can't evaluate field ObjectName in type struct {` + test.expectedStruct + `}`,
 					))
 				}, defaultTimeoutSeconds, 1).Should(Succeed())
 			}
