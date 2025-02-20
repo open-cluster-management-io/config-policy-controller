@@ -1,0 +1,10 @@
+compliant: Compliant
+relatedObjects:
+- compliant: Compliant
+  object:
+    apiVersion: v1
+    kind: Namespace
+- compliant: Compliant
+  object:
+    apiVersion: v1
+    kind: Pod

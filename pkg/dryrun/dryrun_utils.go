@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"regexp"
 	"sort"
 
 	"github.com/spf13/cobra"
@@ -79,7 +80,7 @@ func compareStatusObj(cmd *cobra.Command, isStatusMatch bool, parentPath string,
 		value := inputMap[key]
 
 		if !exist {
-			cmd.Println(errorColor(fmt.Sprintf("Key '%s' not found in result at path '%s'", key, parentPath), noColor))
+			errorNoKeyPrint(cmd, parentPath, key, noColor)
 
 			isStatusMatch = false
 
@@ -182,9 +183,8 @@ func handleArrayInterface(cmd *cobra.Command,
 				}
 
 				// If an matched element is found in the actual status, break the current loop.
-				if compareStatusObj(cmd, true,
-					fmt.Sprintf("%s[%d]", path, i), mapObj,
-					mapActualObj, noColor) {
+				objPath := fmt.Sprintf("%s[%d]", path, i)
+				if compareStatusObj(cmd, true, objPath, mapObj, mapActualObj, noColor) {
 					elementMatch = true
 
 					break
@@ -236,24 +236,43 @@ func notArrayPrint(cmd *cobra.Command, from, path string, noColors bool) {
 	cmd.Println(warningColor(fmt.Sprintf("skip %s, %s is not array,", path, from), noColors))
 }
 
+// skipPrintRegex matches deeper items like .relatedObjects[1].conditions which should not be printed
+var skipPrintRegex = regexp.MustCompile(`\.\w+\[\d+\]\.\w`)
+
+func errorNoKeyPrint(cmd *cobra.Command, path, key string, noColors bool) {
+	if !skipPrintRegex.MatchString(path) {
+		cmd.Println(errorColor(fmt.Sprintf("Key '%s' not found in result at path '%s'", key, path), noColors))
+	}
+}
+
 func errorMatchPrint(cmd *cobra.Command, path string, inputVal, actualVal interface{}, noColors bool) {
-	cmd.Println(errorColor(fmt.Sprintf("%s: '%v' does not match '%v'", path, inputVal, actualVal), noColors))
+	if !skipPrintRegex.MatchString(path) {
+		cmd.Println(errorColor(fmt.Sprintf("%s: '%v' does not match '%v'", path, inputVal, actualVal), noColors))
+	}
 }
 
 func errorMatchAnyArrayPrint(cmd *cobra.Command, path string, noColors bool) {
-	cmd.Println(errorColor(path+" does not match any elements", noColors))
+	if !skipPrintRegex.MatchString(path) {
+		cmd.Println(errorColor(path+" does not match any elements", noColors))
+	}
 }
 
 func errorMatchArrayPrint(cmd *cobra.Command, path string, noColors bool) {
-	cmd.Println(errorColor(path+" does not match the elements", noColors))
+	if !skipPrintRegex.MatchString(path) {
+		cmd.Println(errorColor(path+" does not match the elements", noColors))
+	}
 }
 
 func successMatchArrayPrint(cmd *cobra.Command, path string, noColors bool) {
-	cmd.Println(successColor((path + " matches"), noColors))
+	if !skipPrintRegex.MatchString(path) {
+		cmd.Println(successColor((path + " matches"), noColors))
+	}
 }
 
 func successMatchPrint(cmd *cobra.Command, path string, inputVal, actualVal interface{}, noColors bool) {
-	cmd.Println(successColor(fmt.Sprintf("%s: '%v' does match '%v'", path, inputVal, actualVal), noColors))
+	if !skipPrintRegex.MatchString(path) {
+		cmd.Println(successColor(fmt.Sprintf("%s: '%v' does match '%v'", path, inputVal, actualVal), noColors))
+	}
 }
 
 func convertMapStringKey(i interface{}) interface{} {

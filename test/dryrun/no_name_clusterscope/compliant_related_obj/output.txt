@@ -1,8 +1,5 @@
 # Status compare:
 [32m.compliant: 'Compliant' does match 'Compliant'[0m
-[32m.relatedObjects[0].object.kind: 'IngressClass' does match 'IngressClass'[0m
-[32m.relatedObjects[0].object.metadata.name: '-' does match '-'[0m
-[32m.relatedObjects[0].reason: 'Resource not found as expected' does match 'Resource not found as expected'[0m
 [32m.relatedObjects[0] matches[0m
 [32m.relatedObjects matches[0m
 [32m[1m Expected status matches the actual status [0m[0m
