@@ -1,7 +1,4 @@
 # Status compare:
-[32m.relatedObjects[0].object.kind: 'Ingress' does match 'Ingress'[0m
-[32m.relatedObjects[0].object.metadata.name: '-' does match '-'[0m
-[32m.relatedObjects[0].reason: 'Resource found but does not match' does match 'Resource found but does not match'[0m
 [32m.relatedObjects[0] matches[0m
 [32m.relatedObjects matches[0m
 [32m[1m Expected status matches the actual status [0m[0m

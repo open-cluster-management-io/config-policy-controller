@@ -1,20 +1,5 @@
 # Status compare:
 [32m.compliant: 'Compliant' does match 'Compliant'[0m
-[32m.relatedObjects[0].compliant: 'Compliant' does match 'Compliant'[0m
-[32m.relatedObjects[0].object.apiVersion: 'v1' does match 'v1'[0m
-[31m.relatedObjects[0].object.kind: 'Pod' does not match 'Namespace'[0m
-[32m.relatedObjects[0].object.metadata.name: 'test1' does match 'test1'[0m
-[31mKey 'spec' not found in result at path '.relatedObjects[0].object'[0m
-[32m.relatedObjects[0].compliant: 'Compliant' does match 'Compliant'[0m
-[32m.relatedObjects[0].object.apiVersion: 'v1' does match 'v1'[0m
-[32m.relatedObjects[0].object.kind: 'Pod' does match 'Pod'[0m
-[32m.relatedObjects[0].object.metadata.name: 'test1' does match 'test1'[0m
-[31m.relatedObjects[0].object.spec.containers[0].image: 'nginx:1.14.2' does not match 'nodejs:1.88'[0m
-[31m.relatedObjects[0].object.spec.containers[0].name: 'nginx' does not match 'nodejs'[0m
-[32m.relatedObjects[0].object.spec.containers[0].image: 'nginx:1.14.2' does match 'nginx:1.14.2'[0m
-[32m.relatedObjects[0].object.spec.containers[0].name: 'nginx' does match 'nginx'[0m
-[32m.relatedObjects[0].object.spec.containers[0] matches[0m
-[32m.relatedObjects[0].object.spec.containers matches[0m
 [32m.relatedObjects[0] matches[0m
 [32m.relatedObjects matches[0m
 [32m[1m Expected status matches the actual status [0m[0m

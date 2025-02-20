@@ -1,9 +1,5 @@
 # Status compare:
 [32m.compliant: 'NonCompliant' does match 'NonCompliant'[0m
-[32m.relatedObjects[0].compliant: 'NonCompliant' does match 'NonCompliant'[0m
-[32m.relatedObjects[0].object.apiVersion: 'v1' does match 'v1'[0m
-[32m.relatedObjects[0].object.kind: 'Namespace' does match 'Namespace'[0m
-[32m.relatedObjects[0].properties.diff: '# The difference is redacted because it contains sensitive data. To override, the spec["object-templates"][].recordDiff field must be set to "InStatus" for the difference to be recorded in the policy status. Consider existing access to the ConfigurationPolicy objects and the etcd encryption configuration before you proceed with an override.' does match '# The difference is redacted because it contains sensitive data. To override, the spec["object-templates"][].recordDiff field must be set to "InStatus" for the difference to be recorded in the policy status. Consider existing access to the ConfigurationPolicy objects and the etcd encryption configuration before you proceed with an override.'[0m
 [32m.relatedObjects[0] matches[0m
 [32m.relatedObjects matches[0m
 [32m[1m Expected status matches the actual status [0m[0m
