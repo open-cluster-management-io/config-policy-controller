@@ -2271,7 +2271,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 		}
 
 		mappingErr := errors.New("couldn't find mapping resource with kind " + gvk.Kind +
-			", please check if you have CRD deployed")
+			" in API version " + gvk.GroupVersion().String() + ", please check if you have CRD deployed")
 
 		log.Error(err, "Could not map resource, do you have the CRD deployed?", "kind", gvk.Kind)
 
