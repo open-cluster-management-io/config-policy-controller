@@ -1,0 +1,22 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case42-selector-mnh-e2e
+spec:
+  evaluationInterval:
+    compliant: watch
+    noncompliant: watch
+  remediationAction: inform
+  object-templates:
+    - complianceType: mustnothave
+      objectSelector:
+        matchExpressions:
+          - key: case42
+            operator: Exists
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          namespace: case42-e2e-4
+        data:
+          test: match

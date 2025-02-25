@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: case42-e2e-4
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    case42: present
+  name: case42-4-e2e-match-1
+data:
+  test: match
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    case42: present
+  name: case42-4-e2e-match-2
+data:
+  test: match
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: case42-4-e2e-no-match-1
+data:
+  test: match
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  labels:
+    case42: present
+  name: case42-4-e2e-no-match-2
+data:
+  test: does-not-match

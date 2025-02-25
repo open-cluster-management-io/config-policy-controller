@@ -30,6 +30,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -1709,6 +1710,29 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		return nil, &scopedGVR, event, nil
 	}
 
+	// For mustnothave with no name and with an object selector, filter the "desired" objects
+	// so that only ones matching the other details in the template are included.
+	if objectT.ComplianceType.IsMustNotHave() && parsedMinMetadata.Metadata.Name == "" && objectSelector != nil {
+		targetedObjects := make([]*unstructured.Unstructured, 0, len(desiredObjects))
+
+		for _, d := range desiredObjects {
+			unnamedObj := d.DeepCopy()
+			unnamedObj.SetName("")
+
+			matchingNames, _ := r.getMatchingNames(plc, unnamedObj, scopedGVR, objectT)
+
+			for _, n := range matchingNames {
+				if n == d.GetName() {
+					targetedObjects = append(targetedObjects, d)
+
+					break
+				}
+			}
+		}
+
+		return targetedObjects, &scopedGVR, nil, nil
+	}
+
 	return desiredObjects, &scopedGVR, nil, nil
 }
 
@@ -1937,7 +1961,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		log.V(1).Info(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
-		objNames, allResourceNames = r.getMatchingNames(policy, desiredObj, scopedGVR, objectT.ComplianceType)
+		objNames, allResourceNames = r.getMatchingNames(policy, desiredObj, scopedGVR, objectT)
 
 		// we do not support enforce on unnamed templates
 		if !remediation.IsInform() {
@@ -2333,27 +2357,33 @@ func (r *ConfigurationPolicyReconciler) getMatchingNames(
 	plc *policyv1.ConfigurationPolicy,
 	desiredObj *unstructured.Unstructured,
 	scopedGVR depclient.ScopedGVR,
-	complianceType policyv1.ComplianceType,
+	objectT *policyv1.ObjectTemplate,
 ) (kindNameList []string, allResourceList []string) {
 	var resList *unstructured.UnstructuredList
-	var err error
 
 	ns := desiredObj.GetNamespace()
+
+	sel, err := metav1.LabelSelectorAsSelector(objectT.ObjectSelector)
+	if err != nil {
+		// This error should have already been handled in `determineDesiredObjects`,
+		// but as a fail-safe, select nothing.
+		sel = labels.Nothing()
+	}
 
 	if currentlyUsingWatch(plc) {
 		var returnedItems []unstructured.Unstructured
 
-		returnedItems, err = r.DynamicWatcher.List(plc.ObjectIdentifier(), desiredObj.GroupVersionKind(), ns, nil)
+		returnedItems, err = r.DynamicWatcher.List(plc.ObjectIdentifier(), desiredObj.GroupVersionKind(), ns, sel)
 
 		resList = &unstructured.UnstructuredList{Items: returnedItems}
 	} else if scopedGVR.Namespaced {
 		res := r.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource).Namespace(ns)
 
-		resList, err = res.List(context.TODO(), metav1.ListOptions{})
+		resList, err = res.List(context.TODO(), metav1.ListOptions{LabelSelector: sel.String()})
 	} else {
 		res := r.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource)
 
-		resList, err = res.List(context.TODO(), metav1.ListOptions{})
+		resList, err = res.List(context.TODO(), metav1.ListOptions{LabelSelector: sel.String()})
 	}
 
 	if err != nil {
@@ -2368,7 +2398,7 @@ func (r *ConfigurationPolicyReconciler) getMatchingNames(
 		allResourceList = append(allResourceList, res.GetName())
 	}
 
-	return buildNameList(desiredObj, complianceType, resList), allResourceList
+	return buildNameList(desiredObj, objectT.ComplianceType, resList), allResourceList
 }
 
 // enforceByCreating handles the situation where a musthave or mustonlyhave object is
