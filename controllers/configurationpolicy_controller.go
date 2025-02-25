@@ -1937,7 +1937,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		log.V(1).Info(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
-		objNames, allResourceNames = r.getNamesOfKind(policy, desiredObj, scopedGVR, objectT.ComplianceType)
+		objNames, allResourceNames = r.getMatchingNames(policy, desiredObj, scopedGVR, objectT.ComplianceType)
 
 		// we do not support enforce on unnamed templates
 		if !remediation.IsInform() {
@@ -2326,10 +2326,10 @@ func buildNameList(
 	return kindNameList
 }
 
-// getNamesOfKind returns an array with names of all of the resources found
-// matching the GVK specified.
-// allResourceList includes names that are under the same namespace and kind.
-func (r *ConfigurationPolicyReconciler) getNamesOfKind(
+// getMatchingNames returns two slices: the second contains the names of all resources
+// which match the given GVR and the object selector on the template (if present). The
+// first slice additionally filters by the other fields in the object template.
+func (r *ConfigurationPolicyReconciler) getMatchingNames(
 	plc *policyv1.ConfigurationPolicy,
 	desiredObj *unstructured.Unstructured,
 	scopedGVR depclient.ScopedGVR,
