@@ -21,3 +21,9 @@ spec:
           namespace: default
         data:
           foo: bar
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: kubeymckkube.com/v6alpha6
+        kind: OooglyBoogly
+        metadata:
+          name: case35-noexist

@@ -10,13 +10,16 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = Describe("Test a policy with an objectDefinition that is missing apiVersion", func() {
+var _ = Describe("Test a policy with an objectDefinition with an invalid apiVersion", func() {
 	const (
-		rsrcPath   = "../resources/case35_no_apiversion/"
-		policyYAML = rsrcPath + "policy.yaml"
-		policyName = "case35-parent"
-		cfgPlcYAML = rsrcPath + "config-policy.yaml"
-		cfgPlcName = "case35-cfgpol"
+		rsrcPath      = "../resources/case35_no_apiversion/"
+		policyYAML    = rsrcPath + "policy.yaml"
+		policyName    = "case35-parent"
+		cfgPlcYAML    = rsrcPath + "config-policy.yaml"
+		cfgPlcName    = "case35-cfgpol"
+		complianceMsg = "^NonCompliant; violation - The kind and apiVersion fields are required on the object " +
+			"template at index 0 in policy " + cfgPlcName + "; violation - couldn't find mapping resource with kind " +
+			"OooglyBoogly in API version kubeymckkube.com/v6alpha6, please check if you have CRD deployed$"
 	)
 
 	It("Should have the expected events", func() {
@@ -26,8 +29,7 @@ var _ = Describe("Test a policy with an objectDefinition that is missing apiVers
 		By("Checking there is a NonCompliant event on the policy")
 		Eventually(func() interface{} {
 			return utils.GetMatchingEvents(
-				clientManaged, testNamespace, policyName, cfgPlcName,
-				"^NonCompliant;.*kind and apiVersion fields are required", defaultTimeoutSeconds,
+				clientManaged, testNamespace, policyName, cfgPlcName, complianceMsg, defaultTimeoutSeconds,
 			)
 		}, defaultTimeoutSeconds, 5).ShouldNot(BeEmpty())
 
