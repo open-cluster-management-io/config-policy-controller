@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: useless-metadata-pod
+  namespace: default
+  generateName: coredns-5d78c9869d-
+  creationTimestamp: "2025-02-18T17:47:28Z"
+  resourceVersion: "441"
+  uid: b519206b-8d46-4236-928b-5a8f7f2c0209
+spec:
+  containers:
+    - image: nginx:1.7.9
+      name: engine-x
+      ports:
+        - containerPort: 8080
