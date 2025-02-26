@@ -23,8 +23,10 @@ import (
 	yaml "gopkg.in/yaml.v3"
 	corev1 "k8s.io/api/core/v1"
 	extv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	dynfake "k8s.io/client-go/dynamic/fake"
@@ -88,18 +90,22 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 		var resInt dynamic.ResourceInterface
 
 		if scopedGVR.Namespaced {
+			if obj.GetNamespace() == "" {
+				obj.SetNamespace("default")
+			}
+
 			resInt = rec.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource).Namespace(obj.GetNamespace())
 		} else {
 			resInt = rec.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource)
 		}
 
-		if _, err := resInt.Create(ctx, obj, metav1.CreateOptions{}); err != nil {
+		if _, err := resInt.Create(ctx, obj, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
 			return fmt.Errorf("unable to apply an input resource: %w", err)
 		}
 
 		// Manually convert resources from the dynamic client to the runtime client
 		err = rec.Client.Create(ctx, obj)
-		if err != nil {
+		if err != nil && !k8serrors.IsAlreadyExists(err) {
 			return err
 		}
 	}
@@ -439,6 +445,29 @@ func (d *DryRunner) setupReconciler(
 	versionInfo, err := clientset.Discovery().ServerVersion()
 	if err == nil {
 		serverVersion = versionInfo.String()
+	}
+
+	defaultNs := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "Namespace",
+			"metadata": map[string]interface{}{
+				"name": "default",
+			},
+		},
+	}
+
+	// Create default namespace
+	if _, err := dynamicClient.Resource(schema.
+		GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}).
+		Create(ctx, defaultNs, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
+		return nil, fmt.Errorf("unable to create default namespace: %w", err)
+	}
+
+	// Create default namespace for namespace selector
+	err = runtimeClient.Create(ctx, defaultNs)
+	if err != nil && !k8serrors.IsAlreadyExists(err) {
+		return nil, err
 	}
 
 	rec := ctrl.ConfigurationPolicyReconciler{

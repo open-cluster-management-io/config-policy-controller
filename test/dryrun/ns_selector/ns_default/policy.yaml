@@ -1,0 +1,22 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-pod-example
+spec:
+  remediationAction: inform # the policy-template spec.remediationAction is overridden by the preceding parameter value for spec.remediationAction.
+  severity: low
+  namespaceSelector:
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod # nginx pod must exist
+        metadata:
+          name: sample-nginx-pod
+        spec:
+          containers:
+            - image: nginx:1.18.0
+              name: nginx
+              ports:
+                - containerPort: 80

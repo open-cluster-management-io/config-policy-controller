@@ -1,0 +1,9 @@
+# Status compare:
+[32m.compliant: 'Compliant' does match 'Compliant'[0m
+[32m[1m Expected status matches the actual status [0m[0m
+
+# Diffs:
+v1 Pod default/sample-nginx-pod:
+
+# Compliance messages:
+Compliant; notification - pods [sample-nginx-pod] found as specified in namespace default
