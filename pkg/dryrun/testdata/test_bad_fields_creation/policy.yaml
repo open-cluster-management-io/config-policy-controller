@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-pod-example
+spec:
+  remediationAction: inform # the policy-template spec.remediationAction is overridden by the preceding parameter value for spec.remediationAction.
+  severity: low
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod # nginx pod must exist
+        metadata:
+          namespace: default
+          name: useless-metadata-pod
+        spec:
+          containers:
+          - image: nginx:1.7.9
+            name: engine-x
+            ports:
+              - containerPort: 8080

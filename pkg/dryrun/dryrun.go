@@ -99,7 +99,10 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 			resInt = rec.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource)
 		}
 
-		if _, err := resInt.Create(ctx, obj, metav1.CreateOptions{}); err != nil && !k8serrors.IsAlreadyExists(err) {
+		sanitizeForCreation(obj)
+
+		if _, err := resInt.Create(ctx, obj, metav1.CreateOptions{}); err != nil &&
+			!k8serrors.IsAlreadyExists(err) {
 			return fmt.Errorf("unable to apply an input resource: %w", err)
 		}
 
@@ -611,4 +614,13 @@ func (d *DryRunner) outputDiffs(cmd *cobra.Command, status policyv1.Configuratio
 			cmd.Println(strings.TrimSuffix(relObj.Properties.Diff, "\n"))
 		}
 	}
+}
+
+func sanitizeForCreation(obj *unstructured.Unstructured) {
+	// Remove fields that should not be set during creation
+	delete(obj.Object["metadata"].(map[string]interface{}), "resourceVersion")
+	delete(obj.Object["metadata"].(map[string]interface{}), "generatedName")
+	delete(obj.Object["metadata"].(map[string]interface{}), "creationTimestamp")
+	delete(obj.Object["metadata"].(map[string]interface{}), "selfLink")
+	delete(obj.Object["metadata"].(map[string]interface{}), "uid")
 }

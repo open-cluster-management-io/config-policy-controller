@@ -1,0 +1,5 @@
+# Diffs:
+v1 Pod default/useless-metadata-pod:
+
+# Compliance messages:
+Compliant; notification - pods [useless-metadata-pod] found as specified in namespace default
