@@ -704,20 +704,26 @@ func generateMessageWithReason(sortedObjectNamesStrs []string,
 		// If it is namespaced, include the namespaces that were checked. A namespace of "" indicates
 		// cluster scoped. This length check is not necessary but is added for additional safety in case the logic
 		// above is changed.
-		nsList := []string{}
+		nsSet := map[string]struct{}{}
 
 		for _, nsName := range objectNameStrsToNsNames[namesStr] {
 			ns, _, _ := strings.Cut(nsName, "/")
 			if ns != "" {
-				nsList = append(nsList, ns)
+				nsSet[ns] = struct{}{}
 			}
 		}
 
-		if len(nsList) > 0 {
-			if len(objectNameStrsToNsNames[namesStr]) > 1 {
+		if len(nsSet) > 0 {
+			if len(nsSet) > 1 {
 				msgTemplate += " in namespaces: "
 			} else {
 				msgTemplate += " in namespace "
+			}
+
+			nsList := make([]string, 0, len(nsSet))
+
+			for ns := range nsSet {
+				nsList = append(nsList, ns)
 			}
 
 			sort.Strings(nsList)

@@ -30,6 +30,7 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -1709,6 +1710,29 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		return nil, &scopedGVR, event, nil
 	}
 
+	// For mustnothave with no name and with an object selector, filter the "desired" objects
+	// so that only ones matching the other details in the template are included.
+	if objectT.ComplianceType.IsMustNotHave() && parsedMinMetadata.Metadata.Name == "" && objectSelector != nil {
+		targetedObjects := make([]*unstructured.Unstructured, 0, len(desiredObjects))
+
+		for _, d := range desiredObjects {
+			unnamedObj := d.DeepCopy()
+			unnamedObj.SetName("")
+
+			matchingNames, _ := r.getMatchingNames(plc, unnamedObj, scopedGVR, objectT)
+
+			for _, n := range matchingNames {
+				if n == d.GetName() {
+					targetedObjects = append(targetedObjects, d)
+
+					break
+				}
+			}
+		}
+
+		return targetedObjects, &scopedGVR, nil, nil
+	}
+
 	return desiredObjects, &scopedGVR, nil, nil
 }
 
@@ -1937,7 +1961,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		log.V(1).Info(
 			"The object template does not specify a name. Will search for matching objects in the namespace.",
 		)
-		objNames, allResourceNames = r.getNamesOfKind(policy, desiredObj, scopedGVR, objectT.ComplianceType)
+		objNames, allResourceNames = r.getMatchingNames(policy, desiredObj, scopedGVR, objectT)
 
 		// we do not support enforce on unnamed templates
 		if !remediation.IsInform() {
@@ -2111,7 +2135,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		// it is a musthave and it does not exist, so it must be created
 		if remediation.IsEnforce() {
 			var uid string
-			completed, reason, msg, uid, err := r.enforceByCreatingOrDeleting(obj)
+			completed, reason, msg, uid, err := r.enforceByCreating(obj)
 
 			hasStatus := false
 			if tmplObj, err := unmarshalFromJSON(objectT.ObjectDefinition.Raw); err == nil {
@@ -2145,7 +2169,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 	if exists && !obj.shouldExist {
 		// it is a mustnothave but it exist, so it must be deleted
 		if remediation.IsEnforce() {
-			completed, reason, msg, _, err := r.enforceByCreatingOrDeleting(obj)
+			completed, reason, msg, err := r.enforceByDeleting(obj)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
 				result.enforcementErr = err
@@ -2326,34 +2350,40 @@ func buildNameList(
 	return kindNameList
 }
 
-// getNamesOfKind returns an array with names of all of the resources found
-// matching the GVK specified.
-// allResourceList includes names that are under the same namespace and kind.
-func (r *ConfigurationPolicyReconciler) getNamesOfKind(
+// getMatchingNames returns two slices: the second contains the names of all resources
+// which match the given GVR and the object selector on the template (if present). The
+// first slice additionally filters by the other fields in the object template.
+func (r *ConfigurationPolicyReconciler) getMatchingNames(
 	plc *policyv1.ConfigurationPolicy,
 	desiredObj *unstructured.Unstructured,
 	scopedGVR depclient.ScopedGVR,
-	complianceType policyv1.ComplianceType,
+	objectT *policyv1.ObjectTemplate,
 ) (kindNameList []string, allResourceList []string) {
 	var resList *unstructured.UnstructuredList
-	var err error
 
 	ns := desiredObj.GetNamespace()
+
+	sel, err := metav1.LabelSelectorAsSelector(objectT.ObjectSelector)
+	if err != nil {
+		// This error should have already been handled in `determineDesiredObjects`,
+		// but as a fail-safe, select nothing.
+		sel = labels.Nothing()
+	}
 
 	if currentlyUsingWatch(plc) {
 		var returnedItems []unstructured.Unstructured
 
-		returnedItems, err = r.DynamicWatcher.List(plc.ObjectIdentifier(), desiredObj.GroupVersionKind(), ns, nil)
+		returnedItems, err = r.DynamicWatcher.List(plc.ObjectIdentifier(), desiredObj.GroupVersionKind(), ns, sel)
 
 		resList = &unstructured.UnstructuredList{Items: returnedItems}
 	} else if scopedGVR.Namespaced {
 		res := r.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource).Namespace(ns)
 
-		resList, err = res.List(context.TODO(), metav1.ListOptions{})
+		resList, err = res.List(context.TODO(), metav1.ListOptions{LabelSelector: sel.String()})
 	} else {
 		res := r.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource)
 
-		resList, err = res.List(context.TODO(), metav1.ListOptions{})
+		resList, err = res.List(context.TODO(), metav1.ListOptions{LabelSelector: sel.String()})
 	}
 
 	if err != nil {
@@ -2368,15 +2398,13 @@ func (r *ConfigurationPolicyReconciler) getNamesOfKind(
 		allResourceList = append(allResourceList, res.GetName())
 	}
 
-	return buildNameList(desiredObj, complianceType, resList), allResourceList
+	return buildNameList(desiredObj, objectT.ComplianceType, resList), allResourceList
 }
 
-// enforceByCreatingOrDeleting can handle the situation where a musthave or mustonlyhave object is
-// completely missing (as opposed to existing, but not matching the desired state), or where a
-// mustnothave object does exist. Eg, it does not handle the case where a targeted update would need
-// to be made to an object.
-func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleObject) (
-	result bool, reason string, msg string, uid string, erro error,
+// enforceByCreating handles the situation where a musthave or mustonlyhave object is
+// completely missing (as opposed to existing, but not matching the desired state)
+func (r *ConfigurationPolicyReconciler) enforceByCreating(obj singleObject) (
+	completed bool, reason string, msg string, uid string, err error,
 ) {
 	log := log.WithValues(
 		"object", obj.name,
@@ -2393,65 +2421,82 @@ func (r *ConfigurationPolicyReconciler) enforceByCreatingOrDeleting(obj singleOb
 		res = r.TargetK8sDynamicClient.Resource(obj.scopedGVR.GroupVersionResource)
 	}
 
-	var completed bool
-	var err error
+	log.Info("Enforcing the policy by creating the object")
 
-	if obj.shouldExist {
-		log.Info("Enforcing the policy by creating the object")
+	var createdObj *unstructured.Unstructured
 
-		var createdObj *unstructured.Unstructured
+	if createdObj, err = r.createObject(res, obj.desiredObj); createdObj == nil {
+		reason = "K8s creation error"
+		msg = fmt.Sprintf(
+			"%v %v is missing, and cannot be created, reason: `%v`", obj.scopedGVR.Resource, idStr, err,
+		)
 
-		if createdObj, err = r.createObject(res, obj.desiredObj); createdObj == nil {
-			reason = "K8s creation error"
-			msg = fmt.Sprintf(
-				"%v %v is missing, and cannot be created, reason: `%v`", obj.scopedGVR.Resource, idStr, err,
-			)
+		statusErr := &k8serrors.StatusError{}
 
-			statusErr := &k8serrors.StatusError{}
+		if currentlyUsingWatch(obj.policy) && errors.As(err, &statusErr) {
+			namespaceNotFound := obj.scopedGVR.Namespaced &&
+				statusErr.ErrStatus.Reason == metav1.StatusReasonNotFound &&
+				statusErr.ErrStatus.Details != nil &&
+				statusErr.ErrStatus.Details.Kind == "namespaces"
 
-			if currentlyUsingWatch(obj.policy) && errors.As(err, &statusErr) {
-				namespaceNotFound := obj.scopedGVR.Namespaced &&
-					statusErr.ErrStatus.Reason == metav1.StatusReasonNotFound &&
-					statusErr.ErrStatus.Details != nil &&
-					statusErr.ErrStatus.Details.Kind == "namespaces"
+			namespaceTerminating := obj.scopedGVR.Namespaced &&
+				statusErr.ErrStatus.Reason == metav1.StatusReasonForbidden &&
+				statusErr.ErrStatus.Details != nil &&
+				len(statusErr.ErrStatus.Details.Causes) > 0 &&
+				statusErr.ErrStatus.Details.Causes[0].Type == corev1.NamespaceTerminatingCause
 
-				namespaceTerminating := obj.scopedGVR.Namespaced &&
-					statusErr.ErrStatus.Reason == metav1.StatusReasonForbidden &&
-					statusErr.ErrStatus.Details != nil &&
-					len(statusErr.ErrStatus.Details.Causes) > 0 &&
-					statusErr.ErrStatus.Details.Causes[0].Type == corev1.NamespaceTerminatingCause
-
-				if namespaceNotFound || namespaceTerminating {
-					// Start a watch on the namespace to wait for when this error could be resolved.
-					// Replace the existing error in order to retry only if this `get` fails.
-					_, err = r.getObjectFromCache(obj.policy, "", obj.namespace, namespaceGVK)
-				}
+			if namespaceNotFound || namespaceTerminating {
+				// Start a watch on the namespace to wait for when this error could be resolved.
+				// Replace the existing error in order to retry only if this `get` fails.
+				_, err = r.getObjectFromCache(obj.policy, "", obj.namespace, namespaceGVK)
 			}
-		} else {
-			log.V(2).Info(
-				"Created missing must have object", "resource", obj.scopedGVR.Resource, "name", obj.name,
-			)
-			reason = reasonWantFoundCreated
-			msg = fmt.Sprintf("%v %v was created successfully", obj.scopedGVR.Resource, idStr)
-
-			uid = string(createdObj.GetUID())
-			completed = true
 		}
 	} else {
-		log.Info("Enforcing the policy by deleting the object")
+		log.V(2).Info(
+			"Created missing must have object", "resource", obj.scopedGVR.Resource, "name", obj.name,
+		)
+		reason = reasonWantFoundCreated
+		msg = fmt.Sprintf("%v %v was created successfully", obj.scopedGVR.Resource, idStr)
 
-		if completed, err = deleteObject(res, obj.name, obj.namespace); !completed {
-			reason = "K8s deletion error"
-			msg = fmt.Sprintf(
-				"%v %v exists, and cannot be deleted, reason: `%v`", obj.scopedGVR.Resource, idStr, err,
-			)
-		} else {
-			reason = reasonDeleteSuccess
-			msg = fmt.Sprintf("%v %v was deleted successfully", obj.scopedGVR.Resource, idStr)
-		}
+		uid = string(createdObj.GetUID())
+		completed = true
 	}
 
 	return completed, reason, msg, uid, err
+}
+
+// enforceByDeleting handles the case where a mustnothave object exists.
+func (r *ConfigurationPolicyReconciler) enforceByDeleting(obj singleObject) (
+	completed bool, reason string, msg string, err error,
+) {
+	log := log.WithValues(
+		"object", obj.name,
+		"policy", obj.policy.Name,
+		"objectNamespace", obj.namespace,
+		"objectTemplateIndex", obj.index,
+	)
+	idStr := identifierStr([]string{obj.name}, obj.namespace)
+
+	var res dynamic.ResourceInterface
+	if obj.scopedGVR.Namespaced {
+		res = r.TargetK8sDynamicClient.Resource(obj.scopedGVR.GroupVersionResource).Namespace(obj.namespace)
+	} else {
+		res = r.TargetK8sDynamicClient.Resource(obj.scopedGVR.GroupVersionResource)
+	}
+
+	log.Info("Enforcing the policy by deleting the object")
+
+	if completed, err = deleteObject(res, obj.name, obj.namespace); !completed {
+		reason = "K8s deletion error"
+		msg = fmt.Sprintf(
+			"%v %v exists, and cannot be deleted, reason: `%v`", obj.scopedGVR.Resource, idStr, err,
+		)
+	} else {
+		reason = reasonDeleteSuccess
+		msg = fmt.Sprintf("%v %v was deleted successfully", obj.scopedGVR.Resource, idStr)
+	}
+
+	return completed, reason, msg, err
 }
 
 // getObject gets the object with the dynamic client and returns the object if found.
