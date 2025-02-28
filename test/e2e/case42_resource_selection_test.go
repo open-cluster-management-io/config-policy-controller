@@ -341,3 +341,61 @@ var _ = Describe("Test evaluation of resource selection", Ordered, func() {
 		}, defaultConsistentlyDuration*2, "10s").ShouldNot(Equal(currentEvalTime))
 	})
 })
+
+var _ = Describe("Test mustnothave enforced behavior with object selector", Ordered, func() {
+	const (
+		targetNs   = "case42-e2e-4"
+		prereqYaml = "../resources/case42_resource_selector/case42_mnh_prereq.yaml"
+		policyYaml = "../resources/case42_resource_selector/case42_mnh_policy.yaml"
+		policyName = "case42-selector-mnh-e2e"
+	)
+
+	BeforeAll(func() {
+		By("Applying prerequisites")
+		utils.Kubectl("apply", "-n", targetNs, "-f", prereqYaml)
+		DeferCleanup(func() {
+			utils.KubectlDelete("-n", targetNs, "-f", prereqYaml)
+		})
+
+		utils.Kubectl("apply", "-f", policyYaml, "-n", testNamespace)
+		DeferCleanup(func() {
+			utils.KubectlDelete("-f", policyYaml, "-n", testNamespace)
+		})
+	})
+
+	It("Mentions only the fully matching resources in inform mode", func() {
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			return utils.GetStatusMessage(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
+			"configmaps [case42-4-e2e-match-1, case42-4-e2e-match-2] found in namespace %s", targetNs)))
+	})
+
+	It("Deletes only the fully matching resources in enforce mode", func() {
+		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
+			`--patch=[{
+			"op": "replace",
+			"path": "/spec/remediationAction",
+			"value": "enforce"
+		}]`)
+
+		Eventually(func() interface{} {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			return utils.GetComplianceState(managedPlc)
+		}, defaultTimeoutSeconds, 1).Should(Equal("Compliant"))
+
+		By("Verifying the correct resources are present")
+		utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
+			"case42-4-e2e-match-1", targetNs, false, defaultTimeoutSeconds)
+		utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
+			"case42-4-e2e-match-2", targetNs, false, defaultTimeoutSeconds)
+		utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
+			"case42-4-e2e-no-match-1", targetNs, true, defaultTimeoutSeconds)
+		utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
+			"case42-4-e2e-no-match-2", targetNs, true, defaultTimeoutSeconds)
+	})
+})
