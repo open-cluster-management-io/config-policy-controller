@@ -1,0 +1,24 @@
+compliancyDetails:
+- Compliant: NonCompliant
+  Validity: {}
+  conditions:
+  - message: ingresses [one, two] found in namespace default
+    reason: K8s has a `must not have` object
+compliant: NonCompliant
+relatedObjects:
+- compliant: NonCompliant
+  object:
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: one
+      namespace: default
+  reason: Resource found but should not exist
+- compliant: NonCompliant
+  object:
+    apiVersion: networking.k8s.io/v1
+    kind: Ingress
+    metadata:
+      name: two
+      namespace: default
+  reason: Resource found but should not exist

@@ -37,3 +37,14 @@ var multipleObjTemp embed.FS
 func TestMultipleObjTemp(t *testing.T) {
 	t.Run("Test multiple object template", dryrun.Run(multipleObjTemp, "multiple_obj_template"))
 }
+
+//go:embed multiple_mustnothave/*
+var multipleMustNotHave embed.FS
+
+func TestMultipleMustNotHave(t *testing.T) {
+	// This test verifies that the mustnothave policy flags both objects which match the
+	// object selector, even though one of them has other fields that doesn't match what
+	// is defined in the policy.
+	t.Run("Test objectSelector with mustnothave and a templated name",
+		dryrun.Run(multipleMustNotHave, "multiple_mustnothave"))
+}
