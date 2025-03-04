@@ -30,6 +30,7 @@ require (
 	k8s.io/kube-openapi v0.0.0-20240521193020-835d969ad83a
 	k8s.io/kubectl v0.28.10
 	open-cluster-management.io/addon-framework v0.9.3
+	open-cluster-management.io/governance-policy-propagator v0.15.0
 	sigs.k8s.io/controller-runtime v0.19.0
 	sigs.k8s.io/yaml v1.4.0
 )
