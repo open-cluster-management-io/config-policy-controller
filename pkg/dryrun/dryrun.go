@@ -34,6 +34,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/record"
 	klog "k8s.io/klog/v2"
+	parentpolicyv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 	runtime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	clientfake "sigs.k8s.io/controller-runtime/pkg/client/fake"
@@ -508,6 +509,9 @@ func (d *DryRunner) setupReconciler(
 		}
 	}
 
+	// Add open-cluster-management policy CRD
+	addSupportedResources(clientset)
+
 	// wait for dynamic watcher to have started
 	<-rec.DynamicWatcher.Started()
 
@@ -623,4 +627,25 @@ func sanitizeForCreation(obj *unstructured.Unstructured) {
 	delete(obj.Object["metadata"].(map[string]interface{}), "creationTimestamp")
 	delete(obj.Object["metadata"].(map[string]interface{}), "selfLink")
 	delete(obj.Object["metadata"].(map[string]interface{}), "uid")
+}
+
+func addSupportedResources(clientset *clientsetfake.Clientset) {
+	clientset.Resources = append(clientset.Resources, &metav1.APIResourceList{
+		GroupVersion: parentpolicyv1.GroupVersion.String(),
+		APIResources: []metav1.APIResource{{
+			Name:         "policies",
+			SingularName: "policy",
+			Group:        parentpolicyv1.GroupVersion.Group,
+			Version:      parentpolicyv1.GroupVersion.Version,
+			Namespaced:   true,
+			Kind:         parentpolicyv1.Kind,
+		}, {
+			Name:         "configurationpolicies",
+			SingularName: "configurationpolicy",
+			Group:        policyv1.GroupVersion.Group,
+			Version:      policyv1.GroupVersion.Version,
+			Namespaced:   true,
+			Kind:         "ConfigurationPolicy",
+		}},
+	})
 }

@@ -1,0 +1,7 @@
+# Diffs:
+policy.open-cluster-management.io/v1 ConfigurationPolicy default/hello:
+
+policy.open-cluster-management.io/v1 Policy default/test-policy-embed:
+
+# Compliance messages:
+NonCompliant; notification - policies [test-policy-embed] found as specified in namespace default; violation - configurationpolicies [hello] not found in namespace default
