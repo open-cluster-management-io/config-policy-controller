@@ -250,7 +250,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: 'stable'
 
       - name: Download Coverage Results
         uses: actions/download-artifact@v4
