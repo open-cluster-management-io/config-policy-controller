@@ -19,12 +19,12 @@ import (
 // APIMapping stores information required for mapping between GroupVersionKinds
 // and GroupVersionResources, as well as whether the API is namespaced.
 type APIMapping struct {
-	Group    string
-	Version  string
-	Kind     string
-	Singular string
-	Plural   string
-	Scope    Scope
+	Group    string `yaml:"Group"`    //nolint:tagliatelle
+	Version  string `yaml:"Version"`  //nolint:tagliatelle
+	Kind     string `yaml:"Kind"`     //nolint:tagliatelle
+	Singular string `yaml:"Singular"` //nolint:tagliatelle
+	Plural   string `yaml:"Plural"`   //nolint:tagliatelle
+	Scope    Scope  `yaml:"Scope"`    //nolint:tagliatelle
 }
 
 func (a APIMapping) String() string {

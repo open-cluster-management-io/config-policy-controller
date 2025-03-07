@@ -1,0 +1,12 @@
+- Group: ""
+  Kind: LimitRange
+  Plural: limitranges
+  Scope: namespace
+  Singular: limitrange
+  Version: v1
+- Group: ""
+  Kind: Fake
+  Plural: fakes
+  Scope: root
+  Singular: fake
+  Version: beta1

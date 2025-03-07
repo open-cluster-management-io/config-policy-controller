@@ -91,6 +91,14 @@ func cliTest(scenarioPath string) func(t *testing.T) {
 			}
 		}
 
+		mappingsPath := path.Join(scenarioPath, "mappings.yaml")
+		if PathExists(mappingsPath) {
+			err = cmd.Flags().Set("mappings-file", mappingsPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+
 		err = cmd.Execute()
 		if err != nil && !errors.Is(err, ErrNonCompliant) {
 			t.Fatal(err)

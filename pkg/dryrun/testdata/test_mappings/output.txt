@@ -1,0 +1,5 @@
+# Diffs:
+v1 LimitRange default/mem-limit-range:
+
+# Compliance messages:
+Compliant; notification - limitranges [mem-limit-range] found as specified in namespace default
