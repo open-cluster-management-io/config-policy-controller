@@ -19,12 +19,12 @@ import (
 // APIMapping stores information required for mapping between GroupVersionKinds
 // and GroupVersionResources, as well as whether the API is namespaced.
 type APIMapping struct {
-	Group    string `yaml:"Group"`    //nolint:tagliatelle
-	Version  string `yaml:"Version"`  //nolint:tagliatelle
-	Kind     string `yaml:"Kind"`     //nolint:tagliatelle
-	Singular string `yaml:"Singular"` //nolint:tagliatelle
-	Plural   string `yaml:"Plural"`   //nolint:tagliatelle
-	Scope    Scope  `yaml:"Scope"`    //nolint:tagliatelle
+	Group    string `json:"group"`
+	Version  string `json:"version"`
+	Kind     string `json:"kind"`
+	Singular string `json:"singular"`
+	Plural   string `json:"plural"`
+	Scope    Scope  `json:"scope"`
 }
 
 func (a APIMapping) String() string {
@@ -140,7 +140,7 @@ func GenerateMappings(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	cmd.Println(string(out))
+	cmd.Print(string(out))
 
 	return nil
 }

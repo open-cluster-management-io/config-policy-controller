@@ -491,13 +491,13 @@ func (d *DryRunner) setupReconciler(
 	}
 
 	if d.mappingsPath != "" {
-		reader, err := os.Open(d.mappingsPath)
+		mFile, err := os.ReadFile(d.mappingsPath)
 		if err != nil {
 			return nil, err
 		}
 
 		apiMappings := []mappings.APIMapping{}
-		if err := yaml.NewDecoder(reader).Decode(&apiMappings); err != nil {
+		if err := k8syaml.Unmarshal(mFile, &apiMappings); err != nil {
 			return nil, err
 		}
 
