@@ -17,7 +17,7 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 		policyName    = "case41"
 	)
 
-	AfterAll(func(ctx SpecContext) {
+	AfterAll(func() {
 		By("Deleting case 41's resources")
 		deleteConfigPolicies([]string{"case41"})
 		utils.Kubectl("-n", "default", "delete", "pod", "nginx-pod-e2e-41", "--ignore-not-found")
