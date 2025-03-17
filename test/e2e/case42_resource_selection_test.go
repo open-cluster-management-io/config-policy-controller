@@ -81,9 +81,10 @@ var _ = Describe("Test results of resource selection", Ordered, func() {
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
-			"fakeapis [case42-1-e2e, case42-2-e2e, case42-3-e2e, case42-4-e2e, case42-5-e2e]"+
-				" found as specified in namespace %s", targetNs)))
+		}, defaultTimeoutSeconds, 1).Should(
+			Equal(
+				"fakeapis [case42-1-e2e, case42-2-e2e, case42-3-e2e, case42-4-e2e, case42-5-e2e]" +
+					" found as specified in namespace " + targetNs))
 	},
 		Entry("Empty label selector", `{}`),
 		Entry("Empty matchLabels", `{"matchLabels":{}}`),
@@ -149,11 +150,11 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
-			"fakeapis [case42-1-e2e, case42-2-e2e] found but not as specified in namespace %s", targetNs)))
+		}, defaultTimeoutSeconds, 1).Should(Equal(
+			"fakeapis [case42-1-e2e, case42-2-e2e] found but not as specified in namespace " + targetNs))
 	})
 
-	It("should evaluate when a matching labeled resource is added", func(ctx SpecContext) {
+	It("should evaluate when a matching labeled resource is added", func() {
 		By("Creating additional matching object case42-3-e2e")
 		utils.Kubectl("apply", "-n", targetNs, "-f", extraYaml)
 
@@ -163,10 +164,10 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).Should(HaveSuffix(
-			fmt.Sprintf("case42-3-e2e] found but not as specified in namespace %s", targetNs)))
+			"case42-3-e2e] found but not as specified in namespace " + targetNs))
 	})
 
-	It("should not change when a non-matching resource is added", func(ctx SpecContext) {
+	It("should not change when a non-matching resource is added", func() {
 		By("Creating additional matching object case42-4-e2e")
 		utils.Kubectl("apply", "-n", targetNs, "-f", nomatchYaml)
 
@@ -187,7 +188,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).Should(HaveSuffix(
-			fmt.Sprintf("case42-4-e2e] found but not as specified in namespace %s", targetNs)))
+			"case42-4-e2e] found but not as specified in namespace " + targetNs))
 	})
 
 	It("should evaluate when a matching resource label is removed", func() {
@@ -200,7 +201,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 			return utils.GetStatusMessage(managedPlc)
 		}, defaultTimeoutSeconds, 1).ShouldNot(ContainSubstring(
 			"case42-3-e2e",
-			fmt.Sprintf("found but not as specified in namespace %s", targetNs)))
+			"found but not as specified in namespace "+targetNs))
 	})
 
 	It("should become compliant when enforced", func() {
@@ -211,8 +212,8 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
-			"fakeapis [case42-1-e2e, case42-2-e2e, case42-4-e2e] found as specified in namespace %s", targetNs)))
+		}, defaultTimeoutSeconds, 1).Should(Equal(
+			"fakeapis [case42-1-e2e, case42-2-e2e, case42-4-e2e] found as specified in namespace " + targetNs))
 	})
 
 	It("should ignore the objectSelector when a name is provided", func() {
@@ -229,8 +230,8 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
-			"fakeapis [case42-3-e2e] found as specified in namespace %s", targetNs)))
+		}, defaultTimeoutSeconds, 1).Should(Equal(
+			"fakeapis [case42-3-e2e] found as specified in namespace " + targetNs))
 	})
 })
 
@@ -260,8 +261,8 @@ var _ = Describe("Test evaluation of resource selection", Ordered, func() {
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
-			"fakeapis [case42-1-e2e] found but not as specified in namespace %s", targetNs)))
+		}, defaultTimeoutSeconds, 1).Should(Equal(
+			"fakeapis [case42-1-e2e] found but not as specified in namespace " + targetNs))
 	})
 
 	It("does not re-evaluate when the evaluation interval is in watch", func() {
@@ -334,8 +335,8 @@ var _ = Describe("Test evaluation of resource selection", Ordered, func() {
 			Expect(nextEvalTime).ToNot(BeEmpty())
 			Expect(found).To(BeTrue())
 			Expect(err).ToNot(HaveOccurred())
-			Expect(utils.GetStatusMessage(managedPlc)).To(Equal(fmt.Sprintf(
-				"fakeapis [case42-1-e2e] found but not as specified in namespace %s", targetNs)))
+			Expect(utils.GetStatusMessage(managedPlc)).To(Equal(
+				"fakeapis [case42-1-e2e] found but not as specified in namespace " + targetNs))
 
 			return nextEvalTime
 		}, defaultConsistentlyDuration*2, "10s").ShouldNot(Equal(currentEvalTime))
@@ -369,8 +370,8 @@ var _ = Describe("Test mustnothave enforced behavior with object selector", Orde
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(
-			"configmaps [case42-4-e2e-match-1, case42-4-e2e-match-2] found in namespace %s", targetNs)))
+		}, defaultTimeoutSeconds, 1).Should(Equal(
+			"configmaps [case42-4-e2e-match-1, case42-4-e2e-match-2] found in namespace " + targetNs))
 	})
 
 	It("Deletes only the fully matching resources in enforce mode", func() {

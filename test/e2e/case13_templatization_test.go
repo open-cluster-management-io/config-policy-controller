@@ -540,7 +540,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			Expect(configMap2.ObjectMeta.Labels).To(HaveKeyWithValue("namespace", "default"))
 		})
 
-		It("Should fail when the namespace doesn't match after template resolution", func(ctx SpecContext) {
+		It("Should fail when the namespace doesn't match after template resolution", func() {
 			By("Applying the " + policyName + " ConfigurationPolicy")
 			utils.Kubectl("apply", "-n", testNamespace, "-f", invalidPolicyYAML)
 
@@ -658,8 +658,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 				)
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
-				g.Expect(utils.GetStatusMessage(managedPlc)).Should(Equal(fmt.Sprintf(
-					"configmaps [case13-e2e-objectname-var3] found as specified in namespace %s", e2eBaseName)))
+				g.Expect(utils.GetStatusMessage(managedPlc)).Should(
+					Equal("configmaps [case13-e2e-objectname-var3] found as specified in namespace " + e2eBaseName))
 
 				relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 				g.Expect(relatedObjects).To(HaveLen(1))
@@ -680,7 +680,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("object-namespace", cm.GetNamespace()))
 		})
 
-		It("Should fail when the name doesn't match after template resolution", func(ctx SpecContext) {
+		It("Should fail when the name doesn't match after template resolution", func() {
 			By("Applying the " + invalidPolicyName + " ConfigurationPolicy")
 			utils.Kubectl("apply", "-n", testNamespace, "-f", invalidPolicyYAML)
 
@@ -703,7 +703,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
-		It("Should fail when context variables are used without a selector", func(ctx SpecContext) {
+		It("Should fail when context variables are used without a selector", func() {
 			for name, test := range map[string]struct {
 				file, expectedStruct string
 			}{
@@ -733,7 +733,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}
 		})
 
-		It("Should be compliant when all objects are skipped with skipObject", func(ctx SpecContext) {
+		It("Should be compliant when all objects are skipped with skipObject", func() {
 			By("Applying the " + allSkippedPolicyName + " ConfigurationPolicy")
 			utils.Kubectl("apply", "-n", testNamespace, "-f", allSkippedPolicyYAML)
 

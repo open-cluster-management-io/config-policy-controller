@@ -48,11 +48,11 @@ func TestBuildSubscription(t *testing.T) {
 
 	// Check values are correctly bootstrapped to the Subscription
 	ret, err := buildSubscription(testPolicy, nil)
-	assert.Equal(t, err, nil)
+	assert.NoError(t, err)
 	assert.Equal(t, ret.GroupVersionKind(), desiredGVK)
-	assert.Equal(t, ret.ObjectMeta.Name, "my-operator")
-	assert.Equal(t, ret.ObjectMeta.Namespace, "default")
-	assert.Equal(t, ret.Spec.InstallPlanApproval, operatorv1alpha1.ApprovalManual)
+	assert.Equal(t, "my-operator", ret.ObjectMeta.Name)
+	assert.Equal(t, "default", ret.ObjectMeta.Namespace)
+	assert.Equal(t, operatorv1alpha1.ApprovalManual, ret.Spec.InstallPlanApproval)
 }
 
 func TestBuildSubscriptionInvalidNames(t *testing.T) {
@@ -76,8 +76,6 @@ func TestBuildSubscriptionInvalidNames(t *testing.T) {
 	}
 
 	for _, test := range testCases {
-		test := test
-
 		t.Run(
 			"name="+test.name,
 			func(t *testing.T) {
@@ -108,7 +106,7 @@ func TestBuildSubscriptionInvalidNames(t *testing.T) {
 
 				// Check values are correctly bootstrapped to the Subscription
 				_, err := buildSubscription(testPolicy, nil)
-				assert.Equal(t, err.Error(), test.expected)
+				assert.Equal(t, test.expected, err.Error())
 			},
 		)
 	}
@@ -143,10 +141,10 @@ func TestBuildOperatorGroup(t *testing.T) {
 
 	// Ensure OperatorGroup values are populated correctly
 	ret, err := buildOperatorGroup(testPolicy, "my-operators", nil)
-	assert.Equal(t, err, nil)
+	assert.NoError(t, err)
 	assert.Equal(t, ret.GroupVersionKind(), desiredGVK)
-	assert.Equal(t, ret.ObjectMeta.GetGenerateName(), "my-operators-")
-	assert.Equal(t, ret.ObjectMeta.GetNamespace(), "my-operators")
+	assert.Equal(t, "my-operators-", ret.ObjectMeta.GetGenerateName())
+	assert.Equal(t, "my-operators", ret.ObjectMeta.GetNamespace())
 }
 
 func TestMessageIncludesSubscription(t *testing.T) {
@@ -238,8 +236,6 @@ func TestMessageIncludesSubscription(t *testing.T) {
 	}
 
 	for i, test := range testCases {
-		test := test
-
 		t.Run(
 			fmt.Sprintf("test[%d]", i),
 			func(t *testing.T) {
@@ -256,8 +252,8 @@ func TestMessageIncludesSubscription(t *testing.T) {
 				}
 
 				match, err := messageIncludesSubscription(subscription, test.message)
-				assert.Equal(t, err, nil)
-				assert.Equal(t, match, test.expected)
+				assert.NoError(t, err)
+				assert.Equal(t, test.expected, match)
 			},
 		)
 	}
