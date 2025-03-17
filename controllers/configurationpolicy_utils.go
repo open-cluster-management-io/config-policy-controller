@@ -239,7 +239,7 @@ func checkFieldsWithSort(
 				}
 
 				// An error indicates the value is a regular string, so check equality normally
-				if fmt.Sprint(oVal) != fmt.Sprint(mVal) {
+				if fmt.Sprint(oVal) != mVal {
 					return false
 				}
 			} else {

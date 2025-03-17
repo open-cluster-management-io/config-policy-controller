@@ -26,8 +26,8 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 
 		noMatchesMsg string = "namespaced object configmap-selector-e2e of kind ConfigMap has no " +
 			"namespace specified from the policy namespaceSelector nor the object metadata"
-		notFoundMsgFmt  string = "configmaps [configmap-selector-e2e] not found in namespaces: %s"
-		filterErrMsgFmt string = "Error filtering namespaces with provided namespaceSelector: %s"
+		notFoundMsgFmt  string = "configmaps [configmap-selector-e2e] not found in namespaces: "
+		filterErrMsgFmt string = "Error filtering namespaces with provided namespaceSelector: "
 	)
 
 	// Test setup for namespace selection policy tests:
@@ -96,32 +96,32 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 	},
 		Entry("LabelSelector and exclude",
 			`{"exclude":["*19a-[3-4]-e2e"],"matchExpressions":[{"key":"case19a","operator":"Exists"}]}`,
-			fmt.Sprintf(notFoundMsgFmt, "case19a-2-e2e, case19a-5-e2e"),
+			notFoundMsgFmt+"case19a-2-e2e, case19a-5-e2e",
 		),
 		Entry("A non-matching LabelSelector",
 			`{"matchLabels":{"name":"not-a-namespace"}}`,
 			noMatchesMsg),
 		Entry("Empty LabelSelector and include/exclude",
 			`{"include":["case19a-[2-5]-e2e"],"exclude":["*-[3-4]-e2e"],"matchLabels":{},"matchExpressions":[]}`,
-			fmt.Sprintf(notFoundMsgFmt, "case19a-2-e2e, case19a-5-e2e"),
+			notFoundMsgFmt+"case19a-2-e2e, case19a-5-e2e",
 		),
 		Entry("LabelSelector",
 			`{"matchExpressions":[{"key":"case19a","operator":"Exists"}]}`,
-			fmt.Sprintf(notFoundMsgFmt, "case19a-2-e2e, case19a-3-e2e, case19a-4-e2e, case19a-5-e2e"),
+			notFoundMsgFmt+"case19a-2-e2e, case19a-3-e2e, case19a-4-e2e, case19a-5-e2e",
 		),
 		Entry("Malformed filepath in include",
 			`{"include":["*-[a-z-*"]}`,
-			fmt.Sprintf(filterErrMsgFmt, "error parsing 'include' pattern '*-[a-z-*': syntax error in pattern"),
+			filterErrMsgFmt+"error parsing 'include' pattern '*-[a-z-*': syntax error in pattern",
 		),
 		Entry("MatchExpressions with incorrect operator",
 			`{"matchExpressions":[{"key":"name","operator":"Seriously"}]}`,
-			fmt.Sprintf(filterErrMsgFmt, "error parsing namespace LabelSelector: "+
-				`"Seriously" is not a valid label selector operator`),
+			filterErrMsgFmt+"error parsing namespace LabelSelector: "+
+				`"Seriously" is not a valid label selector operator`,
 		),
 		Entry("MatchExpressions with missing values",
 			`{"matchExpressions":[{"key":"name","operator":"In","values":[]}]}`,
-			fmt.Sprintf(filterErrMsgFmt, "error parsing namespace LabelSelector: "+
-				"values: Invalid value: []string(nil): for 'in', 'notin' operators, values set can't be empty"),
+			filterErrMsgFmt+"error parsing namespace LabelSelector: "+
+				"values: Invalid value: []string(nil): for 'in', 'notin' operators, values set can't be empty",
 		),
 	)
 })
@@ -132,7 +132,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		policyYaml string = "../resources/case19_ns_selector/case19_behavior_policy.yaml"
 		policyName string = "selector-behavior-e2e"
 
-		notFoundMsgFmt string = "configmaps [configmap-selector-e2e] not found in namespaces: %s"
+		notFoundMsgFmt string = "configmaps [configmap-selector-e2e] not found in namespaces: "
 	)
 
 	BeforeAll(func() {
@@ -151,8 +151,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(notFoundMsgFmt,
-			"case19b-1-e2e, case19b-2-e2e")))
+		}, defaultTimeoutSeconds, 1).Should(Equal(notFoundMsgFmt + "case19b-1-e2e, case19b-2-e2e"))
 	})
 
 	AfterAll(func() {
@@ -179,8 +178,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(notFoundMsgFmt,
-			"case19b-1-e2e, case19b-2-e2e, case19b-3-e2e")))
+		}, defaultTimeoutSeconds, 1).Should(Equal(notFoundMsgFmt + "case19b-1-e2e, case19b-2-e2e, case19b-3-e2e"))
 	})
 
 	It("should not evaluate early if a non-matching namespace is added", func() {
@@ -218,8 +216,8 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(notFoundMsgFmt,
-			"case19b-1-e2e, case19b-2-e2e, case19b-3-e2e, case19b-4-e2e")))
+		}, defaultTimeoutSeconds, 1).Should(Equal(notFoundMsgFmt +
+			"case19b-1-e2e, case19b-2-e2e, case19b-3-e2e, case19b-4-e2e"))
 	})
 
 	It("should evaluate when a matching namespace label is removed", func() {
@@ -230,8 +228,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
 			return utils.GetStatusMessage(managedPlc)
-		}, defaultTimeoutSeconds, 1).Should(Equal(fmt.Sprintf(notFoundMsgFmt,
-			"case19b-1-e2e, case19b-2-e2e, case19b-4-e2e")))
+		}, defaultTimeoutSeconds, 1).Should(Equal(notFoundMsgFmt + "case19b-1-e2e, case19b-2-e2e, case19b-4-e2e"))
 	})
 
 	It("should not evaluate when an excluded namespace is added", func() {

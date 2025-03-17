@@ -5,8 +5,8 @@ package e2e
 
 import (
 	"context"
+	"errors"
 	"flag"
-	"fmt"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -16,7 +16,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
@@ -165,7 +165,7 @@ var _ = BeforeSuite(func() {
 	namespaces := clientManaged.CoreV1().Namespaces()
 	if _, err := namespaces.Get(
 		context.TODO(), testNamespace, metav1.GetOptions{},
-	); err != nil && errors.IsNotFound(err) {
+	); err != nil && k8serrors.IsNotFound(err) {
 		Expect(namespaces.Create(context.TODO(), &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: testNamespace,
@@ -272,7 +272,7 @@ func LoadConfig(url, kubeconfig, context string) (*rest.Config, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("could not create a valid kubeconfig")
+	return nil, errors.New("could not create a valid kubeconfig")
 }
 
 func deleteConfigPolicies(policyNames []string) {
@@ -282,7 +282,7 @@ func deleteConfigPolicies(policyNames []string) {
 		err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Delete(
 			context.TODO(), policyName, metav1.DeleteOptions{},
 		)
-		if !errors.IsNotFound(err) {
+		if !k8serrors.IsNotFound(err) {
 			Expect(err).ToNot(HaveOccurred())
 		}
 	}
@@ -302,7 +302,7 @@ func deletePods(podNames []string, namespaces []string) {
 			err := clientManagedDynamic.Resource(gvrPod).Namespace(ns).Delete(
 				context.TODO(), podName, metav1.DeleteOptions{},
 			)
-			if !errors.IsNotFound(err) {
+			if !k8serrors.IsNotFound(err) {
 				Expect(err).ToNot(HaveOccurred())
 			}
 		}

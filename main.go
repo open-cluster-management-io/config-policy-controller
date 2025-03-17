@@ -219,7 +219,7 @@ func main() {
 	}
 
 	if strings.Contains(watchNamespace, ",") {
-		err = fmt.Errorf("multiple watched namespaces are not allowed for this controller")
+		err = errors.New("multiple watched namespaces are not allowed for this controller")
 		log.Error(err, "Failed to get watch namespace")
 		os.Exit(1)
 	}
@@ -788,14 +788,14 @@ func handleTriggerUninstall() {
 	// Get a config to talk to the apiserver
 	cfg, err := config.GetConfig()
 	if err != nil {
-		klog.Errorf("Failed to get config: %s", err)
-		os.Exit(1)
+		// To Call Defer function
+		klog.Fatal("Failed to get config: ", err)
 	}
 
 	err = triggeruninstall.TriggerUninstall(ctx, cfg, deploymentName, deploymentNamespace, namespacesToClean)
 	if err != nil {
-		klog.Errorf("Failed to trigger the uninstall due to the error: %s", err)
-		os.Exit(1)
+		// To Call Defer function
+		klog.Fatal("Failed to trigger the uninstall due to the error: ", err)
 	}
 }
 
