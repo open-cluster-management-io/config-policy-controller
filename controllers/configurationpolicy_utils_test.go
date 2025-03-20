@@ -78,7 +78,7 @@ func TestAddConditionToStatusNeverEvalInterval(t *testing.T) {
 				t.Parallel()
 
 				policy := &policyv1.ConfigurationPolicy{
-					Spec: &policyv1.ConfigurationPolicySpec{
+					Spec: policyv1.ConfigurationPolicySpec{
 						EvaluationInterval: test.evaluationInterval,
 					},
 				}

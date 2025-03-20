@@ -257,7 +257,7 @@ func (r *ConfigurationPolicyReconciler) resolveHubTemplates(
 			Generation: policy.Generation,
 			UID:        policy.UID,
 		},
-		Spec: policy.Spec.DeepCopy(),
+		Spec: *policy.Spec.DeepCopy(),
 	}
 
 	if err := resolveHubTemplates(ctx, r, &policyCopy); err != nil {
