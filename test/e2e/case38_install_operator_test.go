@@ -64,7 +64,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			policyJSON, err := json.MarshalIndent(unstructPolicy.Object, "", "  ")
 			g.Expect(err).NotTo(HaveOccurred())
 
-			debugMessage = fmt.Sprintf("Debug info for failure.\npolicy JSON: %s", policyJSON)
+			debugMessage = "Debug info for failure.\npolicy JSON: " + string(policyJSON)
 
 			policy := policyv1beta1.OperatorPolicy{}
 			err = json.Unmarshal(policyJSON, &policy)
@@ -76,9 +76,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 			g.Expect(policy.Status.ComplianceState).To(
 				Equal(comp),
-				fmt.Sprintf(
-					"Unexpected compliance state. Status message: %s", strings.ReplaceAll(compliantMsg, ", ", "\n- "),
-				))
+				"Unexpected compliance state. Status message: "+strings.ReplaceAll(compliantMsg, ", ", "\n- "),
+			)
 		}
 
 		Eventually(compCheck, timeoutSeconds, 3).Should(Succeed())
@@ -1398,7 +1397,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				"an InstallPlan to update .* is available for approval",
 			)
 		})
-		It("Should become NonCompliant when ComplianceConfig is modified to NonCompliant", func(ctx SpecContext) {
+		It("Should become NonCompliant when ComplianceConfig is modified to NonCompliant", func() {
 			By("Patching the policy ComplianceConfig to Compliant")
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceConfig/upgradesAvailable", "value": "NonCompliant"}]`)
@@ -1488,7 +1487,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				"the InstallPlan.*36.0.*was approved",
 			)
 		})
-		It("Should not approve an upgrade while upgradeApproval is None", func(ctx SpecContext) {
+		It("Should not approve an upgrade while upgradeApproval is None", func() {
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "add", "path": "/spec/versions/-", "value": "strimzi-cluster-operator.v0.36.1"},`+
 					`{"op": "replace", "path": "/spec/upgradeApproval", "value": "None"}]`)
@@ -1565,7 +1564,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
 		})
 
-		It("Should initially not report on CRDs because they won't exist yet", func(ctx SpecContext) {
+		It("Should initially not report on CRDs because they won't exist yet", func() {
 			check(
 				opPolName,
 				false,
@@ -1652,7 +1651,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "remove", "path": "/status/compliant"}]`, "--subresource=status")
 
-			Eventually(func(ctx SpecContext) int {
+			Eventually(func() int {
 				newEvents := utils.GetMatchingEvents(
 					clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
 				)
@@ -2227,7 +2226,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				`the policy specifies to keep the CustomResourceDefinition`,
 			)
 		}
-		It("Should report resources differently when told to keep them", func(ctx SpecContext) {
+		It("Should report resources differently when told to keep them", func() {
 			// Change the removal behaviors from Delete to Keep
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "Keep"},`+
@@ -2283,7 +2282,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				`MustNotHave policies ignore kind CatalogSource`,
 			)
 		})
-		It("Should not remove anything when enforced while set to Keep everything", func(ctx SpecContext) {
+		It("Should not remove anything when enforced while set to Keep everything", func() {
 			// Enforce the policy
 			utils.EnforceOperatorPolicy(opPolName, testNamespace)
 			By("Checking the OperatorPolicy status")
@@ -2702,7 +2701,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			subName   = "project-quay"
 		)
 
-		BeforeAll(func(ctx SpecContext) {
+		BeforeAll(func() {
 			preFunc()
 			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
 
@@ -2764,7 +2763,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
 			// cleanup for this is handled in an AfterAll
 		})
-		It("Should become noncompliant because the CRD is not fully removed", func(ctx SpecContext) {
+		It("Should become noncompliant because the CRD is not fully removed", func() {
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"},`+
 					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
@@ -2792,7 +2791,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				`the CustomResourceDefinition was deleted`,
 			)
 		})
-		It("Should become compliant after the finalizer is removed", func(ctx SpecContext) {
+		It("Should become compliant after the finalizer is removed", func() {
 			KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
 				`[{"op": "remove", "path": "/metadata/finalizers"}]`)
 
@@ -3408,7 +3407,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			Expect(channel).To(Equal("fakechannel"))
 		})
 
-		It("Should update the subscription after the configmap is updated", func(ctx SpecContext) {
+		It("Should update the subscription after the configmap is updated", func() {
 			KubectlTarget("patch", "configmap", "op-config", "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "replace", "path": "/data/channel", "value": "stable-3.10"}]`)
 
@@ -3745,7 +3744,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 		It("Should have only package deprecation message is displayed "+
 			"when package, channel, and bundle are deprecated.",
-			func(ctx SpecContext) {
+			func() {
 				createObjWithParent(parentPolicyYAML, parentPolicyName,
 					allPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
 
@@ -3766,7 +3765,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 		It("Should have channel deprecation message is displayed "+
 			"when channel is deprecated.",
-			func(ctx SpecContext) {
+			func() {
 				createObjWithParent(parentPolicyYAML, parentPolicyName,
 					channelPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
 
@@ -3787,7 +3786,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 		It("Should have bundle deprecation message is displayed "+
 			"when bundle is deprecated.",
-			func(ctx SpecContext) {
+			func() {
 				createObjWithParent(parentPolicyYAML, parentPolicyName,
 					bundlePolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
 
@@ -3807,7 +3806,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			})
 		It("Should have deprecation message is displayed and policy compliance is Compliant "+
 			"when bundle is deprecated and deprecationAvaliable is set to NonCompliant",
-			func(_ SpecContext) {
+			func() {
 				createObjWithParent(parentPolicyYAML, parentPolicyName,
 					bundlePolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
 

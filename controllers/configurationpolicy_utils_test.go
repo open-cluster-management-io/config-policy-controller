@@ -56,7 +56,7 @@ func TestFormatTemplateStringAnnotation(t *testing.T) {
 	}
 
 	policyTemplateFormatted := formatMetadata(policyTemplate)
-	assert.Equal(t, policyTemplateFormatted["annotations"], "not-an-annotation")
+	assert.Equal(t, "not-an-annotation", policyTemplateFormatted["annotations"])
 }
 
 func TestAddConditionToStatusNeverEvalInterval(t *testing.T) {
@@ -71,7 +71,6 @@ func TestAddConditionToStatusNeverEvalInterval(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		test := test
 		t.Run(
 			fmt.Sprintf("compliance=%s", test.compliancy),
 			func(t *testing.T) {
@@ -86,18 +85,18 @@ func TestAddConditionToStatusNeverEvalInterval(t *testing.T) {
 				addConditionToStatus(policy, 0, test.compliancy == policyv1.Compliant, "Some reason", "Some message")
 
 				details := policy.Status.CompliancyDetails
-				assert.Equal(t, len(details), 1)
+				assert.Len(t, details, 1)
 
 				detail := details[0]
 				conditions := detail.Conditions
-				assert.Equal(t, len(conditions), 1)
+				assert.Len(t, conditions, 1)
 
 				condition := conditions[0]
 				lowercaseCompliance := strings.ToLower(string(test.compliancy))
 				expectedMsg := `Some message. This policy will not be evaluated again due to ` +
 					fmt.Sprintf(`spec.evaluationInterval.%s being set to "never".`, lowercaseCompliance)
 
-				assert.Equal(t, condition.Message, expectedMsg)
+				assert.Equal(t, expectedMsg, condition.Message)
 			},
 		)
 	}
@@ -282,8 +281,6 @@ func TestGenerateDiff(t *testing.T) {
 	}
 
 	for testName, test := range tests {
-		test := test
-
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 
@@ -305,6 +302,7 @@ func TestGenerateDiff(t *testing.T) {
 			if test.expectedDiff != "" {
 				test.expectedDiff = "---  : existing\n+++  : updated" + test.expectedDiff + "\n \n"
 			}
+
 			assert.Equal(t, test.expectedDiff, diff)
 		})
 	}

@@ -7,6 +7,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -32,11 +33,11 @@ const (
 
 // ErrNoNamespace indicates that a namespace could not be found for the current
 // environment
-var ErrNoNamespace = fmt.Errorf("namespace not found for current environment")
+var ErrNoNamespace = errors.New("namespace not found for current environment")
 
 // ErrRunLocal indicates that the operator is set to run in local mode (this error
 // is returned by functions that only work on operators running in cluster mode)
-var ErrRunLocal = fmt.Errorf("operator run mode forced to local")
+var ErrRunLocal = errors.New("operator run mode forced to local")
 
 func isRunModeLocal() bool {
 	return os.Getenv(ForceRunModeEnv) == string(LocalRunMode)

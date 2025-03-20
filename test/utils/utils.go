@@ -5,6 +5,7 @@ package utils
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,7 +17,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -60,9 +61,9 @@ func GetClusterLevelWithTimeout(
 			return err
 		}
 		if !wantFound && err == nil {
-			return fmt.Errorf("expected to return IsNotFound error")
+			return errors.New("expected to return IsNotFound error")
 		}
-		if !wantFound && err != nil && !errors.IsNotFound(err) {
+		if !wantFound && err != nil && !k8serrors.IsNotFound(err) {
 			return err
 		}
 
@@ -103,7 +104,7 @@ func GetWithTimeout(
 			return fmt.Errorf("expected '%s/%s' in namespace '%s' to return IsNotFound error",
 				gvr.Resource, name, namespace)
 		}
-		if !wantFound && err != nil && !errors.IsNotFound(err) {
+		if !wantFound && err != nil && !k8serrors.IsNotFound(err) {
 			return err
 		}
 
@@ -227,7 +228,7 @@ func CheckComplianceStatus(g Gomega, managedPlc *unstructured.Unstructured, expe
 	msgStr, _ := GetStatusMessage(managedPlc).(string)
 
 	g.Expect(expectedCompliance).Should(Equal(complianceStr),
-		fmt.Sprintf("Unexpected compliance state. Status message: %s", msgStr))
+		"Unexpected compliance state. Status message: "+msgStr)
 }
 
 // GetFieldFromSecret parses data field of secrets for the specified field
@@ -321,23 +322,23 @@ func getConfigPolicyStatusMessages(clientHubDynamic dynamic.Interface,
 
 	configPolicy, err := policyInterface.Get(context.TODO(), policyName, metav1.GetOptions{})
 	if err != nil {
-		return empty, false, fmt.Errorf("error in getting policy")
+		return empty, false, errors.New("error in getting policy")
 	}
 
 	details, found, err := unstructured.NestedSlice(configPolicy.Object, "status", "compliancyDetails")
 	if !found || err != nil || len(details) <= templateIdx {
-		return empty, false, fmt.Errorf("error in getting status")
+		return empty, false, errors.New("error in getting status")
 	}
 
 	templateDetails, ok := details[templateIdx].(map[string]interface{})
 	if !ok {
-		return empty, false, fmt.Errorf("error in getting detail")
+		return empty, false, errors.New("error in getting detail")
 	}
 
 	conditions, ok, _ := unstructured.NestedSlice(templateDetails, "conditions")
 
 	if !ok {
-		return empty, false, fmt.Errorf("error conditions not found")
+		return empty, false, errors.New("error conditions not found")
 	}
 
 	condition := conditions[0].(map[string]interface{})

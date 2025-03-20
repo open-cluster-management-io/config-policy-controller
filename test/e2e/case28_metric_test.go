@@ -86,7 +86,7 @@ var _ = Describe("Test config policy metrics", Ordered, func() {
 		} {
 			Eventually(
 				utils.GetMetrics, defaultTimeoutSeconds, 1,
-			).WithArguments(metricName, fmt.Sprintf(`%s=\"%s\"`, label, policyName)).Should(HaveLen(0))
+			).WithArguments(metricName, fmt.Sprintf(`%s=\"%s\"`, label, policyName)).Should(BeEmpty())
 		}
 	})
 })

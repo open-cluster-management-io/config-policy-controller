@@ -24,6 +24,8 @@ run:
 linters:
   enable-all: true
   disable:
+    - mnd  # Disabled as tech debt: Magic number detection
+    - recvcheck # Disable linter checks for pointer vs. non-pointer receiver usage.
     - bodyclose
     # Disable contextcheck since we don't want to pass the context passed to PeriodicallyExecConfigPolicies to functions
     # called within it or else cleanup won't occur
@@ -193,6 +195,7 @@ issues:
     - return statements should not be cuddled if block has more than two lines
     - declarations should never be cuddled
     - don't use leading k in Go names
+    - "require-error: for error assertions use require"
 
   exclude-rules:
     # Allow dot imports in the tests.

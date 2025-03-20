@@ -37,10 +37,10 @@ type SelectorReconciler interface {
 
 	// HasUpdate indicates when the cached selection for this namespace and name has been changed since the last
 	// time that Get was called for that name.
-	HasUpdate(string, string) bool
+	HasUpdate(namespace string, name string) bool
 
 	// Stop tells the SelectorReconciler to stop updating the cached selection for the namespace and name.
-	Stop(string, string)
+	Stop(namespace string, name string)
 }
 
 type NamespaceSelectorReconciler struct {
@@ -69,7 +69,7 @@ type namespaceSelection struct {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *NamespaceSelectorReconciler) SetupWithManager(mgr ctrl.Manager) error {
-	neverEnqueue := predicate.NewPredicateFuncs(func(o client.Object) bool { return false })
+	neverEnqueue := predicate.NewPredicateFuncs(func(_ client.Object) bool { return false })
 
 	// Instead of reconciling for each Namespace, just reconcile once
 	// - that reconcile will do a list on all the Namespaces anyway.

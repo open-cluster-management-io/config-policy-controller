@@ -449,12 +449,13 @@ func missingNotWantedCond(kind string) metav1.Condition {
 func foundNotWantedCond(kind string, identifiers ...string) metav1.Condition {
 	var extraInfo string
 
-	if len(identifiers) == 1 {
+	switch len(identifiers) {
+	case 1:
 		extraInfo = fmt.Sprintf(" (%s) is", identifiers[0])
-	} else if len(identifiers) > 1 {
-		extraInfo = fmt.Sprintf("s (%s) are", strings.Join(identifiers, ", "))
-	} else {
+	case 0:
 		extraInfo = " is"
+	default:
+		extraInfo = fmt.Sprintf("s (%s) are", strings.Join(identifiers, ", "))
 	}
 
 	return metav1.Condition{
@@ -481,12 +482,13 @@ func createdCond(kind string) metav1.Condition {
 func deletedCond(kind string, identifiers ...string) metav1.Condition {
 	var extraInfo string
 
-	if len(identifiers) == 1 {
+	switch len(identifiers) {
+	case 1:
 		extraInfo = fmt.Sprintf(" (%s) was", identifiers[0])
-	} else if len(identifiers) > 1 {
-		extraInfo = fmt.Sprintf("s (%s) were", strings.Join(identifiers, ", "))
-	} else {
+	case 0:
 		extraInfo = " was"
+	default:
+		extraInfo = fmt.Sprintf("s (%s) were", strings.Join(identifiers, ", "))
 	}
 
 	return metav1.Condition{
@@ -502,12 +504,13 @@ func deletedCond(kind string, identifiers ...string) metav1.Condition {
 func deletingCond(kind string, identifiers ...string) metav1.Condition {
 	var extraInfo string
 
-	if len(identifiers) == 1 {
+	switch len(identifiers) {
+	case 1:
 		extraInfo = fmt.Sprintf(" (%s) has", identifiers[0])
-	} else if len(identifiers) > 1 {
-		extraInfo = fmt.Sprintf("s (%s) have", strings.Join(identifiers, ", "))
-	} else {
+	case 0:
 		extraInfo = " has"
+	default:
+		extraInfo = fmt.Sprintf("s (%s) have", strings.Join(identifiers, ", "))
 	}
 
 	return metav1.Condition{
@@ -1100,7 +1103,6 @@ func opGroupTooManyObjs(opGroups []unstructured.Unstructured) []policyv1.Related
 	objs := make([]policyv1.RelatedObject, 0, len(opGroups))
 
 	for i, opGroup := range opGroups {
-		opGroup := opGroup
 		objs = append(objs, policyv1.RelatedObject{
 			Object:    policyv1.ObjectResourceFromObj(&opGroups[i]),
 			Compliant: string(policyv1.NonCompliant),

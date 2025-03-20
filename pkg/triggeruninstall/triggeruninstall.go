@@ -4,7 +4,7 @@ package triggeruninstall
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"time"
 
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -37,7 +37,7 @@ func TriggerUninstall(
 
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("context canceled before the uninstallation preparation was complete")
+			return errors.New("context canceled before the uninstallation preparation was complete")
 		default:
 		}
 
@@ -81,7 +81,7 @@ func TriggerUninstall(
 
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("context canceled before the uninstallation preparation was complete")
+			return errors.New("context canceled before the uninstallation preparation was complete")
 		default:
 		}
 
