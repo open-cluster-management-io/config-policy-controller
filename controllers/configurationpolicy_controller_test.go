@@ -34,7 +34,7 @@ func TestReconcile(t *testing.T) {
 			Name:      "foo",
 			Namespace: "default",
 		},
-		Spec: &policyv1.ConfigurationPolicySpec{
+		Spec: policyv1.ConfigurationPolicySpec{
 			Severity: "low",
 			NamespaceSelector: policyv1.Target{
 				Include: []policyv1.NonEmptyString{"default", "kube-*"},
@@ -641,7 +641,7 @@ func TestUpdatedRelatedObjects(t *testing.T) {
 			Name:      "foo",
 			Namespace: "default",
 		},
-		Spec: &policyv1.ConfigurationPolicySpec{
+		Spec: policyv1.ConfigurationPolicySpec{
 			Severity: "low",
 			NamespaceSelector: policyv1.Target{
 				Include: []policyv1.NonEmptyString{"default", "kube-*"},
@@ -1103,7 +1103,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			Generation: 2,
 			UID:        uuid.NewUUID(),
 		},
-		Spec: &policyv1.ConfigurationPolicySpec{},
+		Spec: policyv1.ConfigurationPolicySpec{},
 	}
 
 	// Add a 60 second buffer to avoid race conditions

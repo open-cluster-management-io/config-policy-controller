@@ -248,11 +248,6 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 
 	// Account for a change in evaluation interval either due to a spec change or compliance state change.
 	defer func() {
-		if policy.Spec == nil {
-			// The watch is removed in the error handling of handleObjectTemplates in the Reconcile method
-			return
-		}
-
 		compliantWithWatch := policy.Status.ComplianceState == policyv1.Compliant &&
 			policy.Spec.EvaluationInterval.IsWatchForCompliant()
 		nonCompliantWithWatch := policy.Status.ComplianceState != policyv1.Compliant &&
@@ -325,7 +320,6 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 
 		// If a mapping error occurred, try again in 10 seconds to see if the CRD is available
 		if errors.Is(handleErr, depclient.ErrNoVersionedResource) &&
-			policy.Spec != nil &&
 			policy.Spec.EvaluationInterval.IsWatchForNonCompliant() {
 			log.Info("Requeuing the policy to be reevalauted in 10 seconds due to a mapping error")
 
@@ -479,9 +473,9 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 	var interval time.Duration
 	var getIntervalErr error
 
-	if policy.Status.ComplianceState == policyv1.Compliant && policy.Spec != nil {
+	if policy.Status.ComplianceState == policyv1.Compliant {
 		interval, getIntervalErr = policy.Spec.EvaluationInterval.GetCompliantInterval()
-	} else if policy.Status.ComplianceState == policyv1.NonCompliant && policy.Spec != nil {
+	} else if policy.Status.ComplianceState == policyv1.NonCompliant {
 		interval, getIntervalErr = policy.Spec.EvaluationInterval.GetNonCompliantInterval()
 	} else {
 		log.V(1).Info("The policy has an unknown compliance. Will evaluate it now.")
@@ -1102,9 +1096,7 @@ func (r *ConfigurationPolicyReconciler) validateConfigPolicy(plc *policyv1.Confi
 
 	var invalidMessage string
 
-	if plc.Spec == nil {
-		invalidMessage = "Policy does not have a Spec specified"
-	} else if plc.Spec.RemediationAction == "" {
+	if plc.Spec.RemediationAction == "" {
 		invalidMessage = "Policy does not have a RemediationAction specified"
 	} else {
 		return nil
@@ -1836,11 +1828,11 @@ func addConditionToStatus(
 
 	log := log.WithValues("policy", plc.GetName(), "complianceState", complianceState)
 
-	if compliant && plc.Spec != nil && plc.Spec.EvaluationInterval.Compliant == "never" {
+	if compliant && plc.Spec.EvaluationInterval.Compliant == "never" {
 		msg := `This policy will not be evaluated again due to spec.evaluationInterval.compliant being set to "never"`
 		log.Info(msg)
 		newCond.Message += fmt.Sprintf(". %s.", msg)
-	} else if !compliant && plc.Spec != nil && plc.Spec.EvaluationInterval.NonCompliant == "never" {
+	} else if !compliant && plc.Spec.EvaluationInterval.NonCompliant == "never" {
 		msg := "This policy will not be evaluated again due to spec.evaluationInterval.noncompliant " +
 			`being set to "never"`
 		log.Info(msg)
@@ -3476,15 +3468,11 @@ func getUpdateErrorMsg(err error, kind string, name string) string {
 func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.ConfigurationPolicy, sendEvent bool) {
 	compliant := true
 
-	if policy.Spec == nil {
-		compliant = false
-	} else {
-		for index := range policy.Status.CompliancyDetails {
-			if policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
-				compliant = false
+	for index := range policy.Status.CompliancyDetails {
+		if policy.Status.CompliancyDetails[index].ComplianceState == policyv1.NonCompliant {
+			compliant = false
 
-				break
-			}
+			break
 		}
 	}
 

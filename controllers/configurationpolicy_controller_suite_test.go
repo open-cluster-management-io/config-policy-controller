@@ -23,7 +23,7 @@ func getSamplePolicy() policyv1.ConfigurationPolicy {
 			Name:      "foo",
 			Namespace: "default",
 		},
-		Spec: &policyv1.ConfigurationPolicySpec{
+		Spec: policyv1.ConfigurationPolicySpec{
 			Severity: "low",
 			NamespaceSelector: policyv1.Target{
 				Include: []policyv1.NonEmptyString{"default", "kube-*"},
