@@ -639,6 +639,7 @@ func addSupportedResources(clientset *clientsetfake.Clientset) {
 			Version:      parentpolicyv1.GroupVersion.Version,
 			Namespaced:   true,
 			Kind:         parentpolicyv1.Kind,
+			Verbs:        mappings.DefaultVerbs,
 		}, {
 			Name:         "configurationpolicies",
 			SingularName: "configurationpolicy",
@@ -646,6 +647,7 @@ func addSupportedResources(clientset *clientsetfake.Clientset) {
 			Version:      policyv1.GroupVersion.Version,
 			Namespaced:   true,
 			Kind:         "ConfigurationPolicy",
+			Verbs:        mappings.DefaultVerbs,
 		}},
 	})
 }
