@@ -3,12 +3,17 @@
   plural: bindings
   scope: namespace
   singular: binding
+  verbs:
+  - create
   version: v1
 - group: ""
   kind: ComponentStatus
   plural: componentstatuses
   scope: root
   singular: componentstatus
+  verbs:
+  - get
+  - list
   version: v1
 - group: ""
   kind: ConfigMap
@@ -39,6 +44,14 @@
   plural: namespaces
   scope: root
   singular: namespace
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
   version: v1
 - group: ""
   kind: Node
@@ -159,36 +172,48 @@
   plural: selfsubjectreviews
   scope: root
   singular: selfsubjectreview
+  verbs:
+  - create
   version: v1
 - group: authentication.k8s.io
   kind: TokenReview
   plural: tokenreviews
   scope: root
   singular: tokenreview
+  verbs:
+  - create
   version: v1
 - group: authorization.k8s.io
   kind: LocalSubjectAccessReview
   plural: localsubjectaccessreviews
   scope: namespace
   singular: localsubjectaccessreview
+  verbs:
+  - create
   version: v1
 - group: authorization.k8s.io
   kind: SelfSubjectAccessReview
   plural: selfsubjectaccessreviews
   scope: root
   singular: selfsubjectaccessreview
+  verbs:
+  - create
   version: v1
 - group: authorization.k8s.io
   kind: SelfSubjectRulesReview
   plural: selfsubjectrulesreviews
   scope: root
   singular: selfsubjectrulesreview
+  verbs:
+  - create
   version: v1
 - group: authorization.k8s.io
   kind: SubjectAccessReview
   plural: subjectaccessreviews
   scope: root
   singular: subjectaccessreview
+  verbs:
+  - create
   version: v1
 - group: autoscaling
   kind: HorizontalPodAutoscaler

@@ -19,12 +19,18 @@ import (
 // APIMapping stores information required for mapping between GroupVersionKinds
 // and GroupVersionResources, as well as whether the API is namespaced.
 type APIMapping struct {
-	Group    string `json:"group"`
-	Version  string `json:"version"`
-	Kind     string `json:"kind"`
-	Singular string `json:"singular"`
-	Plural   string `json:"plural"`
-	Scope    Scope  `json:"scope"`
+	Group    string   `json:"group"`
+	Version  string   `json:"version"`
+	Kind     string   `json:"kind"`
+	Singular string   `json:"singular"`
+	Plural   string   `json:"plural"`
+	Scope    Scope    `json:"scope"`
+	Verbs    []string `json:"verbs,omitempty"`
+}
+
+// DefaultVerbs is a very common set of verbs, used to simplify the mappings file.
+var DefaultVerbs = []string{
+	"create", "delete", "deletecollection", "get", "list", "patch", "update", "watch",
 }
 
 func (a APIMapping) String() string {
@@ -42,11 +48,20 @@ func ResourceLists(mappings []APIMapping) []*metav1.APIResourceList {
 			Version: mapping.Version,
 		}
 
+		verbs := mapping.Verbs
+
+		// It seems safe to interpret an empty list this way, since a resource
+		// with no verbs would otherwise be nonsensical.
+		if len(verbs) == 0 {
+			verbs = DefaultVerbs
+		}
+
 		resourceListMapping[gv] = append(resourceListMapping[gv], metav1.APIResource{
 			Kind:         mapping.Kind,
 			Name:         mapping.Plural,
 			SingularName: mapping.Singular,
 			Namespaced:   mapping.Scope == "namespace",
+			Verbs:        verbs,
 		})
 	}
 
@@ -116,6 +131,14 @@ func GenerateMappings(cmd *cobra.Command, _ []string) error {
 				scoping = meta.RESTScopeNameNamespace
 			}
 
+			slices.Sort(res.Verbs)
+
+			verbs := res.Verbs
+
+			if slices.Equal(res.Verbs, DefaultVerbs) {
+				verbs = []string{}
+			}
+
 			apiMappings = append(apiMappings, APIMapping{
 				Group:    gv.Group,
 				Version:  gv.Version,
@@ -123,6 +146,7 @@ func GenerateMappings(cmd *cobra.Command, _ []string) error {
 				Singular: res.SingularName,
 				Plural:   res.Name,
 				Scope:    Scope(scoping),
+				Verbs:    verbs,
 			})
 		}
 	}
