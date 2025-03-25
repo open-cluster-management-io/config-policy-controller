@@ -1,0 +1,18 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: hello
+  namespace: default
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: template.openshift.io/v1
+        kind: Template
+        metadata:
+          name: something
+        spec:
+          foo: bar

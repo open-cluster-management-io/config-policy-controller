@@ -1,0 +1,5 @@
+# Diffs:
+template.openshift.io/v1 Template default/something:
+
+# Compliance messages:
+Compliant; notification - templates [something] found as specified in namespace default
