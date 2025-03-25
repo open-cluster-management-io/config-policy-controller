@@ -1,0 +1,14 @@
+- group: template.openshift.io
+  kind: Template
+  plural: processedtemplates
+  scope: namespace
+  singular: processedtemplate
+  verbs:
+  - create
+  version: v1
+- group: template.openshift.io
+  kind: Template
+  plural: templates
+  scope: namespace
+  singular: template
+  version: v1
