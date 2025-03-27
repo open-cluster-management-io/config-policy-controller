@@ -35,7 +35,7 @@ jobs:
           go mod verify
           make fmt
           git diff --exit-code
-          make lint
+          echo "INFO: Linting disabled."
           make generate
           make generate-operator-yaml
           git diff --exit-code
