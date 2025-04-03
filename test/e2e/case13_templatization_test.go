@@ -572,20 +572,24 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 	Describe("Policy with the ObjectName variable", Ordered, func() {
 		const (
-			preReqs                = case13RsrcPath + "/case13_objectname_var_prereqs.yaml"
-			policyYAML             = case13RsrcPath + "/case13_objectname_var.yaml"
-			policyName             = "case13-objectname-var"
+			preReqs                = case13RsrcPath + "case13_objectname_var_prereqs.yaml"
 			e2eBaseName            = "case13-e2e-objectname-var"
-			invalidPolicyYAML      = case13RsrcPath + "/case13_objectname_var_invalid_name.yaml"
+			policyName             = "case13-objectname-var"
+			policyYAML             = case13RsrcPath + "case13_objectname_var.yaml"
 			invalidPolicyName      = "case13-invalid-name"
-			outsidePolicyYAML      = case13RsrcPath + "/case13_objectname_var_outside_name.yaml"
+			invalidPolicyYAML      = case13RsrcPath + "case13_objectname_var_invalid_name.yaml"
 			noSelectorName         = "case13-no-selector"
-			noSelectorPolicyYAML   = case13RsrcPath + "/case13_objectname_var_noselector.yaml"
+			noSelectorPolicyYAML   = case13RsrcPath + "case13_objectname_var_noselector.yaml"
 			noSelectorNsName       = "case13-no-selector-ns"
-			noSelectorNsPolicyYAML = case13RsrcPath + "/case13_objectname_var_noselector_ns.yaml"
+			noSelectorNsPolicyYAML = case13RsrcPath + "case13_objectname_var_noselector_ns.yaml"
 			outsidePolicyName      = "case13-outside-name"
-			allSkippedPolicyYAML   = case13RsrcPath + "/case13_objectname_var_all_skipped.yaml"
+			outsidePolicyYAML      = case13RsrcPath + "case13_objectname_var_outside_name.yaml"
+			outsideArgPolicyName   = "case13-outside-name-arg"
+			outsideArgPolicyYAML   = case13RsrcPath + "case13_objectname_var_outside_name_arg.yaml"
 			allSkippedPolicyName   = "case13-objectname-var-all-skipped"
+			allSkippedPolicyYAML   = case13RsrcPath + "case13_objectname_var_all_skipped.yaml"
+			invalidSkipObjectName  = "case13-objectname-invalid-skipobject"
+			invalidSkipObjectYAML  = case13RsrcPath + "case13_objectname_var_invalid_skipobject.yaml"
 		)
 
 		BeforeEach(func() {
@@ -642,43 +646,47 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}
 		})
 
-		It("Should succeed when context vars are in use but name/namespace are left empty", func(ctx SpecContext) {
-			By("Applying the " + outsidePolicyName + " ConfigurationPolicy")
-			utils.Kubectl("apply", "-n", testNamespace, "-f", outsidePolicyYAML)
+		DescribeTable("Should succeed when context vars are in use but name/namespace are left empty",
+			func(ctx SpecContext, policyName string, policyYAML string) {
+				By("Applying the " + policyName + " ConfigurationPolicy")
+				utils.Kubectl("apply", "-n", testNamespace, "-f", policyYAML)
 
-			By("By verifying that the ConfigurationPolicy is compliant and has the correct related objects")
-			Eventually(func(g Gomega) {
-				managedPlc := utils.GetWithTimeout(
-					clientManagedDynamic,
-					gvrConfigPolicy,
-					outsidePolicyName,
-					testNamespace,
-					true,
-					defaultTimeoutSeconds,
-				)
+				By("By verifying that the ConfigurationPolicy is compliant and has the correct related objects")
+				Eventually(func(g Gomega) {
+					managedPlc := utils.GetWithTimeout(
+						clientManagedDynamic,
+						gvrConfigPolicy,
+						policyName,
+						testNamespace,
+						true,
+						defaultTimeoutSeconds,
+					)
 
-				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
-				g.Expect(utils.GetStatusMessage(managedPlc)).Should(
-					Equal("configmaps [case13-e2e-objectname-var3] found as specified in namespace " + e2eBaseName))
+					utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+					g.Expect(utils.GetStatusMessage(managedPlc)).Should(
+						Equal("configmaps [case13-e2e-objectname-var3] found as specified in namespace " + e2eBaseName))
 
-				relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
-				g.Expect(relatedObjects).To(HaveLen(1))
-				relatedObject, ok := relatedObjects[0].(map[string]interface{})
-				g.Expect(ok).To(BeTrue(), "Related object is not a map")
-				relatedObject1NS, _, _ := unstructured.NestedString(relatedObject, "object", "metadata", "name")
-				g.Expect(relatedObject1NS).To(
-					Equal(fmt.Sprintf("%s%d", e2eBaseName, 3)),
-					"Related object name should match")
-			}, defaultTimeoutSeconds, 1).Should(Succeed())
+					relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+					g.Expect(relatedObjects).To(HaveLen(1))
+					relatedObject, ok := relatedObjects[0].(map[string]interface{})
+					g.Expect(ok).To(BeTrue(), "Related object is not a map")
+					relatedObject1NS, _, _ := unstructured.NestedString(relatedObject, "object", "metadata", "name")
+					g.Expect(relatedObject1NS).To(
+						Equal(fmt.Sprintf("%s%d", e2eBaseName, 3)),
+						"Related object name should match")
+				}, defaultTimeoutSeconds, 1).Should(Succeed())
 
-			By("By verifying the ConfigMaps")
-			cm, err := clientManaged.CoreV1().ConfigMaps(e2eBaseName).Get(
-				ctx, "case13-e2e-objectname-var3", metav1.GetOptions{})
-			Expect(err).ToNot(HaveOccurred())
-			Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("case13", "passed"))
-			Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("object-name", cm.GetName()))
-			Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("object-namespace", cm.GetNamespace()))
-		})
+				By("By verifying the ConfigMaps")
+				cm, err := clientManaged.CoreV1().ConfigMaps(e2eBaseName).Get(
+					ctx, "case13-e2e-objectname-var3", metav1.GetOptions{})
+				Expect(err).ToNot(HaveOccurred())
+				Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("case13", "passed"))
+				Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("object-name", cm.GetName()))
+				Expect(cm.ObjectMeta.Labels).To(HaveKeyWithValue("object-namespace", cm.GetNamespace()))
+			},
+			Entry("inside an if conditional", outsidePolicyName, outsidePolicyYAML),
+			Entry("with a boolean argument", outsideArgPolicyName, outsideArgPolicyYAML),
+		)
 
 		It("Should fail when the name doesn't match after template resolution", func() {
 			By("Applying the " + invalidPolicyName + " ConfigurationPolicy")
@@ -699,6 +707,30 @@ var _ = Describe("Test templatization", Ordered, func() {
 				g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(
 					"The object definition's name must match the result " +
 						"from the object selector after template resolution",
+				))
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
+		It("Should fail when skipObject is called with multiple arguments", func() {
+			By("Applying the " + invalidSkipObjectName + " ConfigurationPolicy")
+			utils.Kubectl("apply", "-n", testNamespace, "-f", invalidSkipObjectYAML)
+
+			By("By verifying that the ConfigurationPolicy is noncompliant")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic,
+					gvrConfigPolicy,
+					invalidSkipObjectName,
+					testNamespace,
+					true,
+					defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+				g.Expect(utils.GetStatusMessage(managedPlc)).To(ContainSubstring(
+					`template: tmpl:8:12: executing "tmpl" at <skipObject true false true>: ` +
+						`error calling skipObject: ` +
+						`skipObject only accepts one optional boolean argument but received 3`,
 				))
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
@@ -761,7 +793,9 @@ var _ = Describe("Test templatization", Ordered, func() {
 			utils.KubectlDelete("configurationpolicy", noSelectorName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", noSelectorNsName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", outsidePolicyName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", outsideArgPolicyName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", allSkippedPolicyName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", invalidSkipObjectName, "-n", testNamespace)
 			utils.KubectlDelete("configmaps", "-n", e2eBaseName, "--all")
 		})
 
