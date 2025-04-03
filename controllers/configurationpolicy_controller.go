@@ -1570,10 +1570,19 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				skipObject := false
 
 				resolveOptions.CustomFunctions = map[string]interface{}{
-					"skipObject": func() string {
-						skipObject = true
+					"skipObject": func(skips ...bool) (empty string, err error) {
+						switch len(skips) {
+						case 0:
+							skipObject = true
+						case 1:
+							if !skipObject {
+								skipObject = skips[0]
+							}
+						default:
+							err = errors.New("skipObject accepts one argument or no arguments")
+						}
 
-						return ""
+						return
 					},
 				}
 
