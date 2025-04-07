@@ -1,0 +1,25 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case13-skipobject-non-bool
+spec:
+  remediationAction: enforce
+  namespaceSelector:
+    include:
+      - case13-e2e-objectname-var
+  object-templates:
+    - complianceType: musthave
+      objectSelector:
+        matchExpressions:
+          - key: case13
+            operator: Exists
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: '{{ skipObject "not a boolean" }}'
+          namespace: "{{ .ObjectNamespace }}"
+          labels:
+            case13: passed
+            name: "{{ .ObjectName }}"
+            namespace: "{{ .ObjectNamespace }}"

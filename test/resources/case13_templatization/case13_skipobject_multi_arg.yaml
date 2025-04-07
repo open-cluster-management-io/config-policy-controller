@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: case13-objectname-invalid-skipobject
+  name: case13-skipobject-multi-arg
 spec:
   remediationAction: enforce
   namespaceSelector:
