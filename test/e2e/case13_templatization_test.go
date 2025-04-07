@@ -588,8 +588,10 @@ var _ = Describe("Test templatization", Ordered, func() {
 			outsideArgPolicyYAML   = case13RsrcPath + "case13_objectname_var_outside_name_arg.yaml"
 			allSkippedPolicyName   = "case13-objectname-var-all-skipped"
 			allSkippedPolicyYAML   = case13RsrcPath + "case13_objectname_var_all_skipped.yaml"
-			invalidSkipObjectName  = "case13-objectname-invalid-skipobject"
-			invalidSkipObjectYAML  = case13RsrcPath + "case13_objectname_var_invalid_skipobject.yaml"
+			multiArgSkipObjectName = "case13-skipobject-multi-arg"
+			multiArgSkipObjectYAML = case13RsrcPath + "case13_skipobject_multi_arg.yaml"
+			nonBoolSkipObjectName  = "case13-skipobject-non-bool"
+			nonBoolSkipObjectYAML  = case13RsrcPath + "case13_skipobject_non_bool.yaml"
 		)
 
 		BeforeEach(func() {
@@ -711,29 +713,32 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
-		It("Should fail when skipObject is called with multiple arguments", func() {
-			By("Applying the " + invalidSkipObjectName + " ConfigurationPolicy")
-			utils.Kubectl("apply", "-n", testNamespace, "-f", invalidSkipObjectYAML)
+		DescribeTable("Should fail when skipObject is called",
+			func(policyName string, policyYAML string, errString string) {
+				By("Applying the " + policyName + " ConfigurationPolicy")
+				utils.Kubectl("apply", "-n", testNamespace, "-f", policyYAML)
 
-			By("By verifying that the ConfigurationPolicy is noncompliant")
-			Eventually(func(g Gomega) {
-				managedPlc := utils.GetWithTimeout(
-					clientManagedDynamic,
-					gvrConfigPolicy,
-					invalidSkipObjectName,
-					testNamespace,
-					true,
-					defaultTimeoutSeconds,
-				)
+				By("By verifying that the ConfigurationPolicy is noncompliant")
+				Eventually(func(g Gomega) {
+					managedPlc := utils.GetWithTimeout(
+						clientManagedDynamic,
+						gvrConfigPolicy,
+						policyName,
+						testNamespace,
+						true,
+						defaultTimeoutSeconds,
+					)
 
-				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
-				g.Expect(utils.GetStatusMessage(managedPlc)).To(ContainSubstring(
-					`template: tmpl:8:12: executing "tmpl" at <skipObject true false true>: ` +
-						`error calling skipObject: ` +
-						`skipObject only accepts one optional boolean argument but received 3`,
-				))
-			}, defaultTimeoutSeconds, 1).Should(Succeed())
-		})
+					utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+					g.Expect(utils.GetStatusMessage(managedPlc)).To(HaveSuffix(
+						"error calling skipObject: " + errString))
+				}, defaultTimeoutSeconds, 1).Should(Succeed())
+			},
+			Entry("with multiple arguments", multiArgSkipObjectName, multiArgSkipObjectYAML,
+				`expected one optional boolean argument but received 3 arguments`),
+			Entry("with a non-boolean argument", nonBoolSkipObjectName, nonBoolSkipObjectYAML,
+				`expected boolean but received 'not a boolean'`),
+		)
 
 		It("Should fail when context variables are used without a selector", func() {
 			for name, test := range map[string]struct {
@@ -795,7 +800,8 @@ var _ = Describe("Test templatization", Ordered, func() {
 			utils.KubectlDelete("configurationpolicy", outsidePolicyName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", outsideArgPolicyName, "-n", testNamespace)
 			utils.KubectlDelete("configurationpolicy", allSkippedPolicyName, "-n", testNamespace)
-			utils.KubectlDelete("configurationpolicy", invalidSkipObjectName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", multiArgSkipObjectName, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", nonBoolSkipObjectName, "-n", testNamespace)
 			utils.KubectlDelete("configmaps", "-n", e2eBaseName, "--all")
 		})
 

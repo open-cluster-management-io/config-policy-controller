@@ -1570,17 +1570,22 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				skipObject := false
 
 				resolveOptions.CustomFunctions = map[string]interface{}{
-					"skipObject": func(skips ...bool) (empty string, err error) {
+					"skipObject": func(skips ...any) (empty string, err error) {
 						switch len(skips) {
 						case 0:
 							skipObject = true
 						case 1:
 							if !skipObject {
-								skipObject = skips[0]
+								if skip, ok := skips[0].(bool); ok {
+									skipObject = skip
+								} else {
+									err = fmt.Errorf(
+										"expected boolean but received '%v'", skips[0])
+								}
 							}
 						default:
 							err = fmt.Errorf(
-								"skipObject only accepts one optional boolean argument but received %d", len(skips))
+								"expected one optional boolean argument but received %d arguments", len(skips))
 						}
 
 						return
