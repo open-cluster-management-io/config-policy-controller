@@ -10,7 +10,7 @@ v1 Pod default/nginx-pod:
    - image: nginx:1.7.9
      name: nginx
      ports:
-+    - containerPort: 8080
+[32m+    - containerPort: 8080[0m
      - containerPort: 80
  
 v1 Pod nonexist/nginx-pod:
