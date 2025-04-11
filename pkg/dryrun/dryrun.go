@@ -488,6 +488,7 @@ func (d *DryRunner) setupReconciler(
 		UninstallMode:          false,
 		ServerVersion:          serverVersion,
 		EvalBackoffSeconds:     5,
+		FullDiffs:              d.fullDiffs,
 	}
 
 	if d.mappingsPath != "" {

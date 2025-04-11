@@ -1,0 +1,73 @@
+# Diffs:
+v1 Namespace default:
+--- default : existing
++++ default : updated
+@@ -1,5 +1,66 @@
+ apiVersion: v1
+ kind: Namespace
+ metadata:
+[32m+  annotations:[0m
+[32m+    message1: message[0m
+[32m+    message2: message[0m
+[32m+    message3: message[0m
+[32m+    message4: message[0m
+[32m+    message5: message[0m
+[32m+    message6: message[0m
+[32m+    message7: message[0m
+[32m+    message8: message[0m
+[32m+    message9: message[0m
+[32m+    message10: message[0m
+[32m+    message11: message[0m
+[32m+    message12: message[0m
+[32m+    message13: message[0m
+[32m+    message14: message[0m
+[32m+    message15: message[0m
+[32m+    message16: message[0m
+[32m+    message17: message[0m
+[32m+    message18: message[0m
+[32m+    message19: message[0m
+[32m+    message20: message[0m
+[32m+    message21: message[0m
+[32m+    message22: message[0m
+[32m+    message23: message[0m
+[32m+    message24: message[0m
+[32m+    message25: message[0m
+[32m+    message26: message[0m
+[32m+    message27: message[0m
+[32m+    message28: message[0m
+[32m+    message29: message[0m
+[32m+    message30: message[0m
+[32m+    message31: message[0m
+[32m+    message32: message[0m
+[32m+    message33: message[0m
+[32m+    message34: message[0m
+[32m+    message35: message[0m
+[32m+    message36: message[0m
+[32m+    message37: message[0m
+[32m+    message38: message[0m
+[32m+    message39: message[0m
+[32m+    message40: message[0m
+[32m+    message41: message[0m
+[32m+    message42: message[0m
+[32m+    message43: message[0m
+[32m+    message44: message[0m
+[32m+    message45: message[0m
+[32m+    message46: message[0m
+[32m+    message47: message[0m
+[32m+    message48: message[0m
+[32m+    message49: message[0m
+[32m+    message50: message[0m
+[32m+    message51: message[0m
+[32m+    message52: message[0m
+[32m+    message53: message[0m
+[32m+    message54: message[0m
+[32m+    message55: message[0m
+[32m+    message56: message[0m
+[32m+    message57: message[0m
+[32m+    message58: message[0m
+[32m+    message59: message[0m
+[32m+    message60: message[0m
+   name: default
+ 
+# Compliance messages:
+NonCompliant; violation - namespaces [default] found but not as specified

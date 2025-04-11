@@ -211,6 +211,9 @@ type ConfigurationPolicyReconciler struct {
 	HubClient         *kubernetes.Clientset
 	// name of the cluster
 	ClusterName string
+	// This flag is only used for dryrun. When true, the status will display the full diff in the output.
+	// By default, the maximum number of diff lines shown is 53.
+	FullDiffs bool
 }
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
@@ -3144,7 +3147,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				removeFieldsForComparison(existingObjectCopy)
 				removeFieldsForComparison(obj.existingObj)
 
-				diff = handleDiff(log, recordDiff, true, existingObjectCopy, obj.existingObj)
+				diff = handleDiff(log, recordDiff, true, existingObjectCopy, obj.existingObj, r.FullDiffs)
 
 				if !isInform {
 					// Don't include the error message in the compliance status because that can be very long. The
@@ -3174,7 +3177,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				return false, "", "", false, nil
 			}
 
-			diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj)
+			diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
 		}
 
 		// The object would have been updated, so if it's inform, return as noncompliant.
@@ -3269,7 +3272,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			removeFieldsForComparison(mergedObjCopy)
 
 			// The provided isInform value is always true because the status checking can only be inform.
-			diff = handleDiff(log, recordDiff, true, existingObjectCopy, mergedObjCopy)
+			diff = handleDiff(log, recordDiff, true, existingObjectCopy, mergedObjCopy, r.FullDiffs)
 		}
 
 		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
@@ -3297,6 +3300,7 @@ func handleDiff(
 	isInform bool,
 	existingObject *unstructured.Unstructured,
 	mergedObject *unstructured.Unstructured,
+	fullDiffs bool,
 ) string {
 	if !isInform && (recordDiff == policyv1.RecordDiffInStatus || recordDiff == policyv1.RecordDiffCensored) {
 		return ""
@@ -3307,7 +3311,7 @@ func handleDiff(
 	if recordDiff != policyv1.RecordDiffNone && recordDiff != policyv1.RecordDiffCensored {
 		var err error
 
-		computedDiff, err = generateDiff(existingObject, mergedObject)
+		computedDiff, err = generateDiff(existingObject, mergedObject, fullDiffs)
 		if err != nil {
 			log.Error(err, "Failed to generate the diff")
 
