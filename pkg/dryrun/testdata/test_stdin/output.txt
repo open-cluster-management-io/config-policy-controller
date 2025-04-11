@@ -8,10 +8,10 @@ v1 Pod default/nginx-pod-e2e:
  spec:
    containers:
    - image: nginx:1.7.9
-+    name: nginx
-+    ports:
-+    - containerPort: 80
-+  - image: nginx:1.7.9
+[32m+    name: nginx[0m
+[32m+    ports:[0m
+[32m+    - containerPort: 80[0m
+[32m+  - image: nginx:1.7.9[0m
      name: engine-x
      ports:
      - containerPort: 8080

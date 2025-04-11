@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -316,4 +317,23 @@ func PathExists(path string) bool {
 	err = f.Close()
 
 	return err == nil
+}
+
+func addColorToDiff(bareDiff string, noColor bool) string {
+	lines := strings.Split(bareDiff, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, "-") && !strings.HasPrefix(line, "---") {
+			lines[i] = errorColor(line, noColor)
+
+			continue
+		}
+
+		if strings.HasPrefix(line, "+") && !strings.HasPrefix(line, "+++") {
+			lines[i] = successColor(line, noColor)
+
+			continue
+		}
+	}
+
+	return strings.Join(lines, "\n")
 }
