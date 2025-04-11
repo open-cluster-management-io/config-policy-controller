@@ -115,3 +115,53 @@ func getFileMap(t *testing.T, scenarioPath, fileName string) map[string]interfac
 
 	return result
 }
+
+func TestAddColorToDiff(t *testing.T) {
+	testCases := []struct {
+		name           string
+		bareDiff       string
+		noColor        bool
+		expectedOutput string
+	}{
+		{
+			name: "Test with no color",
+			bareDiff: `
+- line 1
++ line 2
+`,
+			noColor: true,
+			expectedOutput: `
+- line 1
++ line 2
+`,
+		},
+		{
+			name: "Test with color",
+			// The message 'message1: message' should not be colored.
+			bareDiff: `
+- line 1
++ line 2
++  - image: nginx:1.7.9
+      - message1: message
+      + message1: message
+`,
+			noColor: false,
+			expectedOutput: "\n" +
+				"\x1b[31m- line 1\x1b[0m\n" +
+				"\x1b[32m+ line 2\x1b[0m\n" +
+				"\x1b[32m+  - image: nginx:1.7.9\x1b[0m\n" +
+				"      - message1: message\n" +
+				"      + message1: message\n",
+		},
+	}
+
+	// Run tests
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			result := addColorToDiff(tc.bareDiff, tc.noColor)
+			if result != tc.expectedOutput {
+				t.Fatalf("expected %q, got %q", tc.expectedOutput, result)
+			}
+		})
+	}
+}

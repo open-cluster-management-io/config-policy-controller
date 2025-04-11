@@ -615,7 +615,7 @@ func (d *DryRunner) outputDiffs(cmd *cobra.Command, status policyv1.Configuratio
 			cmd.Println() // Ensures a newline is printed
 		} else {
 			// For long diff
-			cmd.Println(strings.TrimSuffix(relObj.Properties.Diff, "\n"))
+			cmd.Println(strings.TrimSuffix(addColorToDiff(relObj.Properties.Diff, d.noColors), "\n"))
 		}
 	}
 }
