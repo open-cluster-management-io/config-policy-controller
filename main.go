@@ -529,6 +529,7 @@ func main() {
 		HubDynamicWatcher:      configPolHubDynamicWatcher,
 		HubClient:              hubClient,
 		ClusterName:            opts.clusterName,
+		FullDiffs:              false,
 	}
 
 	if err = reconciler.SetupWithManager(

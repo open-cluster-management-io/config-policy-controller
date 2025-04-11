@@ -291,7 +291,7 @@ func TestGenerateDiff(t *testing.T) {
 				Object: test.updatedObj,
 			}
 
-			diff, err := generateDiff(existingObj, updatedObj)
+			diff, err := generateDiff(existingObj, updatedObj, false)
 			if err != nil {
 				t.Fatal(fmt.Errorf("Encountered unexpected error: %w", err))
 			}

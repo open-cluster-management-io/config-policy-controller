@@ -772,7 +772,7 @@ func containRelated(related []policyv1.RelatedObject, input policyv1.RelatedObje
 }
 
 // generateDiff takes two unstructured objects and returns the diff between the two embedded objects
-func generateDiff(existingObj, updatedObj *unstructured.Unstructured) (string, error) {
+func generateDiff(existingObj, updatedObj *unstructured.Unstructured, fullDiffs bool) (string, error) {
 	// Marshal YAML to []byte and parse object names for logging
 	existingYAML, err := yaml.Marshal(existingObj.Object)
 	if err != nil {
@@ -808,7 +808,7 @@ func generateDiff(existingObj, updatedObj *unstructured.Unstructured) (string, e
 
 	splitDiff := strings.Split(diff, "\n")
 	// Keep a maximum of 50 lines of diff + 3 lines for the header
-	if len(splitDiff) > 53 {
+	if len(splitDiff) > 53 && !fullDiffs {
 		diff = fmt.Sprintf(
 			"# Truncated: showing 50/%d diff lines:\n%s", len(splitDiff), strings.Join(splitDiff[:53], "\n"),
 		)

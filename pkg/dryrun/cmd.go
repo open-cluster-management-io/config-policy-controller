@@ -20,6 +20,7 @@ type DryRunner struct {
 	mappingsPath  string
 	logPath       string
 	noColors      bool
+	fullDiffs     bool
 }
 
 var ErrNonCompliant = errors.New("policy is NonCompliant")
@@ -75,6 +76,14 @@ func (d *DryRunner) GetCmd() *cobra.Command {
 		"no-colors",
 		false,
 		"Disables colored output. By default, output is printed with colors.",
+	)
+
+	cmd.Flags().BoolVar(
+		&d.fullDiffs,
+		"full-diffs",
+		false,
+		"Enable this to display the full diff in the output. "+
+			"By default, the number of lines is limited for readability.",
 	)
 
 	cmd.Flags().StringVar(

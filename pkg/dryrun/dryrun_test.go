@@ -99,6 +99,11 @@ func cliTest(scenarioPath string) func(t *testing.T) {
 			}
 		}
 
+		err = cmd.Flags().Set("full-diffs", "true")
+		if err != nil {
+			t.Fatal(err)
+		}
+
 		err = cmd.Execute()
 		if err != nil && !errors.Is(err, ErrNonCompliant) {
 			t.Fatal(err)
