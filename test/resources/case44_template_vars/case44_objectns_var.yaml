@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case44-object-variables
+spec:
+  namespaceSelector:
+    include:
+    - default
+    - case44-e2e-object-variables
+  object-templates:
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        labels:
+          case44: passed
+          namespace: '{{ .ObjectNamespace }}'
+        name: case44-e2e-object-variables
+        namespace: '{{ .ObjectNamespace }}'
+  remediationAction: enforce

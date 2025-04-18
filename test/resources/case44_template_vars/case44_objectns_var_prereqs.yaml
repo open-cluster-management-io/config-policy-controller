@@ -1,0 +1,23 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: case44-e2e-object-variables
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: case44-e2e-object-variables
+  namespace: case44-e2e-object-variables
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: case44-e2e-object-variables
+  namespace: default
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: case44-e2e-object-variables2
+  namespace: case44-e2e-object-variables

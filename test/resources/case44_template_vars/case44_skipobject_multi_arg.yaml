@@ -1,0 +1,25 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case44-skipobject-multi-arg
+spec:
+  namespaceSelector:
+    include:
+    - case44-e2e-objectname-var
+  object-templates:
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        labels:
+          case44: passed
+          name: '{{ .ObjectName }}'
+          namespace: '{{ .ObjectNamespace }}'
+        name: '{{ skipObject true false true }}'
+        namespace: '{{ .ObjectNamespace }}'
+    objectSelector:
+      matchExpressions:
+      - key: case44
+        operator: Exists
+  remediationAction: enforce

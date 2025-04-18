@@ -1,0 +1,26 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case44-objectname-var
+spec:
+  namespaceSelector:
+    include:
+    - case44-e2e-objectname-var
+  object-templates:
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        labels:
+          case44: passed
+          name: '{{ .ObjectName }}'
+          namespace: '{{ .ObjectNamespace }}'
+        name: '{{ if eq .ObjectName "case44-e2e-objectname-var1" }}{{ skipObject }}{{
+          else }}{{ .ObjectName }}{{ end }}'
+        namespace: '{{ .ObjectNamespace }}'
+    objectSelector:
+      matchExpressions:
+      - key: case44
+        operator: Exists
+  remediationAction: enforce
