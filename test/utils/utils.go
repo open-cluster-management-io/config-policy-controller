@@ -161,6 +161,17 @@ func Kubectl(args ...string) {
 	}
 }
 
+// KubectlApplyAndLabel takes a string label value and an array of arguments
+// following `kubectl apply` and performs `kubectl apply <args>...` followed by
+// `kubectl label e2e-test=<label> args...`.
+func KubectlApplyAndLabel(label string, args ...string) {
+	applyArgs := []string{"apply"}
+	Kubectl(append(applyArgs, args...)...)
+
+	labelArgs := []string{"label", "--overwrite", "e2e-test=" + label}
+	Kubectl(append(labelArgs, args...)...)
+}
+
 // KubectlDelete executes a delete command, ignoring not found errors,
 // and skipping the wait if not provided
 func KubectlDelete(args ...string) {
