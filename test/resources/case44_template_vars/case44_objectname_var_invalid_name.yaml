@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case44-invalid-name
+spec:
+  namespaceSelector:
+    include:
+    - case44-e2e-objectname-var
+  object-templates:
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: '{{ .ObjectName }}-some-random-suffix'
+        namespace: '{{ .ObjectNamespace }}'
+    objectSelector:
+      matchExpressions:
+      - key: case44
+        operator: Exists
+  remediationAction: enforce
