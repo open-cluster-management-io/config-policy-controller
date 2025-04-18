@@ -14,23 +14,24 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = Describe("Test template context variables", Ordered, func() {
+var _ = Describe("Test template context variables", func() {
 	const (
 		rsrcPath string = "../resources/case44_template_vars/"
 	)
 
 	Describe("Policy with the ObjectNamespace variables", Ordered, func() {
 		const (
-			preReqs = rsrcPath + "case44_objectns_var_prereqs.yaml"
+			preReqs   = rsrcPath + "case44_objectns_var_prereqs.yaml"
+			testLabel = "case44-objectns-var"
 		)
 
 		BeforeEach(func() {
 			By("Creating the prerequisites")
-			utils.Kubectl("apply", "-f", preReqs)
+			utils.KubectlApplyAndLabel(testLabel, "-f", preReqs)
 		})
 
 		AfterEach(func() {
-			utils.KubectlDelete("configurationpolicy", "-l=e2e-test=case44", "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", "-l=e2e-test="+testLabel, "-n", testNamespace)
 		})
 
 		AfterAll(func() {
@@ -43,7 +44,7 @@ var _ = Describe("Test template context variables", Ordered, func() {
 			)
 
 			By("Applying the " + policyName + " ConfigurationPolicy")
-			utils.Kubectl("apply", "-n", testNamespace, "-f", rsrcPath+"case44_objectns_var.yaml")
+			utils.KubectlApplyAndLabel(testLabel, "-n", testNamespace, "-f", rsrcPath+"case44_objectns_var.yaml")
 
 			By("By verifying that the ConfigurationPolicy is compliant and has the correct related objects")
 			Eventually(func(g Gomega) {
@@ -95,7 +96,8 @@ var _ = Describe("Test template context variables", Ordered, func() {
 			)
 
 			By("Applying the " + invalidPolicyName + " ConfigurationPolicy")
-			utils.Kubectl("apply", "-n", testNamespace, "-f", rsrcPath+"case44_objectns_var_invalid_ns.yaml")
+			utils.KubectlApplyAndLabel(
+				testLabel, "-n", testNamespace, "-f", rsrcPath+"case44_objectns_var_invalid_ns.yaml")
 
 			By("By verifying that the ConfigurationPolicy is noncompliant")
 			Eventually(func(g Gomega) {
@@ -121,16 +123,17 @@ var _ = Describe("Test template context variables", Ordered, func() {
 		const (
 			preReqs     = rsrcPath + "case44_objectname_var_prereqs.yaml"
 			e2eBaseName = "case44-e2e-objectname-var"
+			testLabel   = "case44-objectname-var"
 		)
 
 		BeforeEach(func() {
 			By("Creating the prerequisites")
-			utils.Kubectl("apply", "-f", preReqs)
+			utils.KubectlApplyAndLabel(testLabel, "-f", preReqs)
 		})
 
 		AfterEach(func() {
-			utils.KubectlDelete("configurationpolicy", "-l=e2e-test=case44", "-n", testNamespace)
-			utils.KubectlDelete("configmaps", "-n", e2eBaseName, "-l=e2e-test=case44")
+			utils.KubectlDelete("configurationpolicy", "-l=e2e-test="+testLabel, "-n", testNamespace)
+			utils.KubectlDelete("configmaps", "-n", e2eBaseName, "-l=e2e-test="+testLabel)
 		})
 
 		AfterAll(func() {
@@ -142,7 +145,7 @@ var _ = Describe("Test template context variables", Ordered, func() {
 				policyName = "case44-objectname-var"
 			)
 			By("Applying the " + policyName + " ConfigurationPolicy")
-			utils.Kubectl("apply", "-n", testNamespace, "-f", rsrcPath+"case44_objectname_var.yaml")
+			utils.KubectlApplyAndLabel(testLabel, "-n", testNamespace, "-f", rsrcPath+"case44_objectname_var.yaml")
 
 			By("By verifying that the ConfigurationPolicy is compliant and has the correct related objects")
 			Eventually(func(g Gomega) {
@@ -192,7 +195,7 @@ var _ = Describe("Test template context variables", Ordered, func() {
 		DescribeTable("Should succeed when context vars are in use but name/namespace are left empty",
 			func(ctx SpecContext, policyName string, policyYAML string) {
 				By("Applying the " + policyName + " ConfigurationPolicy")
-				utils.Kubectl("apply", "-n", testNamespace, "-f", rsrcPath+policyYAML)
+				utils.KubectlApplyAndLabel(testLabel, "-n", testNamespace, "-f", rsrcPath+policyYAML)
 
 				By("By verifying that the ConfigurationPolicy is compliant and has the correct related objects")
 				Eventually(func(g Gomega) {
@@ -237,7 +240,8 @@ var _ = Describe("Test template context variables", Ordered, func() {
 			)
 
 			By("Applying the " + invalidPolicyName + " ConfigurationPolicy")
-			utils.Kubectl("apply", "-n", testNamespace, "-f", rsrcPath+"case44_objectname_var_invalid_name.yaml")
+			utils.KubectlApplyAndLabel(
+				testLabel, "-n", testNamespace, "-f", rsrcPath+"case44_objectname_var_invalid_name.yaml")
 
 			By("By verifying that the ConfigurationPolicy is noncompliant")
 			Eventually(func(g Gomega) {
@@ -261,7 +265,7 @@ var _ = Describe("Test template context variables", Ordered, func() {
 		DescribeTable("Should fail when skipObject is called",
 			func(policyName string, policyYAML string, errString string) {
 				By("Applying the " + policyName + " ConfigurationPolicy")
-				utils.Kubectl("apply", "-n", testNamespace, "-f", rsrcPath+policyYAML)
+				utils.KubectlApplyAndLabel(testLabel, "-n", testNamespace, "-f", rsrcPath+policyYAML)
 
 				By("By verifying that the ConfigurationPolicy is noncompliant")
 				Eventually(func(g Gomega) {
@@ -298,7 +302,7 @@ var _ = Describe("Test template context variables", Ordered, func() {
 				},
 			} {
 				By("Applying the " + name + " ConfigurationPolicy")
-				utils.Kubectl("apply", "-n", testNamespace, "-f", rsrcPath+test.file)
+				utils.KubectlApplyAndLabel(testLabel, "-n", testNamespace, "-f", rsrcPath+test.file)
 
 				By("By verifying that the ConfigurationPolicy is noncompliant")
 				Eventually(func(g Gomega) {
@@ -326,7 +330,8 @@ var _ = Describe("Test template context variables", Ordered, func() {
 			)
 
 			By("Applying the " + allSkippedPolicyName + " ConfigurationPolicy")
-			utils.Kubectl("apply", "-n", testNamespace, "-f", rsrcPath+"case44_objectname_var_all_skipped.yaml")
+			utils.KubectlApplyAndLabel(
+				testLabel, "-n", testNamespace, "-f", rsrcPath+"case44_objectname_var_all_skipped.yaml")
 
 			By("By verifying that the ConfigurationPolicy is compliant")
 			Eventually(func(g Gomega) {
