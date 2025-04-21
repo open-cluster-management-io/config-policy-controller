@@ -2,4 +2,4 @@
 [32m.compliant: 'Compliant' does match 'Compliant'[0m
 [31m.relatedObjects[0] does not match any elements[0m
 [31m.relatedObjects does not match the elements[0m
-[31m[1m Expected status does not match the actual status [0m[0m
+[31m[1m Expected status does not match the actual status[0m[0m
