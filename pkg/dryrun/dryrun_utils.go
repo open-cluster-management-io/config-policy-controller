@@ -33,6 +33,10 @@ func applyColor(input, color string, noColors bool) string {
 	return color + input + Reset
 }
 
+func boldColor(input string, noColors bool) string {
+	return applyColor(input, Bold, noColors)
+}
+
 func successColor(input string, noColors bool) string {
 	return applyColor(input, Green, noColors)
 }
@@ -55,9 +59,9 @@ func compareStatus(cmd *cobra.Command,
 	isStatusMatch := compareStatusObj(cmd, true, "", inputStatus, resultStatus, noColor)
 
 	if isStatusMatch {
-		cmd.Println(successColor("\033[1m Expected status matches the actual status \033[0m", noColor))
+		cmd.Println(successColor(boldColor(" Expected status matches the actual status ", noColor), noColor))
 	} else {
-		cmd.Println(errorColor("\033[1m Expected status does not match the actual status \033[0m", noColor))
+		cmd.Println(errorColor(boldColor(" Expected status does not match the actual status ", noColor), noColor))
 	}
 }
 
