@@ -3,4 +3,4 @@
 [32m.compliancyDetails matches[0m
 [32m.compliant: 'Compliant' does match 'Compliant'[0m
 [32m.lastEvaluatedGeneration: '1' does match '1'[0m
-[32m[1m Expected status matches the actual status [0m[0m
+[32m[1m Expected status matches the actual status[0m[0m

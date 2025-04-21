@@ -59,9 +59,9 @@ func compareStatus(cmd *cobra.Command,
 	isStatusMatch := compareStatusObj(cmd, true, "", inputStatus, resultStatus, noColor)
 
 	if isStatusMatch {
-		cmd.Println(successColor(boldColor(" Expected status matches the actual status ", noColor), noColor))
+		cmd.Println(successColor(boldColor(" Expected status matches the actual status", noColor), noColor))
 	} else {
-		cmd.Println(errorColor(boldColor(" Expected status does not match the actual status ", noColor), noColor))
+		cmd.Println(errorColor(boldColor(" Expected status does not match the actual status", noColor), noColor))
 	}
 }
 
