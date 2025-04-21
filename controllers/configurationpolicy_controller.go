@@ -21,7 +21,7 @@ import (
 	sprig "github.com/Masterminds/sprig/v3"
 	"github.com/go-logr/logr"
 	gocmp "github.com/google/go-cmp/cmp"
-	templates "github.com/stolostron/go-template-utils/v6/pkg/templates"
+	templates "github.com/stolostron/go-template-utils/v7/pkg/templates"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"

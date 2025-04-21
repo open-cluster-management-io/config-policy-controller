@@ -8,7 +8,7 @@ import (
 	"encoding/base64"
 	"fmt"
 
-	"github.com/stolostron/go-template-utils/v6/pkg/templates"
+	"github.com/stolostron/go-template-utils/v7/pkg/templates"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 

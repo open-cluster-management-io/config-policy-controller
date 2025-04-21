@@ -18,7 +18,7 @@ import (
 
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
-	templates "github.com/stolostron/go-template-utils/v6/pkg/templates"
+	templates "github.com/stolostron/go-template-utils/v7/pkg/templates"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
