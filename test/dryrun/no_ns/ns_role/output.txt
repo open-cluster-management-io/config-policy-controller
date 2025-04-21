@@ -1,6 +1,6 @@
 # Status compare:
-[32m.compliant: 'NonCompliant' does match 'NonCompliant'[0m
-[32m[1m Expected status matches the actual status [0m[0m
+.compliant: 'NonCompliant' does match 'NonCompliant'
+ Expected status matches the actual status
 
 # Diffs:
 # Compliance messages:

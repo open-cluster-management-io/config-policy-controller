@@ -1,6 +1,6 @@
 # Status compare:
-[32m.compliant: 'Compliant' does match 'Compliant'[0m
-[32m[1m Expected status matches the actual status [0m[0m
+.compliant: 'Compliant' does match 'Compliant'
+ Expected status matches the actual status
 
 # Diffs:
 v1 Pod default/sample-nginx-pod:
