@@ -1,10 +1,10 @@
 # Status compare:
-[32m.compliant: 'NonCompliant' does match 'NonCompliant'[0m
-[32m.relatedObjects[0] matches[0m
-[32m.relatedObjects[1] matches[0m
-[32m.relatedObjects[2] matches[0m
-[32m.relatedObjects matches[0m
-[32m[1m Expected status matches the actual status [0m[0m
+.compliant: 'NonCompliant' does match 'NonCompliant'
+.relatedObjects[0] matches
+.relatedObjects[1] matches
+.relatedObjects[2] matches
+.relatedObjects matches
+ Expected status matches the actual status
 
 # Diffs:
 networking.k8s.io/v1 Ingress default/good-ingress:
@@ -18,8 +18,8 @@ networking.k8s.io/v1 Ingress default/wrong-1-ingress:
    name: wrong-1-ingress
    namespace: default
  spec:
-[31m-  ingressClassName: wrong-name[0m
-[32m+  ingressClassName: test[0m
+-  ingressClassName: wrong-name
++  ingressClassName: test
    rules:
    - http:
        paths:
@@ -34,8 +34,8 @@ networking.k8s.io/v1 Ingress default/wrong-2-ingress:
    name: wrong-2-ingress
    namespace: default
  spec:
-[31m-  ingressClassName: wrong-name[0m
-[32m+  ingressClassName: test[0m
+-  ingressClassName: wrong-name
++  ingressClassName: test
    rules:
    - http:
        paths:

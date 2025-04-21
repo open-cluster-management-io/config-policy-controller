@@ -31,7 +31,7 @@ func Run(testFiles embed.FS, filePath string) func(t *testing.T) {
 
 		cmd.SetOut(&testout)
 
-		args := []string{}
+		args := []string{"--no-colors"}
 
 		for _, f := range scenarioFiles {
 			if strings.HasPrefix(f.Name(), "input") {
