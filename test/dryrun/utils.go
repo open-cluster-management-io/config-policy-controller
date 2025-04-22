@@ -7,7 +7,7 @@ import (
 	"bytes"
 	"embed"
 	"errors"
-	"path"
+	"io/fs"
 	"strings"
 	"testing"
 
@@ -16,51 +16,68 @@ import (
 	"open-cluster-management.io/config-policy-controller/pkg/dryrun"
 )
 
-func Run(testFiles embed.FS, filePath string) func(t *testing.T) {
+func Run(testFiles embed.FS) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Helper()
-
-		scenarioFiles, err := testFiles.ReadDir(filePath)
-		if err != nil {
-			t.Fatal(err)
-		}
 
 		d := dryrun.DryRunner{}
 		cmd := d.GetCmd()
 		testout := bytes.Buffer{}
+		wanted := []byte{}
+		wantedFile := ""
 
 		cmd.SetOut(&testout)
 
 		args := []string{"--no-colors"}
 
-		for _, f := range scenarioFiles {
-			if strings.HasPrefix(f.Name(), "input") {
-				args = append(args, path.Join(filePath, f.Name()))
+		err := fs.WalkDir(testFiles, ".", func(path string, file fs.DirEntry, err error) error {
+			if err != nil {
+				return err
 			}
+
+			if file.IsDir() {
+				return nil
+			}
+
+			fileName := file.Name()
+
+			switch fileName {
+			case "policy.yaml":
+				err := cmd.Flags().Set("policy", path)
+				if err != nil {
+					return err
+				}
+
+			case "desired_status.yaml":
+				err = cmd.Flags().Set("desired-status", path)
+				if err != nil {
+					t.Fatal(err)
+				}
+
+			case "output.txt":
+				wantedFile = path
+
+				wanted, err = testFiles.ReadFile(path)
+				if err != nil {
+					return err
+				}
+
+			default:
+				if strings.HasPrefix(fileName, "input") {
+					args = append(args, path)
+				}
+			}
+
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
 		}
 
 		cmd.SetArgs(args)
 
-		err = cmd.Flags().Set("policy", path.Join(filePath, "policy.yaml"))
-		if err != nil {
-			t.Fatal(err)
-		}
-
-		desiredStatusPath := path.Join(filePath, "desired_status.yaml")
-		if dryrun.PathExists(desiredStatusPath) {
-			err = cmd.Flags().Set("desired-status", desiredStatusPath)
-			if err != nil {
-				t.Fatal(err)
-			}
-		}
-
 		err = cmd.Execute()
 		if err != nil && !errors.Is(err, dryrun.ErrNonCompliant) {
-			t.Fatal(err)
-		}
-
-		wanted, err := testFiles.ReadFile(path.Join(filePath, "output.txt"))
-		if err != nil {
 			t.Fatal(err)
 		}
 
@@ -74,7 +91,7 @@ func Run(testFiles embed.FS, filePath string) func(t *testing.T) {
 
 			unifiedDiff := difflib.UnifiedDiff{
 				A:        difflib.SplitLines(string(wanted)),
-				FromFile: path.Join(filePath, "output.txt"),
+				FromFile: wantedFile,
 				B:        difflib.SplitLines(string(got)),
 				ToFile:   "actual output",
 				Context:  5,

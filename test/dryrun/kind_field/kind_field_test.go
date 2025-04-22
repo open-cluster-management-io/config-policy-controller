@@ -14,12 +14,12 @@ import (
 var podAnnotationMatch embed.FS
 
 func TestPodAnnotationMatch(t *testing.T) {
-	t.Run("Test pod annotation match", dryrun.Run(podAnnotationMatch, "pod_annotation_match"))
+	t.Run("Test pod annotation match", dryrun.Run(podAnnotationMatch))
 }
 
 //go:embed pod_annotation_mismatch/*
 var podAnnotationMismatch embed.FS
 
 func TestPodAnnotationMisMatch(t *testing.T) {
-	t.Run("Test pod annotation mismatch", dryrun.Run(podAnnotationMismatch, "pod_annotation_mismatch"))
+	t.Run("Test pod annotation mismatch", dryrun.Run(podAnnotationMismatch))
 }
