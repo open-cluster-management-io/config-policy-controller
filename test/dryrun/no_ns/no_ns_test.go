@@ -15,7 +15,7 @@ var nsRole embed.FS
 
 func TestNsRole(t *testing.T) {
 	t.Run("Test noncompliant with role",
-		dryrun.Run(nsRole, "ns_role"))
+		dryrun.Run(nsRole))
 }
 
 //go:embed enforce_ns/*
@@ -23,7 +23,7 @@ var enforceNs embed.FS
 
 func TestEnforceNs(t *testing.T) {
 	t.Run("Test compliant with creating a namespace",
-		dryrun.Run(enforceNs, "enforce_ns"))
+		dryrun.Run(enforceNs))
 }
 
 //go:embed cluster_role/*
@@ -31,5 +31,5 @@ var clusterRole embed.FS
 
 func TestClusterRole(t *testing.T) {
 	t.Run("Test clusterRole",
-		dryrun.Run(clusterRole, "cluster_role"))
+		dryrun.Run(clusterRole))
 }

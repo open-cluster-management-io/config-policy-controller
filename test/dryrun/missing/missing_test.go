@@ -14,19 +14,19 @@ import (
 var missingKindName embed.FS
 
 func TestMissingKindName(t *testing.T) {
-	t.Run("Test Missing kind and name", dryrun.Run(missingKindName, "missing_kind_name"))
+	t.Run("Test Missing kind and name", dryrun.Run(missingKindName))
 }
 
 //go:embed missing_name/*
 var missingName embed.FS
 
 func TestMissingName(t *testing.T) {
-	t.Run("Test Missing name", dryrun.Run(missingName, "missing_name"))
+	t.Run("Test Missing name", dryrun.Run(missingName))
 }
 
 //go:embed missing_kind/*
 var missingKind embed.FS
 
 func TestMissingKind(t *testing.T) {
-	t.Run("Test Missing kind", dryrun.Run(missingKind, "missing_kind"))
+	t.Run("Test Missing kind", dryrun.Run(missingKind))
 }

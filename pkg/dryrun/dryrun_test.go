@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"embed"
 	"errors"
+	"io/fs"
 	"path"
 	"strings"
 	"testing"
@@ -17,22 +18,24 @@ import (
 var testfiles embed.FS
 
 func TestCLI(t *testing.T) {
-	entries, err := testfiles.ReadDir("testdata")
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	noTestsRun := true
 
-	for _, entry := range entries {
-		testName, found := strings.CutPrefix(entry.Name(), "test_")
-		if !found || !entry.IsDir() {
-			continue
+	err := fs.WalkDir(testfiles, ".", func(path string, file fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
 
-		noTestsRun = false
+		if file.IsDir() && strings.HasPrefix(file.Name(), "test_") {
+			testName, _ := strings.CutPrefix(file.Name(), "test_")
+			noTestsRun = false
 
-		t.Run(testName, cliTest(path.Join("testdata", entry.Name())))
+			t.Run(testName, cliTest(path))
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	if noTestsRun {

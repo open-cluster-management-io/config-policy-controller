@@ -12,7 +12,7 @@ var musthaveMixedNoncompliant embed.FS
 
 func TestMusthaveMixedNonCompliant(t *testing.T) {
 	t.Run("Test only selected and incorrect objects are marked as violations",
-		dryrun.Run(musthaveMixedNoncompliant, "musthave_mixed_noncompliant"))
+		dryrun.Run(musthaveMixedNoncompliant))
 }
 
 //go:embed mustnothave_mixed_noncompliant/*
@@ -20,5 +20,5 @@ var mustnothaveMixedNoncompliant embed.FS
 
 func TestMustnothaveMixedNonCompliant(t *testing.T) {
 	t.Run("Test only selected and matched objects are marked as violations",
-		dryrun.Run(mustnothaveMixedNoncompliant, "mustnothave_mixed_noncompliant"))
+		dryrun.Run(mustnothaveMixedNoncompliant))
 }

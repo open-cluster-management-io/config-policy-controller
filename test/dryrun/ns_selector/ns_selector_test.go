@@ -15,5 +15,5 @@ var nsDefault embed.FS
 
 func TestNsDefault(t *testing.T) {
 	t.Run("Test compliant with namespaceSelector",
-		dryrun.Run(nsDefault, "ns_default"))
+		dryrun.Run(nsDefault))
 }
