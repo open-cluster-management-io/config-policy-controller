@@ -39,9 +39,9 @@ var _ = Describe("Test template context variables", func() {
 			utils.KubectlDelete("-f", preReqs)
 		})
 
-		It("Should enforce the labels on the e2e-object-variable ConfigMaps", func(ctx SpecContext) {
+		It("Should enforce the labels on the e2e-objectns-variable ConfigMaps", func(ctx SpecContext) {
 			const (
-				policyName = "case44-object-variables"
+				policyName = "case44-objectns-variable"
 			)
 
 			By("Applying the " + policyName + " ConfigurationPolicy")
@@ -63,7 +63,7 @@ var _ = Describe("Test template context variables", func() {
 
 				relatedObject1NS, _, _ := unstructured.NestedString(relatedObject1, "object", "metadata", "namespace")
 				g.Expect(relatedObject1NS).To(
-					Equal("case44-e2e-object-variables"), "Related object namespace should match",
+					Equal("case44-e2e-objectns-variables"), "Related object namespace should match",
 				)
 
 				relatedObject2, ok := relatedObjects[1].(map[string]interface{})
@@ -74,16 +74,16 @@ var _ = Describe("Test template context variables", func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("By verifying the ConfigMaps")
-			configMap1, err := clientManaged.CoreV1().ConfigMaps("case44-e2e-object-variables").Get(
-				ctx, "case44-e2e-object-variables", metav1.GetOptions{},
+			configMap1, err := clientManaged.CoreV1().ConfigMaps("case44-e2e-objectns-variables").Get(
+				ctx, "case44-e2e-objectns-variables", metav1.GetOptions{},
 			)
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(configMap1.ObjectMeta.Labels).To(HaveKeyWithValue("case44", "passed"))
-			Expect(configMap1.ObjectMeta.Labels).To(HaveKeyWithValue("namespace", "case44-e2e-object-variables"))
+			Expect(configMap1.ObjectMeta.Labels).To(HaveKeyWithValue("namespace", "case44-e2e-objectns-variables"))
 
 			configMap2, err := clientManaged.CoreV1().ConfigMaps("default").Get(
-				ctx, "case44-e2e-object-variables", metav1.GetOptions{},
+				ctx, "case44-e2e-objectns-variables", metav1.GetOptions{},
 			)
 			Expect(err).ToNot(HaveOccurred())
 
