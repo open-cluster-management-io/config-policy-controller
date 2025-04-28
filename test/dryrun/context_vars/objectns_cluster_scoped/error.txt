@@ -1,0 +1,7 @@
+Error:
+unable to complete the dryrun reconcile:
+failed to resolve the template {"apiVersion":"v1","kind":"Namespace","metadata":{"labels":{"new-label":"{{ .ObjectNamespace }}"}}}:
+template:
+tmpl:5:19:
+executing "tmpl" at <.ObjectNamespace>:
+can't evaluate field ObjectNamespace in type struct { ObjectName string }

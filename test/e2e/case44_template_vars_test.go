@@ -5,6 +5,7 @@ package e2e
 
 import (
 	"fmt"
+	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -31,7 +32,7 @@ var _ = Describe("Test template context variables", func() {
 		})
 
 		AfterEach(func() {
-			utils.KubectlDelete("configurationpolicy", "-l=e2e-test="+testLabel, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", "-l=e2e-test="+testLabel, "-n", testNamespace, "--wait")
 		})
 
 		AfterAll(func() {
@@ -132,8 +133,8 @@ var _ = Describe("Test template context variables", func() {
 		})
 
 		AfterEach(func() {
-			utils.KubectlDelete("configurationpolicy", "-l=e2e-test="+testLabel, "-n", testNamespace)
-			utils.KubectlDelete("configmaps", "-n", e2eBaseName, "-l=e2e-test="+testLabel)
+			utils.KubectlDelete("configurationpolicy", "-l=e2e-test="+testLabel, "-n", testNamespace, "--wait")
+			utils.KubectlDelete("configmaps", "-n", e2eBaseName, "-l=e2e-test="+testLabel, "--wait")
 		})
 
 		AfterAll(func() {
@@ -350,5 +351,99 @@ var _ = Describe("Test template context variables", func() {
 				))
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
+	})
+
+	Describe("Policy with the Object variable", Ordered, func() {
+		const (
+			preReqs    = rsrcPath + "case44_object_var_prereqs.yaml"
+			baseName   = "case44-object-var"
+			policyName = "case44-object-variables"
+		)
+
+		BeforeEach(func() {
+			By("Creating the prerequisites")
+			utils.KubectlApplyAndLabel(baseName, "-f", preReqs)
+		})
+
+		AfterEach(func() {
+			utils.KubectlDelete("configurationpolicy", "-l=e2e-test="+baseName, "-n", testNamespace, "--wait")
+			utils.KubectlDelete("configmaps", "-l=e2e-test="+baseName, "-n", baseName, "--wait")
+		})
+
+		AfterAll(func() {
+			utils.KubectlDelete("-f", preReqs)
+		})
+
+		DescribeTable("Should enforce the labels on the e2e-object-var ConfigMaps",
+			func(ctx SpecContext, patch string, objectCount int) {
+				By("Applying the " + policyName + " ConfigurationPolicy")
+				patchFilepath := rsrcPath + "case44_object_var.yaml"
+				if patch != "" {
+					patchFilepath = utils.KubectlJSONPatchToFile(patch, "-n", testNamespace, "-f", patchFilepath)
+					defer os.Remove(patchFilepath)
+				}
+				utils.KubectlApplyAndLabel(baseName, "-n", testNamespace, "-f", patchFilepath)
+
+				By("By verifying that the ConfigurationPolicy is noncompliant")
+				Eventually(func(g Gomega) {
+					managedPlc := utils.GetWithTimeout(
+						clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
+					)
+
+					utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+				}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+				By("Enforcing the policy")
+				utils.EnforceConfigurationPolicy(policyName, testNamespace)
+
+				By("By verifying that the ConfigurationPolicy is compliant and has the correct related objects")
+				Eventually(func(g Gomega) {
+					managedPlc := utils.GetWithTimeout(
+						clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
+					)
+
+					utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+
+					relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+					g.Expect(relatedObjects).To(HaveLen(objectCount))
+
+					for i := range objectCount {
+						relatedObject, ok := relatedObjects[i].(map[string]interface{})
+						g.Expect(ok).To(BeTrue(), "Related object is not a map")
+
+						relatedObjName, _, _ := unstructured.NestedString(relatedObject, "object", "metadata", "name")
+						g.Expect(relatedObjName).To(
+							Equal(fmt.Sprintf("%s%d", baseName, i+1)), "Related object name should match",
+						)
+					}
+				}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+				By("By verifying the ConfigMaps")
+				for i := 1; i <= 4; i++ {
+					configMap, err := clientManaged.CoreV1().ConfigMaps(baseName).Get(
+						ctx, fmt.Sprintf("%s%d", baseName, i), metav1.GetOptions{},
+					)
+					Expect(err).ToNot(HaveOccurred())
+
+					if i <= objectCount {
+						Expect(configMap.ObjectMeta.Labels).To(HaveKeyWithValue("selected", "true"))
+						Expect(configMap.ObjectMeta.Labels).To(HaveKeyWithValue("name", configMap.GetName()))
+					} else {
+						Expect(configMap.ObjectMeta.Labels).NotTo(HaveKeyWithValue("selected", "true"))
+						Expect(configMap.ObjectMeta.Labels).NotTo(HaveKeyWithValue("name", configMap.GetName()))
+					}
+				}
+			},
+			Entry("with an evaluationInterval", "", 1),
+			Entry("with watch enabled",
+				`[{ "op": "remove", "path": "/spec/evaluationInterval" }]`, 1),
+			Entry("with an evaluationInterval and objectSelector",
+				`[{ "op": "remove",
+						"path": "/spec/object-templates/0/objectDefinition/metadata/name"}]`, 3),
+			Entry("with watch enabled and objectSelector",
+				`[{ "op": "remove", "path": "/spec/evaluationInterval" },
+					{ "op": "remove",
+						"path": "/spec/object-templates/0/objectDefinition/metadata/name"}]`, 3),
+		)
 	})
 })

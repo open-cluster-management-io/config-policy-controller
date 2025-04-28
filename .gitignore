@@ -97,3 +97,4 @@ gosec.json
 vendor/
 .go/
 bin/
+__debug_*

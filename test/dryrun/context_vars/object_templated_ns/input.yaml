@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mega-mart
+  labels:
+    box: big
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory
+  namespace: mega-mart
+data:
+  inventory.yaml: |-
+    appliance: toaster
