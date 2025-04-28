@@ -90,6 +90,7 @@ var (
 
 	templateHasObjectNamespaceRegex = regexp.MustCompile(`(\.ObjectNamespace)`)
 	templateHasObjectNameRegex      = regexp.MustCompile(`(\.ObjectName)\W`)
+	templateHasObjectRegex          = regexp.MustCompile(`(\.Object)\W`)
 )
 
 func init() {
@@ -1337,9 +1338,9 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		return nil, nil, errEvent, err
 	}
 
-	// Set up relevant object namespace-names map to populate with the
+	// Set up relevant object namespace-name-objects map to populate with the
 	// namespaceSelector and objectSelector
-	relevantNsNames := map[string][]string{}
+	relevantNsNames := map[string]map[string]unstructured.Unstructured{}
 
 	desiredNs := parsedMinMetadata.Metadata.Namespace
 
@@ -1357,11 +1358,13 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 
 	// Set up default name array to be used for each namespace. If no
 	// objectSelector is provided, add the desired name as the default.
-	defaultNamesPerNs := []string{}
+	defaultNamesPerNs := map[string]unstructured.Unstructured{}
 	objectSelector := objectT.ObjectSelector
 
 	if desiredName != "" || objectSelector == nil {
-		defaultNamesPerNs = []string{desiredName}
+		defaultNamesPerNs = map[string]unstructured.Unstructured{
+			desiredName: {},
+		}
 	}
 
 	// The object is namespaced and either has no namespace specified or it is
@@ -1422,8 +1425,28 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		return nil, &scopedGVR, errEvent, nil
 	}
 
+	usingWatch := currentlyUsingWatch(plc)
+	needsObject := templateHasObjectRegex.Match(objectT.ObjectDefinition.Raw)
+
+	// Fetch related objects from the cluster
+	switch {
+	// If a name was provided and the namespace is discoverable (i.e. not empty or templated)
+	case needsObject && desiredName != "" &&
+		(!scopedGVR.Namespaced || (scopedGVR.Namespaced && desiredNs != "")):
+		// If the object can't be retrieved, this will be handled later on.
+		var existingObj *unstructured.Unstructured
+		if usingWatch {
+			existingObj, _ = r.getObjectFromCache(plc, desiredNs, desiredName, objGVK)
+		} else {
+			existingObj, _ = getObject(desiredNs, desiredName, scopedGVR, r.TargetK8sDynamicClient)
+		}
+
+		if existingObj != nil {
+			relevantNsNames[desiredNs] = map[string]unstructured.Unstructured{desiredName: *existingObj}
+		}
+
 	// If no name or a templated name, populate the names from the objectSelector
-	if desiredName == "" && objectSelector != nil {
+	case desiredName == "" && objectSelector != nil:
 		// Parse the objectSelector to determine whether it's valid
 		objSelector, err := metav1.LabelSelectorAsSelector(objectSelector)
 		if err != nil {
@@ -1444,7 +1467,6 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			return nil, &scopedGVR, errEvent, err
 		}
 
-		usingWatch := currentlyUsingWatch(plc)
 		listOpts := metav1.ListOptions{
 			LabelSelector: objSelector.String(),
 		}
@@ -1486,9 +1508,13 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				return nil, &scopedGVR, errEvent, err
 			}
 
-			// Populate names from objectSelector results
+			// Populate objects from objectSelector results
 			for _, res := range filteredObjects {
-				relevantNsNames[ns] = append(relevantNsNames[ns], res.GetName())
+				if needsObject {
+					relevantNsNames[ns][res.GetName()] = res
+				} else {
+					relevantNsNames[ns][res.GetName()] = unstructured.Unstructured{}
+				}
 			}
 		}
 	}
@@ -1518,17 +1544,17 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 	var skipObjectCalled bool
 
 	// Iterate over the parsed object namespace to name map to resolve Go templates
-	for ns, names := range relevantNsNames {
+	for ns, namedObjs := range relevantNsNames {
 		// If the templates use the .ObjectNamespace template variable, the desired object cannot be resused across
 		// namespaces.
 		if needsPerNamespaceTemplating {
 			desiredObj = nil
 		}
 
-		for _, name := range names {
-			// If the templates use the .ObjectName template variable, the desired object cannot be resused across
-			// names.
-			if needsPerNameTemplating {
+		for name, obj := range namedObjs {
+			// If the templates use the .ObjectName or .Object template variable,
+			// the desired object cannot be resused across names.
+			if needsPerNameTemplating || needsObject {
 				desiredObj = nil
 			}
 
@@ -1546,33 +1572,58 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			if tmplResolver != nil && hasTemplate && desiredObj == nil { //nolint:gocritic
 				r.processedPolicyCache.Delete(plc.GetUID())
 
-				var templateContext interface{}
+				var templateContext any
 
 				// Only populate context variables as they are available:
-				// - Namespaced object with metadata.name or objectSelector
-				switch {
-				case name != "" && ns != "":
-					templateContext = struct {
-						ObjectNamespace string
-						ObjectName      string
-					}{ObjectNamespace: ns, ObjectName: name}
+				// - Existing object was fetched
+				if obj.Object != nil {
+					// Remove managedFields because it has a key that's just a dot,
+					// which is problematic in the template library
+					unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
 
-				case name != "":
-					// - Cluster-scoped object with metadata.name or objectSelector
-					templateContext = struct {
-						ObjectName string
-					}{ObjectName: name}
+					switch ns {
+					case "":
+						// - Cluster-scoped object with metadata.name or objectSelector
+						templateContext = struct {
+							Object     map[string]any
+							ObjectName string
+						}{Object: obj.Object, ObjectName: name}
 
-				case ns != "":
-					// - Unnamed namespaced object
-					templateContext = struct {
-						ObjectNamespace string
-					}{ObjectNamespace: ns}
+					default:
+						// - Namespaced object with metadata.name or objectSelector
+						templateContext = struct {
+							Object          map[string]any
+							ObjectNamespace string
+							ObjectName      string
+						}{Object: obj.Object, ObjectNamespace: ns, ObjectName: name}
+					}
+				} else {
+					// - Existing object was not fetched
+					switch {
+					case name != "" && ns != "":
+						// - Namespaced object with metadata.name or objectSelector
+						templateContext = struct {
+							ObjectNamespace string
+							ObjectName      string
+						}{ObjectNamespace: ns, ObjectName: name}
+
+					case name != "":
+						// - Cluster-scoped object with metadata.name or objectSelector
+						templateContext = struct {
+							ObjectName string
+						}{ObjectName: name}
+
+					case ns != "":
+						// - Unnamed namespaced object
+						templateContext = struct {
+							ObjectNamespace string
+						}{ObjectNamespace: ns}
+					}
 				}
 
 				skipObject := false
 
-				resolveOptions.CustomFunctions = map[string]interface{}{
+				resolveOptions.CustomFunctions = map[string]any{
 					"skipObject": func(skips ...any) (empty string, err error) {
 						switch len(skips) {
 						case 0:

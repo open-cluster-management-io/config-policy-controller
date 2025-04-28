@@ -22,13 +22,18 @@ func Run(testFiles embed.FS) func(t *testing.T) {
 
 		d := dryrun.DryRunner{}
 		cmd := d.GetCmd()
+
 		testout := bytes.Buffer{}
-		wanted := []byte{}
-		wantedFile := ""
+		testerr := bytes.Buffer{}
 
 		cmd.SetOut(&testout)
+		cmd.SetErr(&testerr)
 
 		args := []string{"--no-colors"}
+
+		var wanted []byte
+		var wantedFile string
+		var wantedErr []byte
 
 		err := fs.WalkDir(testFiles, ".", func(path string, file fs.DirEntry, err error) error {
 			if err != nil {
@@ -62,6 +67,12 @@ func Run(testFiles embed.FS) func(t *testing.T) {
 					return err
 				}
 
+			case "error.txt":
+				wantedErr, err = testFiles.ReadFile(path)
+				if err != nil {
+					return err
+				}
+
 			default:
 				if strings.HasPrefix(fileName, "input") {
 					args = append(args, path)
@@ -74,14 +85,28 @@ func Run(testFiles embed.FS) func(t *testing.T) {
 			t.Fatal(err)
 		}
 
+		if wanted != nil && wantedErr != nil {
+			t.Fatal("Test may not provide both error.txt and output.txt")
+		}
+
 		cmd.SetArgs(args)
 
 		err = cmd.Execute()
 		if err != nil && !errors.Is(err, dryrun.ErrNonCompliant) {
-			t.Fatal(err)
+			if wantedErr == nil {
+				t.Fatal(err)
+			}
 		}
 
 		got := testout.Bytes()
+
+		// If an error file is provided, overwrite the
+		// expected and actual with the error contents
+		if wantedErr != nil {
+			wanted = wantedErr
+			// Split the error into multiline for consumability
+			got = bytes.Join(bytes.Split(bytes.TrimSpace(testerr.Bytes()), []byte(": ")), []byte(":\n"))
+		}
 
 		if !bytes.Equal(wanted, got) {
 			if testing.Verbose() {

@@ -1,0 +1,24 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case44-object-variables
+spec:
+  remediationAction: inform
+  evaluationInterval:
+    compliant: 10s
+    noncompliant: 10s
+  object-templates:
+    - complianceType: musthave
+      objectSelector:
+        matchExpressions:
+          - key: case44
+            operator: Exists
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          labels:
+            selected: "true"
+            name: '{{ .Object.metadata.name }}'
+          name: case44-object-var1
+          namespace: case44-object-var

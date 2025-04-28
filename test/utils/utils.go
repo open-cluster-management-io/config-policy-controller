@@ -23,6 +23,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+	"open-cluster-management.io/governance-policy-propagator/test/utils"
 )
 
 // ParseYaml read given yaml file and unmarshal it to &unstructured.Unstructured{}
@@ -159,6 +160,33 @@ func Kubectl(args ...string) {
 		// in case of failure, print command output (including error)
 		Fail(fmt.Sprintf("Error running '%s'\n: %s: %v", strings.Join(cmd.Args, " "), output, err), 1)
 	}
+}
+
+// KubectlJSONPatchToFile patches a manifest using a JSON patch and returns a
+// temporary filepath with the resulting YAML. It is the responsibility of the
+// caller to call os.Remove(result) when done with the file.
+func KubectlJSONPatchToFile(patch string, args ...string) string {
+	patchArgs := []string{
+		"patch", "--local=true", "--type=json", "--patch=" + patch, "--output=yaml",
+	}
+
+	newYAML, err := utils.KubectlWithOutput(
+		append(patchArgs, args...)...)
+	if err != nil {
+		Fail(err.Error(), 1)
+	}
+
+	tmpFile, err := os.CreateTemp("", "e2e-patch")
+	if err != nil {
+		Fail(err.Error(), 1)
+	}
+
+	_, err = tmpFile.WriteString(newYAML)
+	if err != nil {
+		Fail(err.Error(), 1)
+	}
+
+	return tmpFile.Name()
 }
 
 // KubectlApplyAndLabel takes a string label value and an array of arguments

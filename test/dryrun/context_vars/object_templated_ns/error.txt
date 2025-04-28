@@ -1,0 +1,7 @@
+Error:
+unable to complete the dryrun reconcile:
+failed to resolve the template {"apiVersion":"v1","kind":"ConfigMap","metadata":{"labels":{"new-label":"{{ (fromYAML (index .Object.data \"inventory.yaml\")).appliance }}"},"name":"inventory","namespace":"{{ .ObjectNamespace }}-extra"}}:
+template:
+tmpl:5:43:
+executing "tmpl" at <.Object.data>:
+can't evaluate field Object in type struct { ObjectNamespace string; ObjectName string }
