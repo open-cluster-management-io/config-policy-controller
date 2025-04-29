@@ -3001,6 +3001,14 @@ func handleSingleKey(
 	return "", updateNeeded, mergedValue, false
 }
 
+type openAPIResourcesGetter struct {
+	openapi.Resources
+}
+
+func (o openAPIResourcesGetter) OpenAPISchema() (openapi.Resources, error) {
+	return o.Resources, nil
+}
+
 // validateObject performs client-side validation of the input object using the server's OpenAPI definitions that are
 // cached. An error is returned if the input object is invalid or the OpenAPI data could not be fetched.
 func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unstructured) error {
@@ -3029,7 +3037,7 @@ func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unst
 	}
 
 	schema := validation.ConjunctiveSchema{
-		validation.NewSchemaValidation(openAPIResources),
+		validation.NewSchemaValidation(openAPIResourcesGetter{openAPIResources}),
 		validation.NoDoubleKeySchema{},
 	}
 
