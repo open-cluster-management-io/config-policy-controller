@@ -28,8 +28,8 @@ var ErrNonCompliant = errors.New("policy is NonCompliant")
 func (d *DryRunner) GetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "dryrun",
-		Short: "(Dev Preview feature) Locally execute a ConfigurationPolicy",
-		Long: "(Dev Preview feature) Locally execute a ConfigurationPolicy against input files " +
+		Short: "Locally execute a ConfigurationPolicy",
+		Long: "Locally execute a ConfigurationPolicy against input files " +
 			"representing the cluster state, and view the diffs and any compliance events that " +
 			"would be generated.",
 		RunE: d.dryRun,
