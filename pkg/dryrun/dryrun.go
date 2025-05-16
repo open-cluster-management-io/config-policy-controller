@@ -59,7 +59,7 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unable to read input policy: %w", err)
 	}
 
-	if err := d.setupLogs(); err != nil {
+	if err := d.setupLogs(cmd); err != nil {
 		return fmt.Errorf("unable to setup the logging configuration: %w", err)
 	}
 
@@ -386,8 +386,16 @@ func (d *DryRunner) applyInputResources(
 
 // setupLogs configures klog and the controller-runtime logger to send logs to the
 // path defined in the configuration. If that option is empty, logs will be discarded.
-func (d *DryRunner) setupLogs() error {
-	if d.logPath == "" {
+func (d *DryRunner) setupLogs(cmd *cobra.Command) error {
+	if cmd.Flags().Changed("log") && d.logPath != "" && !d.log {
+		return errors.New("error: log-path cannot be set when log is false")
+	}
+
+	if d.logPath != "" {
+		d.log = true
+	}
+
+	if !d.log {
 		klog.SetLogger(logr.Discard())
 		runtime.SetLogger(logr.Discard())
 
@@ -397,9 +405,14 @@ func (d *DryRunner) setupLogs() error {
 	z := zaputil.NewFlagConfig()
 	cfg := z.GetConfig()
 
-	cfg.Level = zap.NewAtomicLevelAt(zapcore.Level(-1))
+	cfg.Level = zap.NewAtomicLevelAt(zapcore.Level(-2))
 	cfg.Encoding = "console"
-	cfg.OutputPaths = []string{d.logPath}
+
+	if d.logPath == "" {
+		cfg.OutputPaths = []string{os.Stdout.Name()}
+	} else {
+		cfg.OutputPaths = []string{d.logPath}
+	}
 
 	ctrlZap, err := cfg.Build()
 	if err != nil {
@@ -410,6 +423,11 @@ func (d *DryRunner) setupLogs() error {
 
 	runtime.SetLogger(logger)
 	klog.SetLogger(logger)
+
+	if d.logPath != "" {
+		logger.Info(fmt.Sprintf("\n=== Executing configuration policy dryrun ===\n"+
+			"policy path: %s\n==", d.policyPath))
+	}
 
 	return nil
 }

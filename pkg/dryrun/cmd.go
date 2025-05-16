@@ -18,6 +18,7 @@ type DryRunner struct {
 	statusPath    string
 	desiredStatus string
 	mappingsPath  string
+	log           bool
 	logPath       string
 	noColors      bool
 	fullDiffs     bool
@@ -48,6 +49,21 @@ func (d *DryRunner) GetCmd() *cobra.Command {
 	if err := cmd.MarkFlagRequired("policy"); err != nil {
 		panic(err)
 	}
+
+	cmd.Flags().BoolVar(
+		&d.log,
+		"log",
+		false,
+		"Print the controller logs to the console. Use --log-path to save to a file.",
+	)
+
+	cmd.Flags().StringVar(
+		&d.logPath,
+		"log-path",
+		"",
+		"The path to which to save the controller logs. It implies --log=true. "+
+			"It will append to the file if it exists, otherwise it will create it.",
+	)
 
 	cmd.Flags().StringVar(
 		&d.messagesPath,
