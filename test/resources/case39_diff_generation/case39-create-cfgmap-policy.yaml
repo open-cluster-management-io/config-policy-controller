@@ -5,7 +5,6 @@ metadata:
 spec:
   remediationAction: enforce
   namespaceSelector:
-    exclude: ["kube-*"]
     include: ["default"]
   object-templates:
     - complianceType: musthave
