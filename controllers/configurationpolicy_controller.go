@@ -3209,10 +3209,10 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				log.Info("Dry run update failed with error: " + err.Error())
 
 				// Remove noisy fields such as managedFields from the diff
-				removeFieldsForComparison(existingObjectCopy)
+				// This is already done for existingObjectCopy.
 				removeFieldsForComparison(obj.existingObj)
 
-				diff = handleDiff(log, recordDiff, true, existingObjectCopy, obj.existingObj, r.FullDiffs)
+				diff = handleDiff(log, recordDiff, existingObjectCopy, obj.existingObj, r.FullDiffs)
 
 				if !isInform {
 					// Don't include the error message in the compliance status because that can be very long. The
@@ -3242,7 +3242,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				return false, "", "", false, nil
 			}
 
-			diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
+			diff = handleDiff(log, recordDiff, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
 		}
 
 		// The object would have been updated, so if it's inform, return as noncompliant.
@@ -3336,8 +3336,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			mergedObjCopy := obj.existingObj.DeepCopy()
 			removeFieldsForComparison(mergedObjCopy)
 
-			// The provided isInform value is always true because the status checking can only be inform.
-			diff = handleDiff(log, recordDiff, true, existingObjectCopy, mergedObjCopy, r.FullDiffs)
+			diff = handleDiff(log, recordDiff, existingObjectCopy, mergedObjCopy, r.FullDiffs)
 		}
 
 		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
@@ -3356,21 +3355,16 @@ func getMsgPrefix(obj *singleObject) string {
 	return fmt.Sprintf(`%s [%s]%s`, obj.scopedGVR.Resource, obj.name, namespaceMsg)
 }
 
-// handleDiff will generate the diff and then log it or return it based on the input recordDiff value. If recordDiff
-// is set to None or is set to InStatus with enforce, no diff is generated. This is because the diff is not relevant
-// after the object is updated. When recordDiff is set to Censored, a message indicating so is returned.
+// handleDiff will generate the diff and then log it or return it based on the input recordDiff
+// value. If recordDiff is set to None, no diff is generated. When recordDiff is set to Censored, a
+// message indicating so is returned.
 func handleDiff(
 	log logr.Logger,
 	recordDiff policyv1.RecordDiff,
-	isInform bool,
 	existingObject *unstructured.Unstructured,
 	mergedObject *unstructured.Unstructured,
 	fullDiffs bool,
 ) string {
-	if !isInform && (recordDiff == policyv1.RecordDiffInStatus || recordDiff == policyv1.RecordDiffCensored) {
-		return ""
-	}
-
 	var computedDiff string
 
 	if recordDiff != policyv1.RecordDiffNone && recordDiff != policyv1.RecordDiffCensored {

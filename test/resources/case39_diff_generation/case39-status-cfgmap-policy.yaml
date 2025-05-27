@@ -8,11 +8,11 @@ spec:
     include: ["default"]
   object-templates:
     - complianceType: musthave
-      recordDiff: Log
+      recordDiff: InStatus
       objectDefinition:
         apiVersion: v1
         kind: ConfigMap
         metadata:
           name: case39-map
         data:
-          fieldToUpdate: "2"
+          fieldToUpdate: "3"
