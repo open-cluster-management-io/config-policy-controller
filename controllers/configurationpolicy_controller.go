@@ -23,7 +23,6 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	templates "github.com/stolostron/go-template-utils/v7/pkg/templates"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
-	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -39,9 +38,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
-	kubeopenapivalidation "k8s.io/kube-openapi/pkg/util/proto/validation"
-	"k8s.io/kubectl/pkg/util/openapi"
-	"k8s.io/kubectl/pkg/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -192,11 +188,6 @@ type ConfigurationPolicyReconciler struct {
 	// Whether custom metrics collection is enabled
 	EnableMetrics bool
 	ServerVersion string
-	// This is used to fetch and parse OpenAPI documents to perform client-side validation of object definitions.
-	openAPIParser              *openapi.CachedOpenAPIParser
-	openAPIParserLastRefreshed time.Time
-	// A lock when performing actions that are not thread safe (i.e. reassigning object properties).
-	lock sync.RWMutex
 	// When true, the controller has detected it is being uninstalled and only basic cleanup should be performed before
 	// exiting.
 	UninstallMode bool
@@ -2700,14 +2691,6 @@ func (r *ConfigurationPolicyReconciler) createObject(
 	objLog := log.WithValues("name", unstruct.GetName(), "namespace", unstruct.GetNamespace())
 	objLog.V(2).Info("Entered createObject", "unstruct", unstruct)
 
-	// FieldValidation is supported in k8s 1.25 as beta release
-	// so if the version is below 1.25, we need to use client side validation to validate the object
-	if semver.Compare(r.ServerVersion, "v1.25.0") < 0 {
-		if err := r.validateObject(unstruct); err != nil {
-			return nil, err
-		}
-	}
-
 	object, err = res.Create(context.TODO(), unstruct, metav1.CreateOptions{
 		FieldValidation: metav1.FieldValidationStrict,
 	})
@@ -3058,76 +3041,6 @@ func handleSingleKey(
 	return "", updateNeeded, mergedValue, false
 }
 
-type openAPIResourcesGetter struct {
-	openapi.Resources
-}
-
-func (o openAPIResourcesGetter) OpenAPISchema() (openapi.Resources, error) {
-	return o.Resources, nil
-}
-
-// validateObject performs client-side validation of the input object using the server's OpenAPI definitions that are
-// cached. An error is returned if the input object is invalid or the OpenAPI data could not be fetched.
-func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unstructured) error {
-	// Parse() handles caching of the OpenAPI data.
-	r.lock.RLock()
-
-	// Reset the OpenAPI cache every 10 minutes in case the CRDs were updated since the last fetch.
-	if r.openAPIParser == nil || time.Now().UTC().Sub(r.openAPIParserLastRefreshed) >= 10*time.Minute {
-		r.lock.RUnlock()
-		r.lock.Lock()
-		// Repeat the check after the write lock is obtained in case another goroutine updated it
-		if r.openAPIParser == nil || time.Now().UTC().Sub(r.openAPIParserLastRefreshed) >= 10*time.Minute {
-			r.openAPIParser = openapi.NewOpenAPIParser(r.TargetK8sClient.Discovery())
-			r.openAPIParserLastRefreshed = time.Now().UTC()
-		}
-
-		r.lock.Unlock()
-		r.lock.RLock()
-	}
-
-	openAPIResources, err := r.openAPIParser.Parse()
-	r.lock.RUnlock()
-
-	if err != nil {
-		return fmt.Errorf("failed to retrieve the OpenAPI data from the Kubernetes API: %w", err)
-	}
-
-	schema := validation.ConjunctiveSchema{
-		validation.NewSchemaValidation(openAPIResourcesGetter{openAPIResources}),
-		validation.NoDoubleKeySchema{},
-	}
-
-	objectJSON, err := object.MarshalJSON()
-	if err != nil {
-		return fmt.Errorf("failed to marshal the object to JSON: %w", err)
-	}
-
-	schemaErr := schema.ValidateBytes(objectJSON)
-
-	// Filter out errors due to missing fields in the status since those are ignored when enforcing the policy. This
-	// allows a user to switch a policy between inform and enforce without having to remove the status check.
-	return apimachineryerrors.FilterOut(
-		schemaErr,
-		func(err error) bool {
-			var validationErr kubeopenapivalidation.ValidationError
-			if !errors.As(err, &validationErr) {
-				return false
-			}
-
-			// Path is in the format of Pod.status.conditions[0].
-			pathParts := strings.SplitN(validationErr.Path, ".", 3)
-			if len(pathParts) < 2 || pathParts[1] != "status" {
-				return false
-			}
-
-			var missingFieldErr kubeopenapivalidation.MissingRequiredFieldError
-
-			return errors.As(validationErr.Err, &missingFieldErr)
-		},
-	)
-}
-
 type cachedEvaluationResult struct {
 	resourceVersion string
 	compliant       bool
@@ -3181,15 +3094,15 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	existingObjectCopy := obj.existingObj.DeepCopy()
 	removeFieldsForComparison(existingObjectCopy)
 
-	throwSpecViolation, message, updateNeeded, statusMismatch := handleKeys(
+	throwSpecViolation, errMsg, updateNeeded, statusMismatch := handleKeys(
 		obj.desiredObj,
 		obj.existingObj,
 		existingObjectCopy,
 		objectT.ComplianceType,
 		objectT.MetadataComplianceType,
 	)
-	if message != "" {
-		return true, message, "", true, nil
+	if errMsg != "" {
+		return true, errMsg, "", true, nil
 	}
 
 	recordDiff := objectT.RecordDiffWithDefault()
@@ -3199,16 +3112,6 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		mismatchLog := "Detected value mismatch"
 
 		log.Info(mismatchLog)
-
-		// FieldValidation is supported in k8s 1.25 as beta release
-		// so if the version is below 1.25, we need to use client side validation to validate the object
-		if semver.Compare(r.ServerVersion, "v1.25.0") < 0 {
-			if err := r.validateObject(obj.existingObj); err != nil {
-				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
-
-				return true, message, "", updateNeeded, nil
-			}
-		}
 
 		isInform := remediation.IsInform()
 
