@@ -10,35 +10,26 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/dryrun"
 )
 
-//go:embed truncated/*
-var truncated embed.FS
+var (
+	//go:embed truncated
+	truncated embed.FS
+	//go:embed secret_obj_temp
+	secretObjTemp embed.FS
+	//go:embed from_secret_obj_temp_raw
+	fromSecretObjTempRaw embed.FS
+	//go:embed from_secret_obj_temp
+	fromSecretObjTemp embed.FS
 
-// Status comparing should match
-func TestTruncated(t *testing.T) {
-	t.Run("Test Diff generation that is truncated",
-		dryrun.Run(truncated))
-}
+	testCases = map[string]embed.FS{
+		"Diff is truncated":                                    truncated,
+		"No diff when configuring a Secret":                    secretObjTemp,
+		"No diff when using fromSecret (object-templates-raw)": fromSecretObjTempRaw,
+		"No diff when using fromSecret (object-templates)":     fromSecretObjTemp,
+	}
+)
 
-//go:embed secret_obj_temp/*
-var secretObjTemp embed.FS
-
-func TestSecretObjTemp(t *testing.T) {
-	t.Run("Test does not automatically generate a diff when configuring a Secret",
-		dryrun.Run(secretObjTemp))
-}
-
-//go:embed from_secret_obj_temp_raw/*
-var fromSecretObjTempRaw embed.FS
-
-func TestFromSecretObjTempRaw(t *testing.T) {
-	t.Run("Test does not automatically generate a diff when using fromSecret (object-templates-raw)",
-		dryrun.Run(fromSecretObjTempRaw))
-}
-
-//go:embed from_secret_obj_temp/*
-var fromSecretObjTemp embed.FS
-
-func TestFromSecretObjTemp(t *testing.T) {
-	t.Run("Test does not automatically generate a diff when using fromSecret (object-templates)",
-		dryrun.Run(fromSecretObjTemp))
+func TestContextVariables(t *testing.T) {
+	for name, testFiles := range testCases {
+		t.Run("Test Diff: "+name, dryrun.Run(testFiles))
+	}
 }
