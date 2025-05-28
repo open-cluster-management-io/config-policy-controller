@@ -181,7 +181,8 @@ type OperatorPolicySpec struct {
 
 	// Versions is a list of templatable strings that specifies which installed ClusterServiceVersion names are
 	// compliant when in `inform` mode and which `InstallPlans` are approved when in `enforce` mode. Empty or whitespace
-	// only strings are ignored. An empty list approves all ClusterServiceVersion names. The default value is empty.
+	// only strings are ignored. Multiple versions can be provided in one entry by separating them with commas.
+	// An empty list approves all ClusterServiceVersion names. The default value is empty.
 	Versions []string `json:"versions,omitempty"`
 
 	// Use RemovalBehavior to define what resources need to be removed when enforcing `mustnothave`
