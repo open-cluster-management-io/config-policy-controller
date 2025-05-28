@@ -3,6 +3,7 @@ package controllers
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -330,5 +331,41 @@ func TestGetApprovedCSVs(t *testing.T) {
 	csvs = getApprovedCSVs(policy, subscription, odfIP)
 	if len(csvs) != 0 {
 		t.Fatalf("Expected no CSVs to be approved, but got: %s", strings.Join(csvs.UnsortedList(), ", "))
+	}
+}
+
+func TestCanonicalizeVersions(t *testing.T) {
+	policy := &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			UpgradeApproval:   "Automatic",
+			RemediationAction: "enforce",
+			Versions: []string{
+				"",
+				" ",
+				"foo",
+				" bar ",
+				"one,two,three",
+				"four,",
+				",, ,,five, ,",
+				" , six , ",
+			},
+		},
+	}
+
+	expected := []string{
+		"foo",
+		"bar",
+		"one",
+		"two",
+		"three",
+		"four",
+		"five",
+		"six",
+	}
+
+	canonicalizeVersions(policy)
+
+	if !reflect.DeepEqual(policy.Spec.Versions, expected) {
+		t.Fatalf("Expected %v canonicalized versions, got %v", expected, policy.Spec.Versions)
 	}
 }

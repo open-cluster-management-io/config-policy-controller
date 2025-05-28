@@ -468,7 +468,7 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		opLog.V(1).Info("Templates disabled by annotation")
 	}
 
-	removeEmptyVersions(policy)
+	canonicalizeVersions(policy)
 
 	sub, subErr := buildSubscription(policy, tmplResolver)
 	if subErr == nil {
@@ -774,8 +774,7 @@ func (r *OperatorPolicyReconciler) usingExistingSubIfFound(
 	return false
 }
 
-// resolveVersionsTemplates will resolve all templates in spec.versions. Any versions that resolve to an empty string
-// are discarded.
+// resolveVersionsTemplates will resolve all templates in spec.versions.
 func resolveVersionsTemplates(
 	policy *policyv1beta1.OperatorPolicy, tmplResolver *templates.TemplateResolver,
 ) error {
@@ -819,16 +818,19 @@ func resolveVersionsTemplates(
 	return nil
 }
 
-// removeEmptyVersions removes erroneous white space from versions to help the user and remove versions that are just
-// empty strings.
-func removeEmptyVersions(policy *policyv1beta1.OperatorPolicy) {
-	nonEmptyVersions := make([]string, 0, len(policy.Spec.Versions))
+// canonicalizeVersions expands entries with commas into separate versions,
+// removes erroneous white space from each version,
+// and removes versions which are just empty strings.
+func canonicalizeVersions(policy *policyv1beta1.OperatorPolicy) {
+	nonEmptyVersions := make([]string, 0)
 
-	for _, version := range policy.Spec.Versions {
-		trimmedVersion := strings.TrimSpace(version)
+	for _, entry := range policy.Spec.Versions {
+		for _, version := range strings.Split(entry, ",") {
+			trimmedVersion := strings.TrimSpace(version)
 
-		if trimmedVersion != "" {
-			nonEmptyVersions = append(nonEmptyVersions, trimmedVersion)
+			if trimmedVersion != "" {
+				nonEmptyVersions = append(nonEmptyVersions, trimmedVersion)
+			}
 		}
 	}
 
