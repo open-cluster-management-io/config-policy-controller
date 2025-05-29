@@ -8,7 +8,8 @@ spec:
     exclude: ["kube-*"]
     include: ["default"]
   object-templates:
-    - complianceType: musthave
+    - complianceType: mustonlyhave
+      recordDiff: Log
       objectDefinition:
         apiVersion: config.openshift.io/v1
         kind: OAuth

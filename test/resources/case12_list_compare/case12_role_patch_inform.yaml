@@ -6,6 +6,7 @@ spec:
   remediationAction: inform
   object-templates:
     - complianceType: mustonlyhave
+      recordDiff: Log
       objectDefinition:
         apiVersion: rbac.authorization.k8s.io/v1
         kind: Role

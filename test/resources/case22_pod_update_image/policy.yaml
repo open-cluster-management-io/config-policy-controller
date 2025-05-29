@@ -6,6 +6,7 @@ spec:
   remediationAction: enforce
   object-templates:
     - complianceType: musthave
+      recordDiff: Log
       objectDefinition:
         apiVersion: v1
         kind: Pod
