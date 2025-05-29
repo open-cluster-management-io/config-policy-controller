@@ -4,7 +4,8 @@ metadata:
   name: policy-byte-inform
 spec:
   object-templates:
-  - complianceType: musthave
+  - complianceType: mustonlyhave
+    recordDiff: Log
     objectDefinition:
       apiVersion: apps/v1
       kind: StatefulSet

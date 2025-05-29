@@ -52,7 +52,6 @@ var _ = Describe("Test list handling for musthave", func() {
 			}
 
 			deleteConfigPolicies(policies)
-
 			utils.KubectlDelete("pod", podName, "-n", "default")
 		})
 	})
@@ -96,6 +95,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			}
 
 			deleteConfigPolicies(policies)
+			utils.KubectlDelete("role", "--namespace=default", "role-policy-e2e")
 		})
 	})
 	Describe("Create and patch a role on managed cluster in ns:"+testNamespace, Ordered, func() {
@@ -149,6 +149,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			}
 
 			deleteConfigPolicies(policies)
+			utils.KubectlDelete("role", "--namespace=default", "topatch")
 		})
 	})
 	Describe("Create and patch an oauth object on managed cluster in ns:"+testNamespace, Ordered, func() {
@@ -299,6 +300,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			}
 
 			deleteConfigPolicies(policies)
+			utils.KubectlDelete("oauth", "cluster", "cluster2", "cluster3")
 		})
 	})
 
@@ -378,6 +380,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			}
 
 			deleteConfigPolicies(policies)
+			utils.KubectlDelete("statefulset", "--namespace=default", "splunk-log-forwarder")
 		}
 		It("should only add the list item with the rounded byte value once", func() {
 			By("Creating " + byteCreate + " and " + byteInform + " on managed")
