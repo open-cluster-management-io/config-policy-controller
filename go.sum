@@ -188,8 +188,8 @@ github.com/stoewer/go-strcase v1.3.0 h1:g0eASXYtp+yvN9fK8sH94oCIk0fau9uV1/ZdJ0AV
 github.com/stoewer/go-strcase v1.3.0/go.mod h1:fAH5hQ5pehh+j3nZfvwdk2RgEgQjAoM8wodgtPmh1xo=
 github.com/stolostron/go-log-utils v0.1.2 h1:7l1aJWvBqU2+DUyimcslT5SJpdygVY/clRDmX5sO29c=
 github.com/stolostron/go-log-utils v0.1.2/go.mod h1:8zrB8UJmp1rXhv3Ck9bBl5SpNfKk3SApeElbo96YRtQ=
-github.com/stolostron/go-template-utils/v7 v7.0.1 h1:ukVn18YYdhviZtCbER/9Cr4xS38G3IYMSvy3gdsZ9+k=
-github.com/stolostron/go-template-utils/v7 v7.0.1/go.mod h1:HaqIrebtjJKsBMByzHbTbDc5AaXSZrUozbhXRmsDaHY=
+github.com/stolostron/go-template-utils/v7 v7.0.2 h1:XBPrYl8Dbv3PM4sSNbjWgBqirM+uJHO8dybXB0cGVOo=
+github.com/stolostron/go-template-utils/v7 v7.0.2/go.mod h1:HaqIrebtjJKsBMByzHbTbDc5AaXSZrUozbhXRmsDaHY=
 github.com/stolostron/kubernetes-dependency-watches v0.10.1 h1:c3lfy7gylDm/xwk5VapTIz90kdYyfx/ecUWOqNKjAPc=
 github.com/stolostron/kubernetes-dependency-watches v0.10.1/go.mod h1:shQSsNdVovtqbmnjs2aWLrNnvXBat7hFEKiPkKRAt/4=
 github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+wExME=
