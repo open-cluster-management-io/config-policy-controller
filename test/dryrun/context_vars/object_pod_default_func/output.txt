@@ -1,0 +1,19 @@
+# Diffs:
+v1 Pod dangler/nginx-pod:
+
+v1 Pod default/nginx-pod:
+--- default/nginx-pod : existing
++++ default/nginx-pod : updated
+@@ -1,8 +1,10 @@
+ apiVersion: v1
+ kind: Pod
+ metadata:
++  labels:
++    image: nginx:1.7.9
+   name: nginx-pod
+   namespace: default
+ spec:
+   containers:
+   - image: nginx:1.7.9
+# Compliance messages:
+NonCompliant; violation - pods [nginx-pod] not found in namespace dangler; pods [nginx-pod] found but not as specified in namespace default

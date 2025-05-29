@@ -1,0 +1,19 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-object-var-templated-name
+spec:
+  remediationAction: inform
+  namespaceSelector:
+    include:
+      - default
+  object-templates:
+    - complianceType: musthave
+      recordDiff: InStatus
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: nginx-pod
+          labels:
+            image: '{{ index .Object.spec.containers 0 "image" }}'

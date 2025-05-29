@@ -1367,6 +1367,9 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		}
 	}
 
+	usingWatch := currentlyUsingWatch(plc)
+	needsObject := templateHasObjectRegex.Match(objectT.ObjectDefinition.Raw)
+
 	// The object is namespaced and either has no namespace specified or it is
 	// templated in the object definition. Fetch and filter namespaces using
 	// provided namespaceSelector.
@@ -1387,9 +1390,31 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			return nil, &scopedGVR, errEvent, err
 		}
 
+		// Fetch object when:
+		// - Object var is used
+		// - Name is provided and not templated
+		// - Namespace is empty and not templated
+		// (Fetching for the object selector is handled later on)
+		fetchObject := needsObject && desiredName != "" && parsedMinMetadata.Metadata.Namespace == ""
+
 		if len(selectedNamespaces) != 0 {
 			for _, ns := range selectedNamespaces {
-				relevantNsNames[ns] = defaultNamesPerNs
+				if fetchObject {
+					var existingObj *unstructured.Unstructured
+					if usingWatch {
+						existingObj, _ = r.getObjectFromCache(plc, ns, desiredName, objGVK)
+					} else {
+						existingObj, _ = getObject(ns, desiredName, scopedGVR, r.TargetK8sDynamicClient)
+					}
+
+					if existingObj != nil {
+						relevantNsNames[ns] = map[string]unstructured.Unstructured{desiredName: *existingObj}
+					} else {
+						relevantNsNames[ns] = defaultNamesPerNs
+					}
+				} else {
+					relevantNsNames[ns] = defaultNamesPerNs
+				}
 			}
 		}
 
@@ -1424,9 +1449,6 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 
 		return nil, &scopedGVR, errEvent, nil
 	}
-
-	usingWatch := currentlyUsingWatch(plc)
-	needsObject := templateHasObjectRegex.Match(objectT.ObjectDefinition.Raw)
 
 	// Fetch related objects from the cluster
 	switch {
@@ -1574,51 +1596,32 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 
 				var templateContext any
 
+				// Remove managedFields because it has a key that's just a dot,
+				// which is problematic in the template library
+				unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
+
 				// Only populate context variables as they are available:
-				// - Existing object was fetched
-				if obj.Object != nil {
-					// Remove managedFields because it has a key that's just a dot,
-					// which is problematic in the template library
-					unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
+				switch {
+				case name != "" && ns != "":
+					// - Namespaced object with metadata.name or objectSelector
+					templateContext = struct {
+						Object          map[string]any
+						ObjectNamespace string
+						ObjectName      string
+					}{Object: obj.Object, ObjectNamespace: ns, ObjectName: name}
 
-					switch ns {
-					case "":
-						// - Cluster-scoped object with metadata.name or objectSelector
-						templateContext = struct {
-							Object     map[string]any
-							ObjectName string
-						}{Object: obj.Object, ObjectName: name}
+				case name != "":
+					// - Cluster-scoped object with metadata.name or objectSelector
+					templateContext = struct {
+						Object     map[string]any
+						ObjectName string
+					}{Object: obj.Object, ObjectName: name}
 
-					default:
-						// - Namespaced object with metadata.name or objectSelector
-						templateContext = struct {
-							Object          map[string]any
-							ObjectNamespace string
-							ObjectName      string
-						}{Object: obj.Object, ObjectNamespace: ns, ObjectName: name}
-					}
-				} else {
-					// - Existing object was not fetched
-					switch {
-					case name != "" && ns != "":
-						// - Namespaced object with metadata.name or objectSelector
-						templateContext = struct {
-							ObjectNamespace string
-							ObjectName      string
-						}{ObjectNamespace: ns, ObjectName: name}
-
-					case name != "":
-						// - Cluster-scoped object with metadata.name or objectSelector
-						templateContext = struct {
-							ObjectName string
-						}{ObjectName: name}
-
-					case ns != "":
-						// - Unnamed namespaced object
-						templateContext = struct {
-							ObjectNamespace string
-						}{ObjectNamespace: ns}
-					}
+				case ns != "":
+					// - Unnamed namespaced object
+					templateContext = struct {
+						ObjectNamespace string
+					}{ObjectNamespace: ns}
 				}
 
 				skipObject := false
@@ -1659,6 +1662,9 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				}
 
 				if err != nil {
+					log.Info("error processing Go templates",
+						"namespace", ns, "name", name, "objectTemplateIndex", index)
+
 					var complianceMsg string
 
 					complianceMsg, err := getFormattedTemplateErr(err)
