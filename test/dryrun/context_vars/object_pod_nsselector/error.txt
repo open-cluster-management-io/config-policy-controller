@@ -1,0 +1,8 @@
+Error:
+unable to complete the dryrun reconcile:
+failed to resolve the template {"apiVersion":"v1","kind":"Pod","metadata":{"labels":{"image":"{{ index .Object.spec.containers 0 \"image\" }}"},"name":"nginx-pod"}}:
+template:
+tmpl:5:15:
+executing "tmpl" at <index .Object.spec.containers 0 "image">:
+error calling index:
+index of untyped nil

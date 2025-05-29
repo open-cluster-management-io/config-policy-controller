@@ -13,6 +13,12 @@ import (
 var (
 	//go:embed object_namespaced
 	objNamespaced embed.FS
+	//go:embed object_pod
+	objPod embed.FS
+	//go:embed object_pod_nsselector
+	objPodNsSelector embed.FS
+	//go:embed object_pod_default_func
+	objPodDefaultFunc embed.FS
 	//go:embed object_cluster_scoped
 	objClusterScoped embed.FS
 	//go:embed object_templated_ns
@@ -24,8 +30,11 @@ var (
 
 	testCases = map[string]embed.FS{
 		"Test Object: available for namespaced objects":                objNamespaced,
+		"Test Object: available for complex objects":                   objPod,
+		"Test Object: nil for objects that don't exist":                objPodNsSelector,
+		"Test Object: nil but succeeds with default function":          objPodDefaultFunc,
 		"Test Object: available for cluster-scoped objects":            objClusterScoped,
-		"Test Object: unavailable when namespace is templated":         objTmplNs,
+		"Test Object: nil when namespace is templated":                 objTmplNs,
 		"Test Object: unavailable for unnamed objects":                 objUnnamedDef,
 		"Test ObjectNamespace: unavailable for cluster-scoped objects": objNsClusterScoped,
 	}

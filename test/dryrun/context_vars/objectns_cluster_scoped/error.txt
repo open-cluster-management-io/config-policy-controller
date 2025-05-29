@@ -4,4 +4,4 @@ failed to resolve the template {"apiVersion":"v1","kind":"Namespace","metadata":
 template:
 tmpl:5:19:
 executing "tmpl" at <.ObjectNamespace>:
-can't evaluate field ObjectNamespace in type struct { ObjectName string }
+can't evaluate field ObjectNamespace in type struct { Object map[string]interface {}; ObjectName string }
