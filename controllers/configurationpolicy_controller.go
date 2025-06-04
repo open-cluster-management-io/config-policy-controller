@@ -23,7 +23,6 @@ import (
 	gocmp "github.com/google/go-cmp/cmp"
 	templates "github.com/stolostron/go-template-utils/v7/pkg/templates"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
-	"golang.org/x/mod/semver"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	extensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -39,9 +38,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/record"
-	kubeopenapivalidation "k8s.io/kube-openapi/pkg/util/proto/validation"
-	"k8s.io/kubectl/pkg/util/openapi"
-	"k8s.io/kubectl/pkg/validation"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -192,11 +188,6 @@ type ConfigurationPolicyReconciler struct {
 	// Whether custom metrics collection is enabled
 	EnableMetrics bool
 	ServerVersion string
-	// This is used to fetch and parse OpenAPI documents to perform client-side validation of object definitions.
-	openAPIParser              *openapi.CachedOpenAPIParser
-	openAPIParserLastRefreshed time.Time
-	// A lock when performing actions that are not thread safe (i.e. reassigning object properties).
-	lock sync.RWMutex
 	// When true, the controller has detected it is being uninstalled and only basic cleanup should be performed before
 	// exiting.
 	UninstallMode bool
@@ -2413,7 +2404,7 @@ func buildNameList(
 
 			// if any key in the object generates a mismatch, the object does not match the template and we
 			// do not add its name to the list
-			errorMsg, updateNeeded, _, skipped := handleSingleKey(
+			errorMsg, updateNeeded, _, skipped, _ := handleSingleKey(
 				key, desiredObj, &uObj, complianceType, zeroValueEqualsNil,
 			)
 			if !skipped {
@@ -2649,14 +2640,6 @@ func (r *ConfigurationPolicyReconciler) createObject(
 	objLog := log.WithValues("name", unstruct.GetName(), "namespace", unstruct.GetNamespace())
 	objLog.V(2).Info("Entered createObject", "unstruct", unstruct)
 
-	// FieldValidation is supported in k8s 1.25 as beta release
-	// so if the version is below 1.25, we need to use client side validation to validate the object
-	if semver.Compare(r.ServerVersion, "v1.25.0") < 0 {
-		if err := r.validateObject(unstruct); err != nil {
-			return nil, err
-		}
-	}
-
 	object, err = res.Create(context.TODO(), unstruct, metav1.CreateOptions{
 		FieldValidation: metav1.FieldValidationStrict,
 	})
@@ -2702,21 +2685,23 @@ func deleteObject(res dynamic.ResourceInterface, name, namespace string) (delete
 // mergeSpecs is a wrapper for the recursive function to merge 2 maps.
 func mergeSpecs(
 	templateVal, existingVal interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
-) (interface{}, error) {
+) (interface{}, bool, error) {
 	// Copy templateVal since it will be modified in mergeSpecsHelper
 	data1, err := json.Marshal(templateVal)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var j1 interface{}
 
 	err = json.Unmarshal(data1, &j1)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return mergeSpecsHelper(j1, existingVal, ctype, zeroValueEqualsNil), nil
+	merged, missing := mergeSpecsHelper(j1, existingVal, ctype, zeroValueEqualsNil)
+
+	return merged, missing, nil
 }
 
 // mergeSpecsHelper is a helper function that takes an object from the existing object and merges in
@@ -2726,29 +2711,37 @@ func mergeSpecs(
 // comparisons the controller makes.
 func mergeSpecsHelper(
 	templateVal, existingVal interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
-) interface{} {
+) (merged interface{}, missingKey bool) {
 	switch templateVal := templateVal.(type) {
 	case map[string]interface{}:
 		existingVal, ok := existingVal.(map[string]interface{})
 		if !ok {
 			// if one field is a map and the other isn't, don't bother merging -
 			// just returning the template value will still generate noncompliant
-			return templateVal
+			return templateVal, false
 		}
 		// otherwise, iterate through all fields in the template object and
 		// merge in missing values from the existing object
 		for k, v2 := range existingVal {
+			var missing bool
+
 			if v1, ok := templateVal[k]; ok {
-				templateVal[k] = mergeSpecsHelper(v1, v2, ctype, zeroValueEqualsNil)
+				templateVal[k], missing = mergeSpecsHelper(v1, v2, ctype, zeroValueEqualsNil)
+				missingKey = missingKey || missing
 			} else {
 				templateVal[k] = v2
 			}
+		}
+
+		if len(templateVal) > len(existingVal) {
+			// template specifies something that isn't in the current object
+			missingKey = true
 		}
 	case []interface{}: // list nested in map
 		existingVal, ok := existingVal.([]interface{})
 		if !ok {
 			// if one field is a list and the other isn't, don't bother merging
-			return templateVal
+			return templateVal, false
 		}
 
 		if len(existingVal) > 0 {
@@ -2760,16 +2753,16 @@ func mergeSpecsHelper(
 		// if template value is nil, pull data from existing, since the template does not care about it
 		existingVal, ok := existingVal.(map[string]interface{})
 		if ok {
-			return existingVal
+			return existingVal, false
 		}
 	}
 
 	_, ok := templateVal.(string)
 	if !ok {
-		return templateVal
+		return templateVal, missingKey
 	}
 
-	return templateVal.(string)
+	return templateVal.(string), missingKey
 }
 
 type countedVal struct {
@@ -2781,9 +2774,9 @@ type countedVal struct {
 // different in the template.
 func mergeArrays(
 	desiredArr []interface{}, existingArr []interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
-) (result []interface{}) {
+) (result []interface{}, missingKey bool) {
 	if ctype.IsMustOnlyHave() {
-		return desiredArr
+		return desiredArr, false
 	}
 
 	desiredArrCopy := append([]interface{}{}, desiredArr...)
@@ -2848,12 +2841,15 @@ func mergeArrays(
 				}
 
 				// use map compare helper function to check equality on lists of maps
-				mergedObj, _ = compareSpecs(val1, val2, ctype, zeroValueEqualsNil)
+				mergedObj, missingKey, _ = compareSpecs(val1, val2, ctype, zeroValueEqualsNil)
 			default:
 				mergedObj = val1
 			}
 			// if a match is found, this field is already in the template, so we can skip it in future checks
-			if sameNamedObjects || equalObjWithSort(mergedObj, val2, zeroValueEqualsNil) {
+			equal, missing := equalObjWithSort(mergedObj, val2, zeroValueEqualsNil)
+			missingKey = missingKey || missing
+
+			if sameNamedObjects || equal {
 				count++
 
 				desiredArr[desiredArrIdx] = mergedObj
@@ -2875,24 +2871,21 @@ func mergeArrays(
 		}
 	}
 
-	return desiredArr
+	return desiredArr, missingKey
 }
 
 // compareSpecs is a wrapper function that creates a merged map for mustHave
 // and returns the template map for mustonlyhave
 func compareSpecs(
 	newSpec, oldSpec map[string]interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
-) (updatedSpec map[string]interface{}, err error) {
+) (updatedSpec map[string]interface{}, missingKey bool, err error) {
 	if ctype.IsMustOnlyHave() {
-		return newSpec, nil
+		return newSpec, false, nil
 	}
 	// if compliance type is musthave, create merged object to compare on
-	merged, err := mergeSpecs(newSpec, oldSpec, ctype, zeroValueEqualsNil)
-	if err != nil {
-		return merged.(map[string]interface{}), err
-	}
+	merged, missing, err := mergeSpecs(newSpec, oldSpec, ctype, zeroValueEqualsNil)
 
-	return merged.(map[string]interface{}), nil
+	return merged.(map[string]interface{}), missing, err
 }
 
 // handleSingleKey checks whether a key/value pair in an object template matches with that in the existing
@@ -2903,20 +2896,23 @@ func handleSingleKey(
 	existingObj *unstructured.Unstructured,
 	complianceType policyv1.ComplianceType,
 	zeroValueEqualsNil bool,
-) (errormsg string, update bool, merged interface{}, skip bool) {
+) (errormsg string, update bool, merged interface{}, skip bool, missingKey bool) {
 	log := log.WithValues("name", existingObj.GetName(), "namespace", existingObj.GetNamespace())
 	var err error
+	var missing bool
 
 	updateNeeded := false
 
 	if key == "apiVersion" || key == "kind" {
 		log.V(2).Info("Ignoring the key since it is deny listed", "key", key)
 
-		return "", false, nil, true
+		return "", false, nil, true, false
 	}
 
 	desiredValue := formatTemplate(desiredObj, key)
-	existingValue := existingObj.UnstructuredContent()[key]
+	existingValue, present := existingObj.UnstructuredContent()[key]
+	missingKey = !present
+
 	typeErr := ""
 
 	// We will compare the existing field to a "merged" field which has the fields in the template
@@ -2929,7 +2925,8 @@ func handleSingleKey(
 	case []interface{}:
 		switch existingValue := existingValue.(type) {
 		case []interface{}:
-			mergedValue = mergeArrays(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
+			mergedValue, missing = mergeArrays(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
+			missingKey = missingKey || missing
 		case nil:
 			mergedValue = desiredValue
 		default:
@@ -2940,7 +2937,8 @@ func handleSingleKey(
 	case map[string]interface{}:
 		switch existingValue := existingValue.(type) {
 		case map[string]interface{}:
-			mergedValue, err = compareSpecs(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
+			mergedValue, missing, err = compareSpecs(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
+			missingKey = missingKey || missing
 		case nil:
 			mergedValue = desiredValue
 		default:
@@ -2953,13 +2951,13 @@ func handleSingleKey(
 	}
 
 	if typeErr != "" {
-		return typeErr, false, mergedValue, false
+		return typeErr, false, mergedValue, false, missingKey
 	}
 
 	if err != nil {
 		message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
 
-		return message, false, mergedValue, false
+		return message, false, mergedValue, false, missingKey
 	}
 
 	if key == "metadata" {
@@ -2979,7 +2977,7 @@ func handleSingleKey(
 		if err != nil {
 			message := "Error accessing encoded data"
 
-			return message, false, mergedValue, false
+			return message, false, mergedValue, false, missingKey
 		}
 
 		decodedValue := make(map[string]interface{}, len(encodedValue))
@@ -2990,7 +2988,7 @@ func handleSingleKey(
 				secretName := existingObj.GetName()
 				message := "Error decoding secret: " + secretName
 
-				return message, false, mergedValue, false
+				return message, false, mergedValue, false, missingKey
 			}
 
 			decodedValue[k] = string(decoded)
@@ -3000,81 +2998,14 @@ func handleSingleKey(
 	}
 
 	// sort objects before checking equality to ensure they're in the same order
-	if !equalObjWithSort(mergedValue, existingValue, zeroValueEqualsNil) {
+	equal, missing := equalObjWithSort(mergedValue, existingValue, zeroValueEqualsNil)
+	missingKey = missingKey || missing
+
+	if !equal {
 		updateNeeded = true
 	}
 
-	return "", updateNeeded, mergedValue, false
-}
-
-type openAPIResourcesGetter struct {
-	openapi.Resources
-}
-
-func (o openAPIResourcesGetter) OpenAPISchema() (openapi.Resources, error) {
-	return o.Resources, nil
-}
-
-// validateObject performs client-side validation of the input object using the server's OpenAPI definitions that are
-// cached. An error is returned if the input object is invalid or the OpenAPI data could not be fetched.
-func (r *ConfigurationPolicyReconciler) validateObject(object *unstructured.Unstructured) error {
-	// Parse() handles caching of the OpenAPI data.
-	r.lock.RLock()
-
-	// Reset the OpenAPI cache every 10 minutes in case the CRDs were updated since the last fetch.
-	if r.openAPIParser == nil || time.Now().UTC().Sub(r.openAPIParserLastRefreshed) >= 10*time.Minute {
-		r.lock.RUnlock()
-		r.lock.Lock()
-		// Repeat the check after the write lock is obtained in case another goroutine updated it
-		if r.openAPIParser == nil || time.Now().UTC().Sub(r.openAPIParserLastRefreshed) >= 10*time.Minute {
-			r.openAPIParser = openapi.NewOpenAPIParser(r.TargetK8sClient.Discovery())
-			r.openAPIParserLastRefreshed = time.Now().UTC()
-		}
-
-		r.lock.Unlock()
-		r.lock.RLock()
-	}
-
-	openAPIResources, err := r.openAPIParser.Parse()
-	r.lock.RUnlock()
-
-	if err != nil {
-		return fmt.Errorf("failed to retrieve the OpenAPI data from the Kubernetes API: %w", err)
-	}
-
-	schema := validation.ConjunctiveSchema{
-		validation.NewSchemaValidation(openAPIResourcesGetter{openAPIResources}),
-		validation.NoDoubleKeySchema{},
-	}
-
-	objectJSON, err := object.MarshalJSON()
-	if err != nil {
-		return fmt.Errorf("failed to marshal the object to JSON: %w", err)
-	}
-
-	schemaErr := schema.ValidateBytes(objectJSON)
-
-	// Filter out errors due to missing fields in the status since those are ignored when enforcing the policy. This
-	// allows a user to switch a policy between inform and enforce without having to remove the status check.
-	return apimachineryerrors.FilterOut(
-		schemaErr,
-		func(err error) bool {
-			var validationErr kubeopenapivalidation.ValidationError
-			if !errors.As(err, &validationErr) {
-				return false
-			}
-
-			// Path is in the format of Pod.status.conditions[0].
-			pathParts := strings.SplitN(validationErr.Path, ".", 3)
-			if len(pathParts) < 2 || pathParts[1] != "status" {
-				return false
-			}
-
-			var missingFieldErr kubeopenapivalidation.MissingRequiredFieldError
-
-			return errors.As(validationErr.Err, &missingFieldErr)
-		},
-	)
+	return "", updateNeeded, mergedValue, false, missingKey
 }
 
 type cachedEvaluationResult struct {
@@ -3130,206 +3061,22 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	existingObjectCopy := obj.existingObj.DeepCopy()
 	removeFieldsForComparison(existingObjectCopy)
 
-	throwSpecViolation, message, updateNeeded, statusMismatch := handleKeys(
+	throwSpecViolation, errMsg, updateNeeded, statusMismatch, missingKey := handleKeys(
 		obj.desiredObj,
 		obj.existingObj,
 		existingObjectCopy,
 		objectT.ComplianceType,
 		objectT.MetadataComplianceType,
 	)
-	if message != "" {
-		return true, message, "", true, nil
+	if errMsg != "" {
+		return true, errMsg, "", true, nil
 	}
 
 	recordDiff := objectT.RecordDiffWithDefault()
-	var needsRecreate bool
+	isInform := remediation.IsInform()
+	needsRecreate := false
 
-	if updateNeeded {
-		mismatchLog := "Detected value mismatch"
-
-		log.Info(mismatchLog)
-
-		// FieldValidation is supported in k8s 1.25 as beta release
-		// so if the version is below 1.25, we need to use client side validation to validate the object
-		if semver.Compare(r.ServerVersion, "v1.25.0") < 0 {
-			if err := r.validateObject(obj.existingObj); err != nil {
-				message := fmt.Sprintf("Error validating the object %s, the error is `%v`", obj.name, err)
-
-				return true, message, "", updateNeeded, nil
-			}
-		}
-
-		isInform := remediation.IsInform()
-
-		// It's possible the dry run request shows the object does match. This can happen if the ConfigurationPolicy
-		// specifies an empty map and the API server omits it from the return value.
-		dryRunUpdatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
-			FieldValidation: metav1.FieldValidationStrict,
-			DryRun:          []string{metav1.DryRunAll},
-		})
-		if err != nil {
-			// If it's a conflict, refetch the object and try again.
-			if k8serrors.IsConflict(err) {
-				log.Info("The object was updating during the evaluation. Trying again.")
-
-				rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
-				if getErr == nil {
-					obj.existingObj = rv
-
-					return r.checkAndUpdateResource(obj, objectT, remediation)
-				}
-			}
-
-			// Handle all errors not related to updating immutable fields here
-			if !k8serrors.IsInvalid(err) {
-				message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
-				if message == "" {
-					message = fmt.Sprintf(
-						"Error issuing a dry run update request for the object `%v`, the error is `%v`",
-						obj.name,
-						err,
-					)
-				}
-
-				// If the user specifies an unknown or invalid field, it comes back as a bad request.
-				if k8serrors.IsBadRequest(err) {
-					r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
-				}
-
-				return true, message, "", updateNeeded, nil
-			}
-
-			// If an update is invalid (i.e. modifying Pod spec fields), then return noncompliant since that
-			// confirms some fields don't match and can't be fixed with an update. If a recreate option is
-			// specified, then the update may proceed when enforced.
-			needsRecreate = true
-			recreateOption := objectT.RecreateOption
-
-			if isInform || !(recreateOption == policyv1.Always || recreateOption == policyv1.IfRequired) {
-				log.Info("Dry run update failed with error: " + err.Error())
-
-				// Remove noisy fields such as managedFields from the diff
-				removeFieldsForComparison(existingObjectCopy)
-				removeFieldsForComparison(obj.existingObj)
-
-				diff = handleDiff(log, recordDiff, true, existingObjectCopy, obj.existingObj, r.FullDiffs)
-
-				if !isInform {
-					// Don't include the error message in the compliance status because that can be very long. The
-					// user can check the diff or the logs for more information.
-					message = fmt.Sprintf(
-						`%s cannot be updated, likely due to immutable fields not matching, you may `+
-							`set spec["object-templates"][].recreateOption to recreate the object`,
-						getMsgPrefix(&obj),
-					)
-				}
-
-				r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
-
-				return true, message, diff, false, nil
-			}
-		} else {
-			removeFieldsForComparison(dryRunUpdatedObj)
-
-			if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
-				log.Info(
-					"A mismatch was detected but a dry run update didn't make any changes. Assuming the object " +
-						"is compliant.",
-				)
-
-				r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
-
-				return false, "", "", false, nil
-			}
-
-			diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
-		}
-
-		// The object would have been updated, so if it's inform, return as noncompliant.
-		if isInform {
-			r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
-
-			return true, "", diff, false, nil
-		}
-
-		// If it's not inform (i.e. enforce), update the object
-
-		// At this point, if a recreate is needed, we know the user opted in, otherwise, the dry run update
-		// failed and would have returned before now.
-		if needsRecreate || objectT.RecreateOption == policyv1.Always {
-			log.Info(
-				"Deleting and recreating the object based on the template definition",
-				"recreateOption", objectT.RecreateOption,
-			)
-
-			err = res.Delete(context.TODO(), obj.name, metav1.DeleteOptions{})
-			if err != nil && !k8serrors.IsNotFound(err) {
-				message = fmt.Sprintf(`%s failed to delete when recreating with the error %v`, getMsgPrefix(&obj), err)
-
-				return true, message, "", updateNeeded, nil
-			}
-
-			attempts := 0
-
-			for {
-				updatedObj, err = res.Create(context.TODO(), obj.desiredObj, metav1.CreateOptions{})
-				if !k8serrors.IsAlreadyExists(err) {
-					// If there is no error or the error is unexpected, break for the error handling below
-					break
-				}
-
-				attempts++
-
-				if attempts >= 3 {
-					message = fmt.Sprintf(
-						`%s timed out waiting for the object to delete during recreate, will retry on the next `+
-							`policy evaluation`,
-						getMsgPrefix(&obj),
-					)
-
-					return true, message, "", updateNeeded, nil
-				}
-
-				time.Sleep(time.Second)
-			}
-		} else {
-			log.Info("Updating the object based on the template definition")
-
-			updatedObj, err = res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
-				FieldValidation: metav1.FieldValidationStrict,
-			})
-		}
-
-		if err != nil {
-			if k8serrors.IsConflict(err) {
-				log.Info("The object updated during the evaluation. Trying again.")
-
-				rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
-				if getErr == nil {
-					obj.existingObj = rv
-
-					return r.checkAndUpdateResource(obj, objectT, remediation)
-				}
-			}
-
-			action := "update"
-
-			if needsRecreate || objectT.RecreateOption == policyv1.Always {
-				action = "recreate"
-			}
-
-			message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
-			if message == "" {
-				message = fmt.Sprintf("%s failed to %s with the error `%v`", getMsgPrefix(&obj), action, err)
-			}
-
-			return true, message, diff, updateNeeded, nil
-		}
-
-		if !statusMismatch {
-			r.setEvaluatedObject(obj.policy, updatedObj, true, message)
-		}
-	} else {
+	if !updateNeeded && !missingKey {
 		if throwSpecViolation && recordDiff != policyv1.RecordDiffNone {
 			// The spec didn't require a change but throwSpecViolation indicates the status didn't match. Handle
 			// this diff for this case.
@@ -3341,6 +3088,185 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		}
 
 		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
+
+		return throwSpecViolation, "", diff, updateNeeded, updatedObj
+	}
+
+	if updateNeeded {
+		log.Info("Detected value mismatch via handleKeys")
+	}
+
+	// Use a server-side dry-run to verify if the object needs an update.
+	// There are situations where updateNeeded is wrong in either direction: an update might not be
+	// needed if the policy specifies an empty map and the API server omits it from the return value,
+	// or an update might be needed if some "empty" fields really do need to be set.
+	dryRunUpdatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
+		FieldValidation: metav1.FieldValidationStrict,
+		DryRun:          []string{metav1.DryRunAll},
+	})
+	if err != nil {
+		// If it's a conflict, refetch the object and try again.
+		if k8serrors.IsConflict(err) {
+			log.Info("The object was updating during the evaluation. Trying again.")
+
+			rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
+			if getErr == nil {
+				obj.existingObj = rv
+
+				return r.checkAndUpdateResource(obj, objectT, remediation)
+			}
+		}
+
+		// Handle all errors not related to updating immutable fields here
+		if !k8serrors.IsInvalid(err) {
+			message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
+			if message == "" {
+				message = fmt.Sprintf(
+					"Error issuing a dry run update request for the object `%v`, the error is `%v`",
+					obj.name,
+					err,
+				)
+			}
+
+			// If the user specifies an unknown or invalid field, it comes back as a bad request.
+			if k8serrors.IsBadRequest(err) {
+				r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+			}
+
+			return true, message, "", updateNeeded, nil
+		}
+
+		// If an update is invalid (i.e. modifying Pod spec fields), then return noncompliant since that
+		// confirms some fields don't match and can't be fixed with an update. If a recreate option is
+		// specified, then the update may proceed when enforced.
+		needsRecreate = true
+
+		if isInform || !(objectT.RecreateOption == policyv1.Always || objectT.RecreateOption == policyv1.IfRequired) {
+			log.Info("Dry run update failed with error: " + err.Error())
+
+			// Remove noisy fields such as managedFields from the diff
+			removeFieldsForComparison(existingObjectCopy)
+			removeFieldsForComparison(obj.existingObj)
+
+			diff = handleDiff(log, recordDiff, true, existingObjectCopy, obj.existingObj, r.FullDiffs)
+
+			if !isInform {
+				// Don't include the error message in the compliance status because that can be very long. The
+				// user can check the diff or the logs for more information.
+				message = getMsgPrefix(&obj) + ` cannot be updated, likely due to immutable fields not matching, ` +
+					`you may set spec["object-templates"][].recreateOption to recreate the object`
+			}
+
+			r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+
+			return true, message, diff, false, nil
+		}
+
+		mergedObjCopy := obj.existingObj.DeepCopy()
+		removeFieldsForComparison(mergedObjCopy)
+		diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, mergedObjCopy, r.FullDiffs)
+	} else {
+		removeFieldsForComparison(dryRunUpdatedObj)
+
+		if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
+			log.Info("A mismatch was detected but a dry run update didn't make any changes. " +
+				"Assuming the object is compliant.")
+
+			if throwSpecViolation && recordDiff != policyv1.RecordDiffNone {
+				// The spec didn't require a change but throwSpecViolation indicates the status didn't match. Handle
+				// this diff for this case.
+				mergedObjCopy := obj.existingObj.DeepCopy()
+				removeFieldsForComparison(mergedObjCopy)
+
+				// The provided isInform value is always true because the status checking can only be inform.
+				diff = handleDiff(log, recordDiff, true, existingObjectCopy, mergedObjCopy, r.FullDiffs)
+			}
+
+			r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
+
+			return throwSpecViolation, "", diff, updateNeeded, updatedObj
+		}
+
+		diff = handleDiff(log, recordDiff, isInform, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
+	}
+
+	// The object would have been updated, so if it's inform, return as noncompliant.
+	if isInform {
+		r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
+
+		return true, "", diff, false, nil
+	}
+
+	// If it's not inform (i.e. enforce), update the object
+	action := "update"
+
+	// At this point, if a recreate is needed, we know the user opted in, otherwise, the dry run update
+	// failed and would have returned before now.
+	if needsRecreate || objectT.RecreateOption == policyv1.Always {
+		action = "recreate"
+	}
+
+	if action == "recreate" {
+		log.Info("Deleting and recreating the object based on the template definition",
+			"recreateOption", objectT.RecreateOption)
+
+		err = res.Delete(context.TODO(), obj.name, metav1.DeleteOptions{})
+		if err != nil && !k8serrors.IsNotFound(err) {
+			message = fmt.Sprintf(`%s failed to delete when recreating with the error %v`, getMsgPrefix(&obj), err)
+
+			return true, message, "", updateNeeded, nil
+		}
+
+		attempts := 0
+
+		for {
+			updatedObj, err = res.Create(context.TODO(), obj.desiredObj, metav1.CreateOptions{})
+			if !k8serrors.IsAlreadyExists(err) {
+				// If there is no error or the error is unexpected, break for the error handling below
+				break
+			}
+
+			attempts++
+
+			if attempts >= 3 {
+				message = getMsgPrefix(&obj) + " timed out waiting for the object to delete during recreate, " +
+					"will retry on the next policy evaluation"
+
+				return true, message, "", updateNeeded, nil
+			}
+
+			time.Sleep(time.Second)
+		}
+	} else {
+		log.Info("Updating the object based on the template definition")
+
+		updatedObj, err = res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
+			FieldValidation: metav1.FieldValidationStrict,
+		})
+	}
+
+	if err != nil {
+		if k8serrors.IsConflict(err) {
+			log.Info("The object updated during the evaluation. Trying again.")
+
+			rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
+			if getErr == nil {
+				obj.existingObj = rv
+
+				return r.checkAndUpdateResource(obj, objectT, remediation)
+			}
+		}
+
+		message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
+		if message == "" {
+			message = fmt.Sprintf("%s failed to %s with the error `%v`", getMsgPrefix(&obj), action, err)
+		}
+
+		return true, message, diff, updateNeeded, nil
+	}
+
+	if !statusMismatch {
+		r.setEvaluatedObject(obj.policy, updatedObj, true, message)
 	}
 
 	return throwSpecViolation, "", diff, updateNeeded, updatedObj
@@ -3410,7 +3336,7 @@ func handleKeys(
 	existingObjectCopy *unstructured.Unstructured,
 	compType policyv1.ComplianceType,
 	mdCompType policyv1.ComplianceType,
-) (throwSpecViolation bool, message string, updateNeeded bool, statusMismatch bool) {
+) (throwSpecViolation bool, message string, updateNeeded bool, statusMismatch bool, missingKey bool) {
 	handledKeys := map[string]bool{}
 
 	// Iterate over keys of the desired object to compare with the existing object on the cluster
@@ -3425,13 +3351,15 @@ func handleKeys(
 		}
 
 		// check key for mismatch
-		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(
+		errorMsg, keyUpdateNeeded, mergedObj, skipped, missing := handleSingleKey(
 			key, desiredObj, existingObjectCopy, keyComplianceType, false,
 		)
+		missingKey = missingKey || missing
+
 		if errorMsg != "" {
 			log.Info(errorMsg)
 
-			return true, errorMsg, true, statusMismatch
+			return true, errorMsg, true, statusMismatch, missingKey
 		}
 
 		if mergedObj == nil && skipped {

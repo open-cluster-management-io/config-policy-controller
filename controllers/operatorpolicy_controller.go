@@ -2790,7 +2790,8 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	existingObjectCopy := existing.DeepCopy()
 	removeFieldsForComparison(existingObjectCopy)
 
-	_, errMsg, updateNeeded, _ := handleKeys(desiredObj, existing, existingObjectCopy, complianceType, "")
+	//nolint:dogsled
+	_, errMsg, updateNeeded, _, _ := handleKeys(desiredObj, existing, existingObjectCopy, complianceType, "")
 	if errMsg != "" {
 		return updateNeeded, false, errors.New(errMsg)
 	}

@@ -1,0 +1,21 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case45-policy
+spec:
+  object-templates:
+  - complianceType: musthave
+    objectDefinition:
+      apiVersion: sriovnetwork.openshift.io/v1
+      kind: SriovOperatorConfig
+      metadata:
+        name: default
+        namespace: default
+      spec:
+        configDaemonNodeSelector:
+          node-role.kubernetes.io/master: ""
+        disableDrain: true
+        enableInjector: false
+        enableOperatorWebhook: false
+        logLevel: 0 
+  remediationAction: inform

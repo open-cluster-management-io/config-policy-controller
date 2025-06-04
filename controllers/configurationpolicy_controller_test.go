@@ -94,7 +94,7 @@ func TestCompareSpecs(t *testing.T) {
 		},
 	}
 
-	merged, err := compareSpecs(spec1, spec2, "mustonlyhave", true)
+	merged, _, err := compareSpecs(spec1, spec2, "mustonlyhave", true)
 	if err != nil {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
@@ -126,7 +126,7 @@ func TestCompareSpecs(t *testing.T) {
 		},
 	}
 
-	merged, err = compareSpecs(spec1, spec2, "musthave", true)
+	merged, _, err = compareSpecs(spec1, spec2, "musthave", true)
 	if err != nil {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
@@ -291,9 +291,10 @@ func TestMergeArraysMustHave(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 
-			actualMergedList := mergeArrays(test.desiredList, test.currentList, "musthave", true)
+			actualMergedList, _ := mergeArrays(test.desiredList, test.currentList, "musthave", true)
 			assert.Equal(t, fmt.Sprintf("%+v", test.expectedList), fmt.Sprintf("%+v", actualMergedList))
-			assert.True(t, checkListsMatch(test.expectedList, actualMergedList))
+			check, _ := checkListsMatch(test.expectedList, actualMergedList)
+			assert.True(t, check)
 		})
 	}
 }
@@ -375,9 +376,10 @@ func TestMergeArraysMustOnlyHave(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 
-			actualMergedList := mergeArrays(test.desiredList, test.currentList, "mustonlyhave", true)
+			actualMergedList, _ := mergeArrays(test.desiredList, test.currentList, "mustonlyhave", true)
 			assert.Equal(t, fmt.Sprintf("%+v", test.expectedList), fmt.Sprintf("%+v", actualMergedList))
-			assert.True(t, checkListsMatch(test.expectedList, actualMergedList))
+			check, _ := checkListsMatch(test.expectedList, actualMergedList)
+			assert.True(t, check)
 		})
 	}
 }
@@ -394,7 +396,8 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	assert.True(t, checkListsMatch(twoFullItems, twoFullItems))
+	check, _ := checkListsMatch(twoFullItems, twoFullItems)
+	assert.True(t, check)
 
 	twoFullItemsDifferentOrder := []interface{}{
 		map[string]interface{}{
@@ -407,8 +410,10 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	assert.True(t, checkListsMatch(twoFullItems, twoFullItemsDifferentOrder))
-	assert.True(t, checkListsMatch(twoFullItemsDifferentOrder, twoFullItems))
+	check, _ = checkListsMatch(twoFullItems, twoFullItemsDifferentOrder)
+	assert.True(t, check)
+	check, _ = checkListsMatch(twoFullItemsDifferentOrder, twoFullItems)
+	assert.True(t, check)
 
 	oneFullItem := []interface{}{
 		map[string]interface{}{
@@ -417,8 +422,10 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	assert.False(t, checkListsMatch(twoFullItems, oneFullItem))
-	assert.False(t, checkListsMatch(oneFullItem, twoFullItems))
+	check, _ = checkListsMatch(twoFullItems, oneFullItem)
+	assert.False(t, check)
+	check, _ = checkListsMatch(oneFullItem, twoFullItems)
+	assert.False(t, check)
 
 	oneSmallItem := []interface{}{
 		map[string]interface{}{
@@ -426,8 +433,10 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	assert.False(t, checkListsMatch(twoFullItems, oneSmallItem))
-	assert.False(t, checkListsMatch(oneSmallItem, twoFullItems))
+	check, _ = checkListsMatch(twoFullItems, oneSmallItem)
+	assert.False(t, check)
+	check, _ = checkListsMatch(oneSmallItem, twoFullItems)
+	assert.False(t, check)
 
 	twoSmallItems := []interface{}{
 		map[string]interface{}{
@@ -438,8 +447,10 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	assert.False(t, checkListsMatch(twoFullItems, twoSmallItems))
-	assert.False(t, checkListsMatch(twoSmallItems, twoFullItems))
+	check, _ = checkListsMatch(twoFullItems, twoSmallItems)
+	assert.False(t, check)
+	check, _ = checkListsMatch(twoSmallItems, twoFullItems)
+	assert.False(t, check)
 
 	oneSmallOneBig := []interface{}{
 		map[string]interface{}{
@@ -451,8 +462,10 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	assert.False(t, checkListsMatch(twoFullItems, oneSmallOneBig))
-	assert.False(t, checkListsMatch(oneSmallOneBig, twoFullItems))
+	check, _ = checkListsMatch(twoFullItems, oneSmallOneBig)
+	assert.False(t, check)
+	check, _ = checkListsMatch(oneSmallOneBig, twoFullItems)
+	assert.False(t, check)
 
 	oneBigOneSmall := []interface{}{
 		map[string]interface{}{
@@ -464,8 +477,10 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	assert.False(t, checkListsMatch(twoFullItems, oneBigOneSmall))
-	assert.False(t, checkListsMatch(oneBigOneSmall, twoFullItems))
+	check, _ = checkListsMatch(twoFullItems, oneBigOneSmall)
+	assert.False(t, check)
+	check, _ = checkListsMatch(oneBigOneSmall, twoFullItems)
+	assert.False(t, check)
 }
 
 func TestCheckListsMatchDiffMapLength(t *testing.T) {
@@ -493,7 +508,8 @@ func TestCheckListsMatchDiffMapLength(t *testing.T) {
 		},
 	}
 
-	assert.True(t, checkListsMatch(existingObject, mergedObject))
+	check, _ := checkListsMatch(existingObject, mergedObject)
+	assert.True(t, check)
 }
 
 func TestNestedUnsortedLists(t *testing.T) {
@@ -566,14 +582,16 @@ status:
 	existingObjOrderOne := unstructured.Unstructured{Object: orderOneObj}
 	existingObjOrderTwo := unstructured.Unstructured{Object: orderTwoObj}
 
-	errormsg, updateNeeded, _, _ := handleSingleKey("status", desiredObj, &existingObjOrderOne, "musthave", true)
+	//nolint:dogsled
+	errormsg, updateNeeded, _, _, _ := handleSingleKey("status", desiredObj, &existingObjOrderOne, "musthave", true)
 	if len(errormsg) != 0 {
 		t.Error("Got unexpected error message", errormsg)
 	}
 
 	assert.False(t, updateNeeded)
 
-	errormsg, updateNeeded, _, _ = handleSingleKey("status", desiredObj, &existingObjOrderTwo, "musthave", true)
+	//nolint:dogsled
+	errormsg, updateNeeded, _, _, _ = handleSingleKey("status", desiredObj, &existingObjOrderTwo, "musthave", true)
 	if len(errormsg) != 0 {
 		t.Error("Got unexpected error message", errormsg)
 	}
@@ -1077,7 +1095,7 @@ secrets:
 	compType := policyv1.MustOnlyHave
 	mdCompType := policyv1.MustOnlyHave
 
-	throwSpecViolation, _, updateNeeded, statusMismatch := handleKeys(&desiredObj, &existingObj,
+	throwSpecViolation, _, updateNeeded, statusMismatch, _ := handleKeys(&desiredObj, &existingObj,
 		&existingObjCopy, compType, mdCompType)
 
 	assert.False(t, throwSpecViolation)
@@ -1543,7 +1561,7 @@ func TestShouldHandleSingleKeyFalse(t *testing.T) {
 		unstruct.Object = test.input
 		unstructObj.Object = test.fromAPI
 		key := test.expectResult.key
-		_, update, _, skip = handleSingleKey(key, &unstruct, &unstructObj, "musthave", true)
+		_, update, _, skip, _ = handleSingleKey(key, &unstruct, &unstructObj, "musthave", true)
 		assert.Equal(t, update, test.expectResult.expect)
 		assert.False(t, skip)
 	}

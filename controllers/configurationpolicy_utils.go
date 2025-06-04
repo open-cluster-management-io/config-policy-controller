@@ -148,24 +148,24 @@ func addOrUpdateRelatedObject(
 
 // equalObjWithSort is a wrapper function that calls the correct function to check equality depending on what
 // type the objects to compare are
-func equalObjWithSort(mergedObj interface{}, oldObj interface{}, zeroValueEqualsNil bool) (areEqual bool) {
+func equalObjWithSort(mergedObj interface{}, oldObj interface{}, zeroValueEqualsNil bool) (areEqual, missingKey bool) {
 	switch mergedObj := mergedObj.(type) {
 	case map[string]interface{}:
 		if oldObjMap, ok := oldObj.(map[string]interface{}); ok {
 			return checkFieldsWithSort(mergedObj, oldObjMap, zeroValueEqualsNil)
 		}
 		// this includes the case where oldObj is nil
-		return false
+		return false, false
 	case []interface{}:
 		if len(mergedObj) == 0 && oldObj == nil {
-			return true
+			return true, false
 		}
 
 		if oldObjList, ok := oldObj.([]interface{}); ok {
 			return checkListsMatch(mergedObj, oldObjList)
 		}
 
-		return false
+		return false, false
 	default: // when mergedObj's type is string, int, bool, or nil
 		if zeroValueEqualsNil {
 			if oldObj == nil && mergedObj != nil {
@@ -173,7 +173,7 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}, zeroValueEquals
 				ref := reflect.ValueOf(mergedObj)
 				zero := reflect.Zero(ref.Type()).Interface()
 
-				return fmt.Sprint(zero) == fmt.Sprint(mergedObj)
+				return fmt.Sprint(zero) == fmt.Sprint(mergedObj), true
 			}
 
 			if mergedObj == nil && oldObj != nil {
@@ -181,11 +181,11 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}, zeroValueEquals
 				ref := reflect.ValueOf(oldObj)
 				zero := reflect.Zero(ref.Type()).Interface()
 
-				return fmt.Sprint(zero) == fmt.Sprint(oldObj)
+				return fmt.Sprint(zero) == fmt.Sprint(oldObj), false
 			}
 		}
 
-		return fmt.Sprint(mergedObj) == fmt.Sprint(oldObj)
+		return fmt.Sprint(mergedObj) == fmt.Sprint(oldObj), false
 	}
 }
 
@@ -193,10 +193,10 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}, zeroValueEquals
 // comparing the right values
 func checkFieldsWithSort(
 	mergedObj map[string]interface{}, oldObj map[string]interface{}, zeroValueEqualsNil bool,
-) (matches bool) {
+) (matches, missingKey bool) {
 	// needed to compare lists, since merge messes up the order
 	if len(mergedObj) < len(oldObj) {
-		return false
+		return false, false
 	}
 
 	for i, mVal := range mergedObj {
@@ -209,11 +209,14 @@ func checkFieldsWithSort(
 					break
 				}
 
-				return false
+				return false, missingKey
 			}
 
-			if !checkFieldsWithSort(mVal, oVal, zeroValueEqualsNil) {
-				return false
+			match, missing := checkFieldsWithSort(mVal, oVal, zeroValueEqualsNil)
+			missingKey = missingKey || missing
+
+			if !match {
+				return false, missingKey
 			}
 		case []interface{}:
 			// if field is a generic list, sort and iterate through them to make sure each value matches
@@ -223,11 +226,18 @@ func checkFieldsWithSort(
 					break
 				}
 
-				return false
+				return false, missingKey
 			}
 
-			if len(mVal) != len(oVal) || !checkListsMatch(oVal, mVal) {
-				return false
+			if len(mVal) != len(oVal) {
+				return false, missingKey
+			}
+
+			match, miss := checkListsMatch(oVal, mVal)
+			missingKey = missingKey || miss
+
+			if !match {
+				return false, missingKey
 			}
 		case string:
 			// extra check to see if value is a byte value
@@ -235,23 +245,23 @@ func checkFieldsWithSort(
 			if err != nil {
 				oVal, ok := oldObj[i]
 				if !ok {
-					return false
+					return false, missingKey
 				}
 
 				// An error indicates the value is a regular string, so check equality normally
 				if fmt.Sprint(oVal) != mVal {
-					return false
+					return false, missingKey
 				}
 			} else {
 				// if the value is a quantity of bytes, convert original
 				oVal, ok := oldObj[i].(string)
 				if !ok {
-					return false
+					return false, missingKey
 				}
 
 				oQty, err := apiRes.ParseQuantity(oVal)
 				if err != nil || !oQty.Equal(mQty) {
-					return false
+					return false, missingKey
 				}
 			}
 		default:
@@ -261,15 +271,16 @@ func checkFieldsWithSort(
 			if oVal == nil && mVal != nil {
 				ref := reflect.ValueOf(mVal)
 				oVal = reflect.Zero(ref.Type()).Interface()
+				missingKey = true
 			}
 
 			if fmt.Sprint(oVal) != fmt.Sprint(mVal) {
-				return false
+				return false, missingKey
 			}
 		}
 	}
 
-	return true
+	return true, missingKey
 }
 
 // sortAndSprint sorts any lists in the input, and formats the resulting object as a string
@@ -301,13 +312,13 @@ func sortAndSprint(item interface{}) string {
 }
 
 // checkListsMatch is a generic list check that uses an arbitrary sort to ensure it is comparing the right values
-func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
+func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (matches, missingKey bool) {
 	if (oldVal == nil && mergedVal != nil) || (oldVal != nil && mergedVal == nil) {
-		return false
+		return false, false
 	}
 
 	if len(mergedVal) != len(oldVal) {
-		return false
+		return false, false
 	}
 
 	// Make copies of the lists, so we can sort them without mutating this function's inputs
@@ -326,23 +337,26 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (m bool) {
 		case map[string]interface{}:
 			// if list contains maps, recurse on those maps to check for a match
 			if mVal, ok := mVal[idx].(map[string]interface{}); ok {
-				if !checkFieldsWithSort(mVal, oNestedVal, true) {
-					return false
+				match, miss := checkFieldsWithSort(mVal, oNestedVal, true)
+				missingKey = missingKey || miss
+
+				if !match {
+					return false, missingKey
 				}
 
 				continue
 			}
 
-			return false
+			return false, missingKey
 		default:
 			// otherwise, just do a generic check
 			if fmt.Sprint(oNestedVal) != fmt.Sprint(mVal[idx]) {
-				return false
+				return false, missingKey
 			}
 		}
 	}
 
-	return true
+	return true, missingKey
 }
 
 func filterUnwantedAnnotations(input map[string]interface{}) map[string]interface{} {

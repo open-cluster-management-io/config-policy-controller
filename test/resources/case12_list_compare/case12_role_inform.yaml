@@ -8,7 +8,8 @@ spec:
     exclude: ["kube-*"]
     include: ["default"]
   object-templates:
-    - complianceType: musthave
+    - complianceType: mustonlyhave
+      recordDiff: Log
       objectDefinition:
         apiVersion: rbac.authorization.k8s.io/v1
         kind: Role
