@@ -577,7 +577,7 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 		log := log.WithValues("policy", plc.GetName(), "groupVersionKind", gvk.String())
 
 		scopedGVR, err := r.DynamicWatcher.GVKToGVR(gvk)
-		if err != nil {
+		if err != nil && !errors.Is(err, depclient.ErrResourceUnwatchable) {
 			log.Error(err, "Could not get resource mapping for child object")
 
 			deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
@@ -597,6 +597,15 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 				object.Object.Metadata.Namespace,
 				object.Object.Metadata.Name,
 			)
+
+			if errors.Is(err, depclient.ErrResourceUnwatchable) {
+				existing, err = getObject(
+					object.Object.Metadata.Namespace,
+					object.Object.Metadata.Name,
+					scopedGVR,
+					r.TargetK8sDynamicClient,
+				)
+			}
 		} else {
 			existing, err = getObject(
 				object.Object.Metadata.Namespace,
@@ -749,6 +758,10 @@ func getFormattedTemplateErr(err error) (complianceMsg string, formattedErr erro
 		return fmt.Sprintf(
 			`The "%s" annotation value is not a valid initialization vector`, IVAnnotation,
 		), fmt.Errorf("%w: %w", ErrPolicyInvalid, err)
+	}
+
+	if errors.Is(err, depclient.ErrResourceUnwatchable) {
+		return fmt.Sprintf("%v - this template may require evaluationInterval to be set", err), err
 	}
 
 	return err.Error(), err
@@ -1458,7 +1471,21 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		// If the object can't be retrieved, this will be handled later on.
 		var existingObj *unstructured.Unstructured
 		if usingWatch {
-			existingObj, _ = r.getObjectFromCache(plc, desiredNs, desiredName, objGVK)
+			existingObj, err = r.getObjectFromCache(plc, desiredNs, desiredName, objGVK)
+
+			// This error is handled specially - others are handled later
+			if errors.Is(err, depclient.ErrResourceUnwatchable) {
+				msg := fmt.Sprintf("Error with object-template at index [%d], "+
+					"it may require evaluationInterval to be set: %v", index, err)
+
+				errEvent := &objectTmplEvalEvent{
+					compliant: false,
+					reason:    "unwatchable resource",
+					message:   msg,
+				}
+
+				return nil, &scopedGVR, errEvent, err
+			}
 		} else {
 			existingObj, _ = getObject(desiredNs, desiredName, scopedGVR, r.TargetK8sDynamicClient)
 		}
@@ -1516,10 +1543,12 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				log.Error(err, "Failed to fetch the resources",
 					"objectSelector", objectT.ObjectSelector.String())
 
-				msg := fmt.Sprintf(
-					"Error listing resources with provided objectSelector in the object-template at index [%d]: %v",
-					index, err,
-				)
+				coremsg := "Error listing resources with provided objectSelector in the object-template at index [%d]"
+				msg := fmt.Sprintf(coremsg+": %v", index, err)
+
+				if errors.Is(err, depclient.ErrResourceUnwatchable) {
+					msg = fmt.Sprintf(coremsg+", it may require evaluationInterval to be set: %v", index, err)
+				}
 
 				errEvent := &objectTmplEvalEvent{
 					compliant: false,
@@ -2025,7 +2054,29 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 				Kind:    desiredObjKind,
 			}
 
-			existingObj, _ = r.getObjectFromCache(policy, desiredObjNamespace, desiredObjName, objGVK)
+			var err error
+
+			existingObj, err = r.getObjectFromCache(policy, desiredObjNamespace, desiredObjName, objGVK)
+
+			// This error is handled specially - others are handled later
+			if errors.Is(err, depclient.ErrResourceUnwatchable) {
+				msg := fmt.Sprintf("Error with object-template at index [%d], "+
+					"it may require evaluationInterval to be set: %v", index, err)
+
+				result = objectTmplEvalResult{
+					objectNames: []string{desiredObjName},
+					namespace:   desiredObjNamespace, // may be empty
+					events: []objectTmplEvalEvent{{
+						compliant: false,
+						reason:    "unwatchable resource",
+						message:   msg,
+					}},
+				}
+
+				log.Info("Returning early in handleObjects")
+
+				return []policyv1.RelatedObject{}, result
+			}
 		} else {
 			existingObj, _ = getObject(desiredObjNamespace, desiredObjName, scopedGVR, r.TargetK8sDynamicClient)
 		}
@@ -2368,7 +2419,7 @@ func (r *ConfigurationPolicyReconciler) getMapping(
 	}
 
 	scopedGVR, err := r.DynamicWatcher.GVKToGVR(gvk)
-	if err != nil {
+	if err != nil && !errors.Is(err, depclient.ErrResourceUnwatchable) {
 		if !errors.Is(err, depclient.ErrNoVersionedResource) {
 			log.Error(err, "Could not identify mapping error from raw object", "gvk", gvk)
 

@@ -1,0 +1,33 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: case45-parent
+spec:
+  remediationAction: enforce
+  disabled: false
+  policy-templates:
+    - objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: case45
+        spec:
+          remediationAction: inform
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: packages.operators.coreos.com/v1
+                kind: PackageManifest
+                metadata:
+                  namespace: default
+                  name: example-operator
+                spec: {}
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  namespace: default
+                  name: case45
+                data:
+                  src: '{{ (lookup "packages.operators.coreos.com/v1" "PackageManifest" "default" "example-operator").status.catalogSource }}'
