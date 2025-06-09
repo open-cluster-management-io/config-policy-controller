@@ -2455,7 +2455,7 @@ func buildNameList(
 
 			// if any key in the object generates a mismatch, the object does not match the template and we
 			// do not add its name to the list
-			errorMsg, updateNeeded, _, skipped := handleSingleKey(
+			errorMsg, updateNeeded, _, skipped, _ := handleSingleKey(
 				key, desiredObj, &uObj, complianceType, zeroValueEqualsNil,
 			)
 			if !skipped {
@@ -2736,21 +2736,23 @@ func deleteObject(res dynamic.ResourceInterface, name, namespace string) (delete
 // mergeSpecs is a wrapper for the recursive function to merge 2 maps.
 func mergeSpecs(
 	templateVal, existingVal interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
-) (interface{}, error) {
+) (interface{}, bool, error) {
 	// Copy templateVal since it will be modified in mergeSpecsHelper
 	data1, err := json.Marshal(templateVal)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var j1 interface{}
 
 	err = json.Unmarshal(data1, &j1)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	return mergeSpecsHelper(j1, existingVal, ctype, zeroValueEqualsNil), nil
+	merged, missing := mergeSpecsHelper(j1, existingVal, ctype, zeroValueEqualsNil)
+
+	return merged, missing, nil
 }
 
 // mergeSpecsHelper is a helper function that takes an object from the existing object and merges in
@@ -2760,29 +2762,37 @@ func mergeSpecs(
 // comparisons the controller makes.
 func mergeSpecsHelper(
 	templateVal, existingVal interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
-) interface{} {
+) (merged interface{}, missingKey bool) {
 	switch templateVal := templateVal.(type) {
 	case map[string]interface{}:
 		existingVal, ok := existingVal.(map[string]interface{})
 		if !ok {
 			// if one field is a map and the other isn't, don't bother merging -
 			// just returning the template value will still generate noncompliant
-			return templateVal
+			return templateVal, false
 		}
 		// otherwise, iterate through all fields in the template object and
 		// merge in missing values from the existing object
 		for k, v2 := range existingVal {
+			var missing bool
+
 			if v1, ok := templateVal[k]; ok {
-				templateVal[k] = mergeSpecsHelper(v1, v2, ctype, zeroValueEqualsNil)
+				templateVal[k], missing = mergeSpecsHelper(v1, v2, ctype, zeroValueEqualsNil)
+				missingKey = missingKey || missing
 			} else {
 				templateVal[k] = v2
 			}
+		}
+
+		if len(templateVal) > len(existingVal) {
+			// template specifies something that isn't in the current object
+			missingKey = true
 		}
 	case []interface{}: // list nested in map
 		existingVal, ok := existingVal.([]interface{})
 		if !ok {
 			// if one field is a list and the other isn't, don't bother merging
-			return templateVal
+			return templateVal, false
 		}
 
 		if len(existingVal) > 0 {
@@ -2794,16 +2804,16 @@ func mergeSpecsHelper(
 		// if template value is nil, pull data from existing, since the template does not care about it
 		existingVal, ok := existingVal.(map[string]interface{})
 		if ok {
-			return existingVal
+			return existingVal, false
 		}
 	}
 
 	_, ok := templateVal.(string)
 	if !ok {
-		return templateVal
+		return templateVal, missingKey
 	}
 
-	return templateVal.(string)
+	return templateVal.(string), missingKey
 }
 
 type countedVal struct {
@@ -2815,9 +2825,9 @@ type countedVal struct {
 // different in the template.
 func mergeArrays(
 	desiredArr []interface{}, existingArr []interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
-) (result []interface{}) {
+) (result []interface{}, missingKey bool) {
 	if ctype.IsMustOnlyHave() {
-		return desiredArr
+		return desiredArr, false
 	}
 
 	desiredArrCopy := append([]interface{}{}, desiredArr...)
@@ -2882,12 +2892,15 @@ func mergeArrays(
 				}
 
 				// use map compare helper function to check equality on lists of maps
-				mergedObj, _ = compareSpecs(val1, val2, ctype, zeroValueEqualsNil)
+				mergedObj, missingKey, _ = compareSpecs(val1, val2, ctype, zeroValueEqualsNil)
 			default:
 				mergedObj = val1
 			}
 			// if a match is found, this field is already in the template, so we can skip it in future checks
-			if sameNamedObjects || equalObjWithSort(mergedObj, val2, zeroValueEqualsNil) {
+			equal, missing := equalObjWithSort(mergedObj, val2, zeroValueEqualsNil)
+			missingKey = missingKey || missing
+
+			if sameNamedObjects || equal {
 				count++
 
 				desiredArr[desiredArrIdx] = mergedObj
@@ -2909,24 +2922,21 @@ func mergeArrays(
 		}
 	}
 
-	return desiredArr
+	return desiredArr, missingKey
 }
 
 // compareSpecs is a wrapper function that creates a merged map for mustHave
 // and returns the template map for mustonlyhave
 func compareSpecs(
 	newSpec, oldSpec map[string]interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
-) (updatedSpec map[string]interface{}, err error) {
+) (updatedSpec map[string]interface{}, missingKey bool, err error) {
 	if ctype.IsMustOnlyHave() {
-		return newSpec, nil
+		return newSpec, false, nil
 	}
 	// if compliance type is musthave, create merged object to compare on
-	merged, err := mergeSpecs(newSpec, oldSpec, ctype, zeroValueEqualsNil)
-	if err != nil {
-		return merged.(map[string]interface{}), err
-	}
+	merged, missing, err := mergeSpecs(newSpec, oldSpec, ctype, zeroValueEqualsNil)
 
-	return merged.(map[string]interface{}), nil
+	return merged.(map[string]interface{}), missing, err
 }
 
 // handleSingleKey checks whether a key/value pair in an object template matches with that in the existing
@@ -2937,20 +2947,23 @@ func handleSingleKey(
 	existingObj *unstructured.Unstructured,
 	complianceType policyv1.ComplianceType,
 	zeroValueEqualsNil bool,
-) (errormsg string, update bool, merged interface{}, skip bool) {
+) (errormsg string, update bool, merged interface{}, skip bool, missingKey bool) {
 	log := log.WithValues("name", existingObj.GetName(), "namespace", existingObj.GetNamespace())
 	var err error
+	var missing bool
 
 	updateNeeded := false
 
 	if key == "apiVersion" || key == "kind" {
 		log.V(2).Info("Ignoring the key since it is deny listed", "key", key)
 
-		return "", false, nil, true
+		return "", false, nil, true, false
 	}
 
 	desiredValue := formatTemplate(desiredObj, key)
-	existingValue := existingObj.UnstructuredContent()[key]
+	existingValue, present := existingObj.UnstructuredContent()[key]
+	missingKey = !present
+
 	typeErr := ""
 
 	// We will compare the existing field to a "merged" field which has the fields in the template
@@ -2963,7 +2976,8 @@ func handleSingleKey(
 	case []interface{}:
 		switch existingValue := existingValue.(type) {
 		case []interface{}:
-			mergedValue = mergeArrays(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
+			mergedValue, missing = mergeArrays(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
+			missingKey = missingKey || missing
 		case nil:
 			mergedValue = desiredValue
 		default:
@@ -2974,7 +2988,8 @@ func handleSingleKey(
 	case map[string]interface{}:
 		switch existingValue := existingValue.(type) {
 		case map[string]interface{}:
-			mergedValue, err = compareSpecs(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
+			mergedValue, missing, err = compareSpecs(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
+			missingKey = missingKey || missing
 		case nil:
 			mergedValue = desiredValue
 		default:
@@ -2987,13 +3002,13 @@ func handleSingleKey(
 	}
 
 	if typeErr != "" {
-		return typeErr, false, mergedValue, false
+		return typeErr, false, mergedValue, false, missingKey
 	}
 
 	if err != nil {
 		message := fmt.Sprintf("Error merging changes into %s: %s", key, err)
 
-		return message, false, mergedValue, false
+		return message, false, mergedValue, false, missingKey
 	}
 
 	if key == "metadata" {
@@ -3013,7 +3028,7 @@ func handleSingleKey(
 		if err != nil {
 			message := "Error accessing encoded data"
 
-			return message, false, mergedValue, false
+			return message, false, mergedValue, false, missingKey
 		}
 
 		decodedValue := make(map[string]interface{}, len(encodedValue))
@@ -3024,7 +3039,7 @@ func handleSingleKey(
 				secretName := existingObj.GetName()
 				message := "Error decoding secret: " + secretName
 
-				return message, false, mergedValue, false
+				return message, false, mergedValue, false, missingKey
 			}
 
 			decodedValue[k] = string(decoded)
@@ -3034,11 +3049,14 @@ func handleSingleKey(
 	}
 
 	// sort objects before checking equality to ensure they're in the same order
-	if !equalObjWithSort(mergedValue, existingValue, zeroValueEqualsNil) {
+	equal, missing := equalObjWithSort(mergedValue, existingValue, zeroValueEqualsNil)
+	missingKey = missingKey || missing
+
+	if !equal {
 		updateNeeded = true
 	}
 
-	return "", updateNeeded, mergedValue, false
+	return "", updateNeeded, mergedValue, false, missingKey
 }
 
 type cachedEvaluationResult struct {
@@ -3094,7 +3112,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	existingObjectCopy := obj.existingObj.DeepCopy()
 	removeFieldsForComparison(existingObjectCopy)
 
-	throwSpecViolation, errMsg, updateNeeded, statusMismatch := handleKeys(
+	throwSpecViolation, errMsg, updateNeeded, statusMismatch, missingKey := handleKeys(
 		obj.desiredObj,
 		obj.existingObj,
 		existingObjectCopy,
@@ -3107,9 +3125,10 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 	recordDiff := objectT.RecordDiffWithDefault()
 	var needsRecreate bool
+
 	isInform := remediation.IsInform()
 
-	if !updateNeeded {
+	if !updateNeeded && !missingKey {
 		if throwSpecViolation && recordDiff != policyv1.RecordDiffNone {
 			// The spec didn't require a change but throwSpecViolation indicates the status didn't match. Handle
 			// this diff for this case.
@@ -3124,10 +3143,14 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		return throwSpecViolation, "", diff, updateNeeded, updatedObj
 	}
 
-	log.Info("Detected value mismatch")
+	if updateNeeded {
+		log.Info("Detected value mismatch via handleKeys")
+	}
 
-	// It's possible the dry run request shows the object does match. This can happen if the ConfigurationPolicy
-	// specifies an empty map and the API server omits it from the return value.
+	// Use a server-side dry-run to verify if the object needs an update.
+	// There are situations where updateNeeded is wrong in either direction: an update might not be
+	// needed if the policy specifies an empty map and the API server omits it from the return value,
+	// or an update might be needed if some "empty" fields really do need to be set.
 	dryRunUpdatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
 		FieldValidation: metav1.FieldValidationStrict,
 		DryRun:          []string{metav1.DryRunAll},
@@ -3189,6 +3212,10 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 			return true, message, diff, false, nil
 		}
+
+		mergedObjCopy := obj.existingObj.DeepCopy()
+		removeFieldsForComparison(mergedObjCopy)
+		diff = handleDiff(log, recordDiff, existingObjectCopy, mergedObjCopy, r.FullDiffs)
 	} else {
 		removeFieldsForComparison(dryRunUpdatedObj)
 
@@ -3196,9 +3223,19 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			log.Info("A mismatch was detected but a dry run update didn't make any changes. " +
 				"Assuming the object is compliant.")
 
-			r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
+			if throwSpecViolation && recordDiff != policyv1.RecordDiffNone {
+				// The spec didn't require a change but throwSpecViolation indicates the status didn't match. Handle
+				// this diff for this case.
+				mergedObjCopy := obj.existingObj.DeepCopy()
+				removeFieldsForComparison(mergedObjCopy)
 
-			return false, "", "", false, nil
+				// The provided isInform value is always true because the status checking can only be inform.
+				diff = handleDiff(log, recordDiff, existingObjectCopy, mergedObjCopy, r.FullDiffs)
+			}
+
+			r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
+
+			return throwSpecViolation, "", diff, updateNeeded, updatedObj
 		}
 
 		diff = handleDiff(log, recordDiff, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
@@ -3351,7 +3388,7 @@ func handleKeys(
 	existingObjectCopy *unstructured.Unstructured,
 	compType policyv1.ComplianceType,
 	mdCompType policyv1.ComplianceType,
-) (throwSpecViolation bool, message string, updateNeeded bool, statusMismatch bool) {
+) (throwSpecViolation bool, message string, updateNeeded bool, statusMismatch bool, missingKey bool) {
 	handledKeys := map[string]bool{}
 
 	// Iterate over keys of the desired object to compare with the existing object on the cluster
@@ -3366,13 +3403,15 @@ func handleKeys(
 		}
 
 		// check key for mismatch
-		errorMsg, keyUpdateNeeded, mergedObj, skipped := handleSingleKey(
+		errorMsg, keyUpdateNeeded, mergedObj, skipped, missing := handleSingleKey(
 			key, desiredObj, existingObjectCopy, keyComplianceType, false,
 		)
+		missingKey = missingKey || missing
+
 		if errorMsg != "" {
 			log.Info(errorMsg)
 
-			return true, errorMsg, true, statusMismatch
+			return true, errorMsg, true, statusMismatch, missingKey
 		}
 
 		if mergedObj == nil && skipped {
