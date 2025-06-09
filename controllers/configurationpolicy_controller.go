@@ -3122,174 +3122,174 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
 
 		return throwSpecViolation, "", diff, updateNeeded, updatedObj
-	} else {
-		log.Info("Detected value mismatch")
+	}
 
-		// It's possible the dry run request shows the object does match. This can happen if the ConfigurationPolicy
-		// specifies an empty map and the API server omits it from the return value.
-		dryRunUpdatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
-			FieldValidation: metav1.FieldValidationStrict,
-			DryRun:          []string{metav1.DryRunAll},
-		})
-		if err != nil {
-			// If it's a conflict, refetch the object and try again.
-			if k8serrors.IsConflict(err) {
-				log.Info("The object was updating during the evaluation. Trying again.")
+	log.Info("Detected value mismatch")
 
-				rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
-				if getErr == nil {
-					obj.existingObj = rv
+	// It's possible the dry run request shows the object does match. This can happen if the ConfigurationPolicy
+	// specifies an empty map and the API server omits it from the return value.
+	dryRunUpdatedObj, err := res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
+		FieldValidation: metav1.FieldValidationStrict,
+		DryRun:          []string{metav1.DryRunAll},
+	})
+	if err != nil {
+		// If it's a conflict, refetch the object and try again.
+		if k8serrors.IsConflict(err) {
+			log.Info("The object was updating during the evaluation. Trying again.")
 
-					return r.checkAndUpdateResource(obj, objectT, remediation)
-				}
+			rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
+			if getErr == nil {
+				obj.existingObj = rv
+
+				return r.checkAndUpdateResource(obj, objectT, remediation)
+			}
+		}
+
+		// Handle all errors not related to updating immutable fields here
+		if !k8serrors.IsInvalid(err) {
+			message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
+			if message == "" {
+				message = fmt.Sprintf(
+					"Error issuing a dry run update request for the object `%v`, the error is `%v`",
+					obj.name,
+					err,
+				)
 			}
 
-			// Handle all errors not related to updating immutable fields here
-			if !k8serrors.IsInvalid(err) {
-				message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
-				if message == "" {
-					message = fmt.Sprintf(
-						"Error issuing a dry run update request for the object `%v`, the error is `%v`",
-						obj.name,
-						err,
-					)
-				}
+			// If the user specifies an unknown or invalid field, it comes back as a bad request.
+			if k8serrors.IsBadRequest(err) {
+				r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+			}
 
-				// If the user specifies an unknown or invalid field, it comes back as a bad request.
-				if k8serrors.IsBadRequest(err) {
-					r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
-				}
+			return true, message, "", updateNeeded, nil
+		}
+
+		// If an update is invalid (i.e. modifying Pod spec fields), then return noncompliant since that
+		// confirms some fields don't match and can't be fixed with an update. If a recreate option is
+		// specified, then the update may proceed when enforced.
+		needsRecreate = true
+
+		if isInform || !(objectT.RecreateOption == policyv1.Always || objectT.RecreateOption == policyv1.IfRequired) {
+			log.Info("Dry run update failed with error: " + err.Error())
+
+			// Remove noisy fields such as managedFields from the diff
+			// This is already done for existingObjectCopy.
+			removeFieldsForComparison(obj.existingObj)
+
+			diff = handleDiff(log, recordDiff, existingObjectCopy, obj.existingObj, r.FullDiffs)
+
+			if !isInform {
+				// Don't include the error message in the compliance status because that can be very long. The
+				// user can check the diff or the logs for more information.
+				message = getMsgPrefix(&obj) + ` cannot be updated, likely due to immutable fields not matching, ` +
+					`you may set spec["object-templates"][].recreateOption to recreate the object`
+			}
+
+			r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+
+			return true, message, diff, false, nil
+		}
+	} else {
+		removeFieldsForComparison(dryRunUpdatedObj)
+
+		if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
+			log.Info("A mismatch was detected but a dry run update didn't make any changes. " +
+				"Assuming the object is compliant.")
+
+			r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
+
+			return false, "", "", false, nil
+		}
+
+		diff = handleDiff(log, recordDiff, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
+	}
+
+	// The object would have been updated, so if it's inform, return as noncompliant.
+	if isInform {
+		r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
+
+		return true, "", diff, false, nil
+	}
+
+	// If it's not inform (i.e. enforce), update the object
+	action := "update"
+
+	// At this point, if a recreate is needed, we know the user opted in, otherwise, the dry run update
+	// failed and would have returned before now.
+	if needsRecreate || objectT.RecreateOption == policyv1.Always {
+		action = "recreate"
+	}
+
+	if action == "recreate" {
+		log.Info("Deleting and recreating the object based on the template definition",
+			"recreateOption", objectT.RecreateOption)
+
+		err = res.Delete(context.TODO(), obj.name, metav1.DeleteOptions{})
+		if err != nil && !k8serrors.IsNotFound(err) {
+			message = fmt.Sprintf(`%s failed to delete when recreating with the error %v`, getMsgPrefix(&obj), err)
+
+			return true, message, "", updateNeeded, nil
+		}
+
+		attempts := 0
+
+		for {
+			updatedObj, err = res.Create(context.TODO(), obj.desiredObj, metav1.CreateOptions{})
+			if !k8serrors.IsAlreadyExists(err) {
+				// If there is no error or the error is unexpected, break for the error handling below
+				break
+			}
+
+			attempts++
+
+			if attempts >= 3 {
+				message = getMsgPrefix(&obj) + " timed out waiting for the object to delete during recreate, " +
+					"will retry on the next policy evaluation"
 
 				return true, message, "", updateNeeded, nil
 			}
 
-			// If an update is invalid (i.e. modifying Pod spec fields), then return noncompliant since that
-			// confirms some fields don't match and can't be fixed with an update. If a recreate option is
-			// specified, then the update may proceed when enforced.
-			needsRecreate = true
+			time.Sleep(time.Second)
+		}
+	} else {
+		log.Info("Updating the object based on the template definition")
 
-			if isInform || !(objectT.RecreateOption == policyv1.Always || objectT.RecreateOption == policyv1.IfRequired) {
-				log.Info("Dry run update failed with error: " + err.Error())
+		updatedObj, err = res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
+			FieldValidation: metav1.FieldValidationStrict,
+		})
+	}
 
-				// Remove noisy fields such as managedFields from the diff
-				// This is already done for existingObjectCopy.
-				removeFieldsForComparison(obj.existingObj)
+	if err != nil {
+		if k8serrors.IsConflict(err) {
+			log.Info("The object updated during the evaluation. Trying again.")
 
-				diff = handleDiff(log, recordDiff, existingObjectCopy, obj.existingObj, r.FullDiffs)
+			rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
+			if getErr == nil {
+				obj.existingObj = rv
 
-				if !isInform {
-					// Don't include the error message in the compliance status because that can be very long. The
-					// user can check the diff or the logs for more information.
-					message = getMsgPrefix(&obj) + ` cannot be updated, likely due to immutable fields not matching, ` +
-						`you may set spec["object-templates"][].recreateOption to recreate the object`
-				}
-
-				r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
-
-				return true, message, diff, false, nil
+				return r.checkAndUpdateResource(obj, objectT, remediation)
 			}
-		} else {
-			removeFieldsForComparison(dryRunUpdatedObj)
-
-			if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
-				log.Info("A mismatch was detected but a dry run update didn't make any changes. " +
-					"Assuming the object is compliant.")
-
-				r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
-
-				return false, "", "", false, nil
-			}
-
-			diff = handleDiff(log, recordDiff, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
 		}
 
-		// The object would have been updated, so if it's inform, return as noncompliant.
-		if isInform {
-			r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
-
-			return true, "", diff, false, nil
-		}
-
-		// If it's not inform (i.e. enforce), update the object
 		action := "update"
 
-		// At this point, if a recreate is needed, we know the user opted in, otherwise, the dry run update
-		// failed and would have returned before now.
 		if needsRecreate || objectT.RecreateOption == policyv1.Always {
 			action = "recreate"
 		}
 
-		if action == "recreate" {
-			log.Info("Deleting and recreating the object based on the template definition",
-				"recreateOption", objectT.RecreateOption)
-
-			err = res.Delete(context.TODO(), obj.name, metav1.DeleteOptions{})
-			if err != nil && !k8serrors.IsNotFound(err) {
-				message = fmt.Sprintf(`%s failed to delete when recreating with the error %v`, getMsgPrefix(&obj), err)
-
-				return true, message, "", updateNeeded, nil
-			}
-
-			attempts := 0
-
-			for {
-				updatedObj, err = res.Create(context.TODO(), obj.desiredObj, metav1.CreateOptions{})
-				if !k8serrors.IsAlreadyExists(err) {
-					// If there is no error or the error is unexpected, break for the error handling below
-					break
-				}
-
-				attempts++
-
-				if attempts >= 3 {
-					message = getMsgPrefix(&obj) + " timed out waiting for the object to delete during recreate, " +
-						"will retry on the next policy evaluation"
-
-					return true, message, "", updateNeeded, nil
-				}
-
-				time.Sleep(time.Second)
-			}
-		} else {
-			log.Info("Updating the object based on the template definition")
-
-			updatedObj, err = res.Update(context.TODO(), obj.existingObj, metav1.UpdateOptions{
-				FieldValidation: metav1.FieldValidationStrict,
-			})
+		message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
+		if message == "" {
+			message = fmt.Sprintf("%s failed to %s with the error `%v`", getMsgPrefix(&obj), action, err)
 		}
 
-		if err != nil {
-			if k8serrors.IsConflict(err) {
-				log.Info("The object updated during the evaluation. Trying again.")
-
-				rv, getErr := res.Get(context.TODO(), obj.existingObj.GetName(), metav1.GetOptions{})
-				if getErr == nil {
-					obj.existingObj = rv
-
-					return r.checkAndUpdateResource(obj, objectT, remediation)
-				}
-			}
-
-			action := "update"
-
-			if needsRecreate || objectT.RecreateOption == policyv1.Always {
-				action = "recreate"
-			}
-
-			message := getUpdateErrorMsg(err, obj.existingObj.GetKind(), obj.name)
-			if message == "" {
-				message = fmt.Sprintf("%s failed to %s with the error `%v`", getMsgPrefix(&obj), action, err)
-			}
-
-			return true, message, diff, updateNeeded, nil
-		}
-
-		if !statusMismatch {
-			r.setEvaluatedObject(obj.policy, updatedObj, true, message)
-		}
-
-		return throwSpecViolation, "", diff, updateNeeded, updatedObj
+		return true, message, diff, updateNeeded, nil
 	}
+
+	if !statusMismatch {
+		r.setEvaluatedObject(obj.policy, updatedObj, true, message)
+	}
+
+	return throwSpecViolation, "", diff, updateNeeded, updatedObj
 }
 
 func getMsgPrefix(obj *singleObject) string {
