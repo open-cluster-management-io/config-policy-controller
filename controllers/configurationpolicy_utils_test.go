@@ -116,7 +116,9 @@ func TestCheckFieldsWithSort(t *testing.T) {
 		"resources":       []interface{}{},
 	}
 
-	assert.True(t, checkFieldsWithSort(mergedObj, oldObj, false))
+	check, _ := checkFieldsWithSort(mergedObj, oldObj, false)
+
+	assert.True(t, check)
 }
 
 func TestCheckFieldsWithSortEmptyMap(t *testing.T) {
@@ -137,9 +139,11 @@ func TestCheckFieldsWithSortEmptyMap(t *testing.T) {
 		},
 	}
 
-	assert.False(t, checkFieldsWithSort(mergedObj, oldObj, false))
+	check, _ := checkFieldsWithSort(mergedObj, oldObj, false)
+	assert.False(t, check)
 
-	assert.True(t, checkFieldsWithSort(mergedObj, oldObj, true))
+	check, _ = checkFieldsWithSort(mergedObj, oldObj, true)
+	assert.True(t, check)
 }
 
 func TestEqualObjWithSort(t *testing.T) {
@@ -156,8 +160,10 @@ func TestEqualObjWithSort(t *testing.T) {
 		"resources":       []interface{}{},
 	}
 
-	assert.True(t, equalObjWithSort(mergedObj, oldObj, true))
-	assert.False(t, equalObjWithSort(mergedObj, nil, true))
+	check, _ := checkFieldsWithSort(mergedObj, oldObj, true)
+	assert.True(t, check)
+	check, _ = checkFieldsWithSort(mergedObj, nil, true)
+	assert.False(t, check)
 
 	oldObj = map[string]interface{}{
 		"nonResourceURLs": []string{"/version", "/healthz"},
@@ -170,16 +176,21 @@ func TestEqualObjWithSort(t *testing.T) {
 		"resources":       []interface{}{},
 	}
 
-	assert.False(t, equalObjWithSort(mergedObj, oldObj, true))
+	check, _ = checkFieldsWithSort(mergedObj, oldObj, true)
+	assert.False(t, check)
 }
 
 func TestEqualObjWithSortString(t *testing.T) {
 	t.Parallel()
 
-	assert.True(t, equalObjWithSort("", nil, true))
-	assert.False(t, equalObjWithSort("", nil, false))
-	assert.True(t, equalObjWithSort(nil, "", true))
-	assert.False(t, equalObjWithSort(nil, "", false))
+	check, _ := equalObjWithSort("", nil, true)
+	assert.True(t, check)
+	check, _ = equalObjWithSort("", nil, false)
+	assert.False(t, check)
+	check, _ = equalObjWithSort(nil, "", true)
+	assert.True(t, check)
+	check, _ = equalObjWithSort(nil, "", false)
+	assert.False(t, check)
 }
 
 func TestEqualObjWithSortEmptyMap(t *testing.T) {
@@ -194,8 +205,10 @@ func TestEqualObjWithSortEmptyMap(t *testing.T) {
 		},
 	}
 
-	assert.True(t, equalObjWithSort(mergedObj, oldObj, true))
-	assert.False(t, equalObjWithSort(mergedObj, oldObj, false))
+	check, _ := equalObjWithSort(mergedObj, oldObj, true)
+	assert.True(t, check)
+	check, _ = equalObjWithSort(mergedObj, oldObj, false)
+	assert.False(t, check)
 }
 
 func TestGenerateDiff(t *testing.T) {
