@@ -16,7 +16,6 @@ import (
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	yaml "sigs.k8s.io/yaml"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
@@ -30,12 +29,12 @@ type hubResolver interface {
 }
 
 func resolveHubTemplates(ctx context.Context, r hubResolver, policyCopy client.Object) error {
-	yamlBytes, err := yaml.Marshal(policyCopy)
+	jsonBytes, err := json.Marshal(policyCopy)
 	if err != nil { // This condition is likely impossible.
 		return err
 	}
 
-	if !templates.HasTemplate(yamlBytes, "{{hub", false) {
+	if !templates.HasTemplate(jsonBytes, "{{hub", false) {
 		return nil
 	}
 
@@ -80,11 +79,10 @@ func resolveHubTemplates(ctx context.Context, r hubResolver, policyCopy client.O
 	}
 
 	resolveOptions := &templates.ResolveOptions{
-		InputIsYAML: true,
-		Watcher:     &objID,
+		Watcher: &objID,
 	}
 
-	if strings.Contains(string(yamlBytes), ".ManagedClusterLabels") {
+	if strings.Contains(string(jsonBytes), ".ManagedClusterLabels") {
 		resolveOptions.ContextTransformers = append(
 			resolveOptions.ContextTransformers, addManagedClusterLabels(r.getClusterName()))
 	}
@@ -100,7 +98,7 @@ func resolveHubTemplates(ctx context.Context, r hubResolver, policyCopy client.O
 
 	cacheGetErr := r.getClient().Get(ctx, cacheKey, cachedResultObject)
 
-	result, err := hubTemplateResolver.ResolveTemplate(yamlBytes, tmplCtx, resolveOptions)
+	result, err := hubTemplateResolver.ResolveTemplate(jsonBytes, tmplCtx, resolveOptions)
 	if err != nil {
 		// Check if the hub is accessible
 		if _, connErr := r.getHubClient().ServerVersion(); connErr != nil {
