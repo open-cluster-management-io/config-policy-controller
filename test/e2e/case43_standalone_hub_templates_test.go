@@ -223,6 +223,49 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 		})
 	})
 
+	Describe("Test copySecretData in ConfigurationPolicy", Ordered, func() {
+		const (
+			policyName = "case43-copysecret"
+		)
+
+		It("should be able to correctly create the secret on the managed cluster", func() {
+			KubectlHub("apply", "-f", "../resources/case43_standalone_hub_templates/hub-secret.yaml")
+
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				"../resources/case43_standalone_hub_templates/copy-secret-data-cfgpol.yaml",
+				testNamespace, gvrPolicy, gvrConfigPolicy)
+
+			By("Verifying that the " + policyName + " policy becomes compliant")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
+		AfterAll(func() {
+			deleteConfigPolicies([]string{policyName})
+
+			err := clientManagedDynamic.Resource(gvrPolicy).Namespace(testNamespace).Delete(
+				context.TODO(), parentPolicyName, metav1.DeleteOptions{},
+			)
+			if !errors.IsNotFound(err) {
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			KubectlHub("delete", "secret", "test", "--namespace=ocm-standalone-template-test-src",
+				"--ignore-not-found")
+			KubectlHub("delete", "secret", "long-named-secret-to-test-more",
+				"--namespace=ocm-standalone-template-test-src", "--ignore-not-found")
+			utils.KubectlDelete("secret", "test", "--namespace=default")
+			utils.KubectlDelete("secret", "test-long", "--namespace=default")
+			utils.Kubectl("delete", "events", "--namespace="+testNamespace,
+				"--field-selector=involvedObject.name="+parentPolicyName)
+		})
+	})
+
 	Describe("Test OperatorPolicy", Ordered, func() {
 		const (
 			policyName   = "case43-oppol-with-hub-template"
