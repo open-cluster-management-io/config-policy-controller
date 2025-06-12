@@ -80,7 +80,7 @@ func TestReconcile(t *testing.T) {
 	t.Log(res)
 }
 
-func TestCompareSpecs(t *testing.T) {
+func TestMergeMaps(t *testing.T) {
 	spec1 := map[string]interface{}{
 		"containers": map[string]string{
 			"image": "nginx1.7.9",
@@ -94,7 +94,7 @@ func TestCompareSpecs(t *testing.T) {
 		},
 	}
 
-	merged, _, err := compareSpecs(spec1, spec2, "mustonlyhave", true)
+	merged, _, err := mergeMaps(spec1, spec2, "mustonlyhave", true)
 	if err != nil {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
@@ -126,7 +126,7 @@ func TestCompareSpecs(t *testing.T) {
 		},
 	}
 
-	merged, _, err = compareSpecs(spec1, spec2, "musthave", true)
+	merged, _, err = mergeMaps(spec1, spec2, "musthave", true)
 	if err != nil {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
@@ -293,7 +293,7 @@ func TestMergeArraysMustHave(t *testing.T) {
 
 			actualMergedList, _ := mergeArrays(test.desiredList, test.currentList, "musthave", true)
 			assert.Equal(t, fmt.Sprintf("%+v", test.expectedList), fmt.Sprintf("%+v", actualMergedList))
-			check, _ := checkListsMatch(test.expectedList, actualMergedList)
+			check, _ := checkListsAreEquivalent(test.expectedList, actualMergedList)
 			assert.True(t, check)
 		})
 	}
@@ -378,13 +378,13 @@ func TestMergeArraysMustOnlyHave(t *testing.T) {
 
 			actualMergedList, _ := mergeArrays(test.desiredList, test.currentList, "mustonlyhave", true)
 			assert.Equal(t, fmt.Sprintf("%+v", test.expectedList), fmt.Sprintf("%+v", actualMergedList))
-			check, _ := checkListsMatch(test.expectedList, actualMergedList)
+			check, _ := checkListsAreEquivalent(test.expectedList, actualMergedList)
 			assert.True(t, check)
 		})
 	}
 }
 
-func TestCheckListsMatch(t *testing.T) {
+func TestCheckListsAreEquivalent(t *testing.T) {
 	twoFullItems := []interface{}{
 		map[string]interface{}{
 			"a": "apple",
@@ -396,7 +396,7 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	check, _ := checkListsMatch(twoFullItems, twoFullItems)
+	check, _ := checkListsAreEquivalent(twoFullItems, twoFullItems)
 	assert.True(t, check)
 
 	twoFullItemsDifferentOrder := []interface{}{
@@ -410,9 +410,9 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	check, _ = checkListsMatch(twoFullItems, twoFullItemsDifferentOrder)
+	check, _ = checkListsAreEquivalent(twoFullItems, twoFullItemsDifferentOrder)
 	assert.True(t, check)
-	check, _ = checkListsMatch(twoFullItemsDifferentOrder, twoFullItems)
+	check, _ = checkListsAreEquivalent(twoFullItemsDifferentOrder, twoFullItems)
 	assert.True(t, check)
 
 	oneFullItem := []interface{}{
@@ -422,9 +422,9 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	check, _ = checkListsMatch(twoFullItems, oneFullItem)
+	check, _ = checkListsAreEquivalent(twoFullItems, oneFullItem)
 	assert.False(t, check)
-	check, _ = checkListsMatch(oneFullItem, twoFullItems)
+	check, _ = checkListsAreEquivalent(oneFullItem, twoFullItems)
 	assert.False(t, check)
 
 	oneSmallItem := []interface{}{
@@ -433,9 +433,9 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	check, _ = checkListsMatch(twoFullItems, oneSmallItem)
+	check, _ = checkListsAreEquivalent(twoFullItems, oneSmallItem)
 	assert.False(t, check)
-	check, _ = checkListsMatch(oneSmallItem, twoFullItems)
+	check, _ = checkListsAreEquivalent(oneSmallItem, twoFullItems)
 	assert.False(t, check)
 
 	twoSmallItems := []interface{}{
@@ -447,9 +447,9 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	check, _ = checkListsMatch(twoFullItems, twoSmallItems)
+	check, _ = checkListsAreEquivalent(twoFullItems, twoSmallItems)
 	assert.False(t, check)
-	check, _ = checkListsMatch(twoSmallItems, twoFullItems)
+	check, _ = checkListsAreEquivalent(twoSmallItems, twoFullItems)
 	assert.False(t, check)
 
 	oneSmallOneBig := []interface{}{
@@ -462,9 +462,9 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	check, _ = checkListsMatch(twoFullItems, oneSmallOneBig)
+	check, _ = checkListsAreEquivalent(twoFullItems, oneSmallOneBig)
 	assert.False(t, check)
-	check, _ = checkListsMatch(oneSmallOneBig, twoFullItems)
+	check, _ = checkListsAreEquivalent(oneSmallOneBig, twoFullItems)
 	assert.False(t, check)
 
 	oneBigOneSmall := []interface{}{
@@ -477,9 +477,9 @@ func TestCheckListsMatch(t *testing.T) {
 		},
 	}
 
-	check, _ = checkListsMatch(twoFullItems, oneBigOneSmall)
+	check, _ = checkListsAreEquivalent(twoFullItems, oneBigOneSmall)
 	assert.False(t, check)
-	check, _ = checkListsMatch(oneBigOneSmall, twoFullItems)
+	check, _ = checkListsAreEquivalent(oneBigOneSmall, twoFullItems)
 	assert.False(t, check)
 }
 
@@ -508,7 +508,7 @@ func TestCheckListsMatchDiffMapLength(t *testing.T) {
 		},
 	}
 
-	check, _ := checkListsMatch(existingObject, mergedObject)
+	check, _ := checkListsAreEquivalent(existingObject, mergedObject)
 	assert.True(t, check)
 }
 

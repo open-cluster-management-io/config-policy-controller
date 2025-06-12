@@ -2821,8 +2821,15 @@ type countedVal struct {
 	count int
 }
 
-// mergeArrays is a helper function that takes a list from the existing object and merges in all the data that is
-// different in the template.
+// mergeArrays performs a deep merge operation, combining the given lists. It
+// specially considers items with "names", which it will merge from each list.
+// It preserves duplicates that are already in `existingArr`, but does not
+// introduce *new* duplicate items if they are in `desiredArr`. When merging
+// items or nested items which are maps, the `zeroValueEqualsNil` parameter
+// determines how to handle certain "zero value" cases (see `deeplyEquivalent`).
+//
+// It returns the merged list, and indicates whether any of the nested maps were
+// considered equivalent due to "zero values".
 func mergeArrays(
 	desiredArr []interface{}, existingArr []interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
 ) (result []interface{}, missingKey bool) {
@@ -2892,12 +2899,12 @@ func mergeArrays(
 				}
 
 				// use map compare helper function to check equality on lists of maps
-				mergedObj, missingKey, _ = compareSpecs(val1, val2, ctype, zeroValueEqualsNil)
+				mergedObj, missingKey, _ = mergeMaps(val1, val2, ctype, zeroValueEqualsNil)
 			default:
 				mergedObj = val1
 			}
 			// if a match is found, this field is already in the template, so we can skip it in future checks
-			equal, missing := equalObjWithSort(mergedObj, val2, zeroValueEqualsNil)
+			equal, missing := deeplyEquivalent(mergedObj, val2, zeroValueEqualsNil)
 			missingKey = missingKey || missing
 
 			if sameNamedObjects || equal {
@@ -2925,9 +2932,15 @@ func mergeArrays(
 	return desiredArr, missingKey
 }
 
-// compareSpecs is a wrapper function that creates a merged map for mustHave
-// and returns the template map for mustonlyhave
-func compareSpecs(
+// mergeMaps performs a deep merge operation, combining data from `oldSpec` and
+// `newSpec`, prioritizing the data in `newSpec`. It specially handles lists
+// (see `mergeArrays`) and whether "zero values" should be considered equivalent
+// if only found in one of the inputs (see `deeplyEquivalent`). The "zero value"
+// handling can be configured with the `zeroValueEqualsNil` parameter.
+//
+// It returns the merged object, and indicates if it introduced data for "zero
+// values" from `newSpec` that were not present in `oldSpec`.
+func mergeMaps(
 	newSpec, oldSpec map[string]interface{}, ctype policyv1.ComplianceType, zeroValueEqualsNil bool,
 ) (updatedSpec map[string]interface{}, missingKey bool, err error) {
 	if ctype.IsMustOnlyHave() {
@@ -2939,8 +2952,15 @@ func compareSpecs(
 	return merged.(map[string]interface{}), missing, err
 }
 
-// handleSingleKey checks whether a key/value pair in an object template matches with that in the existing
-// resource on the cluster
+// handleSingleKey compares and merges a single field in the given objects. It
+// specially considers lists (allowing for different orderings) and whether some
+// "zero values" only found in one of the inputs causes the inputs to not be
+// considered equivalent (see `deeplyEquivalent`). The `zeroValueEqualsNil`
+// parameter can be used to tweak that situation slightly.
+//
+// It returns whether an update is needed, a merged version of the field, whether
+// the field was skipped entirely, and whether any "zero values" were merged in
+// which were not in the `existingObj`.
 func handleSingleKey(
 	key string,
 	desiredObj *unstructured.Unstructured,
@@ -2988,7 +3008,7 @@ func handleSingleKey(
 	case map[string]interface{}:
 		switch existingValue := existingValue.(type) {
 		case map[string]interface{}:
-			mergedValue, missing, err = compareSpecs(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
+			mergedValue, missing, err = mergeMaps(desiredValue, existingValue, complianceType, zeroValueEqualsNil)
 			missingKey = missingKey || missing
 		case nil:
 			mergedValue = desiredValue
@@ -3049,7 +3069,7 @@ func handleSingleKey(
 	}
 
 	// sort objects before checking equality to ensure they're in the same order
-	equal, missing := equalObjWithSort(mergedValue, existingValue, zeroValueEqualsNil)
+	equal, missing := deeplyEquivalent(mergedValue, existingValue, zeroValueEqualsNil)
 	missingKey = missingKey || missing
 
 	if !equal {
@@ -3382,6 +3402,14 @@ func handleDiff(
 // handleKeys goes through all of the fields in the desired object and checks if the existing object
 // matches. When a field is a map or slice, the value in the existing object will be updated with
 // the result of merging its current value with the desired value.
+//
+// It returns:
+//   - throwSpecViolation: true if the status has a discrepancy from what is desired
+//   - message: information when an error occurs
+//   - updateNeeded: true if the object should be updated on the cluster to be enforced
+//   - statusMismatch: true if the status has a discrepancy from what is desired
+//   - missingKey: true if some nested fields don't strictly match between the existingObj and
+//     desiredObj, but the difference is just a "zero" value or omission.
 func handleKeys(
 	desiredObj *unstructured.Unstructured,
 	existingObj *unstructured.Unstructured,

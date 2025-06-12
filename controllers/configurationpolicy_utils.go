@@ -146,13 +146,18 @@ func addOrUpdateRelatedObject(
 	return list
 }
 
-// equalObjWithSort is a wrapper function that calls the correct function to check equality depending on what
-// type the objects to compare are
-func equalObjWithSort(mergedObj interface{}, oldObj interface{}, zeroValueEqualsNil bool) (areEqual, missingKey bool) {
+// deeplyEquivalent deeply compares the first two inputs, considering them
+// equivalent even if they have lists which are in different orders. When the
+// `zeroValueEqualsNil` parameter is true, it will allow nested maps to have
+// omitted fields that are "zero values" to be considered equivalent.
+//
+// It returns whether the first two inputs are equivalent, and if any of the
+// nested maps were considered equivalent due to "zero values".
+func deeplyEquivalent(mergedObj interface{}, oldObj interface{}, zeroValueEqualsNil bool) (areEqual, missingKey bool) {
 	switch mergedObj := mergedObj.(type) {
 	case map[string]interface{}:
 		if oldObjMap, ok := oldObj.(map[string]interface{}); ok {
-			return checkFieldsWithSort(mergedObj, oldObjMap, zeroValueEqualsNil)
+			return checkFieldsAreEquivalent(mergedObj, oldObjMap, zeroValueEqualsNil)
 		}
 		// this includes the case where oldObj is nil
 		return false, false
@@ -162,7 +167,7 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}, zeroValueEquals
 		}
 
 		if oldObjList, ok := oldObj.([]interface{}); ok {
-			return checkListsMatch(mergedObj, oldObjList)
+			return checkListsAreEquivalent(mergedObj, oldObjList)
 		}
 
 		return false, false
@@ -189,9 +194,15 @@ func equalObjWithSort(mergedObj interface{}, oldObj interface{}, zeroValueEquals
 	}
 }
 
-// checkFieldsWithSort is a check for maps that uses an arbitrary sort to ensure it is
-// comparing the right values
-func checkFieldsWithSort(
+// checkFieldsAreEquivalent deeply compares two maps and determines whether they
+// contain equivalent fields. During the comparison, it specially considers fields
+// which may be omitted because they are "zero values" and lists which might have
+// different orderings. The `zeroValueEqualsNil` parameter may be used to disable
+// those "zero value" allowances.
+//
+// It returns whether the two maps are considered equivalent, and if there are
+// "extra" fields in `mergedObj` that are just "zero values".
+func checkFieldsAreEquivalent(
 	mergedObj map[string]interface{}, oldObj map[string]interface{}, zeroValueEqualsNil bool,
 ) (matches, missingKey bool) {
 	// needed to compare lists, since merge messes up the order
@@ -212,7 +223,7 @@ func checkFieldsWithSort(
 				return false, missingKey
 			}
 
-			match, missing := checkFieldsWithSort(mVal, oVal, zeroValueEqualsNil)
+			match, missing := checkFieldsAreEquivalent(mVal, oVal, zeroValueEqualsNil)
 			missingKey = missingKey || missing
 
 			if !match {
@@ -233,7 +244,7 @@ func checkFieldsWithSort(
 				return false, missingKey
 			}
 
-			match, miss := checkListsMatch(oVal, mVal)
+			match, miss := checkListsAreEquivalent(oVal, mVal)
 			missingKey = missingKey || miss
 
 			if !match {
@@ -311,8 +322,14 @@ func sortAndSprint(item interface{}) string {
 	}
 }
 
-// checkListsMatch is a generic list check that uses an arbitrary sort to ensure it is comparing the right values
-func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (matches, missingKey bool) {
+// checkListsAreEquivalent deeply compares two lists and determines whether they
+// contain the same items, regardless of order. When comparing items which are
+// maps, it specially considers fields which may be omitted because they are
+// "zero values".
+//
+// It returns whether the two lists are considered equivalent, and if there are
+// "extra" fields in items of the `mergedVal` list which are just "zero values".
+func checkListsAreEquivalent(oldVal []interface{}, mergedVal []interface{}) (matches, missingKey bool) {
 	if (oldVal == nil && mergedVal != nil) || (oldVal != nil && mergedVal == nil) {
 		return false, false
 	}
@@ -337,7 +354,7 @@ func checkListsMatch(oldVal []interface{}, mergedVal []interface{}) (matches, mi
 		case map[string]interface{}:
 			// if list contains maps, recurse on those maps to check for a match
 			if mVal, ok := mVal[idx].(map[string]interface{}); ok {
-				match, miss := checkFieldsWithSort(mVal, oNestedVal, true)
+				match, miss := checkFieldsAreEquivalent(mVal, oNestedVal, true)
 				missingKey = missingKey || miss
 
 				if !match {
