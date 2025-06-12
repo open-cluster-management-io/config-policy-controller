@@ -102,26 +102,7 @@ func TestAddConditionToStatusNeverEvalInterval(t *testing.T) {
 	}
 }
 
-func TestCheckFieldsWithSort(t *testing.T) {
-	t.Parallel()
-
-	oldObj := map[string]interface{}{
-		"nonResourceURLs": []string{"/version", "/healthz"},
-		"verbs":           []string{"get"},
-	}
-	mergedObj := map[string]interface{}{
-		"nonResourceURLs": []string{"/version", "/healthz"},
-		"verbs":           []string{"get"},
-		"apiGroups":       []interface{}{},
-		"resources":       []interface{}{},
-	}
-
-	check, _ := checkFieldsWithSort(mergedObj, oldObj, false)
-
-	assert.True(t, check)
-}
-
-func TestCheckFieldsWithSortEmptyMap(t *testing.T) {
+func TestCheckFieldsAreEquivalentEmptyMap(t *testing.T) {
 	oldObj := map[string]interface{}{
 		"spec": map[string]interface{}{
 			"storage": map[string]interface{}{
@@ -139,14 +120,14 @@ func TestCheckFieldsWithSortEmptyMap(t *testing.T) {
 		},
 	}
 
-	check, _ := checkFieldsWithSort(mergedObj, oldObj, false)
+	check, _ := checkFieldsAreEquivalent(mergedObj, oldObj, false)
 	assert.False(t, check)
 
-	check, _ = checkFieldsWithSort(mergedObj, oldObj, true)
+	check, _ = checkFieldsAreEquivalent(mergedObj, oldObj, true)
 	assert.True(t, check)
 }
 
-func TestEqualObjWithSort(t *testing.T) {
+func TestCheckFieldsAreEquivalent(t *testing.T) {
 	t.Parallel()
 
 	oldObj := map[string]interface{}{
@@ -160,15 +141,15 @@ func TestEqualObjWithSort(t *testing.T) {
 		"resources":       []interface{}{},
 	}
 
-	check, _ := checkFieldsWithSort(mergedObj, oldObj, true)
+	check, _ := checkFieldsAreEquivalent(mergedObj, oldObj, false)
 	assert.True(t, check)
-	check, _ = checkFieldsWithSort(mergedObj, nil, true)
+
+	check, _ = checkFieldsAreEquivalent(mergedObj, oldObj, true)
+	assert.True(t, check)
+
+	check, _ = checkFieldsAreEquivalent(mergedObj, nil, true)
 	assert.False(t, check)
 
-	oldObj = map[string]interface{}{
-		"nonResourceURLs": []string{"/version", "/healthz"},
-		"verbs":           []string{"get"},
-	}
 	mergedObj = map[string]interface{}{
 		"nonResourceURLs": []string{"/version", "/healthz"},
 		"verbs":           []string{"post"},
@@ -176,24 +157,24 @@ func TestEqualObjWithSort(t *testing.T) {
 		"resources":       []interface{}{},
 	}
 
-	check, _ = checkFieldsWithSort(mergedObj, oldObj, true)
+	check, _ = checkFieldsAreEquivalent(mergedObj, oldObj, true)
 	assert.False(t, check)
 }
 
-func TestEqualObjWithSortString(t *testing.T) {
+func TestDeeplyEquivalentString(t *testing.T) {
 	t.Parallel()
 
-	check, _ := equalObjWithSort("", nil, true)
+	check, _ := deeplyEquivalent("", nil, true)
 	assert.True(t, check)
-	check, _ = equalObjWithSort("", nil, false)
+	check, _ = deeplyEquivalent("", nil, false)
 	assert.False(t, check)
-	check, _ = equalObjWithSort(nil, "", true)
+	check, _ = deeplyEquivalent(nil, "", true)
 	assert.True(t, check)
-	check, _ = equalObjWithSort(nil, "", false)
+	check, _ = deeplyEquivalent(nil, "", false)
 	assert.False(t, check)
 }
 
-func TestEqualObjWithSortEmptyMap(t *testing.T) {
+func TestDeeplyEquivalentEmptyMap(t *testing.T) {
 	t.Parallel()
 
 	oldObj := map[string]interface{}{
@@ -205,9 +186,9 @@ func TestEqualObjWithSortEmptyMap(t *testing.T) {
 		},
 	}
 
-	check, _ := equalObjWithSort(mergedObj, oldObj, true)
+	check, _ := deeplyEquivalent(mergedObj, oldObj, true)
 	assert.True(t, check)
-	check, _ = equalObjWithSort(mergedObj, oldObj, false)
+	check, _ = deeplyEquivalent(mergedObj, oldObj, false)
 	assert.False(t, check)
 }
 
