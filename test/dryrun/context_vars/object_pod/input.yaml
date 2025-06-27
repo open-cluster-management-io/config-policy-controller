@@ -9,3 +9,9 @@ spec:
       name: nginx
       ports:
         - containerPort: 80
+status:
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: "2025-06-27T18:07:17Z"
+    status: "True"
+    type: PodReadyToStartContainers
