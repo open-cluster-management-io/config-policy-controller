@@ -1,0 +1,3 @@
+# Diffs:
+# Compliance messages:
+NonCompliant; violation - namespaced object templated-ns-configmap of kind ConfigMap has no namespace specified after template resolution

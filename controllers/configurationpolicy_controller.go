@@ -1347,10 +1347,12 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 	relevantNsNames := map[string]map[string]unstructured.Unstructured{}
 
 	desiredNs := parsedMinMetadata.Metadata.Namespace
+	hasTemplatedNs := false
 
 	// If the namespace is templated, consider it not explicitly set
 	if templates.HasTemplate([]byte(desiredNs), "", true) {
 		desiredNs = ""
+		hasTemplatedNs = true
 	}
 
 	desiredName := parsedMinMetadata.Metadata.Name
@@ -1401,25 +1403,29 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		// (Fetching for the object selector is handled later on)
 		fetchObject := needsObject && desiredName != "" && parsedMinMetadata.Metadata.Namespace == ""
 
-		if len(selectedNamespaces) != 0 {
-			for _, ns := range selectedNamespaces {
-				if fetchObject {
-					var existingObj *unstructured.Unstructured
-					if usingWatch {
-						existingObj, _ = r.getObjectFromCache(plc, ns, desiredName, objGVK)
-					} else {
-						existingObj, _ = getObject(ns, desiredName, scopedGVR, r.TargetK8sDynamicClient)
-					}
+		for _, ns := range selectedNamespaces {
+			if fetchObject {
+				var existingObj *unstructured.Unstructured
+				if usingWatch {
+					existingObj, _ = r.getObjectFromCache(plc, ns, desiredName, objGVK)
+				} else {
+					existingObj, _ = getObject(ns, desiredName, scopedGVR, r.TargetK8sDynamicClient)
+				}
 
-					if existingObj != nil {
-						relevantNsNames[ns] = map[string]unstructured.Unstructured{desiredName: *existingObj}
-					} else {
-						relevantNsNames[ns] = defaultNamesPerNs
-					}
+				if existingObj != nil {
+					relevantNsNames[ns] = map[string]unstructured.Unstructured{desiredName: *existingObj}
 				} else {
 					relevantNsNames[ns] = defaultNamesPerNs
 				}
+			} else {
+				relevantNsNames[ns] = defaultNamesPerNs
 			}
+		}
+
+		// If no namespaces were selected and the namespace is templated, set a default.
+		// Having an empty namespace after template resolution is handled later on.
+		if len(relevantNsNames) == 0 && hasTemplatedNs {
+			relevantNsNames[""] = defaultNamesPerNs
 		}
 
 	case scopedGVR.Namespaced:
@@ -1760,6 +1766,25 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 					reason:    reasonTemplateError,
 					message: "The object definition's namespace must match the result " +
 						"from the namespace selector after template resolution",
+				}
+
+				return nil, &scopedGVR, errEvent, nil
+			}
+
+			// Error if the namespace is templated and returns empty.
+			if scopedGVR.Namespaced && hasTemplatedNs && desiredObj.GetNamespace() == "" {
+				var space string
+				if desiredName != "" {
+					space = " "
+				}
+
+				errEvent := &objectTmplEvalEvent{
+					compliant: false,
+					reason:    reasonTemplateError,
+					message: fmt.Sprintf("namespaced object%s%s of kind %s has no namespace specified "+
+						"after template resolution",
+						space, desiredName, objGVK.Kind,
+					),
 				}
 
 				return nil, &scopedGVR, errEvent, nil

@@ -1,0 +1,17 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-object-var-templated-name
+spec:
+  remediationAction: inform
+  object-templates:
+    - complianceType: musthave
+      recordDiff: InStatus
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: templated-ns-configmap
+          namespace: '{{ "" }}'
+        data:
+          this: thing

@@ -27,16 +27,22 @@ var (
 	objUnnamedDef embed.FS
 	//go:embed objectns_cluster_scoped
 	objNsClusterScoped embed.FS
+	//go:embed objectns_templated_empty
+	objNsTemplatedEmpty embed.FS
+	//go:embed objectns_templated_no_nsselector
+	objNsTemplatedNoNsSelector embed.FS
 
 	testCases = map[string]embed.FS{
-		"Test Object: available for namespaced objects":                objNamespaced,
-		"Test Object: available for complex objects":                   objPod,
-		"Test Object: nil for objects that don't exist":                objPodNsSelector,
-		"Test Object: nil but succeeds with default function":          objPodDefaultFunc,
-		"Test Object: available for cluster-scoped objects":            objClusterScoped,
-		"Test Object: nil when namespace is templated":                 objTmplNs,
-		"Test Object: unavailable for unnamed objects":                 objUnnamedDef,
-		"Test ObjectNamespace: unavailable for cluster-scoped objects": objNsClusterScoped,
+		"Test Object: available for namespaced objects":                    objNamespaced,
+		"Test Object: available for complex objects":                       objPod,
+		"Test Object: nil for objects that don't exist":                    objPodNsSelector,
+		"Test Object: nil but succeeds with default function":              objPodDefaultFunc,
+		"Test Object: available for cluster-scoped objects":                objClusterScoped,
+		"Test Object: nil when namespace is templated":                     objTmplNs,
+		"Test Object: unavailable for unnamed objects":                     objUnnamedDef,
+		"Test ObjectNamespace: unavailable for cluster-scoped objects":     objNsClusterScoped,
+		"Test ObjectNamespace: noncompliant for empty templated namespace": objNsTemplatedEmpty,
+		"Test ObjectNamespace: available for templated namespace":          objNsTemplatedNoNsSelector,
 	}
 )
 
