@@ -1,0 +1,5 @@
+# Diffs:
+v1 ConfigMap my-namespace/templated-ns-configmap:
+
+# Compliance messages:
+Compliant; notification - configmaps [templated-ns-configmap] found as specified in namespace my-namespace
