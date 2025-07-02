@@ -664,14 +664,22 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 			} else {
 				// Don't use the cache here to avoid race conditions since this is to verify that the deletion was
 				// successful. The cache is dependent on the watch updating.
-				obj, _ := getObject(
+				obj, err := getObject(
 					object.Object.Metadata.Namespace,
 					object.Object.Metadata.Name,
 					scopedGVR,
 					r.TargetK8sDynamicClient,
 				)
 
-				if obj != nil {
+				if err != nil {
+					// Note: a NotFound error is handled specially in `getObject`, so this is something different
+					log.Error(err, "Error: failed to get object after deleting it")
+
+					deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
+						object.Object.Metadata.Name, object.Object.Metadata.Namespace))
+
+					continue
+				} else if obj != nil {
 					log.Error(err, "Error: tried to delete object, but delete is hanging")
 
 					deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
@@ -1027,8 +1035,8 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 
 			related, result := r.handleObjects(objectT, desiredObj, index, plc, *scopedGVR, usingWatch)
 
-			if result.enforcementErr != nil {
-				errs = append(errs, result.enforcementErr)
+			if result.apiErr != nil {
+				errs = append(errs, result.apiErr)
 			}
 
 			nsNameToResults[resultKey] = result
@@ -1409,6 +1417,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				if usingWatch {
 					existingObj, _ = r.getObjectFromCache(plc, ns, desiredName, objGVK)
 				} else {
+					// We can ignore errors here because if we can't fetch the object, we just won't include it.
 					existingObj, _ = getObject(ns, desiredName, scopedGVR, r.TargetK8sDynamicClient)
 				}
 
@@ -2059,6 +2068,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 	desiredObjKind := desiredObj.GetKind()
 
 	var existingObj *unstructured.Unstructured
+	var getErr error
 	var allResourceNames []string
 
 	if desiredObjName != "" { // named object, so checking just for the existence of the specific object
@@ -2070,14 +2080,12 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 				Kind:    desiredObjKind,
 			}
 
-			var err error
-
-			existingObj, err = r.getObjectFromCache(policy, desiredObjNamespace, desiredObjName, objGVK)
+			existingObj, getErr = r.getObjectFromCache(policy, desiredObjNamespace, desiredObjName, objGVK)
 
 			// This error is handled specially - others are handled later
-			if errors.Is(err, depclient.ErrResourceUnwatchable) {
+			if errors.Is(getErr, depclient.ErrResourceUnwatchable) {
 				msg := fmt.Sprintf("Error with object-template at index [%d], "+
-					"it may require evaluationInterval to be set: %v", index, err)
+					"it may require evaluationInterval to be set: %v", index, getErr)
 
 				result = objectTmplEvalResult{
 					objectNames: []string{desiredObjName},
@@ -2094,7 +2102,7 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 				return []policyv1.RelatedObject{}, result
 			}
 		} else {
-			existingObj, _ = getObject(desiredObjNamespace, desiredObjName, scopedGVR, r.TargetK8sDynamicClient)
+			existingObj, getErr = getObject(desiredObjNamespace, desiredObjName, scopedGVR, r.TargetK8sDynamicClient)
 		}
 
 		exists = existingObj != nil
@@ -2121,11 +2129,28 @@ func (r *ConfigurationPolicyReconciler) handleObjects(
 		if len(objNames) == 0 {
 			exists = false
 		} else if len(objNames) == 1 {
-			// If the object couldn't be retrieved, this will be handled later on.
-			existingObj, _ = getObject(desiredObjNamespace, objNames[0], scopedGVR, r.TargetK8sDynamicClient)
-
+			existingObj, getErr = getObject(desiredObjNamespace, objNames[0], scopedGVR, r.TargetK8sDynamicClient)
 			exists = existingObj != nil
 		}
+	}
+
+	if getErr != nil {
+		msg := fmt.Sprintf("Error retrieving an object for object-template at index [%d]: %v", index, getErr)
+
+		result = objectTmplEvalResult{
+			objectNames: objNames,
+			namespace:   desiredObjNamespace, // may be empty
+			events: []objectTmplEvalEvent{{
+				compliant: false,
+				reason:    "api error",
+				message:   msg,
+			}},
+			apiErr: getErr,
+		}
+
+		log.Error(getErr, "Returning early in handleObjects for an API error")
+
+		return []policyv1.RelatedObject{}, result
 	}
 
 	objShouldExist := !objectT.ComplianceType.IsMustNotHave()
@@ -2239,10 +2264,10 @@ type singleObject struct {
 }
 
 type objectTmplEvalResult struct {
-	objectNames    []string
-	namespace      string
-	events         []objectTmplEvalEvent
-	enforcementErr error
+	objectNames []string
+	namespace   string
+	events      []objectTmplEvalEvent
+	apiErr      error
 }
 
 type objectTmplEvalEvent struct {
@@ -2301,7 +2326,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			if err != nil {
 				// violation created for handling error
 				objLog.Error(err, "Could not handle missing musthave object")
-				result.enforcementErr = err
+				result.apiErr = err
 			} else {
 				created := true
 				objectProperties = &policyv1.ObjectProperties{
@@ -2320,7 +2345,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			completed, reason, msg, err := r.enforceByDeleting(obj)
 			if err != nil {
 				objLog.Error(err, "Could not handle existing mustnothave object")
-				result.enforcementErr = err
+				result.apiErr = err
 			}
 
 			result.events = append(result.events, objectTmplEvalEvent{completed, reason, msg})
