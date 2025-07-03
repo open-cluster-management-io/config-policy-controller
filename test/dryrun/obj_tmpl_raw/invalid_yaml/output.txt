@@ -1,0 +1,3 @@
+# Diffs:
+# Compliance messages:
+NonCompliant; violation - Error parsing object-templates-raw YAML: error converting YAML to JSON: yaml: unknown anchor 'odd' referenced

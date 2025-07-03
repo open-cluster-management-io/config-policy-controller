@@ -1,0 +1,20 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: invalid-otr-yaml
+spec:
+  remediationAction: inform
+  severity: low
+  namespaceSelector:
+    include: ["default"]
+  object-templates-raw: |
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: sample
+          namespace: default
+        data:
+          something: *odd
+          another: valid
