@@ -670,7 +670,6 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 					scopedGVR,
 					r.TargetK8sDynamicClient,
 				)
-
 				if err != nil {
 					// Note: a NotFound error is handled specially in `getObject`, so this is something different
 					log.Error(err, "Error: failed to get object after deleting it")
@@ -679,7 +678,9 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 						object.Object.Metadata.Name, object.Object.Metadata.Namespace))
 
 					continue
-				} else if obj != nil {
+				}
+
+				if obj != nil {
 					log.Error(err, "Error: tried to delete object, but delete is hanging")
 
 					deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
@@ -777,7 +778,25 @@ func (r *ConfigurationPolicyReconciler) resolveObjectTemplatesRaw(
 
 	if !templates.HasTemplate(objRawBytes, "", true) {
 		// Unmarshal raw template YAML into object as it doesn't need template resolution
-		return yaml.Unmarshal(objRawBytes, &plc.Spec.ObjectTemplates)
+		err := yaml.Unmarshal(objRawBytes, &plc.Spec.ObjectTemplates)
+		if err != nil {
+			complianceMsg := fmt.Sprintf("Error parsing object-templates-raw YAML: %v", err)
+
+			statusChanged := addConditionToStatus(plc, -1, false, "Error processing template", complianceMsg)
+			if statusChanged {
+				r.recordInfoEvent(plc, true)
+			}
+
+			r.updatedRelatedObjects(plc, []policyv1.RelatedObject{})
+
+			// Note: don't clean up child objects when there is a template violation
+
+			r.addForUpdate(plc, statusChanged)
+
+			return fmt.Errorf("%w: failed parsing object-templates-raw YAML: %w", ErrPolicyInvalid, err)
+		}
+
+		return nil
 	}
 
 	// If there's a template, we can't rely on the cache results.
