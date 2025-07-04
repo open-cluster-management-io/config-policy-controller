@@ -8,6 +8,7 @@ import (
 	"embed"
 	"errors"
 	"io/fs"
+	"os"
 	"strings"
 	"testing"
 
@@ -20,7 +21,9 @@ func Run(testFiles embed.FS) func(t *testing.T) {
 	return func(t *testing.T) {
 		t.Helper()
 
-		d := dryrun.DryRunner{}
+		d := dryrun.DryRunner{
+			LogPath: os.Stdout.Name(),
+		}
 		cmd := d.GetCmd()
 
 		testout := bytes.Buffer{}
