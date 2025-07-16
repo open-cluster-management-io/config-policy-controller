@@ -165,17 +165,18 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			Expect(configlPlc).To(BeNil())
 		})
 	})
-	Describe("policy message should not be truncated", Ordered, func() {
+	Describe("policy message should not be truncated until 4096 characters", Ordered, func() {
 		const (
 			case31LMPolicy           = "../resources/case31_policy_history/long-message-policy.yaml"
 			case31LMConfigPolicy     = "../resources/case31_policy_history/long-message-config-policy.yaml"
 			case31LMPolicyName       = "long-message-policy"
 			case31LMConfigPolicyName = "long-message-config-policy"
 			namespacePrefix          = "innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt"
+			numberOfNamespaces       = 80
 		)
 		It("Test policy message length is over 1024 ", func() {
 			By("Create namespaces")
-			for i := range [15]int{} {
+			for i := range numberOfNamespaces {
 				utils.Kubectl("create", "ns", namespacePrefix+strconv.Itoa(i+1))
 			}
 			utils.Kubectl("apply", "-f", case31LMPolicy, "-n", "managed")
@@ -201,16 +202,21 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 				return compliant
 			}, 30, 5).Should(Equal("NonCompliant"))
 
-			By("check message longer than 1024")
-			Eventually(func() int {
-				event := utils.GetMatchingEvents(clientManaged, testNamespace,
-					case31LMPolicyName, case31LMConfigPolicyName, "NonCompliant", defaultTimeoutSeconds)
+			By("check maximum message length")
+			Eventually(func() string {
+				statusEvents := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+					case31LMConfigPolicyName, testNamespace, `NonCompliant.*\.\.\.\[truncated\]$`)
+				if len(statusEvents) == 0 {
+					return "no events"
+				}
 
-				Expect(event).ShouldNot(BeEmpty())
-				message := event[len(event)-1].Message
+				return statusEvents[0].Message
+			}, defaultTimeoutSeconds, 1).Should(HaveLen(4096))
 
-				return len(message)
-			}, 30, 5).Should(BeNumerically(">", 1024))
+			events := utils.GetMatchingEvents(clientManaged, testNamespace,
+				case31LMPolicyName, case31LMConfigPolicyName, "NonCompliant", defaultTimeoutSeconds)
+			Expect(events).ShouldNot(BeEmpty())
+			Expect(events[len(events)-1].Message).Should(HaveLen(4096))
 		})
 		AfterAll(func() {
 			utils.KubectlDelete("policy", case31LMPolicyName, "-n", "managed")
@@ -224,7 +230,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			utils.KubectlDelete("event",
 				"--field-selector=involvedObject.name="+case31LMConfigPolicy,
 				"-n", "managed")
-			for i := range [15]int{} {
+			for i := range numberOfNamespaces {
 				utils.KubectlDelete("ns", namespacePrefix+strconv.Itoa(i+1))
 			}
 		})
