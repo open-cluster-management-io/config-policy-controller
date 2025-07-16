@@ -3708,6 +3708,12 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	updateTime := time.Now()
 	message := r.customComplianceMessage(policy)
 
+	maxMessageLength := 4096
+	if len(message) > maxMessageLength {
+		truncMsg := "...[truncated]"
+		message = message[:(maxMessageLength-len(truncMsg))] + truncMsg
+	}
+
 	if sendEvent {
 		log.Info("Sending parent policy compliance event", "policy", policy.GetName(), "message", message)
 
