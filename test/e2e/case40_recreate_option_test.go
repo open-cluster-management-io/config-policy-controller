@@ -147,6 +147,9 @@ var _ = Describe("Recreate options", Ordered, func() {
 		createdByPolicy, _, _ := unstructured.NestedBool(relatedObject, "properties", "createdByPolicy")
 		Expect(createdByPolicy).To(BeTrue())
 
+		dryRunNoOpOverride, _, _ := unstructured.NestedBool(relatedObject, "properties", "dryRunNoOpOverride")
+		Expect(dryRunNoOpOverride).To(BeFalse())
+
 		deployment, err = clientManagedDynamic.Resource(gvrDeployment).Namespace("default").Get(
 			ctx, "case40", metav1.GetOptions{},
 		)
