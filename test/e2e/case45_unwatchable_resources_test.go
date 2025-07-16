@@ -100,7 +100,7 @@ var _ = Describe("Testing behavior with unwatchable resources", Ordered, func() 
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 			)
 
-			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the content of the configmap")
