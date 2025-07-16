@@ -29,9 +29,9 @@ import (
 )
 
 var (
-	testNamespace               string
-	defaultTimeoutSeconds       int
-	defaultConsistentlyDuration int
+	testNamespace               string // "managed"
+	defaultTimeoutSeconds       int    // 60
+	defaultConsistentlyDuration int    // 25
 	kubeconfigManaged           string
 	clientManaged               kubernetes.Interface
 	clientManagedDynamic        dynamic.Interface
@@ -54,7 +54,7 @@ var (
 	gvrInstallPlan              schema.GroupVersionResource
 	gvrClusterServiceVersion    schema.GroupVersionResource
 	gvrPackageManifest          schema.GroupVersionResource
-	defaultImageRegistry        string
+	defaultImageRegistry        string // "quay.io/open-cluster-management"
 	IsHosted                    bool
 	targetK8sClient             kubernetes.Interface
 	targetK8sDynamic            dynamic.Interface
