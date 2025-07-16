@@ -3705,19 +3705,45 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	policy *policyv1.ConfigurationPolicy, sendEvent bool,
 ) error {
+	updateTime := time.Now()
+	message := r.customComplianceMessage(policy)
+
 	if sendEvent {
-		log.Info("Sending parent policy compliance event")
+		log.Info("Sending parent policy compliance event", "policy", policy.GetName(), "message", message)
 
 		// If the compliance event can't be created, then don't update the ConfigurationPolicy
 		// status. As long as that hasn't been updated, everything will be retried next loop.
-		if err := r.sendComplianceEvent(policy); err != nil {
+		if err := r.sendComplianceEvent(policy, updateTime, message); err != nil {
+			log.Error(err, "Failed to send compliance event", "policy", policy.GetName(), "message", message)
+
 			return err
 		}
 	}
 
-	log.V(2).Info(
+	log.V(1).Info(
 		"Updating configurationPolicy status", "status", policy.Status.ComplianceState, "policy", policy.GetName(),
 	)
+
+	var latestEvent policyv1.HistoryEvent
+
+	if len(policy.Status.History) > 0 {
+		latestEvent = policy.Status.History[0]
+	}
+
+	// sendEvent should be true whenever the message changes, but check just in case a situation is missed
+	if sendEvent || latestEvent.Message != message {
+		newEvent := policyv1.HistoryEvent{
+			LastTimestamp: metav1.NewMicroTime(updateTime),
+			Message:       message,
+		}
+
+		policy.Status.History = append([]policyv1.HistoryEvent{newEvent}, policy.Status.History...)
+
+		maxHistoryLength := 10 // At some point, we may make this length configurable
+		if len(policy.Status.History) > maxHistoryLength {
+			policy.Status.History = policy.Status.History[:maxHistoryLength]
+		}
+	}
 
 	evaluatedUID := policy.UID
 	updatedStatus := policy.Status
@@ -3806,18 +3832,21 @@ func (r *ConfigurationPolicyReconciler) recordInfoEvent(plc *policyv1.Configurat
 	)
 }
 
-func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.ConfigurationPolicy) error {
+func (r *ConfigurationPolicyReconciler) sendComplianceEvent(
+	instance *policyv1.ConfigurationPolicy,
+	updateTime time.Time,
+	message string,
+) error {
 	if len(instance.OwnerReferences) == 0 {
 		return nil // there is nothing to do, since no owner is set
 	}
 
 	// we are making an assumption that the GRC policy has a single owner, or we chose the first owner in the list
 	ownerRef := instance.OwnerReferences[0]
-	now := time.Now()
 	event := &corev1.Event{
 		ObjectMeta: metav1.ObjectMeta{
 			// This event name matches the convention of recorders from client-go
-			Name:      fmt.Sprintf("%v.%x", ownerRef.Name, now.UnixNano()),
+			Name:      fmt.Sprintf("%v.%x", ownerRef.Name, updateTime.UnixNano()),
 			Namespace: instance.Namespace,
 		},
 		InvolvedObject: corev1.ObjectReference{
@@ -3828,13 +3857,13 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 			APIVersion: ownerRef.APIVersion,
 		},
 		Reason:  fmt.Sprintf(eventFmtStr, instance.Namespace, instance.Name),
-		Message: r.customComplianceMessage(instance),
+		Message: message,
 		Source: corev1.EventSource{
 			Component: ControllerName,
 			Host:      r.InstanceName,
 		},
-		FirstTimestamp: metav1.NewTime(now),
-		LastTimestamp:  metav1.NewTime(now),
+		FirstTimestamp: metav1.NewTime(updateTime),
+		LastTimestamp:  metav1.NewTime(updateTime),
 		Count:          1,
 		Type:           "Normal",
 		Action:         "ComplianceStateUpdate",

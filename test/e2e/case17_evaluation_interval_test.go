@@ -14,20 +14,21 @@ import (
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case17ParentPolicyName     = "parent-policy-c17-create-ns"
-	case17ParentPolicy         = "../resources/case17_evaluation_interval/parent-policy.yaml"
-	case17Policy               = "../resources/case17_evaluation_interval/policy.yaml"
-	case17PolicyName           = "policy-c17-create-ns"
-	case17PolicyNever          = "../resources/case17_evaluation_interval/policy-never-reevaluate.yaml"
-	case17PolicyNeverName      = "policy-c17-create-ns-never"
-	case17CreatedNamespaceName = "case17-test-never"
-)
-
 var _ = Describe("Test evaluation interval", Ordered, func() {
+	const (
+		case17ParentPolicyName     = "parent-policy-c17-create-ns"
+		case17ParentPolicy         = "../resources/case17_evaluation_interval/parent-policy.yaml"
+		case17Policy               = "../resources/case17_evaluation_interval/policy.yaml"
+		case17PolicyName           = "policy-c17-create-ns"
+		case17PolicyNever          = "../resources/case17_evaluation_interval/policy-never-reevaluate.yaml"
+		case17PolicyNeverName      = "policy-c17-create-ns-never"
+		case17CreatedNamespaceName = "case17-test-never"
+	)
+
 	It("Verifies that status.lastEvaluated is properly set", func() {
 		createObjWithParent(case17ParentPolicy, case17ParentPolicyName,
 			case17Policy, testNamespace, gvrPolicy, gvrConfigPolicy)
@@ -83,6 +84,16 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 			g.Expect(events).To(HaveLen(1))
 			g.Expect(events[0].Count).To(Equal(int32(1)))
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+		By("Verifying that the policy status history is stable")
+		currentEvents := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+			case17PolicyName, testNamespace, "")
+		Expect(currentEvents).ShouldNot(BeEmpty())
+
+		Consistently(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				case17PolicyName, testNamespace, "")
+		}, defaultConsistentlyDuration, 5).Should(HaveLen(len(currentEvents)))
 
 		By("Verifying that only one event was sent for the parent policy")
 		Eventually(func(g Gomega) {
