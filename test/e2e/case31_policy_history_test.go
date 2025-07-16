@@ -35,6 +35,15 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			return eventlen
 		}, defaultConsistentlyDuration, 5).Should(BeNumerically("<", 2))
 
+		By("Checking events in the ConfigurationPolicy status")
+		Eventually(func() int {
+			events := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				configPolicyName, testNamespace, "NonCompliant;")
+			GinkgoWriter.Printf("events: %+v", events)
+
+			return len(events)
+		}, defaultTimeoutSeconds, 1).Should(BeNumerically("<", 3))
+
 		By("Checking the events on the parent policy")
 		// NOTE: pick policy event, these event's reason include ConfigPolicyName
 		Consistently(func() int {

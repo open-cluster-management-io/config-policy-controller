@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
@@ -62,6 +63,10 @@ var _ = Describe("Testing behavior with unwatchable resources", Ordered, func() 
 		tmpl2msg := "violation - failed to resolve the template .* watch not supported on this resource " +
 			"- this template may require evaluationInterval to be set"
 		desiredMessage := "NonCompliant; " + tmpl1msg + tmpl2msg
+		Eventually(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, desiredMessage)
+		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 		Eventually(func() []v1.Event {
 			return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 				fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -76,6 +81,10 @@ var _ = Describe("Testing behavior with unwatchable resources", Ordered, func() 
 		tmpl2msg := `violation - configmaps \[case45\] not found in namespace default`
 		desiredMessage := "NonCompliant; " + tmpl1msg + "; " + tmpl2msg
 
+		Eventually(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, desiredMessage)
+		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 		Eventually(func() []v1.Event {
 			return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 				fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)

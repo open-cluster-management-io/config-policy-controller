@@ -9,6 +9,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
@@ -29,25 +30,37 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 		createObjWithParent(policyYAML, policyName, cfgPlcYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		By("Checking there is a NonCompliant event on the policy")
+		Eventually(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				cfgPlcName, testNamespace, "^NonCompliant;")
+		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 		Eventually(func() interface{} {
 			return utils.GetMatchingEvents(clientManaged, testNamespace,
 				policyName, cfgPlcName, "^NonCompliant;", defaultTimeoutSeconds)
 		}, defaultTimeoutSeconds, 5).ShouldNot(BeEmpty())
 
 		By("Checking there are no Compliant events on the policy")
-		Consistently(func() interface{} {
+		Consistently(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				cfgPlcName, testNamespace, "^Compliant;")
+		}, defaultConsistentlyDuration, 5).Should(BeEmpty())
+		Eventually(func() interface{} {
 			return utils.GetMatchingEvents(clientManaged, testNamespace,
 				policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
-		}, defaultConsistentlyDuration, 5).Should(BeEmpty())
+		}, defaultTimeoutSeconds, 1).Should(BeEmpty())
 
 		By("Updating the policy")
 		utils.Kubectl("apply", "-f", updatedCfgPlc, "-n", testNamespace)
 
 		By("Checking there are no Compliant events created during the update flow")
-		Consistently(func() interface{} {
+		Consistently(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				cfgPlcName, testNamespace, "^Compliant;")
+		}, defaultConsistentlyDuration, 5).Should(BeEmpty())
+		Eventually(func() interface{} {
 			return utils.GetMatchingEvents(clientManaged, testNamespace,
 				policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
-		}, defaultConsistentlyDuration, 5).Should(BeEmpty())
+		}, defaultTimeoutSeconds, 1).Should(BeEmpty())
 
 		By("Setting a finalizer on the namespace")
 		utils.Kubectl("patch", "ns", nsName, "--type=merge",
@@ -64,6 +77,10 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 		utils.Kubectl("delete", "ns", nsName, "--wait=false")
 
 		By("Checking there is now a Compliant event on the policy")
+		Eventually(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				cfgPlcName, testNamespace, "^Compliant;")
+		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 		Eventually(func() interface{} {
 			return utils.GetMatchingEvents(clientManaged, testNamespace,
 				policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)

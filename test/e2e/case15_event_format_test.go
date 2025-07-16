@@ -12,32 +12,33 @@ import (
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case15AlwaysCompliantParentYaml     = "../resources/case15_event_format/case15_parent_alwayscompliant.yaml"
-	case15AlwaysCompliantParentName     = "parent-alwayscompliant"
-	case15AlwaysCompliantYaml           = "../resources/case15_event_format/case15_mnh_pod_alwayscompliant.yaml"
-	case15AlwaysCompliantName           = "mnh-pod-alwayscompliant"
-	case15NeverCompliantYaml            = "../resources/case15_event_format/case15_mh_pod_nevercompliant.yaml"
-	case15NeverCompliantName            = "mh-pod-nevercompliant"
-	case15NeverCompliantParentYaml      = "../resources/case15_event_format/case15_parent_nevercompliant.yaml"
-	case15NeverCompliantParentName      = "parent-nevercompliant"
-	case15BecomesCompliantYaml          = "../resources/case15_event_format/case15_mh_pod_becomescompliant.yaml"
-	case15BecomesCompliantName          = "mh-pod-becomescompliant"
-	case15BecomesCompliantParentYaml    = "../resources/case15_event_format/case15_parent_becomescompliant.yaml"
-	case15BecomesCompliantParentName    = "parent-becomescompliant"
-	case15BecomesNonCompliantYaml       = "../resources/case15_event_format/case15_mnh_pod_becomesnoncompliant.yaml"
-	case15BecomesNonCompliantName       = "mnh-pod-becomesnoncompliant"
-	case15BecomesNonCompliantParentYaml = "../resources/case15_event_format/case15_parent_becomesnoncompliant.yaml"
-	case15BecomesNonCompliantParentName = "parent-becomesnoncompliant"
-	case15PodForNonComplianceYaml       = "../resources/case15_event_format/case15_becomesnoncompliant_pod.yaml"
-	case15PodNoncompliantName           = "case15-becomesnoncompliant"
-	case15PodCompliantName              = "case15-becomescompliant"
-)
-
 var _ = Describe("Testing compliance event formatting", Ordered, func() {
+	const (
+		case15AlwaysCompliantParentYaml     = "../resources/case15_event_format/case15_parent_alwayscompliant.yaml"
+		case15AlwaysCompliantParentName     = "parent-alwayscompliant"
+		case15AlwaysCompliantYaml           = "../resources/case15_event_format/case15_mnh_pod_alwayscompliant.yaml"
+		case15AlwaysCompliantName           = "mnh-pod-alwayscompliant"
+		case15NeverCompliantYaml            = "../resources/case15_event_format/case15_mh_pod_nevercompliant.yaml"
+		case15NeverCompliantName            = "mh-pod-nevercompliant"
+		case15NeverCompliantParentYaml      = "../resources/case15_event_format/case15_parent_nevercompliant.yaml"
+		case15NeverCompliantParentName      = "parent-nevercompliant"
+		case15BecomesCompliantYaml          = "../resources/case15_event_format/case15_mh_pod_becomescompliant.yaml"
+		case15BecomesCompliantName          = "mh-pod-becomescompliant"
+		case15BecomesCompliantParentYaml    = "../resources/case15_event_format/case15_parent_becomescompliant.yaml"
+		case15BecomesCompliantParentName    = "parent-becomescompliant"
+		case15BecomesNonCompliantYaml       = "../resources/case15_event_format/case15_mnh_pod_becomesnoncompliant.yaml"
+		case15BecomesNonCompliantName       = "mnh-pod-becomesnoncompliant"
+		case15BecomesNonCompliantParentYaml = "../resources/case15_event_format/case15_parent_becomesnoncompliant.yaml"
+		case15BecomesNonCompliantParentName = "parent-becomesnoncompliant"
+		case15PodForNonComplianceYaml       = "../resources/case15_event_format/case15_becomesnoncompliant_pod.yaml"
+		case15PodNoncompliantName           = "case15-becomesnoncompliant"
+		case15PodCompliantName              = "case15-becomescompliant"
+	)
+
 	It("Records the right events for a policy that is always compliant", func() {
 		createObjWithParent(case15AlwaysCompliantParentYaml, case15AlwaysCompliantParentName,
 			case15AlwaysCompliantYaml, testNamespace, gvrPolicy, gvrConfigPolicy)
@@ -60,6 +61,12 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 		nonCompPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
 			case15AlwaysCompliantName, "", "Policy status is NonCompliant", defaultTimeoutSeconds)
 		Expect(nonCompPlcEvents).To(BeEmpty())
+
+		By("Checking events in the ConfigurationPolicy status")
+		Eventually(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				case15AlwaysCompliantName, testNamespace, "^Compliant;")
+		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 
 		By("Checking events on the parent policy")
 		Eventually(func(g Gomega) {
@@ -102,6 +109,12 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 				case15NeverCompliantName, "", "Policy status is NonCompliant", defaultTimeoutSeconds)
 		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 
+		By("Checking events in the ConfigurationPolicy status")
+		Eventually(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				case15NeverCompliantName, testNamespace, "^NonCompliant;")
+		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+
 		By("Checking events on the parent policy")
 		compParentEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
 			case15NeverCompliantParentName, "policy: "+testNamespace+"/"+case15NeverCompliantName,
@@ -136,11 +149,13 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
-		By("Checking for compliant events on the configurationpolicy and the parent policy")
+		By("Checking for compliant events on the configurationpolicy")
 		Eventually(func() []v1.Event {
 			return utils.GetMatchingEvents(clientManaged, testNamespace,
 				case15BecomesCompliantName, "", "Policy status is Compliant", defaultTimeoutSeconds)
 		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+
+		By("Checking events on the parent policy")
 		Eventually(func() []v1.Event {
 			return utils.GetMatchingEvents(clientManaged, testNamespace,
 				case15BecomesCompliantParentName, "policy: "+testNamespace+"/"+case15BecomesCompliantName,
@@ -151,6 +166,16 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 				"policy: "+testNamespace+"/"+case15BecomesCompliantName,
 				"^Compliant;.*was created successfully in namespace default$", defaultTimeoutSeconds)
 		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+
+		By("Checking events in the ConfigurationPolicy status")
+		Eventually(func() []string {
+			return utils.GetHistoryMessages(clientManagedDynamic, gvrConfigPolicy,
+				case15BecomesCompliantName, testNamespace, "^NonCompliant")
+		}, defaultTimeoutSeconds, 1).Should(ContainElement(ContainSubstring("not found in namespace default")))
+		Eventually(func() []string {
+			return utils.GetHistoryMessages(clientManagedDynamic, gvrConfigPolicy,
+				case15BecomesCompliantName, testNamespace, "^Compliant")
+		}, defaultTimeoutSeconds, 1).Should(ContainElement(ContainSubstring("was created successfully")))
 	})
 	It("Records events for a policy that becomes noncompliant", func() {
 		createObjWithParent(case15BecomesNonCompliantParentYaml, case15BecomesNonCompliantParentName,
@@ -175,12 +200,19 @@ var _ = Describe("Testing compliance event formatting", Ordered, func() {
 			utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
-		By("Checking for noncompliant events on the configurationpolicy and the parent policy")
+		By("Checking for noncompliant events on the configurationpolicy")
 		Eventually(func() []v1.Event {
 			return utils.GetMatchingEvents(clientManaged, testNamespace,
 				case15BecomesNonCompliantName, "", "Policy status is NonCompliant", defaultTimeoutSeconds)
 		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 
+		By("Checking events in the ConfigurationPolicy status")
+		Eventually(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				case15BecomesNonCompliantName, testNamespace, "^NonCompliant;")
+		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+
+		By("Checking for noncompliant events on the parent policy")
 		Eventually(func() []v1.Event {
 			return utils.GetMatchingEvents(clientManaged, testNamespace,
 				case15BecomesNonCompliantParentName, "policy: "+testNamespace+"/"+case15BecomesNonCompliantName,

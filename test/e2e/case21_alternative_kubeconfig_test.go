@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
@@ -55,6 +56,12 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 		By("Verifying that the " + policyName + " was created using the alternative kubeconfig")
 		_, err := targetK8sClient.CoreV1().Namespaces().Get(context.TODO(), namespaceName, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
+
+		By("Checking for an event in the ConfigurationPolicy status")
+		Eventually(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "^Compliant;")
+		}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 
 		By("Verifying that a compliance event was created on the parent policy")
 		Eventually(func() []v1.Event {

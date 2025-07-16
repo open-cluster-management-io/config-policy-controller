@@ -7,6 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
@@ -27,6 +28,10 @@ var _ = Describe("Test a policy with an objectDefinition with an invalid apiVers
 		createObjWithParent(policyYAML, policyName, cfgPlcYAML, testNamespace, gvrPolicy, gvrConfigPolicy)
 
 		By("Checking there is a NonCompliant event on the policy")
+		Eventually(func() []string {
+			return utils.GetHistoryMessages(clientManagedDynamic, gvrConfigPolicy,
+				cfgPlcName, testNamespace, "")
+		}, defaultTimeoutSeconds, 1).Should(ContainElement(MatchRegexp(complianceMsg)))
 		Eventually(func() interface{} {
 			return utils.GetMatchingEvents(
 				clientManaged, testNamespace, policyName, cfgPlcName, complianceMsg, defaultTimeoutSeconds,
@@ -34,10 +39,12 @@ var _ = Describe("Test a policy with an objectDefinition with an invalid apiVers
 		}, defaultTimeoutSeconds, 5).ShouldNot(BeEmpty())
 
 		By("Checking there are no Compliant events on the policy")
-		Consistently(func() interface{} {
-			return utils.GetMatchingEvents(clientManaged, testNamespace,
-				policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
+		Consistently(func() []policyv1.HistoryEvent {
+			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				cfgPlcName, testNamespace, "^Compliant;")
 		}, defaultConsistentlyDuration, 5).Should(BeEmpty())
+		Expect(utils.GetMatchingEvents(clientManaged, testNamespace, policyName,
+			cfgPlcName, "^Compliant;", defaultTimeoutSeconds)).Should(BeEmpty())
 	})
 
 	AfterEach(func() {
