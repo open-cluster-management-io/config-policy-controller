@@ -15,7 +15,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
@@ -316,10 +315,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := "NonCompliant; failed to resolve the template"
-			Eventually(func() []policyv1.HistoryEvent {
-				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
-					policyName, testNamespace, desiredMessage)
-			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(ContainSubstring(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -331,10 +330,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := `NonCompliant; the operator namespace \('hello'\) does not exist,`
-			Eventually(func() []policyv1.HistoryEvent {
-				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
-					policyName, testNamespace, desiredMessage)
-			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(MatchRegexp(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -349,10 +348,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := `NonCompliant; the operator namespace \('changed'\) does not exist,`
-			Eventually(func() []policyv1.HistoryEvent {
-				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
-					policyName, testNamespace, desiredMessage)
-			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(MatchRegexp(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -365,10 +364,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := `NonCompliant; the namespace '{{hub fromConfigMap`
-			Eventually(func() []policyv1.HistoryEvent {
-				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
-					policyName, testNamespace, desiredMessage)
-			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(ContainSubstring(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
