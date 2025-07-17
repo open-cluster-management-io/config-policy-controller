@@ -3572,6 +3572,7 @@ func removeFieldsForComparison(obj *unstructured.Unstructured) {
 	unstructured.RemoveNestedField(obj.Object, "metadata", "generation")
 }
 
+// test
 // setEvaluatedObject updates the cache to indicate that the ConfigurationPolicy has evaluated this
 // object at its current resourceVersion.
 func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
