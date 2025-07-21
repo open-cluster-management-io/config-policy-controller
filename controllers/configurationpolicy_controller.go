@@ -2440,13 +2440,6 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				resultReason = reasonWantFoundNoMatch
 			}
 
-			objectProperties = &policyv1.ObjectProperties{
-				CreatedByPolicy:          &created,
-				UID:                      uid,
-				Diff:                     diff,
-				DryRunNoOpOverrodePolicy: &dryRunNoOpOverrodePolicy,
-			}
-
 			result.events = append(result.events, objectTmplEvalEvent{false, resultReason, resultMsg})
 		} else {
 			// it is a must have and it does exist, so it is compliant
@@ -2456,16 +2449,16 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				} else {
 					result.events = append(result.events, objectTmplEvalEvent{true, reasonWantFoundExists, ""})
 				}
-
-				objectProperties = &policyv1.ObjectProperties{
-					CreatedByPolicy:          &created,
-					UID:                      uid,
-					Diff:                     diff,
-					DryRunNoOpOverrodePolicy: &dryRunNoOpOverrodePolicy,
-				}
 			} else {
 				result.events = append(result.events, objectTmplEvalEvent{true, reasonWantFoundExists, ""})
 			}
+		}
+
+		objectProperties = &policyv1.ObjectProperties{
+			CreatedByPolicy:    &created,
+			UID:                uid,
+			Diff:               diff,
+			DryRunNoOpOverride: &dryRunNoOpOverride,
 		}
 	}
 
