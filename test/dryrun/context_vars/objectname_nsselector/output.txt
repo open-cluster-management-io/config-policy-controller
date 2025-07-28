@@ -1,0 +1,40 @@
+# Diffs:
+v1 ConfigMap mega-mart/inventory:
+--- mega-mart/inventory : existing
++++ mega-mart/inventory : updated
+@@ -1,7 +1,8 @@
+ apiVersion: v1
+-data: {}
++data:
++  hocus: pocus
+ kind: ConfigMap
+ metadata:
+   name: inventory
+   namespace: mega-mart
+ 
+v1 ConfigMap mega-mart-2/inventory:
+--- mega-mart-2/inventory : existing
++++ mega-mart-2/inventory : updated
+@@ -1,7 +1,8 @@
+ apiVersion: v1
+ data:
++  hocus: pocus
+   things: original-stuff
+ kind: ConfigMap
+ metadata:
+   name: inventory
+   namespace: mega-mart-2
+v1 ConfigMap mega-mart-2/inventory-2:
+--- mega-mart-2/inventory-2 : existing
++++ mega-mart-2/inventory-2 : updated
+@@ -1,7 +1,8 @@
+ apiVersion: v1
+ data:
++  hocus: pocus
+   things: stuff
+ kind: ConfigMap
+ metadata:
+   name: inventory-2
+   namespace: mega-mart-2
+# Compliance messages:
+NonCompliant; violation - configmaps [inventory-2] found but not as specified in namespace mega-mart-2; configmaps [inventory] found but not as specified in namespaces: mega-mart, mega-mart-2

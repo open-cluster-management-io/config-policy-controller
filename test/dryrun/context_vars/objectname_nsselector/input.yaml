@@ -1,0 +1,45 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mega-mart
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mega-mart-2
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mega-mart-3
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory
+  namespace: mega-mart
+data: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nininventory
+  namespace: mega-mart
+data: {}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory
+  namespace: mega-mart-2
+data: 
+  things: original-stuff
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: inventory-2
+  namespace: mega-mart-2
+data:
+  things: stuff
