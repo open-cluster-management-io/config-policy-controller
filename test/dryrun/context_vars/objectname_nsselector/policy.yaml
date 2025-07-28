@@ -1,0 +1,18 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-object-var-templated-name
+spec:
+  remediationAction: inform
+  namespaceSelector:
+    include: ["*"]
+  object-templates:
+    - complianceType: musthave
+      recordDiff: InStatus
+      objectSelector: {}
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: '{{ not (hasPrefix "inv" .ObjectName) | skipObject }}'
+        data: '{{ set .Object.data "hocus" "pocus" | toJSON | toLiteral }}'

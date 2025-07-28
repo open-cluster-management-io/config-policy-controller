@@ -1391,13 +1391,16 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 
 	// Set up default name array to be used for each namespace. If no
 	// objectSelector is provided, add the desired name as the default.
-	defaultNamesPerNs := map[string]unstructured.Unstructured{}
 	objectSelector := objectT.ObjectSelector
 
-	if desiredName != "" || objectSelector == nil {
-		defaultNamesPerNs = map[string]unstructured.Unstructured{
-			desiredName: {},
+	getDefaultNamesPerNs := func() map[string]unstructured.Unstructured {
+		if desiredName != "" || objectSelector == nil {
+			return map[string]unstructured.Unstructured{
+				desiredName: {},
+			}
 		}
+
+		return make(map[string]unstructured.Unstructured)
 	}
 
 	usingWatch := currentlyUsingWatch(plc)
@@ -1443,26 +1446,26 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				if existingObj != nil {
 					relevantNsNames[ns] = map[string]unstructured.Unstructured{desiredName: *existingObj}
 				} else {
-					relevantNsNames[ns] = defaultNamesPerNs
+					relevantNsNames[ns] = getDefaultNamesPerNs()
 				}
 			} else {
-				relevantNsNames[ns] = defaultNamesPerNs
+				relevantNsNames[ns] = getDefaultNamesPerNs()
 			}
 		}
 
 		// If no namespaces were selected and the namespace is templated, set a default.
 		// Having an empty namespace after template resolution is handled later on.
 		if len(relevantNsNames) == 0 && hasTemplatedNs {
-			relevantNsNames[""] = defaultNamesPerNs
+			relevantNsNames[""] = getDefaultNamesPerNs()
 		}
 
 	case scopedGVR.Namespaced:
 		// Namespaced, but a namespace was provided
-		relevantNsNames[desiredNs] = defaultNamesPerNs
+		relevantNsNames[desiredNs] = getDefaultNamesPerNs()
 
 	default:
 		// Cluster scoped
-		relevantNsNames[""] = defaultNamesPerNs
+		relevantNsNames[""] = getDefaultNamesPerNs()
 	}
 
 	if len(relevantNsNames) == 0 {

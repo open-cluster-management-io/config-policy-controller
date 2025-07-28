@@ -31,6 +31,8 @@ var (
 	objNsTemplatedEmpty embed.FS
 	//go:embed objectns_templated_no_nsselector
 	objNsTemplatedNoNsSelector embed.FS
+	//go:embed objectname_nsselector
+	objNameNsSelector embed.FS
 
 	testCases = map[string]embed.FS{
 		"Test Object: available for namespaced objects":                    objNamespaced,
@@ -43,6 +45,7 @@ var (
 		"Test ObjectNamespace: unavailable for cluster-scoped objects":     objNsClusterScoped,
 		"Test ObjectNamespace: noncompliant for empty templated namespace": objNsTemplatedEmpty,
 		"Test ObjectNamespace: available for templated namespace":          objNsTemplatedNoNsSelector,
+		"Test ObjectName: correctly handle namespaceSelector":              objNameNsSelector,
 	}
 )
 
