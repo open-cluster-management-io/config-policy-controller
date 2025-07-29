@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
@@ -119,6 +120,10 @@ type OperatorPolicyReconciler struct {
 	HubDynamicWatcher depclient.DynamicWatcher
 	HubClient         *kubernetes.Clientset
 	ClusterName       string
+	// lastEvaluatedCache contains the value of the last known OperatorPolicy resourceVersion per UID.
+	// This is a workaround to account for race conditions where the status is updated but the controller-runtime cache
+	// has not updated yet.
+	lastEvaluatedCache sync.Map
 }
 
 // SetupWithManager sets up the controller with the Manager and will reconcile when the dynamic watcher
@@ -248,6 +253,26 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return reconcile.Result{}, err
 	}
 
+	if cachedLastEval, ok := r.lastEvaluatedCache.Load(policy.UID); ok {
+		last, cachedConversionErr := strconv.Atoi(cachedLastEval.(string))
+		current, realConversionErr := strconv.Atoi(policy.GetResourceVersion())
+
+		// Note: resourceVersion should be strictly monotonic *for a specific resource instance*,
+		// but is not necessarily monotonic across different kinds and namespaces.
+		// The comparison here is for a specific resource, and so it should be a valid check.
+		if cachedConversionErr == nil && realConversionErr == nil {
+			if last > current {
+				opLog.V(1).Info("The policy from the controller-runtime cache is stale. Will requeue.")
+
+				return reconcile.Result{RequeueAfter: time.Second}, nil
+			}
+		} else {
+			opLog.Error(nil, "A resourceVersion could not be converted to an integer. Evaluating anyway.",
+				"cache", cachedLastEval, "cachedConversionErr", cachedConversionErr,
+				"real", policy.GetResourceVersion(), "realConversionErr", realConversionErr)
+		}
+	}
+
 	originalStatus := *policy.Status.DeepCopy()
 
 	// Start query batch for caching and watching related objects
@@ -308,6 +333,8 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	if statusChanged || !reflect.DeepEqual(policy.Status, originalStatus) {
 		if err := r.Status().Update(ctx, policy); err != nil {
 			errs = append(errs, err)
+		} else {
+			r.lastEvaluatedCache.Store(policy.UID, policy.GetResourceVersion())
 		}
 	}
 

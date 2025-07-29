@@ -193,7 +193,7 @@ type ConfigurationPolicyReconciler struct {
 	// The number of seconds before a policy is eligible for reevaluation in watch mode (throttles frequently evaluated
 	// policies)
 	EvalBackoffSeconds uint32
-	// lastEvaluatedCache contains the value of ConfigurationPolicyStatus.LastEvaluated per ConfigurationPolicy UID.
+	// lastEvaluatedCache contains the value of the last known ConfigurationPolicy resourceVersion per UID.
 	// This is a workaround to account for race conditions where the status is updated but the controller-runtime cache
 	// has not updated yet.
 	lastEvaluatedCache sync.Map
@@ -404,12 +404,22 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 	}
 
 	if cachedLastEval, ok := r.lastEvaluatedCache.Load(policy.UID); ok {
-		if cachedLastEval.(string) != policy.Status.LastEvaluated {
-			log.V(1).Info(
-				"The policy's status.lastEvaluated field is not synced in the controller-runtime cache. Will requeue.",
-			)
+		last, cachedConversionErr := strconv.Atoi(cachedLastEval.(string))
+		current, realConversionErr := strconv.Atoi(policy.GetResourceVersion())
 
-			return false, time.Second
+		// Note: resourceVersion should be strictly monotonic *for a specific resource instance*,
+		// but is not necessarily monotonic across different kinds and namespaces.
+		// The comparison here is for a specific resource, and so it should be a valid check.
+		if cachedConversionErr == nil && realConversionErr == nil {
+			if last > current {
+				log.V(1).Info("The policy from the controller-runtime cache is stale. Will requeue.")
+
+				return false, time.Second
+			}
+		} else {
+			log.Error(nil, "A resourceVersion could not be converted to an integer. Possibly evaluating regardless.",
+				"cache", cachedLastEval, "cachedConversionErr", cachedConversionErr,
+				"real", policy.GetResourceVersion(), "realConversionErr", realConversionErr)
 		}
 	}
 
@@ -3696,7 +3706,7 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		policySystemErrorsCounter.WithLabelValues(parent, policy.GetName(), "status-update-failed").Add(1)
 
 	default:
-		r.lastEvaluatedCache.Store(policy.UID, policy.Status.LastEvaluated)
+		r.lastEvaluatedCache.Store(policy.UID, policy.GetResourceVersion())
 	}
 }
 
