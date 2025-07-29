@@ -806,7 +806,7 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 	flags.Uint32Var(
 		&opts.evalBackoffSeconds,
 		"evaluation-backoff",
-		10,
+		5,
 		"The number of seconds before a policy is eligible for reevaluation in watch mode (throttles frequently "+
 			"evaluated policies)",
 	)
