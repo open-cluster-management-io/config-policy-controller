@@ -366,6 +366,12 @@ spec:
                             CreatedByPolicy reports whether the object was created by the configuration policy, which is
                             important when pruning is configured.
                           type: boolean
+                        dryRunNoOpOverride:
+                          description: |-
+                            DryRunNoOpOverride indicates that a difference was detected between the policy and the
+                            object, but a dry run update reported no changes. The dry run result overrides the policy
+                            assessment, meaning the object is considered compliant despite the initial mismatch.
+                          type: boolean
                         uid:
                           description: |-
                             UID stores the object UID to help track object ownership for deletion when pruning is

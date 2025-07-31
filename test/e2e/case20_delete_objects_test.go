@@ -71,6 +71,18 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 
 				return properties["uid"].(string)
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+			Eventually(func() bool {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameCreate, testNamespace, true, defaultTimeoutSeconds)
+				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
+				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+
+				if dryRunNoOpOverride, exists := properties["dryRunNoOpOverride"]; exists {
+					return dryRunNoOpOverride.(bool)
+				}
+
+				return false
+			}, defaultTimeoutSeconds, 1).Should(BeFalse())
 		})
 		It("should update status fields properly for non-created objects", func() {
 			By("Creating " + case20ConfigPolicyNameExisting + " on managed")
@@ -100,6 +112,18 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 
 				return properties["uid"]
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+			Eventually(func() bool {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameExisting, testNamespace, true, defaultTimeoutSeconds)
+				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
+				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+
+				if dryRunNoOpOverride, exists := properties["dryRunNoOpOverride"]; exists {
+					return dryRunNoOpOverride.(bool)
+				}
+
+				return false
+			}, defaultTimeoutSeconds, 1).Should(BeFalse())
 		})
 		It("should update status fields properly for edited objects", func() {
 			By("Creating " + case20ConfigPolicyNameEdit + " on managed")
@@ -129,6 +153,18 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 
 				return properties["uid"]
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+			Eventually(func() bool {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameEdit, testNamespace, true, defaultTimeoutSeconds)
+				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
+				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+
+				if dryRunNoOpOverride, exists := properties["dryRunNoOpOverride"]; exists {
+					return dryRunNoOpOverride.(bool)
+				}
+
+				return false
+			}, defaultTimeoutSeconds, 1).Should(BeFalse())
 		})
 		It("should not update status field for inform policies", func() {
 			By("Creating " + case20ConfigPolicyNameInform + " on managed")
@@ -142,14 +178,34 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
+			Eventually(func() bool {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
+				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
+				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+
+				return properties["createdByPolicy"].(bool)
+			}, defaultTimeoutSeconds, 1).Should(BeFalse())
 			Eventually(func() interface{} {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
-				properties := relatedObj.(map[string]interface{})["properties"]
+				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
 
-				return properties
-			}, defaultTimeoutSeconds, 1).Should(BeNil())
+				return properties["uid"]
+			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
+			Eventually(func() bool {
+				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+					case20ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
+				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
+				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+
+				if dryRunNoOpOverride, exists := properties["dryRunNoOpOverride"]; exists {
+					return dryRunNoOpOverride.(bool)
+				}
+
+				return false
+			}, defaultTimeoutSeconds, 1).Should(BeFalse())
 		})
 		AfterAll(func() {
 			policies := []string{
