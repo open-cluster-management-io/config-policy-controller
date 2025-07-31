@@ -187,7 +187,6 @@ type ConfigurationPolicyReconciler struct {
 	SelectorReconciler     common.SelectorReconciler
 	// Whether custom metrics collection is enabled
 	EnableMetrics bool
-	ServerVersion string
 	// When true, the controller has detected it is being uninstalled and only basic cleanup should be performed before
 	// exiting.
 	UninstallMode bool
