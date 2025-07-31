@@ -18,8 +18,6 @@ LOCAL_BIN ?= $(PWD)/bin
 export PATH := $(LOCAL_BIN):$(PATH)
 GOARCH = $(shell go env GOARCH)
 GOOS = $(shell go env GOOS)
-TESTARGS_DEFAULT := -v
-TESTARGS ?= $(TESTARGS_DEFAULT)
 CONTROLLER_NAME = $(shell cat COMPONENT_NAME 2> /dev/null)
 # Handle KinD configuration
 MANAGED_CLUSTER_SUFFIX ?= 

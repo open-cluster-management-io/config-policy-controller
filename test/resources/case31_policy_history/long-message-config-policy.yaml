@@ -16,21 +16,7 @@ spec:
     exclude:
       - kube-*
     include:            
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt1
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt2
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt3
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt4
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt5
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt6
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt7
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt8
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt9
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt10
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt11
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt12
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt13
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt14
-      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt15
+      - innovafertanimvsmvtatasdicereformascorporinnovafertanimvsm*
   object-templates:
     - complianceType: musthave
       objectDefinition:

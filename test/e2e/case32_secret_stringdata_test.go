@@ -9,12 +9,12 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case32ConfigPolicyName string = "case32config"
-	case32CreatePolicyYaml string = "../resources/case32_secret_stringdata/case32_create_secret.yaml"
-)
-
 var _ = Describe("Test converted stringData being decoded before comparison for Secrets", Ordered, func() {
+	const (
+		case32ConfigPolicyName string = "case32config"
+		case32CreatePolicyYaml string = "../resources/case32_secret_stringdata/case32_create_secret.yaml"
+	)
+
 	It("Config should be created properly on the managed cluster", func() {
 		By("Creating " + case32ConfigPolicyName + " on managed")
 		utils.Kubectl("apply", "-f", case32CreatePolicyYaml, "-n", testNamespace)
@@ -46,15 +46,15 @@ var _ = Describe("Test converted stringData being decoded before comparison for 
 	})
 
 	It("Verifies the config policy "+case32ConfigPolicyName+" does not update in "+testNamespace, func() {
-		By("Checking the events on the configuration policy" + case32ConfigPolicyName)
-		Consistently(func() int {
-			eventlen := len(utils.GetMatchingEvents(
-				clientManaged, testNamespace,
-				case32ConfigPolicyName, case32ConfigPolicyName,
-				"updated", defaultTimeoutSeconds))
+		By("Checking the events and status of the configuration policy" + case32ConfigPolicyName)
+		Consistently(func() any {
+			return utils.GetHistoryMessages(clientManagedDynamic, gvrConfigPolicy,
+				case32ConfigPolicyName, testNamespace, "")
+		}, defaultConsistentlyDuration, 2).ShouldNot(ContainElement(ContainSubstring("updated")))
 
-			return eventlen
-		}, defaultConsistentlyDuration, 2).Should(BeNumerically("<", 1))
+		events := utils.GetMatchingEvents(clientManaged, testNamespace, case32ConfigPolicyName,
+			case32ConfigPolicyName, "updated", defaultTimeoutSeconds)
+		Expect(events).Should(BeEmpty())
 	})
 
 	AfterAll(func() {

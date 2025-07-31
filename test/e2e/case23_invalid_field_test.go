@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
@@ -44,6 +45,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 		}
 
 		By("Verifying that the " + policyName + " policy is noncompliant")
+		var initialEvents []policyv1.HistoryEvent
 		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
@@ -51,6 +53,9 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 
 			g.Expect(utils.GetComplianceState(managedPlc)).To(Equal("NonCompliant"))
 			g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(expectedMsg))
+
+			initialEvents = utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, "")
+			GinkgoWriter.Printf("initialEvents: %+v", initialEvents)
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying events do not continue to be created after the first violation for created objects")
@@ -74,6 +79,9 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 
 			return startTime.After(compPlcEvents[len(compPlcEvents)-1].LastTimestamp.Time)
 		}, defaultConsistentlyDuration, 1).Should(BeTrue())
+
+		midEvents := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, "")
+		Expect(midEvents).To(HaveLen(len(initialEvents)))
 
 		By("Verifying the message is correct when the " + configMapName + " ConfigMap already exists")
 		configmap := &corev1.ConfigMap{
@@ -119,6 +127,9 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 
 			return alreadyExistsStartTime.After(compPlcEvents[len(compPlcEvents)-1].LastTimestamp.Time)
 		}, defaultConsistentlyDuration, 1).Should(BeTrue())
+
+		finalEvents := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, "")
+		Expect(finalEvents).To(HaveLen(len(initialEvents) + 1))
 	})
 
 	AfterAll(func() {

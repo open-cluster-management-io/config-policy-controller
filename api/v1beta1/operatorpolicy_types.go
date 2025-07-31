@@ -242,6 +242,10 @@ type OperatorPolicyStatus struct {
 	// policy is waiting for OLM to resolve the situation. If in the recent past,
 	// the policy may update the status of the Subscription.
 	SubscriptionInterventionTime *metav1.Time `json:"subscriptionInterventionTime,omitempty"`
+
+	// History is a list of the most recent compliance messages for this operator policy.
+	// The first entry is the most recent, and the list is limited to 10 entries.
+	History []policyv1.HistoryEvent `json:"history,omitempty"`
 }
 
 // RelatedObjsOfKind iterates over the related objects in the status and returns a map of the index

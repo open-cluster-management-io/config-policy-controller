@@ -312,6 +312,21 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              history:
+                description: |-
+                  History is a list of the most recent compliance messages for this operator policy.
+                  The first entry is the most recent, and the list is limited to 10 entries.
+                items:
+                  description: HistoryEvent is a timestamped message representing
+                    the policy compliance state at that time.
+                  properties:
+                    lastTimestamp:
+                      format: date-time
+                      type: string
+                    message:
+                      type: string
+                  type: object
+                type: array
               observedGeneration:
                 description: ObservedGeneration is the latest generation observed
                   by the controller.

@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"time"
 
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -302,13 +301,27 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		}
 	}
 
+	message := strings.Join(messages, ", ")
+
+	if foundNonCompliant {
+		message = "NonCompliant; " + message
+	} else {
+		message = "Compliant; " + message
+	}
+
+	maxMessageLength := 4096
+	if len(message) > maxMessageLength {
+		truncMsg := "...[truncated]"
+		message = message[:(maxMessageLength-len(truncMsg))] + truncMsg
+	}
+
 	if foundNonCompliant {
 		return metav1.Condition{
 			Type:               compliantConditionType,
 			Status:             metav1.ConditionFalse,
 			LastTransitionTime: metav1.Now(),
 			Reason:             "NonCompliant",
-			Message:            "NonCompliant; " + strings.Join(messages, ", "),
+			Message:            message,
 		}
 	}
 
@@ -317,7 +330,7 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		Status:             metav1.ConditionTrue,
 		LastTransitionTime: metav1.Now(),
 		Reason:             "Compliant",
-		Message:            "Compliant; " + strings.Join(messages, ", "),
+		Message:            message,
 	}
 }
 
@@ -334,11 +347,11 @@ func (r *OperatorPolicyReconciler) emitComplianceEvent(
 	}
 
 	ownerRef := policy.OwnerReferences[0]
-	now := time.Now()
+	timestamp := complianceCondition.LastTransitionTime
 	event := &corev1.Event{
 		ObjectMeta: metav1.ObjectMeta{
 			// This event name matches the convention of recorders from client-go
-			Name:      fmt.Sprintf("%v.%x", ownerRef.Name, now.UnixNano()),
+			Name:      fmt.Sprintf("%v.%x", ownerRef.Name, timestamp.UnixNano()),
 			Namespace: policy.Namespace,
 		},
 		InvolvedObject: corev1.ObjectReference{
@@ -354,8 +367,8 @@ func (r *OperatorPolicyReconciler) emitComplianceEvent(
 			Component: ControllerName,
 			Host:      r.InstanceName,
 		},
-		FirstTimestamp: metav1.NewTime(now),
-		LastTimestamp:  metav1.NewTime(now),
+		FirstTimestamp: timestamp,
+		LastTimestamp:  timestamp,
 		Count:          1,
 		Type:           "Normal",
 		Action:         "ComplianceStateUpdate",

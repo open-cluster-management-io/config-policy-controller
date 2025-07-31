@@ -193,7 +193,7 @@ type ConfigurationPolicyReconciler struct {
 	// The number of seconds before a policy is eligible for reevaluation in watch mode (throttles frequently evaluated
 	// policies)
 	EvalBackoffSeconds uint32
-	// lastEvaluatedCache contains the value of ConfigurationPolicyStatus.LastEvaluated per ConfigurationPolicy UID.
+	// lastEvaluatedCache contains the value of the last known ConfigurationPolicy resourceVersion per UID.
 	// This is a workaround to account for race conditions where the status is updated but the controller-runtime cache
 	// has not updated yet.
 	lastEvaluatedCache sync.Map
@@ -404,12 +404,22 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 	}
 
 	if cachedLastEval, ok := r.lastEvaluatedCache.Load(policy.UID); ok {
-		if cachedLastEval.(string) != policy.Status.LastEvaluated {
-			log.V(1).Info(
-				"The policy's status.lastEvaluated field is not synced in the controller-runtime cache. Will requeue.",
-			)
+		last, cachedConversionErr := strconv.Atoi(cachedLastEval.(string))
+		current, realConversionErr := strconv.Atoi(policy.GetResourceVersion())
 
-			return false, time.Second
+		// Note: resourceVersion should be strictly monotonic *for a specific resource instance*,
+		// but is not necessarily monotonic across different kinds and namespaces.
+		// The comparison here is for a specific resource, and so it should be a valid check.
+		if cachedConversionErr == nil && realConversionErr == nil {
+			if last > current {
+				log.V(1).Info("The policy from the controller-runtime cache is stale. Will requeue.")
+
+				return false, time.Second
+			}
+		} else {
+			log.Error(nil, "A resourceVersion could not be converted to an integer. Possibly evaluating regardless.",
+				"cache", cachedLastEval, "cachedConversionErr", cachedConversionErr,
+				"real", policy.GetResourceVersion(), "realConversionErr", realConversionErr)
 		}
 	}
 
@@ -3696,7 +3706,7 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 		policySystemErrorsCounter.WithLabelValues(parent, policy.GetName(), "status-update-failed").Add(1)
 
 	default:
-		r.lastEvaluatedCache.Store(policy.UID, policy.Status.LastEvaluated)
+		r.lastEvaluatedCache.Store(policy.UID, policy.GetResourceVersion())
 	}
 }
 
@@ -3705,19 +3715,51 @@ func (r *ConfigurationPolicyReconciler) addForUpdate(policy *policyv1.Configurat
 func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 	policy *policyv1.ConfigurationPolicy, sendEvent bool,
 ) error {
+	updateTime := time.Now()
+	message := r.customComplianceMessage(policy)
+
+	maxMessageLength := 4096
+	if len(message) > maxMessageLength {
+		truncMsg := "...[truncated]"
+		message = message[:(maxMessageLength-len(truncMsg))] + truncMsg
+	}
+
 	if sendEvent {
-		log.Info("Sending parent policy compliance event")
+		log.Info("Sending parent policy compliance event", "policy", policy.GetName(), "message", message)
 
 		// If the compliance event can't be created, then don't update the ConfigurationPolicy
 		// status. As long as that hasn't been updated, everything will be retried next loop.
-		if err := r.sendComplianceEvent(policy); err != nil {
+		if err := r.sendComplianceEvent(policy, updateTime, message); err != nil {
+			log.Error(err, "Failed to send compliance event", "policy", policy.GetName(), "message", message)
+
 			return err
 		}
 	}
 
-	log.V(2).Info(
+	log.V(1).Info(
 		"Updating configurationPolicy status", "status", policy.Status.ComplianceState, "policy", policy.GetName(),
 	)
+
+	var latestEvent policyv1.HistoryEvent
+
+	if len(policy.Status.History) > 0 {
+		latestEvent = policy.Status.History[0]
+	}
+
+	// sendEvent should be true whenever the message changes, but check just in case a situation is missed
+	if sendEvent || latestEvent.Message != message {
+		newEvent := policyv1.HistoryEvent{
+			LastTimestamp: metav1.NewMicroTime(updateTime),
+			Message:       message,
+		}
+
+		policy.Status.History = append([]policyv1.HistoryEvent{newEvent}, policy.Status.History...)
+
+		maxHistoryLength := 10 // At some point, we may make this length configurable
+		if len(policy.Status.History) > maxHistoryLength {
+			policy.Status.History = policy.Status.History[:maxHistoryLength]
+		}
+	}
 
 	evaluatedUID := policy.UID
 	updatedStatus := policy.Status
@@ -3806,18 +3848,21 @@ func (r *ConfigurationPolicyReconciler) recordInfoEvent(plc *policyv1.Configurat
 	)
 }
 
-func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.ConfigurationPolicy) error {
+func (r *ConfigurationPolicyReconciler) sendComplianceEvent(
+	instance *policyv1.ConfigurationPolicy,
+	updateTime time.Time,
+	message string,
+) error {
 	if len(instance.OwnerReferences) == 0 {
 		return nil // there is nothing to do, since no owner is set
 	}
 
 	// we are making an assumption that the GRC policy has a single owner, or we chose the first owner in the list
 	ownerRef := instance.OwnerReferences[0]
-	now := time.Now()
 	event := &corev1.Event{
 		ObjectMeta: metav1.ObjectMeta{
 			// This event name matches the convention of recorders from client-go
-			Name:      fmt.Sprintf("%v.%x", ownerRef.Name, now.UnixNano()),
+			Name:      fmt.Sprintf("%v.%x", ownerRef.Name, updateTime.UnixNano()),
 			Namespace: instance.Namespace,
 		},
 		InvolvedObject: corev1.ObjectReference{
@@ -3828,13 +3873,13 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(instance *policyv1.C
 			APIVersion: ownerRef.APIVersion,
 		},
 		Reason:  fmt.Sprintf(eventFmtStr, instance.Namespace, instance.Name),
-		Message: r.customComplianceMessage(instance),
+		Message: message,
 		Source: corev1.EventSource{
 			Component: ControllerName,
 			Host:      r.InstanceName,
 		},
-		FirstTimestamp: metav1.NewTime(now),
-		LastTimestamp:  metav1.NewTime(now),
+		FirstTimestamp: metav1.NewTime(updateTime),
+		LastTimestamp:  metav1.NewTime(updateTime),
 		Count:          1,
 		Type:           "Normal",
 		Action:         "ComplianceStateUpdate",

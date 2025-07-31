@@ -52,6 +52,10 @@ var _ = Describe("Testing behavior when standalone-hub-templates are not enabled
 		By("Verifying that the message warns the user that hub templates are not currently allowed")
 		desiredMessage := "NonCompliant; violation - the governance-standalone-hub-templating addon " +
 			"must be enabled to resolve hub templates on the managed cluster"
+		Eventually(func() []string {
+			return utils.GetHistoryMessages(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "")
+		}, defaultTimeoutSeconds, 1).Should(ContainElement(ContainSubstring(desiredMessage)))
 		Eventually(func() []v1.Event {
 			return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 				fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -116,6 +120,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := "NonCompliant; violation - failed to resolve the template"
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrConfigPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(ContainSubstring(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -139,6 +147,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := "Compliant; notification - configmaps .* found as specified"
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrConfigPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(MatchRegexp(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -303,6 +315,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := "NonCompliant; failed to resolve the template"
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(ContainSubstring(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -314,6 +330,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := `NonCompliant; the operator namespace \('hello'\) does not exist,`
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(MatchRegexp(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -328,6 +348,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := `NonCompliant; the operator namespace \('changed'\) does not exist,`
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(MatchRegexp(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)
@@ -340,6 +364,10 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 
 			By("Checking the compliance message")
 			desiredMessage := `NonCompliant; the namespace '{{hub fromConfigMap`
+			Eventually(func() []string {
+				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
+					policyName, testNamespace, "")
+			}, defaultTimeoutSeconds, 1).Should(ContainElement(ContainSubstring(desiredMessage)))
 			Eventually(func() []v1.Event {
 				return utils.GetMatchingEvents(clientManaged, testNamespace, parentPolicyName,
 					fmt.Sprintf("policy: %v/%v", testNamespace, policyName), desiredMessage, defaultTimeoutSeconds)

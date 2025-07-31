@@ -5,6 +5,7 @@ package utils
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -24,6 +25,8 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"open-cluster-management.io/governance-policy-propagator/test/utils"
+
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
 
 // ParseYaml read given yaml file and unmarshal it to &unstructured.Unstructured{}
@@ -145,6 +148,59 @@ func GetMatchingEvents(
 	}
 
 	return matchingEvents
+}
+
+func GetHistoryEvents(
+	clientDynamic dynamic.Interface, gvr schema.GroupVersionResource, name, namespace, msgRegex string,
+) []policyv1.HistoryEvent {
+	obj, err := clientDynamic.Resource(gvr).Namespace(namespace).Get(context.TODO(), name, metav1.GetOptions{})
+	if err != nil {
+		return []policyv1.HistoryEvent{}
+	}
+
+	events, found, err := unstructured.NestedSlice(obj.Object, "status", "history")
+	if !found || err != nil {
+		return []policyv1.HistoryEvent{}
+	}
+
+	msgMatcher := regexp.MustCompile(msgRegex)
+	matchingEvents := make([]policyv1.HistoryEvent, 0)
+
+	for _, ev := range events {
+		evBytes, err := json.Marshal(ev)
+		if err != nil {
+			continue
+		}
+
+		event := policyv1.HistoryEvent{}
+
+		err = json.Unmarshal(evBytes, &event)
+		if err != nil {
+			continue
+		}
+
+		if msgMatcher.MatchString(event.Message) {
+			matchingEvents = append(matchingEvents, event)
+		}
+	}
+
+	return matchingEvents
+}
+
+func MessagesFromEvents(events []policyv1.HistoryEvent) []string {
+	messages := make([]string, len(events))
+
+	for i, ev := range events {
+		messages[i] = ev.Message
+	}
+
+	return messages
+}
+
+func GetHistoryMessages(
+	clientDynamic dynamic.Interface, gvr schema.GroupVersionResource, name, namespace, msgRegex string,
+) []string {
+	return MessagesFromEvents(GetHistoryEvents(clientDynamic, gvr, name, namespace, msgRegex))
 }
 
 // Kubectl executes kubectl commands

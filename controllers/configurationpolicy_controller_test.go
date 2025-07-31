@@ -1118,22 +1118,26 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 
 	// Add a 60 second buffer to avoid race conditions
 	inFuture := time.Now().UTC().Add(60 * time.Second).Format(time.RFC3339)
+	futureResourceVersion := "900000" // 900_000
 	lastEvaluatedInFuture := &sync.Map{}
-	lastEvaluatedInFuture.Store(policy.UID, inFuture)
+	lastEvaluatedInFuture.Store(policy.UID, futureResourceVersion)
 
 	lastEvaluatedInvalid := &sync.Map{}
 	lastEvaluatedInvalid.Store(policy.UID, "Do or do not. There is no try.")
 
 	twelveSecsAgo := time.Now().UTC().Add(-12 * time.Second).Format(time.RFC3339)
+	recentResourceVersion := "700000" // 700_000
 	lastEvaluatedTwelveSecsAgo := &sync.Map{}
-	lastEvaluatedTwelveSecsAgo.Store(policy.UID, twelveSecsAgo)
+	lastEvaluatedTwelveSecsAgo.Store(policy.UID, recentResourceVersion)
 
 	twelveHoursAgo := time.Now().UTC().Add(-12 * time.Hour).Format(time.RFC3339)
+	oldResourceVersion := "20000" // 20_000
 	lastEvaluatedTwelveHoursAgo := &sync.Map{}
-	lastEvaluatedTwelveHoursAgo.Store(policy.UID, twelveHoursAgo)
+	lastEvaluatedTwelveHoursAgo.Store(policy.UID, oldResourceVersion)
 
 	tests := []struct {
 		testDescription          string
+		resourceVersion          string
 		lastEvaluated            string
 		lastEvaluatedGeneration  int64
 		evaluationInterval       policyv1.EvaluationInterval
@@ -1147,6 +1151,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 	}{
 		{
 			"Just evaluated and the generation is unchanged",
+			futureResourceVersion,
 			inFuture,
 			2,
 			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
@@ -1160,6 +1165,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"The generation has changed",
+			futureResourceVersion,
 			inFuture,
 			1,
 			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
@@ -1173,6 +1179,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"lastEvaluated not set",
+			futureResourceVersion,
 			"",
 			2,
 			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
@@ -1186,6 +1193,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Invalid lastEvaluated",
+			futureResourceVersion,
 			"Do or do not. There is no try.",
 			2,
 			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
@@ -1199,6 +1207,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Unknown compliance state",
+			futureResourceVersion,
 			inFuture,
 			2,
 			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
@@ -1212,6 +1221,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Default evaluation interval with a past lastEvaluated when compliant",
+			futureResourceVersion,
 			twelveSecsAgo,
 			2,
 			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
@@ -1225,6 +1235,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Default evaluation interval with a past lastEvaluated when noncompliant",
+			futureResourceVersion,
 			twelveSecsAgo,
 			2,
 			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "10s"},
@@ -1238,6 +1249,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Never evaluation interval with past lastEvaluated when compliant",
+			futureResourceVersion,
 			twelveHoursAgo,
 			2,
 			policyv1.EvaluationInterval{Compliant: "never"},
@@ -1251,6 +1263,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Never evaluation interval with past lastEvaluated when noncompliant",
+			futureResourceVersion,
 			twelveHoursAgo,
 			2,
 			policyv1.EvaluationInterval{Compliant: "10s", NonCompliant: "never"},
@@ -1264,6 +1277,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Unset evaluation interval with past lastEvaluated when compliant",
+			futureResourceVersion,
 			twelveHoursAgo,
 			2,
 			policyv1.EvaluationInterval{},
@@ -1277,6 +1291,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Watch evaluation interval with past lastEvaluated when compliant",
+			futureResourceVersion,
 			twelveHoursAgo,
 			2,
 			policyv1.EvaluationInterval{Compliant: "watch", NonCompliant: "watch"},
@@ -1290,6 +1305,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Unset evaluation interval with past lastEvaluated when noncompliant",
+			futureResourceVersion,
 			twelveHoursAgo,
 			2,
 			policyv1.EvaluationInterval{},
@@ -1303,6 +1319,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Watch evaluation interval with past lastEvaluated when noncompliant",
+			futureResourceVersion,
 			twelveHoursAgo,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "watch"},
@@ -1316,6 +1333,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Invalid evaluation interval when compliant",
+			futureResourceVersion,
 			inFuture,
 			2,
 			policyv1.EvaluationInterval{Compliant: "Do or do not. There is no try."},
@@ -1329,6 +1347,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Invalid evaluation interval when noncompliant",
+			futureResourceVersion,
 			inFuture,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "Do or do not. There is no try."},
@@ -1342,6 +1361,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Custom evaluation interval that hasn't past yet when compliant",
+			futureResourceVersion,
 			twelveSecsAgo,
 			2,
 			policyv1.EvaluationInterval{Compliant: "12h"},
@@ -1355,6 +1375,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Custom evaluation interval that hasn't past yet when noncompliant",
+			futureResourceVersion,
 			twelveSecsAgo,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
@@ -1368,6 +1389,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Deletion timestamp is non nil",
+			futureResourceVersion,
 			inFuture,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
@@ -1381,6 +1403,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"Finalizer and the controller is being deleted",
+			futureResourceVersion,
 			inFuture,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
@@ -1394,6 +1417,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"No finalizer and the controller is being deleted",
+			futureResourceVersion,
 			inFuture,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
@@ -1407,6 +1431,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 		},
 		{
 			"controller-runtime cache not yet synced",
+			recentResourceVersion,
 			twelveHoursAgo,
 			2,
 			policyv1.EvaluationInterval{NonCompliant: "12h"},
@@ -1416,7 +1441,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 			nil,
 			false,
 			[]string{},
-			lastEvaluatedTwelveSecsAgo,
+			lastEvaluatedInFuture,
 		},
 	}
 
@@ -1429,6 +1454,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 				policyCopy := policy.DeepCopy()
 
 				policyCopy.Status.LastEvaluated = test.lastEvaluated
+				policyCopy.SetResourceVersion(test.resourceVersion)
 				policyCopy.Status.LastEvaluatedGeneration = test.lastEvaluatedGeneration
 				policyCopy.Spec.EvaluationInterval = test.evaluationInterval
 				policyCopy.Status.ComplianceState = test.complianceState

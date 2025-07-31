@@ -42,14 +42,14 @@ var _ = Describe("Verify status update after updating object", Ordered, func() {
 		// Must check the event instead of the compliance message on the policy since the status updates so quickly
 		// to say the object was found as specified.
 		Eventually(func(g Gomega) {
-			events := utils.GetMatchingEvents(clientManaged, testNamespace,
-				case27ConfigPolicyName,
-				"Policy updated",
-				regexp.QuoteMeta(
-					`Policy status is Compliant: configmaps [case27-map] was updated successfully in namespace default`,
-				),
-				defaultTimeoutSeconds,
-			)
+			messageFragment := "configmaps [case27-map] was updated successfully in namespace default"
+
+			statusEvents := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				case27ConfigPolicyName, testNamespace, regexp.QuoteMeta(messageFragment))
+			g.Expect(statusEvents).NotTo(BeEmpty())
+
+			events := utils.GetMatchingEvents(clientManaged, testNamespace, case27ConfigPolicyName,
+				"Policy updated", regexp.QuoteMeta(messageFragment), defaultTimeoutSeconds)
 
 			var foundEvent bool
 

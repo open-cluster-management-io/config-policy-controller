@@ -36,7 +36,17 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 			return utils.GetComplianceState(managedPlc)
 		}, 10, 1).Should(Equal("NonCompliant"))
 
-		By("Verifying the event has the default message, and mentions the error")
+		By("Verifying the event and status have the default message, and mentions the error")
+		Eventually(func(g Gomega) string {
+			events := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "NonCompliant;")
+			g.Expect(events).ToNot(BeEmpty())
+
+			return events[0].Message
+		}, 10, 1).Should(And(
+			ContainSubstring("NonCompliant; violation - namespaces [test-case-41] not found; "),
+			MatchRegexp("(failure processing the custom message: failed to parse custom template: .* unexpected EOF)"),
+		))
 		Eventually(func(g Gomega) string {
 			events := utils.GetMatchingEvents(clientManaged, testNamespace, parentName, "policy:", "NonCompliant;", 5)
 			g.Expect(events).ToNot(BeEmpty())
@@ -59,7 +69,17 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 			return utils.GetComplianceState(managedPlc)
 		}, 10, 1).Should(Equal("Compliant"))
 
-		By("Verifying the event has the default message, and mentions the error")
+		By("Verifying the event and status have the default message, and mentions the error")
+		Eventually(func(g Gomega) string {
+			events := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "^Compliant;")
+			g.Expect(events).ToNot(BeEmpty())
+
+			return events[0].Message
+		}, 10, 1).Should(And(
+			ContainSubstring("Compliant; notification - namespaces [test-case-41] found as specified; "),
+			MatchRegexp("(failure processing the custom message: failed to parse custom template: .* unexpected EOF)"),
+		))
 		Eventually(func(g Gomega) string {
 			events := utils.GetMatchingEvents(clientManaged, testNamespace, parentName, "policy:", "^Compliant;", 5)
 			g.Expect(events).ToNot(BeEmpty())
@@ -79,7 +99,17 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 		utils.Kubectl("patch", "configurationpolicy", policyName, "-n", testNamespace, "--type=json", "-p",
 			`[{"op": "replace", "path": "/spec/customMessage/compliant", "value": "`+template+`"}]`)
 
-		By("Verifying the event has the customized message")
+		By("Verifying the event and status have the customized message")
+		Eventually(func(g Gomega) string {
+			events := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "^Compliant;")
+			g.Expect(events).ToNot(BeEmpty())
+
+			return events[0].Message
+		}, 10, 1).Should(And(
+			ContainSubstring("the Namespace test-case-41 is Compliant in namespace <no value>"),
+			ContainSubstring(`Compliant in namespace test-case-41 because 'Resource found as expected'`),
+		))
 		Eventually(func(g Gomega) string {
 			events := utils.GetMatchingEvents(clientManaged, testNamespace, parentName, "policy:", "^Compliant;", 5)
 			g.Expect(events).ToNot(BeEmpty())
@@ -98,15 +128,20 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 		utils.Kubectl("patch", "configurationpolicy", policyName, "-n", testNamespace, "--type=json", "-p",
 			`[{"op": "replace", "path": "/spec/customMessage/compliant", "value": "`+template+`"}]`)
 
-		By("Verifying the event has the customized message")
+		By("Verifying the event and status have the customized message")
+		Eventually(func(g Gomega) string {
+			events := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "^Compliant;")
+			g.Expect(events).ToNot(BeEmpty())
+
+			return events[0].Message
+		}, 10, 1).Should(ContainSubstring("Pod nginx-pod-e2e-41 is in phase 'Pending'"))
 		Eventually(func(g Gomega) string {
 			events := utils.GetMatchingEvents(clientManaged, testNamespace, parentName, "policy:", "^Compliant;", 5)
 			g.Expect(events).ToNot(BeEmpty())
 
 			return events[len(events)-1].Message
-		}, 10, 1).Should(And(
-			ContainSubstring("Pod nginx-pod-e2e-41 is in phase 'Pending'"),
-		))
+		}, 10, 1).Should(ContainSubstring("Pod nginx-pod-e2e-41 is in phase 'Pending'"))
 	})
 
 	It("Should not access extra fields inside the related objects in interval-based mode", func() {
@@ -114,15 +149,20 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 		utils.Kubectl("patch", "configurationpolicy", policyName, "-n", testNamespace, "--type=json", "-p",
 			`[{"op": "replace", "path": "/spec/evaluationInterval", "value": {"compliant": "2s"}}]`)
 
-		By("Verifying the event has the customized message")
+		By("Verifying the event and status have the customized message")
+		Eventually(func(g Gomega) string {
+			events := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "^Compliant;")
+			g.Expect(events).ToNot(BeEmpty())
+
+			return events[0].Message
+		}, 10, 1).Should(ContainSubstring("Pod nginx-pod-e2e-41 is in phase '<no value>'"))
 		Eventually(func(g Gomega) string {
 			events := utils.GetMatchingEvents(clientManaged, testNamespace, parentName, "policy:", "^Compliant;", 5)
 			g.Expect(events).ToNot(BeEmpty())
 
 			return events[len(events)-1].Message
-		}, 10, 1).Should(And(
-			ContainSubstring("Pod nginx-pod-e2e-41 is in phase '<no value>'"),
-		))
+		}, 10, 1).Should(ContainSubstring("Pod nginx-pod-e2e-41 is in phase '<no value>'"))
 	})
 
 	It("Should be able to access a diff when one is available", func() {
@@ -135,7 +175,18 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 			{"op": "add", "path": "/spec/object-templates/1/objectDefinition/status", "value": {"phase": "Blue"}},
 			{"op": "replace", "path": "/spec/customMessage/noncompliant", "value": "`+template+`"}]`)
 
-		By("Verifying the event has the customized message")
+		By("Verifying the event and status have the customized message")
+		Eventually(func(g Gomega) string {
+			events := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "NonCompliant;")
+			g.Expect(events).ToNot(BeEmpty())
+
+			return events[0].Message
+		}, 10, 1).Should(And(
+			ContainSubstring("nginx-pod-e2e-41 is NonCompliant, with diff '--- default/nginx-pod-e2e-41 : existing"),
+			ContainSubstring("-  phase: Pending"),
+			ContainSubstring("+  phase: Blue"),
+		))
 		Eventually(func(g Gomega) string {
 			events := utils.GetMatchingEvents(clientManaged, testNamespace, parentName, "policy:", "NonCompliant;", 5)
 			g.Expect(events).ToNot(BeEmpty())
@@ -156,7 +207,17 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 			{"op": "remove", "path": "/spec/object-templates/1/objectDefinition/status"},
 			{"op": "replace", "path": "/spec/customMessage/compliant", "value": "`+template+`"}]`)
 
-		By("Verifying the event has the customized message")
+		By("Verifying the event and status have the customized message")
+		Eventually(func(g Gomega) string {
+			events := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "^Compliant;")
+			g.Expect(events).ToNot(BeEmpty())
+
+			return events[0].Message
+		}, 10, 1).Should(And(
+			ContainSubstring("Customized!"),
+			ContainSubstring("Compliant; notification - namespaces [test-case-41] found as specified; "),
+		))
 		Eventually(func(g Gomega) string {
 			events := utils.GetMatchingEvents(clientManaged, testNamespace, parentName, "policy:", "^Compliant;", 5)
 			g.Expect(events).ToNot(BeEmpty())
@@ -174,7 +235,17 @@ var _ = Describe("Custom compliance messages", Ordered, func() {
 		utils.Kubectl("patch", "configurationpolicy", policyName, "-n", testNamespace, "--type=json", "-p",
 			`[{"op": "replace", "path": "/spec/customMessage/compliant", "value": "`+template+`"}]`)
 
-		By("Verifying the event has the customized message")
+		By("Verifying the event and status have the customized message")
+		Eventually(func(g Gomega) string {
+			events := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, "^Compliant;")
+			g.Expect(events).ToNot(BeEmpty())
+
+			return events[0].Message
+		}, 10, 1).Should(And(
+			ContainSubstring("TEST-CASE-41"),
+			ContainSubstring("FOUND AS SPECIFIED"),
+		))
 		Eventually(func(g Gomega) string {
 			events := utils.GetMatchingEvents(clientManaged, testNamespace, parentName, "policy:", "^Compliant;", 5)
 			g.Expect(events).ToNot(BeEmpty())
