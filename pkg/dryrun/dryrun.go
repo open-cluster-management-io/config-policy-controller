@@ -444,13 +444,6 @@ func (d *DryRunner) setupReconciler(
 	nsSelUpdatesChan := make(chan event.GenericEvent, 20)
 	nsSelReconciler := common.NewNamespaceSelectorReconciler(runtimeClient, nsSelUpdatesChan)
 
-	serverVersion := ""
-
-	versionInfo, err := clientset.Discovery().ServerVersion()
-	if err == nil {
-		serverVersion = versionInfo.String()
-	}
-
 	defaultNs := &unstructured.Unstructured{
 		Object: map[string]interface{}{
 			"apiVersion": "v1",
@@ -469,7 +462,7 @@ func (d *DryRunner) setupReconciler(
 	}
 
 	// Create default namespace for namespace selector
-	err = runtimeClient.Create(ctx, defaultNs)
+	err := runtimeClient.Create(ctx, defaultNs)
 	if err != nil && !k8serrors.IsAlreadyExists(err) {
 		return nil, err
 	}
@@ -486,7 +479,6 @@ func (d *DryRunner) setupReconciler(
 		SelectorReconciler:     &nsSelReconciler,
 		EnableMetrics:          false,
 		UninstallMode:          false,
-		ServerVersion:          serverVersion,
 		EvalBackoffSeconds:     5,
 		FullDiffs:              d.fullDiffs,
 	}
