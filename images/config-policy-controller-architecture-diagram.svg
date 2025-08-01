@@ -1,0 +1,577 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg
+   id="artwork"
+   viewBox="0 0 1000 800"
+   width="1000"
+   height="800"
+   version="1.1"
+   sodipodi:docname="config-policy.svg"
+   inkscape:version="1.4.2 (ebf0e940d0, 2025-05-08)"
+   xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape"
+   xmlns:sodipodi="http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd"
+   xmlns="http://www.w3.org/2000/svg"
+   xmlns:svg="http://www.w3.org/2000/svg">
+  <sodipodi:namedview
+     id="namedview38"
+     pagecolor="#ffffff"
+     bordercolor="#000000"
+     borderopacity="0.25"
+     inkscape:showpageshadow="2"
+     inkscape:pageopacity="0.0"
+     inkscape:pagecheckerboard="0"
+     inkscape:deskcolor="#d1d1d1"
+     inkscape:zoom="1.1536364"
+     inkscape:cx="452.48226"
+     inkscape:cy="444.68084"
+     inkscape:window-width="1920"
+     inkscape:window-height="1078"
+     inkscape:window-x="0"
+     inkscape:window-y="0"
+     inkscape:window-maximized="1"
+     inkscape:current-layer="artwork" />
+  <defs
+     id="defs1">
+    <marker
+       style="overflow:visible"
+       id="Triangle"
+       refX="2.9"
+       refY="0"
+       orient="auto-start-reverse"
+       markerWidth="1.5"
+       markerHeight="1.5"
+       viewBox="0 0 1 1"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-stroke;fill-rule:evenodd;stroke:context-stroke;stroke-width:1pt"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path1" />
+    </marker>
+    <style
+       id="style1">
+      .cls-28 {
+        fill: #f3f3f3;
+        stroke-width: 0px;
+      }
+      .cls-31 {
+        fill: #e8e8e8;
+        stroke-width: 0px;
+      }
+      .cls-32 {
+        fill: #06c;
+        stroke-width: 0px;
+      }
+      .cls-37 {
+        font-family: RedHatText-Medium, 'Red Hat Text';
+        font-weight: 500;
+        font-size: 11px;
+        fill: #151515;
+      }
+      .cls-37-bold {
+        font-family: RedHatText-Medium, 'Red Hat Text';
+        font-weight: bold;
+        font-size: 11px;
+        fill: #151515;
+      }
+      .cls-36 {
+        font-family: RedHatText-Medium, 'Red Hat Text';
+        font-weight: 500;
+        font-size: 11px;
+        fill: #fff;
+      }
+      .cls-39 {
+        font-family: RedHatText-Bold, 'Red Hat Text';
+        font-weight: 700;
+        font-size: 14px;
+        fill: #151515;
+      }
+      .cls-dotted-box {
+        fill: none;
+        stroke: #c4c4c4;
+        stroke-width: 1;
+        stroke-dasharray: 3,3;
+      }
+    </style>
+    <marker
+       style="overflow:visible"
+       id="Triangle-6"
+       refX="2.9000001"
+       refY="0"
+       orient="auto-start-reverse"
+       markerWidth="1.5"
+       markerHeight="1.5"
+       viewBox="0 0 1 1"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-stroke;fill-rule:evenodd;stroke:context-stroke;stroke-width:1pt"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path1-7" />
+    </marker>
+    <marker
+       style="overflow:visible"
+       id="Triangle-6-6"
+       refX="2.9000001"
+       refY="0"
+       orient="auto-start-reverse"
+       markerWidth="1.5"
+       markerHeight="1.5"
+       viewBox="0 0 1 1"
+       preserveAspectRatio="xMidYMid">
+      <path
+         transform="scale(0.5)"
+         style="fill:context-stroke;fill-rule:evenodd;stroke:context-stroke;stroke-width:1pt"
+         d="M 5.77,0 -2.88,5 V -5 Z"
+         id="path1-7-2" />
+    </marker>
+  </defs>
+  <!-- Background -->
+  <rect
+     x="0"
+     y="0"
+     width="1000"
+     height="800"
+     fill="#ffffff"
+     id="rect1" />
+  <!-- Title -->
+  <text
+     class="cls-39"
+     transform="translate(20 35)"
+     id="text1"><tspan
+       x="0"
+       y="0"
+       id="tspan1">Config Policy Controller Architecture</tspan></text>
+  <!-- ConfigurationPolicy CRD -->
+  <rect
+     class="cls-31"
+     x="50"
+     y="143"
+     width="275"
+     height="63"
+     id="rect2" />
+  <text
+     class="cls-37-bold"
+     id="text2"
+     x="60"
+     y="155.5"><tspan
+       x="187.5"
+       y="161.5"
+       text-anchor="middle"
+       id="tspan2">ConfigurationPolicy custom resources</tspan></text>
+  <!-- ConfigurationPolicy Spec/Status -->
+  <rect
+     class="cls-28"
+     x="60"
+     y="176"
+     width="125"
+     height="25"
+     id="rect3" />
+  <text
+     class="cls-37"
+     transform="translate(122.5 194)"
+     id="text3"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan3">Spec</tspan></text>
+  <rect
+     class="cls-28"
+     x="190"
+     y="176"
+     width="125"
+     height="25"
+     id="rect4" />
+  <text
+     class="cls-37"
+     transform="translate(252.5 194)"
+     id="text4"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan4">Status</tspan></text>
+  <!-- OperatorPolicy CRD -->
+  <rect
+     class="cls-31"
+     x="675"
+     y="143"
+     width="275"
+     height="63"
+     id="rect5" />
+  <text
+     class="cls-37-bold"
+     id="text5"
+     x="685"
+     y="155.5"><tspan
+       x="812.5"
+       y="161.5"
+       text-anchor="middle"
+       id="tspan5">OperatorPolicy custom resources</tspan></text>
+  <!-- OperatorPolicy Spec/Status -->
+  <rect
+     class="cls-28"
+     x="685"
+     y="176"
+     width="125"
+     height="25"
+     id="rect6" />
+  <text
+     class="cls-37"
+     transform="translate(747.5 194)"
+     id="text6"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan6">Spec</tspan></text>
+  <rect
+     class="cls-28"
+     x="815"
+     y="176"
+     width="125"
+     height="25"
+     id="rect7" />
+  <text
+     class="cls-37"
+     transform="translate(877.5 194)"
+     id="text7"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan7">Status</tspan></text>
+  <!-- Pod container -->
+  <rect
+     class="cls-dotted-box"
+     x="352.87442"
+     y="247.00995"
+     width="312.11563"
+     height="119.98009"
+     id="rect8" />
+  <text
+     class="cls-37"
+     transform="translate(500 270)"
+     id="text8"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan8">Config Policy Controller Pod</tspan></text>
+  <!-- Configuration Policy Controller -->
+  <rect
+     class="cls-32"
+     x="370"
+     y="290"
+     width="135"
+     height="50"
+     id="rect9" />
+  <text
+     class="cls-36"
+     transform="translate(437.5 310)"
+     id="text10"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan9">Configuration Policy</tspan><tspan
+       x="0"
+       y="12"
+       text-anchor="middle"
+       id="tspan10">Controller</tspan></text>
+  <!-- Operator Policy Controller -->
+  <rect
+     class="cls-32"
+     x="515"
+     y="290"
+     width="135"
+     height="50"
+     id="rect10" />
+  <text
+     class="cls-36"
+     transform="translate(582.5 310)"
+     id="text12"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan11">Operator Policy</tspan><tspan
+       x="0"
+       y="12"
+       text-anchor="middle"
+       id="tspan12">Controller</tspan></text>
+  <!-- Target Kubernetes Resources -->
+  <rect
+     class="cls-31"
+     x="50"
+     y="450"
+     width="275"
+     height="63"
+     id="rect12" />
+  <text
+     class="cls-37-bold"
+     id="text13"
+     x="60"
+     y="462.5"><tspan
+       x="187.5"
+       y="468.5"
+       text-anchor="middle"
+       id="tspan13">Target Kubernetes Resources</tspan></text>
+  <!-- Target Resource Spec/Status -->
+  <rect
+     class="cls-28"
+     x="60"
+     y="483"
+     width="125"
+     height="25"
+     id="rect13" />
+  <text
+     class="cls-37"
+     transform="translate(122.5 501)"
+     id="text14"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan14">Spec</tspan></text>
+  <rect
+     class="cls-28"
+     x="190"
+     y="483"
+     width="125"
+     height="25"
+     id="rect14" />
+  <text
+     class="cls-37"
+     transform="translate(252.5 501)"
+     id="text15"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan15">Status</tspan></text>
+  <!-- OLM Resources -->
+  <rect
+     class="cls-31"
+     x="675"
+     y="450"
+     width="275"
+     height="63"
+     id="rect15" />
+  <text
+     class="cls-37-bold"
+     id="text16"
+     x="685"
+     y="462.5"><tspan
+       x="812.5"
+       y="468.5"
+       text-anchor="middle"
+       id="tspan16">OLM Resources</tspan></text>
+  <!-- OLM Resource Spec/Status -->
+  <rect
+     class="cls-28"
+     x="685"
+     y="483"
+     width="125"
+     height="25"
+     id="rect16" />
+  <text
+     class="cls-37"
+     transform="translate(747.5 501)"
+     id="text17"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan17">Spec</tspan></text>
+  <rect
+     class="cls-28"
+     x="815"
+     y="483"
+     width="125"
+     height="25"
+     id="rect17" />
+  <text
+     class="cls-37"
+     transform="translate(877.5 501)"
+     id="text18"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       id="tspan18">Status</tspan></text>
+  <!-- OLM Detailed Resources in organized grid -->
+  <!-- Row 1 -->
+  <!-- Row 2 -->
+  <!-- Row 3 -->
+    <!-- Events for Policy with L-shaped lines (grouped and aligned) -->
+  <g id="events-group" transform="translate(0,-50)">
+    <polyline
+       class="cls-21"
+       points="582.5 508.75 582.5 558.75 447.5 558.75"
+       id="polyline38-events"
+       style="fill:none;stroke:#c4c4c4;stroke-miterlimit:10"
+       transform="translate(6,2)" />
+    <polyline
+       class="cls-21"
+       points="577.5 503.75 577.5 553.75 442.5 553.75"
+       id="polyline39-events"
+       style="fill:none;stroke:#c4c4c4;stroke-miterlimit:10"
+       transform="translate(6)" />
+    <rect
+       class="cls-31"
+       x="442.5"
+       y="500"
+       width="135"
+       height="50"
+       id="rect24" />
+    <text
+       class="cls-37"
+       id="text25"
+       style="font-weight:500;font-size:11px;font-family:RedHatText-Medium, 'Red Hat Text';text-align:center;text-anchor:middle;white-space:pre;inline-size:48.1792;display:inline;fill:#151515"
+       x="510"
+       y="518.39001"
+       transform="translate(0.390049,3.0523011)"
+       xml:space="preserve"><tspan
+         x="510"
+         y="518.39001"
+         id="tspan19">Events<tspan
+           y="518.39001"
+           id="tspan20"> </tspan></tspan><tspan
+         x="510"
+         y="532.14"
+         id="tspan21">for policy</tspan></text>
+  </g>
+  <!-- ARROWS WITH PROPER FRAMEWORK STYLING -->
+  <!-- Configuration Policy Controller to ConfigurationPolicy -->
+  <path
+     d="M 370 315 L 187.5 315 L 187.5 206"
+     style="fill:none;stroke:#151515;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:2.97, 2.97"
+     marker-end="url(#Triangle)"
+     id="path25" />
+  <text
+     class="cls-37"
+     transform="translate(278.75 315)"
+     id="text26"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       stroke="#ffffff"
+       stroke-width="1em"
+       stroke-linejoin="miter"
+       stroke-linecap="butt"
+       paint-order="stroke fill"
+       id="tspan26">Watch</tspan></text>
+  <!-- Operator Policy Controller to OperatorPolicy -->
+  <path
+     d="M 650 315 L 812.5 315 L 812.5 206"
+     style="fill:none;stroke:#151515;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:2.97, 2.97"
+     marker-end="url(#Triangle)"
+     id="path26" />
+  <text
+     class="cls-37"
+     transform="translate(731.25 315)"
+     id="text27"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       stroke="#ffffff"
+       stroke-width="1em"
+       stroke-linejoin="miter"
+       stroke-linecap="butt"
+       paint-order="stroke fill"
+       id="tspan27">Watch</tspan></text>
+  <!-- Configuration Policy Controller to Target Resources -->
+  <path
+     d="M 437.5 340 L 437.5 418 L 197.5 418 L 197.5 450"
+     style="fill:none;stroke:#151515;stroke-width:1;stroke-linecap:round;stroke-linejoin:round"
+     marker-end="url(#Triangle)"
+     id="path27" />
+  <text
+     class="cls-37"
+     transform="translate(317.5 418)"
+     id="text28"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       stroke="#ffffff"
+       stroke-width="1em"
+       stroke-linejoin="miter"
+       stroke-linecap="butt"
+       paint-order="stroke fill"
+       id="tspan28">Create/Update</tspan></text>
+  <!-- Operator Policy Controller to OLM Resources -->
+  <path
+     d="M 582.5 340 L 582.5 418 L 812.5 418 L 812.5 450"
+     style="fill:none;stroke:#151515;stroke-width:1;stroke-linecap:round;stroke-linejoin:round"
+     marker-end="url(#Triangle)"
+     id="path28" />
+  <text
+     class="cls-37"
+     transform="translate(697.5 418)"
+     id="text29"><tspan
+       x="0"
+       y="0"
+       text-anchor="middle"
+       stroke="#ffffff"
+       stroke-width="1em"
+       stroke-linejoin="miter"
+       stroke-linecap="butt"
+       paint-order="stroke fill"
+       id="tspan29">Manage</tspan></text>
+  <!-- Status feedback arrows -->
+  <path
+     d="M 142 450 L 142 206"
+     style="fill:none;stroke:#151515;stroke-width:1;stroke-linecap:round;stroke-linejoin:round"
+     marker-end="url(#Triangle)"
+     id="path29" />
+  <text
+     class="cls-37"
+     id="text30"
+     x="142"
+     y="387.4393"><tspan
+       x="142"
+       y="387.4393"
+       text-anchor="middle"
+       stroke="#ffffff"
+       stroke-width="1em"
+       stroke-linejoin="miter"
+       stroke-linecap="butt"
+       paint-order="stroke fill"
+       id="tspan30">Update Status</tspan></text>
+  <path
+     d="M 858 450 L 858 206"
+     style="fill:none;stroke:#151515;stroke-width:1;stroke-linecap:round;stroke-linejoin:round"
+     marker-end="url(#Triangle)"
+     id="path30" />
+  <text
+     class="cls-37"
+     id="text31"
+     x="857.12909"
+     y="387.4393"><tspan
+       x="857.12909"
+       y="387.4393"
+       text-anchor="middle"
+       stroke="#ffffff"
+       stroke-width="1em"
+       stroke-linejoin="miter"
+       stroke-linecap="butt"
+       paint-order="stroke fill"
+       id="tspan31">Update Status</tspan></text>
+  <!-- OLM detailed resource connections - all from center bottom -->
+  <!-- To Subscriptions (top left) -->
+  <!-- To OperatorGroups (top right) -->
+  <!-- To ClusterServiceVersions (middle left) -->
+  <!-- To InstallPlans (middle right) -->
+  <!-- To CatalogSources (bottom left) -->
+  <!-- To CRDs (bottom right) -->
+  <!-- OLM convergence label -->
+  <!-- Events connections -->
+         <path
+      style="fill:none;stroke:#1a1a1a;marker-end:url(#Triangle-6)"
+      d="m 470.68556,340 -0.86682,110"
+      id="path2" />
+   <path
+      style="fill:none;stroke:#1a1a1a;marker-end:url(#Triangle-6-6)"
+      d="m 548.44531,339.00271 -0.86682,110"
+      id="path2-1" />
+    <text
+       class="cls-37"
+       id="text38"
+       x="507.90646"
+       y="408.5"
+       style="fill:#151515;stroke:#ffffff;stroke-width:1em;stroke-linejoin:miter;stroke-linecap:butt;paint-order:stroke fill"><tspan
+         x="507.90646"
+         y="408.5"
+         text-anchor="middle"
+         id="tspan38">Generate Events</tspan></text>
+</svg>
