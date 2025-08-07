@@ -214,8 +214,19 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 	log := log.WithValues("name", request.Name, "namespace", request.Namespace)
 	policy := &policyv1.ConfigurationPolicy{}
 
-	err := r.Get(ctx, request.NamespacedName, policy)
+	cleanup, err := r.cleanupImmediately()
+	if !cleanup && err != nil {
+		log.Error(err, "Failed to determine if it's time to cleanup immediately")
+
+		return reconcile.Result{}, err
+	}
+
+	err = r.Get(ctx, request.NamespacedName, policy)
 	if k8serrors.IsNotFound(err) {
+		if cleanup {
+			return reconcile.Result{}, nil
+		}
+
 		log.V(1).Info("Handling a deleted policy")
 		removeConfigPolicyMetrics(request)
 		r.SelectorReconciler.Stop(request.Namespace, request.Name)
@@ -247,7 +258,7 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 		nonCompliantWithWatch := policy.Status.ComplianceState != policyv1.Compliant &&
 			policy.Spec.EvaluationInterval.IsWatchForNonCompliant()
 
-		if !(compliantWithWatch || nonCompliantWithWatch) {
+		if !(compliantWithWatch || nonCompliantWithWatch) && !cleanup {
 			err := r.DynamicWatcher.RemoveWatcher(policy.ObjectIdentifier())
 			if err != nil {
 				log.Error(err, "Failed to remove any watches related to this ConfigurationPolicy. Will ignore.")
@@ -255,31 +266,37 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 		}
 	}()
 
-	uninstalling, crdDeleting, err := r.cleanupImmediately()
-	if !uninstalling && !crdDeleting && err != nil {
-		log.Error(err, "Failed to determine if it's time to cleanup immediately")
-
-		return reconcile.Result{}, err
-	}
-
 	// If the ConfigurationPolicy's spec field was updated, clear the cache of evaluated objects.
 	if policy.Status.LastEvaluatedGeneration != policy.Generation {
 		r.processedPolicyCache.Delete(policy.GetUID())
 	}
 
-	if err := r.resolveHubTemplates(ctx, policy); err != nil {
-		statusChanged := addConditionToStatus(policy, -1, false, "Hub template resolution failure", err.Error())
+	// When *not* cleaning up, hub templates could change the `pruneObjectBehavior` setting, which
+	// affects how the deletion finalizer is managed, so this must be done first.
+	// But when `cleanup` is true, we must skip resolving the hub templates.
+	if !cleanup {
+		if err := r.resolveHubTemplates(ctx, policy); err != nil {
+			statusChanged := addConditionToStatus(policy, -1, false, "Hub template resolution failure", err.Error())
 
-		if statusChanged {
-			r.recordInfoEvent(policy, true)
+			if statusChanged {
+				r.recordInfoEvent(policy, true)
+			}
+
+			r.addForUpdate(policy, statusChanged)
+
+			return reconcile.Result{}, err
 		}
+	}
 
-		r.addForUpdate(policy, statusChanged)
-
+	if err := r.manageDeletionFinalizer(policy, cleanup); err != nil {
 		return reconcile.Result{}, err
 	}
 
-	shouldEvaluate, durationLeft := r.shouldEvaluatePolicy(policy, (uninstalling || crdDeleting))
+	if cleanup {
+		return reconcile.Result{}, nil
+	}
+
+	shouldEvaluate, durationLeft := r.shouldEvaluatePolicy(policy)
 	if !shouldEvaluate {
 		// Requeue based on the remaining time for the evaluation interval to be met.
 		return reconcile.Result{RequeueAfter: durationLeft}, nil
@@ -393,15 +410,9 @@ func (r *ConfigurationPolicyReconciler) Reconcile(ctx context.Context, request c
 // cleanupImmediately should be set true when the controller is getting uninstalled.
 // If the policy is not ready to be evaluated, the returned duration is how long until the next evaluation.
 func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
-	policy *policyv1.ConfigurationPolicy, cleanupImmediately bool,
+	policy *policyv1.ConfigurationPolicy,
 ) (bool, time.Duration) {
 	log := log.WithValues("policy", policy.GetName())
-
-	// If it's time to clean up such as when the config-policy-controller is being uninstalled, only evaluate policies
-	// with a finalizer to remove the finalizer.
-	if cleanupImmediately {
-		return len(policy.Finalizers) != 0, 0
-	}
 
 	if cachedLastEval, ok := r.lastEvaluatedCache.Load(policy.UID); ok {
 		last, cachedConversionErr := strconv.Atoi(cachedLastEval.(string))
@@ -706,17 +717,12 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 	return deletionFailures
 }
 
-// cleanupImmediately returns true (i.e. beingUninstalled or crdDeleting) when the cluster is in a state where
-// configurationpolicies should be removed as soon as possible, ignoring the pruneObjectBehavior of the policies. This
+// cleanupImmediately returns true when the cluster is in a state where configurationpolicies
+// should be removed as soon as possible, ignoring the pruneObjectBehavior of the policies. This
 // is the case when the controller is being uninstalled or the CRD is being deleted.
-func (r *ConfigurationPolicyReconciler) cleanupImmediately() (beingUninstalled bool, crdDeleting bool, err error) {
-	var beingUninstalledErr error
-
-	beingUninstalled, beingUninstalledErr = IsBeingUninstalled(r.Client)
-
-	var defErr error
-
-	crdDeleting, defErr = r.definitionIsDeleting()
+func (r *ConfigurationPolicyReconciler) cleanupImmediately() (cleanup bool, err error) {
+	beingUninstalled, beingUninstalledErr := IsBeingUninstalled(r.Client)
+	crdDeleting, defErr := r.definitionIsDeleting()
 
 	switch {
 	case beingUninstalledErr != nil && defErr != nil:
@@ -727,7 +733,7 @@ func (r *ConfigurationPolicyReconciler) cleanupImmediately() (beingUninstalled b
 		err = defErr
 	}
 
-	return
+	return (beingUninstalled || crdDeleting), err
 }
 
 func (r *ConfigurationPolicyReconciler) definitionIsDeleting() (bool, error) {
@@ -918,10 +924,6 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 	log.V(1).Info("Processing object templates")
 
 	if err := r.validateConfigPolicy(plc); err != nil {
-		return err
-	}
-
-	if returnNow, err := r.manageDeletionFinalizer(plc); err != nil || returnNow {
 		return err
 	}
 
@@ -1172,52 +1174,39 @@ func (r *ConfigurationPolicyReconciler) validateConfigPolicy(plc *policyv1.Confi
 }
 
 // manageDeletionFinalizer sets or removes the finalizer on the ConfigurationPolicy based on the
-// pruneObjectBehavior setting, and whether the controller is being uninstalled. If the controller
-// is being uninstalled, the function will return true, indicating the rest of the policy handling
-// logic should be skipped.
-func (r *ConfigurationPolicyReconciler) manageDeletionFinalizer(plc *policyv1.ConfigurationPolicy,
-) (returnNow bool, err error) {
-	if plc.Spec.PruneObjectBehavior == "DeleteIfCreated" || plc.Spec.PruneObjectBehavior == "DeleteAll" {
-		uninstalling, crdDeleting, err := r.cleanupImmediately()
-		if !uninstalling && !crdDeleting && err != nil {
-			log.Error(err, "Error determining whether to cleanup immediately, requeueing policy")
+// pruneObjectBehavior setting and current `cleanup` state.
+func (r *ConfigurationPolicyReconciler) manageDeletionFinalizer(
+	plc *policyv1.ConfigurationPolicy, cleanup bool,
+) (err error) {
+	if cleanup {
+		if objHasFinalizer(plc, pruneObjectFinalizer) {
+			patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
 
-			return true, err
-		}
+			err = r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
+			if err != nil {
+				log.Error(err, "Error removing finalizer for configuration policy")
 
-		if uninstalling || crdDeleting {
-			if objHasFinalizer(plc, pruneObjectFinalizer) {
-				patch := removeObjFinalizerPatch(plc, pruneObjectFinalizer)
-
-				err = r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
-				if err != nil {
-					log.Error(err, "Error removing finalizer for configuration policy")
-
-					return true, err
-				}
+				return err
 			}
-
-			return true, nil
 		}
 
+		return nil
+	}
+
+	if plc.Spec.PruneObjectBehavior == "DeleteIfCreated" || plc.Spec.PruneObjectBehavior == "DeleteAll" {
 		// set finalizer if it hasn't been set
 		if !objHasFinalizer(plc, pruneObjectFinalizer) {
-			var patch []byte
+			patch := `[{"op":"add","path":"/metadata/finalizers/-","value":"` + pruneObjectFinalizer + `"}]`
+
 			if plc.Finalizers == nil {
-				patch = []byte(
-					`[{"op":"add","path":"/metadata/finalizers","value":["` + pruneObjectFinalizer + `"]}]`,
-				)
-			} else {
-				patch = []byte(
-					`[{"op":"add","path":"/metadata/finalizers/-","value":"` + pruneObjectFinalizer + `"}]`,
-				)
+				patch = `[{"op":"add","path":"/metadata/finalizers","value":["` + pruneObjectFinalizer + `"]}]`
 			}
 
-			err := r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, patch))
+			err := r.Patch(context.TODO(), plc, client.RawPatch(types.JSONPatchType, []byte(patch)))
 			if err != nil {
 				log.Error(err, "Error setting finalizer for configuration policy")
 
-				return true, err
+				return err
 			}
 		}
 	} else if objHasFinalizer(plc, pruneObjectFinalizer) {
@@ -1228,11 +1217,11 @@ func (r *ConfigurationPolicyReconciler) manageDeletionFinalizer(plc *policyv1.Co
 		if err != nil {
 			log.Error(err, "Error removing finalizer for configuration policy")
 
-			return true, err
+			return err
 		}
 	}
 
-	return false, nil
+	return nil
 }
 
 // handleDeletion cleans up the child objects, based on the pruneObjectBehavior setting. If all of

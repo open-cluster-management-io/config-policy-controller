@@ -53,8 +53,27 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 			g.Expect(policy2.GetFinalizers()).To(ContainElement(pruneObjectFinalizer))
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
-		By("Waiting 25 seconds to ensure there are no leftover reconciles")
-		time.Sleep(25 * time.Second)
+		By("Patching one of the policies to have an unresolved hub template")
+		utils.Kubectl("patch", "configurationpolicy", "-n", testNamespace, policy2Name, "--type=json", "-p",
+			`[{"op": "replace",
+			   "path": "/spec/object-templates/0/objectDefinition/data/state",
+			   "value": "{{hub something hub}}"}]`)
+
+		By("Verifying that policy is now NonCompliant, and still has the finalizer")
+		Eventually(func(g Gomega) {
+			policy2 := utils.GetWithTimeout(
+				clientManagedDynamic, gvrConfigPolicy, policy2Name, testNamespace, true, defaultTimeoutSeconds,
+			)
+			g.Expect(utils.GetComplianceState(policy2)).To(Equal("NonCompliant"))
+
+			g.Expect(utils.GetStatusMessage(policy2)).To(
+				ContainSubstring("governance-standalone-hub-templating addon must be enabled"))
+
+			g.Expect(policy2.GetFinalizers()).To(ContainElement(pruneObjectFinalizer))
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+		By("Waiting 15 seconds to ensure there are no leftover reconciles")
+		time.Sleep(15 * time.Second)
 
 		By("Triggering an uninstall")
 		config, err := LoadConfig("", kubeconfigManaged, "")

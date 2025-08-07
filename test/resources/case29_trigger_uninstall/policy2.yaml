@@ -14,4 +14,4 @@ spec:
           name: case29-trigger-uninstall
           namespace: default
         data:
-          state: NC
+          state: NC # will be patched to '{{hub something hub}}'
