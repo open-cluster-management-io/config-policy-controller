@@ -39,6 +39,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
@@ -133,6 +134,9 @@ func (r *OperatorPolicyReconciler) SetupWithManager(
 ) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		Named(OperatorControllerName).
+		WithOptions(controller.Options{
+			RateLimiter: newPolicyRateLimiter(2),
+		}).
 		For(&policyv1beta1.OperatorPolicy{}, builder.WithPredicates(predicate.Funcs{
 			// Skip most pure status/metadata updates
 			UpdateFunc: func(e event.UpdateEvent) bool {

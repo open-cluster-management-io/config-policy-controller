@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"math"
 	"reflect"
 	"regexp"
 	"sort"
@@ -106,6 +105,7 @@ func (r *ConfigurationPolicyReconciler) SetupWithManager(
 		Named(ControllerName).
 		WithOptions(controller.Options{
 			MaxConcurrentReconciles: int(evaluationConcurrency),
+			RateLimiter:             newPolicyRateLimiter(r.EvalBackoffSeconds),
 		}).
 		For(&policyv1.ConfigurationPolicy{}, builder.WithPredicates(
 			predicate.Funcs{
@@ -469,13 +469,6 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 		}
 	}
 
-	lastEvaluated, err := time.Parse(time.RFC3339, policy.Status.LastEvaluated)
-	if err != nil {
-		log.Error(err, "The policy has an invalid status.lastEvaluated value. Will evaluate it now.")
-
-		return true, 0
-	}
-
 	usesSelector := policy.Spec.NamespaceSelector.LabelSelector != nil ||
 		len(policy.Spec.NamespaceSelector.Include) != 0
 
@@ -508,20 +501,6 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 		return false, 0
 
 	case errors.Is(getIntervalErr, policyv1.ErrIsWatch):
-		minNextEval := lastEvaluated.Add(time.Second * time.Duration(r.EvalBackoffSeconds))
-		durationLeft := minNextEval.Sub(now)
-
-		if durationLeft > 0 {
-			log.V(1).Info(
-				"The policy evaluation is configured for a watch event but rescheduling the evaluation due to the "+
-					"configured evaluation backoff",
-				"evaluationBackoffSeconds", r.EvalBackoffSeconds,
-				"remainingSeconds", math.Round(durationLeft.Seconds()),
-			)
-
-			return false, durationLeft
-		}
-
 		log.V(1).Info("The policy evaluation is configured for a watch event. Will evaluate now.")
 
 		return true, 0
@@ -532,6 +511,16 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 			"spec.evaluationInterval.compliant", policy.Spec.EvaluationInterval.Compliant,
 			"spec.evaluationInterval.noncompliant", policy.Spec.EvaluationInterval.NonCompliant,
 		)
+
+		return true, 0
+	}
+
+	// At this point, we have a valid evaluation interval, we can now determine
+	// how long we need to wait (if at all).
+
+	lastEvaluated, err := time.Parse(time.RFC3339, policy.Status.LastEvaluated)
+	if err != nil {
+		log.Error(err, "The policy has an invalid status.lastEvaluated value. Will evaluate it now.")
 
 		return true, 0
 	}
