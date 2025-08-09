@@ -417,6 +417,11 @@ type ObjectProperties struct {
 	// Diff stores the difference between the `objectDefinition` in the policy and the object on the
 	// cluster.
 	Diff string `json:"diff,omitempty"`
+
+	// DryRunNoOpOverride indicates that a difference was detected between the policy and the
+	// object, but a dry run update reported no changes. The dry run result overrides the policy
+	// assessment, meaning the object is considered compliant despite the initial mismatch.
+	DryRunNoOpOverride *bool `json:"dryRunNoOpOverride,omitempty"`
 }
 
 // RelatedObject contains the details of an object matched by the policy.

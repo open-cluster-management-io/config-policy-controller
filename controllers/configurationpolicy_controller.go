@@ -2394,8 +2394,9 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 		created := false
 		uid := string(obj.existingObj.GetUID())
+		dryRunNoOpOverride := false
 
-		if evaluated, compliant, cachedMsg := r.alreadyEvaluated(obj.policy, obj.existingObj); evaluated {
+		if evaluated, compliant, cachedMsg, dryRunNoOp := r.alreadyEvaluated(obj.policy, obj.existingObj); evaluated {
 			log.V(1).Info("Skipping object comparison since the resourceVersion hasn't changed")
 
 			for _, relatedObj := range obj.policy.Status.RelatedObjects {
@@ -2409,6 +2410,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 
 			throwSpecViolation = !compliant
 			msg = cachedMsg
+			dryRunNoOpOverride = dryRunNoOp
 		} else {
 			throwSpecViolation, msg, diff, triedUpdate, updatedObj = r.checkAndUpdateResource(
 				obj, objectT, remediation,
@@ -2417,6 +2419,10 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 			if updatedObj != nil && string(updatedObj.GetUID()) != uid {
 				uid = string(updatedObj.GetUID())
 				created = true
+			}
+
+			if triedUpdate && diff == "" {
+				dryRunNoOpOverride = true
 			}
 		}
 
@@ -2435,12 +2441,6 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				resultReason = reasonWantFoundNoMatch
 			}
 
-			objectProperties = &policyv1.ObjectProperties{
-				CreatedByPolicy: &created,
-				UID:             uid,
-				Diff:            diff,
-			}
-
 			result.events = append(result.events, objectTmplEvalEvent{false, resultReason, resultMsg})
 		} else {
 			// it is a must have and it does exist, so it is compliant
@@ -2450,15 +2450,16 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 				} else {
 					result.events = append(result.events, objectTmplEvalEvent{true, reasonWantFoundExists, ""})
 				}
-
-				objectProperties = &policyv1.ObjectProperties{
-					CreatedByPolicy: &created,
-					UID:             uid,
-					Diff:            diff,
-				}
 			} else {
 				result.events = append(result.events, objectTmplEvalEvent{true, reasonWantFoundExists, ""})
 			}
+		}
+
+		objectProperties = &policyv1.ObjectProperties{
+			CreatedByPolicy:    &created,
+			UID:                uid,
+			Diff:               diff,
+			DryRunNoOpOverride: &dryRunNoOpOverride,
 		}
 	}
 
@@ -3150,9 +3151,10 @@ func handleSingleKey(
 }
 
 type cachedEvaluationResult struct {
-	resourceVersion string
-	compliant       bool
-	msg             string
+	resourceVersion    string
+	compliant          bool
+	msg                string
+	dryRunNoOpOverride bool
 }
 
 // checkAndUpdateResource checks each individual key of a resource and passes it to handleKeys to see if it
@@ -3228,7 +3230,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			diff = handleDiff(log, recordDiff, existingObjectCopy, mergedObjCopy, r.FullDiffs)
 		}
 
-		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
+		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "", false)
 
 		return throwSpecViolation, "", diff, updateNeeded, updatedObj
 	}
@@ -3271,7 +3273,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 			// If the user specifies an unknown or invalid field, it comes back as a bad request.
 			if k8serrors.IsBadRequest(err) {
-				r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+				r.setEvaluatedObject(obj.policy, obj.existingObj, false, message, false)
 			}
 
 			return true, message, "", updateNeeded, nil
@@ -3298,7 +3300,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 					`you may set spec["object-templates"][].recreateOption to recreate the object`
 			}
 
-			r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+			r.setEvaluatedObject(obj.policy, obj.existingObj, false, message, false)
 
 			return true, message, diff, false, nil
 		}
@@ -3323,7 +3325,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				diff = handleDiff(log, recordDiff, existingObjectCopy, mergedObjCopy, r.FullDiffs)
 			}
 
-			r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
+			r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "", true)
 
 			return throwSpecViolation, "", diff, updateNeeded, updatedObj
 		}
@@ -3333,7 +3335,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 	// The object would have been updated, so if it's inform, return as noncompliant.
 	if isInform {
-		r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
+		r.setEvaluatedObject(obj.policy, obj.existingObj, false, "", false)
 
 		return true, "", diff, false, nil
 	}
@@ -3413,7 +3415,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	}
 
 	if !statusMismatch {
-		r.setEvaluatedObject(obj.policy, updatedObj, true, message)
+		r.setEvaluatedObject(obj.policy, updatedObj, true, message, false)
 	}
 
 	return throwSpecViolation, "", diff, updateNeeded, updatedObj
@@ -3576,7 +3578,11 @@ func removeFieldsForComparison(obj *unstructured.Unstructured) {
 // setEvaluatedObject updates the cache to indicate that the ConfigurationPolicy has evaluated this
 // object at its current resourceVersion.
 func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
-	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured, compliant bool, msg string,
+	policy *policyv1.ConfigurationPolicy,
+	currentObject *unstructured.Unstructured,
+	compliant bool,
+	msg string,
+	dryRunOverride bool,
 ) {
 	policyMap := &sync.Map{}
 
@@ -3588,9 +3594,10 @@ func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
 	policyMap.Store(
 		currentObject.GetUID(),
 		cachedEvaluationResult{
-			resourceVersion: currentObject.GetResourceVersion(),
-			compliant:       compliant,
-			msg:             msg,
+			resourceVersion:    currentObject.GetResourceVersion(),
+			compliant:          compliant,
+			msg:                msg,
+			dryRunNoOpOverride: dryRunOverride,
 		},
 	)
 }
@@ -3599,21 +3606,21 @@ func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
 // resourceVersion.
 func (r *ConfigurationPolicyReconciler) alreadyEvaluated(
 	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured,
-) (evaluated bool, compliant bool, msg string) {
+) (evaluated bool, compliant bool, msg string, dryRunNoOpOverrode bool) {
 	if policy == nil || currentObject == nil {
-		return false, false, ""
+		return false, false, "", false
 	}
 
 	loadedPolicyMap, loaded := r.processedPolicyCache.Load(policy.GetUID())
 	if !loaded {
-		return false, false, ""
+		return false, false, "", false
 	}
 
 	policyMap := loadedPolicyMap.(*sync.Map)
 
 	result, loaded := policyMap.Load(currentObject.GetUID())
 	if !loaded {
-		return false, false, ""
+		return false, false, "", false
 	}
 
 	resultTyped := result.(cachedEvaluationResult)
@@ -3621,7 +3628,7 @@ func (r *ConfigurationPolicyReconciler) alreadyEvaluated(
 	alreadyEvaluated := resultTyped.resourceVersion != "" &&
 		resultTyped.resourceVersion == currentObject.GetResourceVersion()
 
-	return alreadyEvaluated, resultTyped.compliant, resultTyped.msg
+	return alreadyEvaluated, resultTyped.compliant, resultTyped.msg, resultTyped.dryRunNoOpOverride
 }
 
 func getUpdateErrorMsg(err error, kind string, name string) string {

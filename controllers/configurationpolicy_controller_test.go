@@ -1544,3 +1544,162 @@ func TestShouldHandleSingleKeyFalse(t *testing.T) {
 		assert.False(t, skip)
 	}
 }
+
+// TestAlreadyEvaluated tests the core caching functionality for evaluated objects
+func TestAlreadyEvaluated(t *testing.T) {
+	// Create a test ConfigurationPolicy
+	policy := &policyv1.ConfigurationPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-policy",
+			Namespace: "default",
+			UID:       types.UID("test-policy-uid"),
+		},
+	}
+
+	// Create a test unstructured object
+	testObj := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "v1",
+			"kind":       "ConfigMap",
+			"metadata": map[string]interface{}{
+				"name":            "test-configmap",
+				"namespace":       "default",
+				"uid":             "test-object-uid",
+				"resourceVersion": "123",
+			},
+		},
+	}
+
+	// Create a reconciler with an empty cache
+	r := &ConfigurationPolicyReconciler{
+		processedPolicyCache: sync.Map{},
+	}
+
+	t.Run("Test caching dryRunNoOpOverride=true", func(t *testing.T) {
+		// Call setEvaluatedObject with dryRunNoOpOverride=true
+		r.setEvaluatedObject(policy, testObj, true, "test message", true)
+
+		// Verify the object was cached correctly
+		evaluated, compliant, msg, dryRunNoOpOverride := r.alreadyEvaluated(policy, testObj)
+
+		assert.True(t, evaluated, "Object should be marked as evaluated")
+		assert.True(t, compliant, "Object should be marked as compliant")
+		assert.Equal(t, "test message", msg, "Message should match")
+		assert.True(t, dryRunNoOpOverride, "dryRunNoOpOverride should be true")
+	})
+
+	t.Run("Test caching dryRunNoOpOverride=false", func(t *testing.T) {
+		// Create a new policy and object to avoid cache interference
+		policy2 := &policyv1.ConfigurationPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-policy-2",
+				Namespace: "default",
+				UID:       types.UID("test-policy-uid-2"),
+			},
+		}
+
+		testObj2 := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]interface{}{
+					"name":            "test-configmap-2",
+					"namespace":       "default",
+					"uid":             "test-object-uid-2",
+					"resourceVersion": "124",
+				},
+			},
+		}
+
+		// Call setEvaluatedObject with dryRunNoOpOverride=false
+		r.setEvaluatedObject(policy2, testObj2, false, "error message", false)
+
+		// Verify the object was cached correctly
+		evaluated, compliant, msg, dryRunNoOpOverride := r.alreadyEvaluated(policy2, testObj2)
+
+		assert.True(t, evaluated, "Object should be marked as evaluated")
+		assert.False(t, compliant, "Object should be marked as non-compliant")
+		assert.Equal(t, "error message", msg, "Message should match")
+		assert.False(t, dryRunNoOpOverride, "dryRunNoOpOverride should be false")
+	})
+
+	t.Run("Test not cached object", func(t *testing.T) {
+		// Create a completely new policy and object
+		policy3 := &policyv1.ConfigurationPolicy{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "test-policy-3",
+				Namespace: "default",
+				UID:       types.UID("test-policy-uid-3"),
+			},
+		}
+
+		testObj3 := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]interface{}{
+					"name":            "test-configmap-3",
+					"namespace":       "default",
+					"uid":             "test-object-uid-3",
+					"resourceVersion": "125",
+				},
+			},
+		}
+
+		// Call alreadyEvaluated without caching first
+		evaluated, compliant, msg, dryRunNoOpOverride := r.alreadyEvaluated(policy3, testObj3)
+
+		assert.False(t, evaluated, "Object should not be marked as evaluated")
+		assert.False(t, compliant, "Object should be marked as non-compliant")
+		assert.Empty(t, msg, "Message should be empty")
+		assert.False(t, dryRunNoOpOverride, "dryRunNoOpOverride should be false")
+	})
+
+	t.Run("Test resource version change invalidates cache", func(t *testing.T) {
+		// Use the same policy but change the resource version
+		testObjNewVersion := &unstructured.Unstructured{
+			Object: map[string]interface{}{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]interface{}{
+					"name":            "test-configmap",
+					"namespace":       "default",
+					"uid":             "test-object-uid",
+					"resourceVersion": "456", // Different resource version
+				},
+			},
+		}
+
+		// Call alreadyEvaluated - should return false due to different resource version
+		// but the cached values from the previous evaluation should still be returned
+		evaluated, compliant, msg, dryRunNoOpOverride := r.alreadyEvaluated(policy, testObjNewVersion)
+
+		assert.False(t, evaluated, "Object should not be marked as evaluated due to different resource version")
+		assert.True(t, compliant, "Should return the cached compliance state from previous evaluation")
+		assert.Equal(t, "test message", msg, "Should return the cached message from previous evaluation")
+		assert.True(t, dryRunNoOpOverride, "Should return the cached dryRunNoOpOverride from previous evaluation")
+	})
+
+	t.Run("Test nil inputs", func(t *testing.T) {
+		// Test with nil policy
+		evaluated, compliant, msg, dryRunNoOpOverride := r.alreadyEvaluated(nil, testObj)
+		assert.False(t, evaluated)
+		assert.False(t, compliant)
+		assert.Empty(t, msg)
+		assert.False(t, dryRunNoOpOverride)
+
+		// Test with nil object
+		evaluated, compliant, msg, dryRunNoOpOverride = r.alreadyEvaluated(policy, nil)
+		assert.False(t, evaluated)
+		assert.False(t, compliant)
+		assert.Empty(t, msg)
+		assert.False(t, dryRunNoOpOverride)
+
+		// Test with both nil
+		evaluated, compliant, msg, dryRunNoOpOverride = r.alreadyEvaluated(nil, nil)
+		assert.False(t, evaluated)
+		assert.False(t, compliant)
+		assert.Empty(t, msg)
+		assert.False(t, dryRunNoOpOverride)
+	})
+}
