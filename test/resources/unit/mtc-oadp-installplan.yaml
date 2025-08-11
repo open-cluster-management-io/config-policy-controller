@@ -1,0 +1,18 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: InstallPlan
+metadata:
+  name: install-mtc-oadp
+  namespace: openshift-adp
+spec:
+  approval: Manual
+  approved: false
+  clusterServiceVersionNames:
+  - mtc-operator.v1.8.9
+  - oadp-operator.v1.5.0
+  generation: 1
+status:
+  bundleLookups:
+  - identifier: oadp-operator.v1.5.0
+    properties: '{"properties":[{"type":"olm.gvk","value":{"group":"oadp.openshift.io","kind":"CloudStorage","version":"v1alpha1"}},{"type":"olm.package","value":{"packageName":"redhat-oadp-operator","version":"1.5.0"}}]}'
+  - identifier: mtc-operator.v1.8.9
+    properties: '{"properties":[{"type":"olm.gvk","value":{"group":"migration.openshift.io","kind":"DirectImageMigration","version":"v1alpha1"}},{"type":"olm.package","value":{"packageName":"mtc-operator","version":"1.8.9"}},{"type":"olm.package.required","value":{"packageName":"redhat-oadp-operator","versionRange":">=1.2.3"}}]}' 

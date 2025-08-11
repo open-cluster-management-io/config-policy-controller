@@ -2247,49 +2247,36 @@ func getApprovedCSVs(
 		return nil
 	}
 
-	packageDependencies := getBundleDependencies(installPlan, subscriptionCSV, "")
-
-	approvedCSVs := sets.Set[string]{}
-	approvedCSVs.Insert(subscriptionCSV)
-
-	// Approve all CSVs that are dependencies of the subscription CSV.
-	for _, packageDependency := range packageDependencies.UnsortedList() {
-		for _, csvName := range installPlan.Spec.ClusterServiceVersionNames {
-			if strings.HasPrefix(csvName, packageDependency+".v") {
-				approvedCSVs.Insert(csvName)
-			}
-		}
-	}
+	approvedCSVs := getBundleDependencies(installPlan, subscriptionCSV)
 
 	return approvedCSVs
 }
 
-// getBundleDependencies recursively gets the dependencies from a target CSV or package name. If the package name is
-// provided instead of the target CSV, then it assumes the CSVs are in the format of `<package>.v<version>`. The
-// returned set is of package names and not the CSV (i.e. no version in it).
+// getBundleDependencies reads the install plan for required package dependencies.
+// The package names are mapped to their CSV identifiers before recursively evaluating the dependency chain.
+// The returned set contains the target CSV and all of its dependency CSVs.
 func getBundleDependencies(
-	installPlan *operatorv1alpha1.InstallPlan, targetCSV string, packageName string,
+	installPlan *operatorv1alpha1.InstallPlan, targetCSV string,
 ) sets.Set[string] {
-	packageDependencies := sets.Set[string]{}
+	approvedCSVs := sets.Set[string]{}
 
-	if targetCSV == "" && packageName == "" {
-		return packageDependencies
+	if targetCSV == "" {
+		return approvedCSVs
 	}
 
+	approvedCSVs.Insert(targetCSV)
+
+	// stores the mapping of package names to unapproved CSV identifiers
+	packageToCSV := make(map[string]string)
+	// stores the required package names for each unapproved CSV
+	packageDependencies := make(map[string]sets.Set[string])
+
 	for i, bundle := range installPlan.Status.BundleLookups {
-		if targetCSV != "" && bundle.Identifier != targetCSV {
-			continue
-		}
-
-		if packageName != "" && !strings.HasPrefix(bundle.Identifier, packageName+".v") {
-			continue
-		}
-
 		if bundle.Properties == "" {
-			break
+			continue
 		}
 
-		props := map[string]interface{}{}
+		props := map[string]any{}
 
 		err := json.Unmarshal([]byte(bundle.Properties), &props)
 		if err != nil {
@@ -2304,37 +2291,86 @@ func getBundleDependencies(
 			break
 		}
 
-		propsList, ok := props["properties"].([]interface{})
+		propsList, ok := props["properties"].([]any)
 		if !ok {
-			break
+			continue
 		}
 
 		for _, prop := range propsList {
-			propMap, ok := prop.(map[string]interface{})
+			propMap, ok := prop.(map[string]any)
 			if !ok {
 				continue
 			}
 
-			if propMap["type"] != "olm.package.required" {
-				continue
-			}
-
-			propValue, ok := propMap["value"].(map[string]interface{})
+			propType, ok := propMap["type"].(string)
 			if !ok {
 				continue
 			}
 
-			depPackageName, ok := propValue["packageName"].(string)
-			if !ok || depPackageName == "" {
+			if propType != "olm.package" && propType != "olm.package.required" {
 				continue
 			}
 
-			packageDependencies.Insert(depPackageName)
-			packageDependencies = packageDependencies.Union(getBundleDependencies(installPlan, "", depPackageName))
+			propValue, ok := propMap["value"].(map[string]any)
+			if !ok {
+				continue
+			}
+
+			pkgName, ok := propValue["packageName"].(string)
+			if !ok || pkgName == "" {
+				continue
+			}
+
+			switch propType {
+			case "olm.package":
+				packageToCSV[pkgName] = bundle.Identifier
+			case "olm.package.required":
+				if packageDependencies[bundle.Identifier] == nil {
+					packageDependencies[bundle.Identifier] = sets.Set[string]{}
+				}
+
+				packageDependencies[bundle.Identifier].Insert(pkgName)
+			}
 		}
 	}
 
-	return packageDependencies
+	approvedCSVs = approvedCSVs.Union(getDependencyCSVs(targetCSV, packageToCSV, packageDependencies))
+
+	return approvedCSVs
+}
+
+// getDependencyCSVs recursively converts the package dependencies to their CSV identifiers
+func getDependencyCSVs(
+	startingCSV string, packageToCSV map[string]string, packageDependencies map[string]sets.Set[string],
+) sets.Set[string] {
+	dependencyCSVs := sets.Set[string]{}
+
+	if startingCSV == "" || packageToCSV == nil || packageDependencies == nil {
+		return dependencyCSVs
+	}
+
+	packages, ok := packageDependencies[startingCSV]
+	if !ok || packages == nil {
+		return dependencyCSVs
+	}
+
+	for pkg := range packages {
+		if csv, ok := packageToCSV[pkg]; ok {
+			dependencyCSVs.Insert(csv)
+		}
+	}
+
+	if len(dependencyCSVs) == 0 {
+		// The startingCSV's dependencies are already satisfied
+		// by other installed CSVs. No additional CSVs need approval.
+		return dependencyCSVs
+	}
+
+	for csv := range dependencyCSVs {
+		dependencyCSVs = dependencyCSVs.Union(getDependencyCSVs(csv, packageToCSV, packageDependencies))
+	}
+
+	return dependencyCSVs
 }
 
 func (r *OperatorPolicyReconciler) mustnothaveInstallPlan(
