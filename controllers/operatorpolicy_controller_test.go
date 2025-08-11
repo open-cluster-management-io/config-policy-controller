@@ -334,6 +334,118 @@ func TestGetApprovedCSVs(t *testing.T) {
 	}
 }
 
+func TestGetApprovedCSVsWithPackageNameLookup(t *testing.T) {
+	mtcOadpIPRaw, err := os.ReadFile("../test/resources/unit/mtc-oadp-installplan.yaml")
+	if err != nil {
+		t.Fatalf("Encountered an error when reading the mtc-oadp-installplan.yaml: %v", err)
+	}
+
+	installPlan := &operatorv1alpha1.InstallPlan{}
+
+	err = yaml.Unmarshal(mtcOadpIPRaw, installPlan)
+	if err != nil {
+		t.Fatalf("Encountered an error when unmarshaling the mtc-oadp-installplan.yaml: %v", err)
+	}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mtc-operator",
+		},
+		Spec: policyv1beta1.OperatorPolicySpec{
+			RemediationAction: "enforce",
+			ComplianceType:    "musthave",
+			Severity:          "medium",
+			UpgradeApproval:   "Automatic",
+			Versions:          []string{"mtc-operator.v1.8.9"},
+		},
+	}
+
+	subscription := &operatorv1alpha1.Subscription{
+		Status: operatorv1alpha1.SubscriptionStatus{
+			CurrentCSV: "mtc-operator.v1.8.9",
+		},
+	}
+
+	csvs := getApprovedCSVs(policy, subscription, installPlan)
+
+	expectedCSVs := sets.Set[string]{}
+	expectedCSVs.Insert("mtc-operator.v1.8.9")
+	expectedCSVs.Insert("oadp-operator.v1.5.0")
+
+	if !csvs.Equal(expectedCSVs) {
+		t.Fatalf(
+			"Expected both MTC and OADP CSVs to be approved. Got: %s, Expected: %s",
+			strings.Join(csvs.UnsortedList(), ", "),
+			strings.Join(expectedCSVs.UnsortedList(), ", "),
+		)
+	}
+}
+
+func TestGetDependencyCSVs(t *testing.T) {
+	happyPackageToCSV := map[string]string{
+		"starting-operator":          "starting-operator.v7.8.9",
+		"first-dependency-operator":  "primary-operator.v1.1.1",
+		"second-dependency-operator": "secondary-operator.v2.2.2",
+	}
+
+	happyPackageDependencies := map[string]sets.Set[string]{
+		"starting-operator.v7.8.9": func() sets.Set[string] {
+			s := sets.New[string]()
+			s.Insert("first-dependency-operator")
+
+			return s
+		}(),
+		"primary-operator.v1.1.1": func() sets.Set[string] {
+			s := sets.New[string]()
+			s.Insert("second-dependency-operator")
+
+			return s
+		}(),
+		"secondary-operator.v2.2.2": sets.New[string](),
+	}
+
+	packageDependenciesAlreadyInstalled := map[string]sets.Set[string]{
+		"starting-operator.v7.8.9": func() sets.Set[string] {
+			s := sets.New[string]()
+			s.Insert("first-dependency-operator")
+
+			return s
+		}(),
+	}
+	dependencyCSVsAlreadyInstalled := map[string]string{
+		"irrelevant-uninstalled-operator": "irrelevant-uninstalled-operator.v1.2.3",
+	}
+
+	expectedCSVs := sets.Set[string]{}
+
+	dependencyCSVs := getDependencyCSVs("starting-operator.v7.8.9", nil, nil)
+	if !dependencyCSVs.Equal(expectedCSVs) {
+		t.Fatalf("Expected no dependency CSVs to be approved. Got: %s, Expected: %s",
+			strings.Join(dependencyCSVs.UnsortedList(), ", "),
+			strings.Join(expectedCSVs.UnsortedList(), ", "))
+	}
+
+	dependencyCSVs = getDependencyCSVs(
+		"starting-operator.v7.8.9", dependencyCSVsAlreadyInstalled, packageDependenciesAlreadyInstalled)
+	if !dependencyCSVs.Equal(expectedCSVs) {
+		t.Fatalf("Expected no dependency CSVs to be approved. Got: %s, Expected: %s",
+			strings.Join(dependencyCSVs.UnsortedList(), ", "),
+			strings.Join(expectedCSVs.UnsortedList(), ", "))
+	}
+
+	dependencyCSVs = getDependencyCSVs("starting-operator.v7.8.9", happyPackageToCSV, happyPackageDependencies)
+
+	expectedCSVs.Insert("primary-operator.v1.1.1")
+	expectedCSVs.Insert("secondary-operator.v2.2.2")
+
+	if !dependencyCSVs.Equal(expectedCSVs) {
+		t.Fatalf(
+			"Expected dependency CSVs to be approved. Got: %s, Expected: %s",
+			strings.Join(dependencyCSVs.UnsortedList(), ", "),
+			strings.Join(expectedCSVs.UnsortedList(), ", "))
+	}
+}
+
 func TestCanonicalizeVersions(t *testing.T) {
 	policy := &policyv1beta1.OperatorPolicy{
 		Spec: policyv1beta1.OperatorPolicySpec{
