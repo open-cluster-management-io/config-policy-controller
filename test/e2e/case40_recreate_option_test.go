@@ -117,7 +117,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 
 		By("Verifying the ConfigurationPolicy is Compliant")
 		var managedPlc *unstructured.Unstructured
-
+		var propsUID string
 		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
@@ -129,37 +129,39 @@ var _ = Describe("Recreate options", Ordered, func() {
 			)
 
 			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+
+			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+			g.Expect(err).ToNot(HaveOccurred())
+			g.Expect(relatedObjects).To(HaveLen(1))
+
+			relatedObject := relatedObjects[0].(map[string]interface{})
+
+			diff, _, _ := unstructured.NestedString(relatedObject, "properties", "diff")
+			g.Expect(diff).To(BeEmpty())
+
+			propsUID, _, _ = unstructured.NestedString(relatedObject, "properties", "uid")
+			g.Expect(propsUID).ToNot(BeEmpty())
+
+			createdByPolicy, _, _ := unstructured.NestedBool(relatedObject, "properties", "createdByPolicy")
+			g.Expect(createdByPolicy).To(BeTrue())
+
+			deployment, err = clientManagedDynamic.Resource(gvrDeployment).Namespace("default").Get(
+				ctx, "case40", metav1.GetOptions{},
+			)
+			g.Expect(err).ToNot(HaveOccurred())
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
-		By("Verifying the diff is not set")
-		relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
-		Expect(err).ToNot(HaveOccurred())
-		Expect(relatedObjects).To(HaveLen(1))
-
-		relatedObject := relatedObjects[0].(map[string]interface{})
-
-		diff, _, _ := unstructured.NestedString(relatedObject, "properties", "diff")
-		Expect(diff).To(BeEmpty())
-
-		propsUID, _, _ := unstructured.NestedString(relatedObject, "properties", "uid")
-		Expect(propsUID).ToNot(BeEmpty())
-
-		createdByPolicy, _, _ := unstructured.NestedBool(relatedObject, "properties", "createdByPolicy")
-		Expect(createdByPolicy).To(BeTrue())
-
-		deployment, err = clientManagedDynamic.Resource(gvrDeployment).Namespace("default").Get(
-			ctx, "case40", metav1.GetOptions{},
-		)
-		Expect(err).ToNot(HaveOccurred())
-
 		By("Verifying the Deployment was recreated")
-		Expect(deployment.GetUID()).ToNot(Equal(uid), "Expected a new UID on the Deployment after it got recreated")
-		Expect(propsUID).To(
-			BeEquivalentTo(deployment.GetUID()), "Expect the object properties UID to match the new Deployment",
-		)
+		Eventually(func(g Gomega) {
+			g.Expect(deployment.GetUID()).ToNot(
+				Equal(uid), "Expected a new UID on the Deployment after it got recreated")
+			g.Expect(propsUID).To(
+				BeEquivalentTo(deployment.GetUID()), "Expect the object properties UID to match the new Deployment",
+			)
 
-		selector, _, _ := unstructured.NestedString(deployment.Object, "spec", "selector", "matchLabels", "app")
-		Expect(selector).To(Equal("case40-2"))
+			selector, _, _ := unstructured.NestedString(deployment.Object, "spec", "selector", "matchLabels", "app")
+			g.Expect(selector).To(Equal("case40-2"))
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		deleteConfigPolicies([]string{"case40"})
 	})

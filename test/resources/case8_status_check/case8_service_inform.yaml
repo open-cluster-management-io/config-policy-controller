@@ -1,0 +1,36 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-service
+  namespace: managed
+spec:
+  remediationAction: inform
+  severity: low
+  object-templates:
+  - complianceType: mustonlyhave
+    metadataComplianceType: musthave
+    objectDefinition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: grc-policy-propagator-metrics
+        namespace: managed
+      spec: # Intentionally omitting 'type' field - K8s will default to ClusterIP 
+        clusterIP: '{{ (lookup "v1" "Service" "managed" "grc-policy-propagator-metrics").spec.clusterIP }}'
+        clusterIPs:
+        - '{{ (lookup "v1" "Service" "managed" "grc-policy-propagator-metrics").spec.clusterIP }}'
+        internalTrafficPolicy: Cluster
+        ipFamilies:
+        - IPv4
+        ipFamilyPolicy: SingleStack
+        ports:
+        - name: metrics-https
+          port: 8443
+          protocol: TCP
+          targetPort: 8443
+        selector:
+          app: grc
+          component: ocm-policy-propagator
+          release: grc
+        sessionAffinity: None
+
