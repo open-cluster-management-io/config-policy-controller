@@ -484,6 +484,12 @@ spec:
                             Diff stores the difference between the `objectDefinition` in the policy and the object on the
                             cluster.
                           type: string
+                        matchesAfterDryRun:
+                          description: |-
+                            MatchesAfterDryRun indicates whether the dry run update matches the policy assessment. If false,
+                            there was an initial mismatch between the policy and object, but the dry run update produced
+                            a compliant result.
+                          type: boolean
                         uid:
                           description: |-
                             UID stores the object UID to help track object ownership for deletion when pruning is
