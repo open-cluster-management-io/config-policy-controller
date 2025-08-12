@@ -417,6 +417,11 @@ type ObjectProperties struct {
 	// Diff stores the difference between the `objectDefinition` in the policy and the object on the
 	// cluster.
 	Diff string `json:"diff,omitempty"`
+
+	// MatchesAfterDryRun indicates whether the dry run update matches the policy assessment. If false,
+	// there was an initial mismatch between the policy and object, but the dry run update produced
+	// a compliant result.
+	MatchesAfterDryRun bool `json:"matchesAfterDryRun,omitempty"`
 }
 
 // RelatedObject contains the details of an object matched by the policy.
