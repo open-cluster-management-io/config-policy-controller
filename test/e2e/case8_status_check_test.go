@@ -171,3 +171,117 @@ var _ = Describe("Test pod obj template handling", func() {
 		})
 	})
 })
+
+var _ = Describe("Test related object property status", Ordered, func() {
+	Describe("Create a policy missing a field added by kubernetes", Ordered, func() {
+		const (
+			policyName  = "policy-service"
+			serviceName = "grc-policy-propagator-metrics"
+			policyYAML  = "../resources/case8_status_check/case8_service_inform.yaml"
+			serviceYAML = "../resources/case8_status_check/case8_service.yaml"
+		)
+
+		It("Should be compliant when the inform policy omits a field added by the apiserver", func() {
+			By("Creating a Service with explicit type: ClusterIP")
+			utils.Kubectl("apply", "-f", serviceYAML)
+
+			By("Creating the " + policyName + " policy that omits the type field)")
+			utils.Kubectl("apply", "-f", policyYAML, "-n", testNamespace)
+
+			By("Verifying that the " + policyName + " policy is compliant")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+
+				relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(relatedObjects).To(HaveLen(1))
+
+				relatedObj := relatedObjects[0].(map[string]interface{})
+				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
+
+				g.Expect(matchesAfterDryRun).To(BeFalse())
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
+		It("Should be compliant when the enforce policy omits a field added by the apiserver", func() {
+			By("Changing the policy to enforce mode")
+			utils.EnforceConfigurationPolicy(policyName, testNamespace)
+
+			By("Verifying that the " + policyName + " policy is compliant")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+
+				relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(relatedObjects).To(HaveLen(1))
+
+				relatedObj := relatedObjects[0].(map[string]interface{})
+				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
+
+				g.Expect(matchesAfterDryRun).To(BeFalse())
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
+		It("Should be compliant when the enforce policy includes all fields", func() {
+			By("Patching the " + policyName + " policy with the Service type field)")
+			utils.Kubectl("patch", "configurationpolicy", policyName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "add", "path": "/spec/object-templates/0/objectDefinition/spec/type", "value": "ClusterIP"}]`)
+
+			By("Verifying that the " + policyName + " policy is compliant")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+
+				relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(relatedObjects).To(HaveLen(1))
+
+				relatedObj := relatedObjects[0].(map[string]interface{})
+				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
+
+				g.Expect(matchesAfterDryRun).To(BeTrue())
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
+		It("Should be compliant when the inform policy includes all fields", func() {
+			By("Changing the policy to inform mode")
+			utils.Kubectl("patch", "configurationpolicy", policyName, `--type=json`,
+				`-p=[{"op":"replace","path":"/spec/remediationAction","value":"inform"}]`, "-n", testNamespace)
+
+			By("Verifying that the " + policyName + " policy is compliant")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+
+				relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+				g.Expect(err).ToNot(HaveOccurred())
+				g.Expect(relatedObjects).To(HaveLen(1))
+
+				relatedObj := relatedObjects[0].(map[string]interface{})
+				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
+
+				g.Expect(matchesAfterDryRun).To(BeTrue())
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
+		AfterAll(func() {
+			deleteConfigPolicies([]string{policyName, policyName})
+
+			utils.KubectlDelete("service", serviceName, "-n", "managed")
+		})
+	})
+})

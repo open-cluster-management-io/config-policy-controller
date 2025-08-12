@@ -130,26 +130,40 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 				return properties["uid"]
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
 		})
-		It("should not update status field for inform policies", func() {
+		It("should update status field for inform policies", func() {
 			By("Creating " + case20ConfigPolicyNameInform + " on managed")
 			utils.Kubectl("apply", "-f", case20PolicyYamlInform, "-n", testNamespace)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case20ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
+
+			var managedPlc *unstructured.Unstructured
+
 			Eventually(func(g Gomega) {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				managedPlc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
-			Eventually(func() interface{} {
-				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
-					case20ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
-				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
-				properties := relatedObj.(map[string]interface{})["properties"]
 
-				return properties
-			}, defaultTimeoutSeconds, 1).Should(BeNil())
+			By("Verifying the related object properties")
+			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+			Expect(err).ToNot(HaveOccurred())
+			Expect(relatedObjects).To(HaveLen(1))
+
+			relatedObj := relatedObjects[0].(map[string]interface{})
+
+			createdByPolicy, found, _ := unstructured.NestedBool(relatedObj, "properties", "createdByPolicy")
+			Expect(found).To(BeTrue())
+			Expect(createdByPolicy).To(BeFalse())
+
+			uid, found, _ := unstructured.NestedString(relatedObj, "properties", "uid")
+			Expect(found).To(BeTrue())
+			Expect(uid).ToNot(BeEmpty())
+
+			matchesAfterDryRun, found, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
+			Expect(found).To(BeTrue())
+			Expect(matchesAfterDryRun).To(BeTrue())
 		})
 		AfterAll(func() {
 			policies := []string{

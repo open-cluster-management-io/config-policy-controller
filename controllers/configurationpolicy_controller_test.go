@@ -705,6 +705,75 @@ func TestUpdatedRelatedObjects(t *testing.T) {
 	assert.Equal(t, "bar", relatedList[0].Object.Metadata.Name)
 }
 
+func TestAddRelatedObjectProperties(t *testing.T) {
+	compliant := true
+	scopedGVR := depclient.ScopedGVR{
+		GroupVersionResource: policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy"),
+		Namespaced:           true,
+	}
+	namespace := "default"
+	name := "foo"
+	reason := "reason"
+
+	// Create test data for ObjectProperties
+	createdByPolicy := true
+	testUID := "test-uid-12345"
+	testDiff := "test diff content"
+	dryRunMatches := true
+
+	creationInfo := &policyv1.ObjectProperties{
+		CreatedByPolicy:    &createdByPolicy,
+		UID:                testUID,
+		Diff:               testDiff,
+		MatchesAfterDryRun: dryRunMatches,
+	}
+
+	relatedList := addRelatedObjects(
+		compliant, scopedGVR, "ConfigurationPolicy", namespace, []string{name}, reason, creationInfo,
+	)
+	related := relatedList[0]
+
+	// Validate that the properties are correctly set
+	assert.NotNil(t, related.Properties, "Properties should not be nil when creationInfo is provided")
+	assert.NotNil(t, related.Properties.CreatedByPolicy, "CreatedByPolicy should not be nil")
+	assert.Equal(t, createdByPolicy, *related.Properties.CreatedByPolicy)
+	assert.Equal(t, testUID, related.Properties.UID)
+	assert.Equal(t, testDiff, related.Properties.Diff)
+	assert.Equal(t, dryRunMatches, related.Properties.MatchesAfterDryRun)
+
+	// add the same object and make sure the existing one is overwritten
+	reason = "new"
+	compliant = false
+
+	// Create new test data for ObjectProperties with different values
+	newCreatedByPolicy := false
+	newTestDiff := "updated diff content"
+	newDryRunMatches := false
+
+	newCreationInfo := &policyv1.ObjectProperties{
+		CreatedByPolicy:    &newCreatedByPolicy,
+		UID:                testUID,
+		Diff:               newTestDiff,
+		MatchesAfterDryRun: newDryRunMatches,
+	}
+
+	relatedList = addRelatedObjects(
+		compliant, scopedGVR, "ConfigurationPolicy", namespace, []string{name}, reason, newCreationInfo)
+	related = relatedList[0]
+
+	assert.Len(t, relatedList, 1)
+	assert.Equal(t, string(policyv1.NonCompliant), related.Compliant)
+	assert.Equal(t, "new", related.Reason)
+
+	// Validate that the properties were updated with new values
+	assert.NotNil(t, related.Properties, "Properties should not be nil when newCreationInfo is provided")
+	assert.NotNil(t, related.Properties.CreatedByPolicy, "CreatedByPolicy should not be nil")
+	assert.Equal(t, newCreatedByPolicy, *related.Properties.CreatedByPolicy)
+	assert.Equal(t, testUID, related.Properties.UID)
+	assert.Equal(t, newTestDiff, related.Properties.Diff)
+	assert.Equal(t, newDryRunMatches, related.Properties.MatchesAfterDryRun)
+}
+
 func TestCreateStatus(t *testing.T) {
 	testcases := []struct {
 		testName          string
