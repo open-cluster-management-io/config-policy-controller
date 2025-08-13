@@ -3,8 +3,6 @@ kind: Service
 metadata:
   name: grc-policy-propagator-metrics
   namespace: managed
-  annotations:
-    test: test
 spec:
   internalTrafficPolicy: Cluster
   ipFamilies:

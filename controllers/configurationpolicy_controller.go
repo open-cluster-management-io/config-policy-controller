@@ -3575,6 +3575,10 @@ func removeFieldsForComparison(obj *unstructured.Unstructured) {
 	)
 	// The generation might actually bump but the API output might be the same.
 	unstructured.RemoveNestedField(obj.Object, "metadata", "generation")
+
+	if len(obj.GetAnnotations()) == 0 {
+		unstructured.RemoveNestedField(obj.Object, "metadata", "annotations")
+	}
 }
 
 // setEvaluatedObject updates the cache to indicate that the ConfigurationPolicy has evaluated this
