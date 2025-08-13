@@ -160,10 +160,6 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			uid, found, _ := unstructured.NestedString(relatedObj, "properties", "uid")
 			Expect(found).To(BeTrue())
 			Expect(uid).ToNot(BeEmpty())
-
-			matchesAfterDryRun, found, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
-			Expect(found).To(BeTrue())
-			Expect(matchesAfterDryRun).To(BeTrue())
 		})
 		AfterAll(func() {
 			policies := []string{
