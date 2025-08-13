@@ -3189,7 +3189,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if obj.existingObj == nil {
 		log.Info("Skipping update: Previous object retrieval from the API server failed")
 
-		return false, "", "", false, nil, true
+		return false, "", "", false, nil, false
 	}
 
 	var res dynamic.ResourceInterface
@@ -3211,7 +3211,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		objectT.MetadataComplianceType,
 	)
 	if errMsg != "" {
-		return true, errMsg, "", true, nil, true
+		return true, errMsg, "", true, nil, false
 	}
 
 	recordDiff := objectT.RecordDiffWithDefault()
@@ -3231,7 +3231,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
 
-		return throwSpecViolation, "", diff, updateNeeded, updatedObj, true
+		return throwSpecViolation, "", diff, updateNeeded, updatedObj, false
 	}
 
 	if updateNeeded {
@@ -3275,7 +3275,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
 			}
 
-			return true, message, "", updateNeeded, nil, true
+			return true, message, "", updateNeeded, nil, false
 		}
 
 		// If an update is invalid (i.e. modifying Pod spec fields), then return noncompliant since that
@@ -3301,7 +3301,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 			r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
 
-			return true, message, diff, false, nil, true
+			return true, message, diff, false, nil, false
 		}
 
 		mergedObjCopy := obj.existingObj.DeepCopy()
@@ -3327,7 +3327,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			// Assume object is compliant by inverting the value of throwSpecViolation
 			r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
 
-			matchesAfterDryRun = false
+			matchesAfterDryRun = true
 
 			return throwSpecViolation, "", diff, updateNeeded, updatedObj, matchesAfterDryRun
 		}
@@ -3339,7 +3339,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if isInform {
 		r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
 
-		return true, "", diff, false, nil, true
+		return true, "", diff, false, nil, matchesAfterDryRun
 	}
 
 	// If it's not inform (i.e. enforce), update the object
@@ -3359,7 +3359,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		if err != nil && !k8serrors.IsNotFound(err) {
 			message = fmt.Sprintf(`%s failed to delete when recreating with the error %v`, getMsgPrefix(&obj), err)
 
-			return true, message, "", updateNeeded, nil, true
+			return true, message, "", updateNeeded, nil, matchesAfterDryRun
 		}
 
 		attempts := 0
@@ -3377,7 +3377,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				message = getMsgPrefix(&obj) + " timed out waiting for the object to delete during recreate, " +
 					"will retry on the next policy evaluation"
 
-				return true, message, "", updateNeeded, nil, true
+				return true, message, "", updateNeeded, nil, matchesAfterDryRun
 			}
 
 			time.Sleep(time.Second)
@@ -3413,14 +3413,14 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			message = fmt.Sprintf("%s failed to %s with the error `%v`", getMsgPrefix(&obj), action, err)
 		}
 
-		return true, message, diff, updateNeeded, nil, true
+		return true, message, diff, updateNeeded, nil, matchesAfterDryRun
 	}
 
 	if !statusMismatch {
 		r.setEvaluatedObject(obj.policy, updatedObj, true, message)
 	}
 
-	return throwSpecViolation, "", diff, updateNeeded, updatedObj, true
+	return throwSpecViolation, "", diff, updateNeeded, updatedObj, matchesAfterDryRun
 }
 
 func getMsgPrefix(obj *singleObject) string {

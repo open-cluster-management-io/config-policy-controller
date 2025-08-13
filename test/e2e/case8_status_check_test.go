@@ -203,7 +203,7 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				relatedObj := relatedObjects[0].(map[string]interface{})
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
-				g.Expect(matchesAfterDryRun).To(BeFalse())
+				g.Expect(matchesAfterDryRun).To(BeTrue())
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
@@ -226,7 +226,7 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				relatedObj := relatedObjects[0].(map[string]interface{})
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
-				g.Expect(matchesAfterDryRun).To(BeFalse())
+				g.Expect(matchesAfterDryRun).To(BeTrue())
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
@@ -250,7 +250,7 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				relatedObj := relatedObjects[0].(map[string]interface{})
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
-				g.Expect(matchesAfterDryRun).To(BeTrue())
+				g.Expect(matchesAfterDryRun).To(BeFalse())
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
@@ -274,7 +274,7 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				relatedObj := relatedObjects[0].(map[string]interface{})
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
-				g.Expect(matchesAfterDryRun).To(BeTrue())
+				g.Expect(matchesAfterDryRun).To(BeFalse())
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 

@@ -418,7 +418,7 @@ type ObjectProperties struct {
 	// cluster.
 	Diff string `json:"diff,omitempty"`
 
-	// MatchesAfterDryRun indicates whether the dry run update matches the policy assessment. If false,
+	// MatchesAfterDryRun indicates whether the object matches the policy after the dry run update. If true,
 	// there was an initial mismatch between the policy and object, but the dry run update produced
 	// a compliant result.
 	MatchesAfterDryRun bool `json:"matchesAfterDryRun,omitempty"`
