@@ -23,7 +23,7 @@ jobs:
       REGISTRY: localhost:5000
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -94,7 +94,7 @@ jobs:
           - "latest"
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -146,7 +146,7 @@ jobs:
           - "latest"
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -199,7 +199,7 @@ jobs:
           - "latest"
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -245,7 +245,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -253,7 +253,7 @@ jobs:
           go-version: 'stable'
 
       - name: Download Coverage Results
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           merge-multiple: true
 
