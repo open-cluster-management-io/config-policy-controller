@@ -260,7 +260,7 @@ func TestMessageIncludesSubscription(t *testing.T) {
 	}
 }
 
-func TestGetApprovedCSVs(t *testing.T) {
+func TestGetApprovedCSVsWithMultipleCSVs(t *testing.T) {
 	odfIPRaw, err := os.ReadFile("../test/resources/unit/odf-installplan.yaml")
 	if err != nil {
 		t.Fatalf("Encountered an error when reading the odf-installplan.yaml: %v", err)
@@ -331,6 +331,112 @@ func TestGetApprovedCSVs(t *testing.T) {
 	csvs = getApprovedCSVs(policy, subscription, odfIP)
 	if len(csvs) != 0 {
 		t.Fatalf("Expected no CSVs to be approved, but got: %s", strings.Join(csvs.UnsortedList(), ", "))
+	}
+}
+
+func TestGetApprovedCSVsWithPackageNameLookup(t *testing.T) {
+	mtcOadpIPRaw, err := os.ReadFile("../test/resources/unit/mtc-oadp-installplan.yaml")
+	if err != nil {
+		t.Fatalf("Encountered an error when reading the mtc-oadp-installplan.yaml: %v", err)
+	}
+
+	installPlan := &operatorv1alpha1.InstallPlan{}
+
+	err = yaml.Unmarshal(mtcOadpIPRaw, installPlan)
+	if err != nil {
+		t.Fatalf("Encountered an error when unmarshaling the mtc-oadp-installplan.yaml: %v", err)
+	}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "mtc-operator",
+		},
+		Spec: policyv1beta1.OperatorPolicySpec{
+			RemediationAction: "enforce",
+			ComplianceType:    "musthave",
+			Severity:          "medium",
+			UpgradeApproval:   "Automatic",
+			Versions:          []string{"mtc-operator.v1.8.9"},
+		},
+	}
+
+	subscription := &operatorv1alpha1.Subscription{
+		Status: operatorv1alpha1.SubscriptionStatus{
+			CurrentCSV: "mtc-operator.v1.8.9",
+		},
+	}
+
+	csvs := getApprovedCSVs(policy, subscription, installPlan)
+
+	expectedCSVs := sets.Set[string]{}
+	expectedCSVs.Insert("mtc-operator.v1.8.9")
+	expectedCSVs.Insert("oadp-operator.v1.5.0")
+
+	if !csvs.Equal(expectedCSVs) {
+		t.Fatalf(
+			"Expected both MTC and OADP CSVs to be approved. Got: %s, Expected: %s",
+			strings.Join(csvs.UnsortedList(), ", "),
+			strings.Join(expectedCSVs.UnsortedList(), ", "),
+		)
+	}
+}
+
+func TestGetDependencyCSVs(t *testing.T) {
+	happyPackageToCSV := map[string]string{
+		"mtc-operator":  "mtc-operator.v1.8.9",
+		"oadp-operator": "oadp-operator.v1.5.0",
+	}
+
+	happyPackageDependencies := map[string]sets.Set[string]{
+		"mtc-operator.v1.8.9": func() sets.Set[string] {
+			s := sets.New[string]()
+			s.Insert("oadp-operator")
+
+			return s
+		}(),
+		"oadp-operator.v1.5.0": sets.New[string](),
+	}
+
+	packageDependenciesAlreadyInstalled := map[string]sets.Set[string]{
+		"mtc-operator.v1.8.9": sets.New[string](),
+	}
+	dependencyCSVsAlreadyInstalled := map[string]string{
+		"irrelevant-operator": "irrelevant-operator.v1.2.3",
+	}
+
+	expectedCSVs := sets.Set[string]{}
+
+	dependencyCSVs := getDependencyCSVs("mtc-operator.v1.8.9", nil, nil)
+	if !dependencyCSVs.Equal(expectedCSVs) {
+		t.Fatalf("Expected no dependency CSVs to be approved. Got: %s, Expected: %s",
+			strings.Join(dependencyCSVs.UnsortedList(), ", "),
+			strings.Join(expectedCSVs.UnsortedList(), ", "))
+	}
+
+	dependencyCSVs = getDependencyCSVs(
+		"mtc-operator.v1.8.9", &dependencyCSVsAlreadyInstalled, &happyPackageDependencies)
+	if !dependencyCSVs.Equal(expectedCSVs) {
+		t.Fatalf("Expected no dependency CSVs to be approved. Got: %s, Expected: %s",
+			strings.Join(dependencyCSVs.UnsortedList(), ", "),
+			strings.Join(expectedCSVs.UnsortedList(), ", "))
+	}
+
+	dependencyCSVs = getDependencyCSVs("mtc-operator.v1.8.9", &happyPackageToCSV, &packageDependenciesAlreadyInstalled)
+	if !dependencyCSVs.Equal(expectedCSVs) {
+		t.Fatalf("Expected no dependency CSVs to be approved. Got: %s, Expected: %s",
+			strings.Join(dependencyCSVs.UnsortedList(), ", "),
+			strings.Join(expectedCSVs.UnsortedList(), ", "))
+	}
+
+	expectedCSVs.Insert("oadp-operator.v1.5.0")
+
+	dependencyCSVs = getDependencyCSVs("mtc-operator.v1.8.9", &happyPackageToCSV, &happyPackageDependencies)
+
+	if !dependencyCSVs.Equal(expectedCSVs) {
+		t.Fatalf(
+			"Expected OADP CSV to be approved. Got: %s, Expected: %s",
+			strings.Join(dependencyCSVs.UnsortedList(), ", "),
+			strings.Join(expectedCSVs.UnsortedList(), ", "))
 	}
 }
 
