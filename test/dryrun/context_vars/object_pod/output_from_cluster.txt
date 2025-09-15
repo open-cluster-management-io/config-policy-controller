@@ -1,0 +1,15 @@
+# Diffs:
+v1 Pod default/nginx-pod:
+--- default/nginx-pod : existing
++++ default/nginx-pod : updated
+@@ -1,9 +1,11 @@
+ apiVersion: v1
+ kind: Pod
+ metadata:
++  labels:
++    image: nginx:1.7.9
+   name: nginx-pod
+   namespace: default
+ spec:
+# Compliance messages:
+NonCompliant; violation - pods [nginx-pod] found but not as specified in namespace default

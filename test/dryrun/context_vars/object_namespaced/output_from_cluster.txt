@@ -1,0 +1,16 @@
+# Diffs:
+v1 ConfigMap mega-mart/inventory:
+--- mega-mart/inventory : existing
++++ mega-mart/inventory : updated
+@@ -2,10 +2,12 @@
+ data:
+   inventory.yaml: 'appliance: toaster'
+ kind: ConfigMap
+ metadata:
++  labels:
++    new-label: toaster
+   name: inventory
+   namespace: mega-mart
+ 
+# Compliance messages:
+NonCompliant; violation - configmaps [inventory] found but not as specified in namespace mega-mart

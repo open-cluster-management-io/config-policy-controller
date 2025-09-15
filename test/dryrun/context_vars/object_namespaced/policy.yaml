@@ -19,4 +19,4 @@ spec:
           name: '{{ .ObjectName }}'
           namespace: '{{ .ObjectNamespace }}'
           labels:
-            new-label: '{{ (fromYAML (index .Object.data "inventory.yaml")).appliance }}'
+            new-label: '{{ ne (printf "%s" .ObjectName) "inventory" | skipObject }}{{ (fromYAML (index .Object.data "inventory.yaml")).appliance }}'
