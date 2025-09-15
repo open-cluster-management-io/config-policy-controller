@@ -1,0 +1,15 @@
+# Diffs:
+v1 Namespace mega-mart:
+--- mega-mart : existing
++++ mega-mart : updated
+@@ -5,10 +5,12 @@
+     city: durham
+   labels:
+     box: big
++    name: mega-mart
++    new-label: durham
+   name: mega-mart
+ spec:
+   finalizers:
+# Compliance messages:
+NonCompliant; violation - namespaces [mega-mart] found but not as specified

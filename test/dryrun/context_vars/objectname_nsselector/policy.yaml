@@ -15,4 +15,4 @@ spec:
         kind: ConfigMap
         metadata:
           name: '{{ not (hasPrefix "inv" .ObjectName) | skipObject }}'
-        data: '{{ set .Object.data "hocus" "pocus" | toJSON | toLiteral }}'
+        data: '{{ set (.Object.data | default (dict)) "hocus" "pocus" | toJSON | toLiteral }}'
