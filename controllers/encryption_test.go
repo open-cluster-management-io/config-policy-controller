@@ -4,7 +4,6 @@
 package controllers
 
 import (
-	"context"
 	"crypto/rand"
 	"testing"
 
@@ -75,7 +74,7 @@ func TestGetEncryptionConfig(t *testing.T) {
 
 	policy := getEmptyPolicy()
 
-	config, err := r.getEncryptionConfig(context.TODO(), &policy)
+	config, err := r.getEncryptionConfig(t.Context(), &policy)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(config).ToNot(BeNil())
 	Expect(config.AESKey).ToNot(BeNil())
@@ -100,7 +99,7 @@ func TestGetEncryptionConfigInvalidIV(t *testing.T) {
 		},
 	}
 
-	_, err := r.getEncryptionConfig(context.TODO(), &policy)
+	_, err := r.getEncryptionConfig(t.Context(), &policy)
 	Expect(err.Error()).To(
 		Equal(
 			"the policy annotation of \"policy.open-cluster-management.io/encryption-iv\" is not Base64: illegal " +
@@ -117,7 +116,7 @@ func TestGetEncryptionConfigNoSecret(t *testing.T) {
 
 	policy := getEmptyPolicy()
 
-	_, err := r.getEncryptionConfig(context.TODO(), &policy)
+	_, err := r.getEncryptionConfig(t.Context(), &policy)
 	Expect(err.Error()).To(
 		Equal(
 			`failed to get the encryption key from Secret local-cluster/policy-encryption-key: secrets ` +
