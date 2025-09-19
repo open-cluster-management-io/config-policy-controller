@@ -74,44 +74,9 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unable to setup the dryrun reconciler: %w", err)
 	}
 
-	// Apply the user's resources to the fake cluster
-	for _, obj := range inputObjects {
-		gvk := obj.GroupVersionKind()
-
-		scopedGVR, err := rec.DynamicWatcher.GVKToGVR(gvk)
-		if err != nil {
-			if errors.Is(err, depclient.ErrNoVersionedResource) {
-				return fmt.Errorf("%w for kind %v: if this is a custom resource, it may need an "+
-					"entry in the mappings file", err, gvk.Kind)
-			}
-
-			return fmt.Errorf("unable to apply an input resource: %w", err)
-		}
-
-		var resInt dynamic.ResourceInterface
-
-		if scopedGVR.Namespaced {
-			if obj.GetNamespace() == "" {
-				obj.SetNamespace("default")
-			}
-
-			resInt = rec.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource).Namespace(obj.GetNamespace())
-		} else {
-			resInt = rec.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource)
-		}
-
-		sanitizeForCreation(obj)
-
-		if _, err := resInt.Create(ctx, obj, metav1.CreateOptions{}); err != nil &&
-			!k8serrors.IsAlreadyExists(err) {
-			return fmt.Errorf("unable to apply an input resource: %w", err)
-		}
-
-		// Manually convert resources from the dynamic client to the runtime client
-		err = rec.Client.Create(ctx, obj)
-		if err != nil && !k8serrors.IsAlreadyExists(err) {
-			return err
-		}
+	err = d.applyInputResources(ctx, rec, inputObjects)
+	if err != nil {
+		return fmt.Errorf("unable to apply input resources: %w", err)
 	}
 
 	cfgPolicyNN := types.NamespacedName{
@@ -365,6 +330,52 @@ func (d *DryRunner) readInputResources(cmd *cobra.Command, args []string) (
 	}
 
 	return rawInputs, nil
+}
+
+func (d *DryRunner) applyInputResources(
+	ctx context.Context, rec *ctrl.ConfigurationPolicyReconciler, inputObjects []*unstructured.Unstructured,
+) error {
+	// Apply the user's resources to the fake cluster
+	for _, obj := range inputObjects {
+		gvk := obj.GroupVersionKind()
+
+		scopedGVR, err := rec.DynamicWatcher.GVKToGVR(gvk)
+		if err != nil {
+			if errors.Is(err, depclient.ErrNoVersionedResource) {
+				return fmt.Errorf("%w for kind %v: if this is a custom resource, it may need an "+
+					"entry in the mappings file", err, gvk.Kind)
+			}
+
+			return fmt.Errorf("unable to apply an input resource: %w", err)
+		}
+
+		var resInt dynamic.ResourceInterface
+
+		if scopedGVR.Namespaced {
+			if obj.GetNamespace() == "" {
+				obj.SetNamespace("default")
+			}
+
+			resInt = rec.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource).Namespace(obj.GetNamespace())
+		} else {
+			resInt = rec.TargetK8sDynamicClient.Resource(scopedGVR.GroupVersionResource)
+		}
+
+		sanitizeForCreation(obj)
+
+		if _, err := resInt.Create(ctx, obj, metav1.CreateOptions{}); err != nil &&
+			!k8serrors.IsAlreadyExists(err) {
+			return fmt.Errorf("unable to apply an input resource: %w", err)
+		}
+
+		// Manually convert resources from the dynamic client to the runtime client
+		err = rec.Client.Create(ctx, obj)
+		if err != nil && !k8serrors.IsAlreadyExists(err) {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // setupLogs configures klog and the controller-runtime logger to send logs to the
