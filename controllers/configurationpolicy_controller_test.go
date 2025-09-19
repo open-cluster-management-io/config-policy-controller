@@ -4,7 +4,6 @@
 package controllers
 
 import (
-	"context"
 	"fmt"
 	"reflect"
 	"sync"
@@ -72,7 +71,7 @@ func TestReconcile(t *testing.T) {
 		},
 	}
 
-	res, err := r.Reconcile(context.TODO(), req)
+	res, err := r.Reconcile(t.Context(), req)
 	if err != nil {
 		t.Fatalf("reconcile: (%v)", err)
 	}
