@@ -30,8 +30,10 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 	dynfake "k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/kubernetes"
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/client-go/tools/record"
 	klog "k8s.io/klog/v2"
 	parentpolicyv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
@@ -57,11 +59,6 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unable to read input policy: %w", err)
 	}
 
-	inputObjects, err := d.readInputResources(cmd, args)
-	if err != nil {
-		return fmt.Errorf("unable to read input resources: %w", err)
-	}
-
 	if err := d.setupLogs(); err != nil {
 		return fmt.Errorf("unable to setup the logging configuration: %w", err)
 	}
@@ -74,9 +71,16 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unable to setup the dryrun reconciler: %w", err)
 	}
 
-	err = d.applyInputResources(ctx, rec, inputObjects)
-	if err != nil {
-		return fmt.Errorf("unable to apply input resources: %w", err)
+	if !d.fromCluster {
+		inputObjects, err := d.readInputResources(cmd, args)
+		if err != nil {
+			return fmt.Errorf("unable to read input resources: %w", err)
+		}
+
+		err = d.applyInputResources(ctx, rec, inputObjects)
+		if err != nil {
+			return fmt.Errorf("unable to apply input resources: %w", err)
+		}
 	}
 
 	cfgPolicyNN := types.NamespacedName{
@@ -332,10 +336,12 @@ func (d *DryRunner) readInputResources(cmd *cobra.Command, args []string) (
 	return rawInputs, nil
 }
 
+// applyInputResources applies the user's resources to the fake cluster
 func (d *DryRunner) applyInputResources(
-	ctx context.Context, rec *ctrl.ConfigurationPolicyReconciler, inputObjects []*unstructured.Unstructured,
+	ctx context.Context,
+	rec *ctrl.ConfigurationPolicyReconciler,
+	inputObjects []*unstructured.Unstructured,
 ) error {
-	// Apply the user's resources to the fake cluster
 	for _, obj := range inputObjects {
 		gvk := obj.GroupVersionKind()
 
@@ -346,7 +352,7 @@ func (d *DryRunner) applyInputResources(
 					"entry in the mappings file", err, gvk.Kind)
 			}
 
-			return fmt.Errorf("unable to apply an input resource: %w", err)
+			return err
 		}
 
 		var resInt dynamic.ResourceInterface
@@ -365,7 +371,7 @@ func (d *DryRunner) applyInputResources(
 
 		if _, err := resInt.Create(ctx, obj, metav1.CreateOptions{}); err != nil &&
 			!k8serrors.IsAlreadyExists(err) {
-			return fmt.Errorf("unable to apply an input resource: %w", err)
+			return err
 		}
 
 		// Manually convert resources from the dynamic client to the runtime client
@@ -428,10 +434,34 @@ func (d *DryRunner) setupReconciler(
 		return nil, err
 	}
 
-	dynamicClient := dynfake.NewSimpleDynamicClient(scheme.Scheme)
-	clientset := clientsetfake.NewSimpleClientset()
-	watcherReconciler, _ := depclient.NewControllerRuntimeSource()
+	runtimeClient := clientfake.NewClientBuilder().
+		WithScheme(scheme.Scheme).
+		WithObjects(configPolCRD, cfgPolicy).
+		WithStatusSubresource(cfgPolicy).
+		Build()
+	nsSelUpdatesChan := make(chan event.GenericEvent, 20)
 
+	var clientset kubernetes.Interface
+	var dynamicClient dynamic.Interface
+	var nsSelReconciler common.NamespaceSelectorReconciler
+
+	if d.fromCluster {
+		var nsSelClient client.Client
+		var err error
+
+		clientset, dynamicClient, nsSelClient, err = setupClusterClients()
+		if err != nil {
+			return nil, err
+		}
+
+		nsSelReconciler = common.NewNamespaceSelectorReconciler(nsSelClient, nsSelUpdatesChan)
+	} else {
+		dynamicClient = dynfake.NewSimpleDynamicClient(scheme.Scheme)
+		clientset = clientsetfake.NewSimpleClientset()
+		nsSelReconciler = common.NewNamespaceSelectorReconciler(runtimeClient, nsSelUpdatesChan)
+	}
+
+	watcherReconciler, _ := depclient.NewControllerRuntimeSource()
 	dynamicWatcher := depclient.NewWithClients(
 		dynamicClient,
 		clientset.Discovery(),
@@ -446,14 +476,28 @@ func (d *DryRunner) setupReconciler(
 		}
 	}()
 
-	runtimeClient := clientfake.NewClientBuilder().
-		WithScheme(scheme.Scheme).
-		WithObjects(configPolCRD, cfgPolicy).
-		WithStatusSubresource(cfgPolicy).
-		Build()
+	rec := ctrl.ConfigurationPolicyReconciler{
+		Client:                 runtimeClient,
+		DecryptionConcurrency:  1,
+		DynamicWatcher:         dynamicWatcher,
+		Scheme:                 scheme.Scheme,
+		Recorder:               record.NewFakeRecorder(8),
+		InstanceName:           "policy-cli",
+		TargetK8sClient:        clientset,
+		TargetK8sDynamicClient: dynamicClient,
+		SelectorReconciler:     &nsSelReconciler,
+		EnableMetrics:          false,
+		UninstallMode:          false,
+		EvalBackoffSeconds:     5,
+		FullDiffs:              d.fullDiffs,
+	}
 
-	nsSelUpdatesChan := make(chan event.GenericEvent, 20)
-	nsSelReconciler := common.NewNamespaceSelectorReconciler(runtimeClient, nsSelUpdatesChan)
+	// wait for dynamic watcher to have started
+	<-rec.DynamicWatcher.Started()
+
+	if d.fromCluster {
+		return &rec, nil
+	}
 
 	defaultNs := &unstructured.Unstructured{
 		Object: map[string]interface{}{
@@ -478,21 +522,7 @@ func (d *DryRunner) setupReconciler(
 		return nil, err
 	}
 
-	rec := ctrl.ConfigurationPolicyReconciler{
-		Client:                 runtimeClient,
-		DecryptionConcurrency:  1,
-		DynamicWatcher:         dynamicWatcher,
-		Scheme:                 scheme.Scheme,
-		Recorder:               record.NewFakeRecorder(8),
-		InstanceName:           "policy-cli",
-		TargetK8sClient:        clientset,
-		TargetK8sDynamicClient: dynamicClient,
-		SelectorReconciler:     &nsSelReconciler,
-		EnableMetrics:          false,
-		UninstallMode:          false,
-		EvalBackoffSeconds:     5,
-		FullDiffs:              d.fullDiffs,
-	}
+	fakeClientset := clientset.(*clientsetfake.Clientset)
 
 	if d.mappingsPath != "" {
 		mFile, err := os.ReadFile(d.mappingsPath)
@@ -505,19 +535,16 @@ func (d *DryRunner) setupReconciler(
 			return nil, err
 		}
 
-		clientset.Resources = mappings.ResourceLists(apiMappings)
+		fakeClientset.Resources = mappings.ResourceLists(apiMappings)
 	} else {
-		clientset.Resources, err = mappings.DefaultResourceLists()
+		fakeClientset.Resources, err = mappings.DefaultResourceLists()
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	// Add open-cluster-management policy CRD
-	addSupportedResources(clientset)
-
-	// wait for dynamic watcher to have started
-	<-rec.DynamicWatcher.Started()
+	addSupportedResources(fakeClientset)
 
 	return &rec, nil
 }
@@ -631,6 +658,40 @@ func sanitizeForCreation(obj *unstructured.Unstructured) {
 	delete(obj.Object["metadata"].(map[string]interface{}), "creationTimestamp")
 	delete(obj.Object["metadata"].(map[string]interface{}), "selfLink")
 	delete(obj.Object["metadata"].(map[string]interface{}), "uid")
+}
+
+func setupClusterClients() (kubernetes.Interface, dynamic.Interface, client.Client, error) {
+	loadingRules := clientcmd.NewDefaultClientConfigLoadingRules()
+	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		loadingRules, &clientcmd.ConfigOverrides{},
+	)
+
+	kubeConfig, err := clientConfig.ClientConfig()
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	clientset, err := kubernetes.NewForConfig(kubeConfig)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	dynamicClient, err := dynamic.NewForConfig(kubeConfig)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	readOnlyMode := true // Prevent modifications to the cluster
+
+	runtimeClient, err := client.New(kubeConfig, client.Options{
+		Scheme: scheme.Scheme,
+		DryRun: &readOnlyMode,
+	})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	return clientset, dynamicClient, runtimeClient, nil
 }
 
 func addSupportedResources(clientset *clientsetfake.Clientset) {

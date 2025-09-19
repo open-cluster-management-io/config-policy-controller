@@ -21,6 +21,7 @@ type DryRunner struct {
 	logPath       string
 	noColors      bool
 	fullDiffs     bool
+	fromCluster   bool
 }
 
 var ErrNonCompliant = errors.New("policy is NonCompliant")
@@ -103,6 +104,18 @@ func (d *DryRunner) GetCmd() *cobra.Command {
 			"be used. A compatible file may be created by the 'generate' subcommand, "+
 			"and might be necessary if using custom resources. Can also be set via "+
 			"the DRYRUN_MAPPINGS_FILE environment variable.",
+	)
+
+	fromCluster := os.Getenv("DRYRUN_FROM_CLUSTER") == "true" // false if not set
+
+	cmd.Flags().BoolVar(
+		&d.fromCluster,
+		"from-cluster",
+		fromCluster,
+		"Read the current state of resources from the currently configured Kubernetes cluster instead of "+
+			"from input files. Uses the default kubeconfig or KUBECONFIG environment variable. "+
+			"Any input files representing the cluster state are ignored. "+
+			"Can also be set via the DRYRUN_FROM_CLUSTER environment variable.",
 	)
 
 	cmd.AddCommand(&cobra.Command{
