@@ -617,7 +617,7 @@ func createStatus(
 		compliancyDetailsMsg = getCombinedCompliancyDetailsMsg(msgMap, resourceName, compliancyDetailsMsg)
 	}
 
-	return
+	return compliant, compliancyDetailsReason, compliancyDetailsMsg
 }
 
 func setCompliancyDetailsMsgEnd(compliancyDetailsMsg string) string {
