@@ -1,0 +1,22 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case14-configmaps
+spec:
+  evaluationInterval:
+    compliant: 30m
+    noncompliant: 30m
+  namespaceSelector:
+    include:
+      - 'case14-*'
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: case14-cm
+        data:
+          foo: bar
+  remediationAction: enforce
+  severity: high

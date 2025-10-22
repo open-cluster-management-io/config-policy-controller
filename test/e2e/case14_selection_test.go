@@ -4,7 +4,8 @@
 package e2e
 
 import (
-	"context"
+	"strconv"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -16,12 +17,12 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case14LimitRangeFile string = "../resources/case14_namespaces/case14_limitrange.yaml"
-	case14LimitRangeName string = "container-mem-limit-range"
-)
-
 var _ = Describe("Test policy compliance with namespace selection", Ordered, func() {
+	const (
+		case14LimitRangeFile string = "../resources/case14_namespaces/case14_limitrange.yaml"
+		case14LimitRangeName string = "container-mem-limit-range"
+	)
+
 	checkRelated := func(policy *unstructured.Unstructured) []interface{} {
 		related, _, err := unstructured.NestedSlice(policy.Object, "status", "relatedObjects")
 		if err != nil {
@@ -50,18 +51,18 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 		},
 	}
 
-	BeforeAll(func() {
+	BeforeAll(func(ctx SpecContext) {
 		By("Create Namespaces if needed")
 		namespaces := clientManaged.CoreV1().Namespaces()
 		for _, ns := range testNamespaces {
-			if _, err := namespaces.Get(context.TODO(), ns, metav1.GetOptions{}); err != nil && errors.IsNotFound(err) {
-				Expect(namespaces.Create(context.TODO(), &corev1.Namespace{
+			if _, err := namespaces.Get(ctx, ns, metav1.GetOptions{}); err != nil && errors.IsNotFound(err) {
+				Expect(namespaces.Create(ctx, &corev1.Namespace{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: ns,
 					},
 				}, metav1.CreateOptions{})).NotTo(BeNil())
 			}
-			Expect(namespaces.Get(context.TODO(), ns, metav1.GetOptions{})).NotTo(BeNil())
+			Expect(namespaces.Get(ctx, ns, metav1.GetOptions{})).NotTo(BeNil())
 		}
 	})
 
@@ -135,15 +136,15 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 		}
 	})
 
-	It("should be noncompliant after adding new matching namespace", func() {
+	It("should be noncompliant after adding new matching namespace", func(ctx SpecContext) {
 		By("Creating namespace " + newNs)
 		namespaces := clientManaged.CoreV1().Namespaces()
-		Expect(namespaces.Create(context.TODO(), &corev1.Namespace{
+		Expect(namespaces.Create(ctx, &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
 				Name: newNs,
 			},
 		}, metav1.CreateOptions{})).NotTo(BeNil())
-		Expect(namespaces.Get(context.TODO(), newNs, metav1.GetOptions{})).NotTo(BeNil())
+		Expect(namespaces.Get(ctx, newNs, metav1.GetOptions{})).NotTo(BeNil())
 		for _, policy := range policyTests {
 			By("Checking that " + policy.name + " is NonCompliant")
 			Eventually(func(g Gomega) {
@@ -238,12 +239,12 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 		}
 	})
 
-	It("should update relatedObjects after deleting a namespace", func() {
+	It("should update relatedObjects after deleting a namespace", func(ctx SpecContext) {
 		By("Deleting namespace " + newNs)
 		namespaces := clientManaged.CoreV1().Namespaces()
-		Expect(namespaces.Delete(context.TODO(), newNs, metav1.DeleteOptions{})).To(Succeed())
+		Expect(namespaces.Delete(ctx, newNs, metav1.DeleteOptions{})).To(Succeed())
 		Eventually(func() bool {
-			_, err := namespaces.Get(context.TODO(), newNs, metav1.GetOptions{})
+			_, err := namespaces.Get(ctx, newNs, metav1.GetOptions{})
 
 			return errors.IsNotFound(err)
 		}, defaultTimeoutSeconds, 1).Should(BeTrue())
@@ -266,5 +267,79 @@ var _ = Describe("Test policy compliance with namespace selection", Ordered, fun
 				return len(checkRelated(managedPlc))
 			}, defaultTimeoutSeconds, 1).Should(Equal(len(testNamespaces)))
 		}
+	})
+})
+
+var _ = Describe("Test NS selection events after controller restart", Label("running-in-cluster"), Ordered, func() {
+	const (
+		configmapName = "case14-cm"
+		policyYAML    = "../resources/case14_namespaces/case14_configmaps_policy.yaml"
+		policyName    = "case14-configmaps"
+	)
+
+	BeforeAll(func(ctx SpecContext) {
+		By("Create initial Namespaces")
+		namespaces := clientManaged.CoreV1().Namespaces()
+		for i := range 2 {
+			ns := "case14-" + strconv.Itoa(i)
+			if _, err := namespaces.Get(ctx, ns, metav1.GetOptions{}); err != nil && errors.IsNotFound(err) {
+				Expect(namespaces.Create(ctx, &corev1.Namespace{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: ns,
+					},
+				}, metav1.CreateOptions{})).NotTo(BeNil())
+			}
+			Expect(namespaces.Get(ctx, ns, metav1.GetOptions{})).NotTo(BeNil())
+		}
+
+		By("Creating " + policyName + " on managed")
+		utils.Kubectl("apply", "-f", policyYAML, "-n", testNamespace)
+	})
+
+	AfterAll(func() {
+		By("Deleting namespaces")
+		for i := range 5 {
+			ns := "case14-" + strconv.Itoa(i)
+			utils.KubectlDelete("namespace", ns)
+		}
+
+		By("Deleting policy " + policyName)
+		utils.KubectlDelete("-f", policyYAML, "-n", testNamespace)
+	})
+
+	It("should initially be compliant with 2 related objects", func() {
+		Eventually(func(g Gomega) {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				policyName, testNamespace, true, defaultTimeoutSeconds)
+
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+
+			related, found, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(found).To(BeTrue())
+			g.Expect(related).To(HaveLen(2))
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
+	})
+
+	It("should evaluate when a new namespace is created after restarting the controller", func(ctx SpecContext) {
+		By("Deleting the controller pod")
+		utils.KubectlDelete("pods", "-l=name=config-policy-controller",
+			"-n=open-cluster-management-agent-addon", "--wait=true")
+		time.Sleep(time.Second)
+
+		By("Waiting for the deployment to be ready again")
+		utils.Kubectl("wait", "--for=condition=Available", "deployment", "config-policy-controller",
+			"-n=open-cluster-management-agent-addon")
+
+		By("Creating a new namespace")
+		Expect(clientManaged.CoreV1().Namespaces().Create(ctx, &corev1.Namespace{
+			ObjectMeta: metav1.ObjectMeta{
+				Name: "case14-3",
+			},
+		}, metav1.CreateOptions{})).NotTo(BeNil())
+
+		By("Checking for the policy to create the new configmap")
+		utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap, "case14-cm",
+			"case14-3", true, defaultTimeoutSeconds)
 	})
 })

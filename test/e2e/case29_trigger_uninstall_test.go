@@ -17,7 +17,7 @@ import (
 )
 
 // This test only works when the controller is running in the cluster.
-var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Ordered, func() {
+var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Serial, func() {
 	const (
 		configMapName        string = "case29-trigger-uninstall"
 		deploymentName       string = "config-policy-controller"
@@ -110,7 +110,7 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Orde
 		Expect(policy2.GetFinalizers()).To(BeEmpty())
 	})
 
-	AfterAll(func() {
+	AfterEach(func() {
 		deleteConfigPolicies([]string{policyName, policy2Name})
 
 		err := clientManaged.CoreV1().ConfigMaps("default").Delete(

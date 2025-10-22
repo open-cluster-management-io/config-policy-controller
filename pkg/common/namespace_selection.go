@@ -251,12 +251,17 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 }
 
 // HasUpdate indicates when the cached selection for this policy has been changed since the last
-// time that Get was called for that policy.
+// time that Get was called for that policy. Returns true if the selection isn't cached.
 func (r *NamespaceSelectorReconciler) HasUpdate(namespace string, name string) bool {
 	r.lock.RLock()
 	defer r.lock.RUnlock()
 
-	return r.selections[getKey(namespace, name)].hasUpdate
+	sel, ok := r.selections[getKey(namespace, name)]
+	if !ok {
+		return true
+	}
+
+	return sel.hasUpdate
 }
 
 // Stop tells the SelectorReconciler to stop updating the cached selection for the name.
