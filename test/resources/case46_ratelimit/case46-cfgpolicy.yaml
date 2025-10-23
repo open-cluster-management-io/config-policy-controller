@@ -1,0 +1,16 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case46-cfgpolicy
+spec:
+  remediationAction: enforce
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: case46-configmap-from-policy
+          namespace: default
+        data:
+          bar: '{{ fromConfigMap "default" "case46-configmap-to-watch" "foo" }}'
