@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: case46-configmap-to-watch
+  namespace: default
+data:
+  foo: "0"
