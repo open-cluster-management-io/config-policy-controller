@@ -515,6 +515,7 @@ func main() {
 		EnableMetrics:          opts.enableMetrics,
 		UninstallMode:          beingUninstalled,
 		EvalBackoffSeconds:     opts.evalBackoffSeconds,
+		ItemLimiters:           controllers.NewPerItemRateLimiter[reconcile.Request](opts.evalBackoffSeconds, 1),
 		HubDynamicWatcher:      configPolHubDynamicWatcher,
 		HubClient:              hubClient,
 		ClusterName:            opts.clusterName,
@@ -795,8 +796,8 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 	flags.Uint32Var(
 		&opts.evalBackoffSeconds,
 		"evaluation-backoff",
-		10,
-		"The number of seconds before a policy is eligible for reevaluation in watch mode (throttles frequently "+
+		5,
+		"The number of seconds before a policy is eligible for reevaluation (throttles frequently "+
 			"evaluated policies)",
 	)
 
