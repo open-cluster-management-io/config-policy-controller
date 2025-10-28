@@ -100,6 +100,16 @@ spec:
 
 ```
 
+### Architecture
+
+The Deployment `config-policy-controller` contains two main controllers: Configuration Policy Controller and Operator Policy Controller. Both evaluate policy rules and support Golang text templates.
+
+**Configuration Policy Controller** - Watches for `ConfigurationPolicy` resources and evaluates Kubernetes objects against desired state specifications.
+
+**Operator Policy Controller** - Manages the lifecycle of Operator Lifecycle Manager (OLM) operators through `OperatorPolicy` resources. Handles `Subscriptions`, `OperatorGroups`, and monitors the health of operator deployments and `ClusterServiceVersions`. The controller can manage operator installation, upgrades, and removal with configurable behaviors for resource cleanup.
+
+![Config Policy Controller Architecture](images/config-policy-controller-architecture-diagram.png)
+
 ## Getting started
 
 Go to the
