@@ -11,21 +11,21 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case8ConfigPolicyNamePod         string = "policy-pod-to-check"
-	case8ConfigPolicyNameCheck       string = "policy-status-checker"
-	case8ConfigPolicyNameCheckFail   string = "policy-status-checker-fail"
-	case8ConfigPolicyNameEnforceFail string = "policy-status-enforce-fail"
-	case8PolicyYamlPod               string = "../resources/case8_status_check/case8_pod.yaml"
-	case8PolicyYamlCheck             string = "../resources/case8_status_check/case8_status_check.yaml"
-	case8PolicyYamlCheckFail         string = "../resources/case8_status_check/case8_status_check_fail.yaml"
-	case8PolicyYamlEnforceFail       string = "../resources/case8_status_check/case8_status_enforce_fail.yaml"
-	case8ConfigPolicyStatusPod       string = "policy-pod-invalid"
-	case8PolicyYamlBadPod            string = "../resources/case8_status_check/case8_pod_fail.yaml"
-	case8PolicyYamlSpecChange        string = "../resources/case8_status_check/case8_pod_change.yaml"
-)
-
 var _ = Describe("Test pod obj template handling", func() {
+	const (
+		case8ConfigPolicyNamePod         string = "policy-pod-to-check"
+		case8ConfigPolicyNameCheck       string = "policy-status-checker"
+		case8ConfigPolicyNameCheckFail   string = "policy-status-checker-fail"
+		case8ConfigPolicyNameEnforceFail string = "policy-status-enforce-fail"
+		case8PolicyYamlPod               string = "../resources/case8_status_check/case8_pod.yaml"
+		case8PolicyYamlCheck             string = "../resources/case8_status_check/case8_status_check.yaml"
+		case8PolicyYamlCheckFail         string = "../resources/case8_status_check/case8_status_check_fail.yaml"
+		case8PolicyYamlEnforceFail       string = "../resources/case8_status_check/case8_status_enforce_fail.yaml"
+		case8ConfigPolicyStatusPod       string = "policy-pod-invalid"
+		case8PolicyYamlBadPod            string = "../resources/case8_status_check/case8_pod_fail.yaml"
+		case8PolicyYamlSpecChange        string = "../resources/case8_status_check/case8_pod_change.yaml"
+	)
+
 	Describe("Create a policy on managed cluster in ns:"+testNamespace, Ordered, func() {
 		It("should create a policy properly on the managed cluster", func() {
 			By("Creating " + case8ConfigPolicyNamePod + " on managed")
@@ -204,6 +204,10 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
 				g.Expect(matchesAfterDryRun).To(BeTrue())
+
+				history, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "history")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(history).To(HaveLen(1))
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
@@ -227,6 +231,10 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
 				g.Expect(matchesAfterDryRun).To(BeTrue())
+
+				history, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "history")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(history).To(HaveLen(2))
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
@@ -251,6 +259,10 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
 				g.Expect(matchesAfterDryRun).To(BeFalse())
+
+				history, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "history")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(history).To(HaveLen(3))
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 
@@ -275,6 +287,10 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
 				g.Expect(matchesAfterDryRun).To(BeFalse())
+
+				history, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "history")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(history).To(HaveLen(4))
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
 

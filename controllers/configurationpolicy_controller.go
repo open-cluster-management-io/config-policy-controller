@@ -3325,12 +3325,10 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				diff = handleDiff(log, recordDiff, existingObjectCopy, mergedObjCopy, r.FullDiffs)
 			}
 
-			// Assume object is compliant by inverting the value of throwSpecViolation
-			r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
+			// treat the object as compliant, with no updates needed
+			r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
 
-			matchesAfterDryRun = true
-
-			return throwSpecViolation, "", diff, updateNeeded, updatedObj, matchesAfterDryRun
+			return false, "", diff, false, updatedObj, true
 		}
 
 		diff = handleDiff(log, recordDiff, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
@@ -3340,7 +3338,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if isInform {
 		r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
 
-		return true, "", diff, false, nil, matchesAfterDryRun
+		return true, "", diff, false, nil, false
 	}
 
 	// If it's not inform (i.e. enforce), update the object
@@ -3360,7 +3358,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		if err != nil && !k8serrors.IsNotFound(err) {
 			message = fmt.Sprintf(`%s failed to delete when recreating with the error %v`, getMsgPrefix(&obj), err)
 
-			return true, message, "", updateNeeded, nil, matchesAfterDryRun
+			return true, message, "", updateNeeded, nil, false
 		}
 
 		attempts := 0
@@ -3378,7 +3376,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 				message = getMsgPrefix(&obj) + " timed out waiting for the object to delete during recreate, " +
 					"will retry on the next policy evaluation"
 
-				return true, message, "", updateNeeded, nil, matchesAfterDryRun
+				return true, message, "", updateNeeded, nil, false
 			}
 
 			time.Sleep(time.Second)
@@ -3414,14 +3412,14 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			message = fmt.Sprintf("%s failed to %s with the error `%v`", getMsgPrefix(&obj), action, err)
 		}
 
-		return true, message, diff, updateNeeded, nil, matchesAfterDryRun
+		return true, message, diff, updateNeeded, nil, false
 	}
 
 	if !statusMismatch {
 		r.setEvaluatedObject(obj.policy, updatedObj, true, message)
 	}
 
-	return throwSpecViolation, "", diff, updateNeeded, updatedObj, matchesAfterDryRun
+	return throwSpecViolation, "", diff, updateNeeded, updatedObj, false
 }
 
 func getMsgPrefix(obj *singleObject) string {
