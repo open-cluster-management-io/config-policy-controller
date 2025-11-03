@@ -1,0 +1,23 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case44-skipobject-missing-crd
+  labels:
+    e2e-test: case44-objectname-var
+spec:
+  remediationAction: inform
+  severity: medium
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: FakeKind
+        metadata:
+          name: test-skipobject-missing-crd
+          namespace: default
+          labels:
+            # skipObject is called to skip this object since the CRD doesn't exist
+            removed-in-ocp419: '{{ skipObject }}'
+        spec:
+          data:
+            fake: test
