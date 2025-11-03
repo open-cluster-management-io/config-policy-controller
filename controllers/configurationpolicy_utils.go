@@ -13,6 +13,7 @@ import (
 
 	gocmp "github.com/google/go-cmp/cmp"
 	"github.com/pmezard/go-difflib/difflib"
+	templates "github.com/stolostron/go-template-utils/v7/pkg/templates"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	apiRes "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -846,4 +847,81 @@ func generateDiff(existingObj, updatedObj *unstructured.Unstructured, fullDiffs 
 	}
 
 	return diff, nil
+}
+
+// getTemplateContext constructs a context object for Go template resolution. It
+// selectively includes the object, name, and namespace depending on what
+// information is available.
+func getTemplateContext(
+	obj map[string]any,
+	name string,
+	ns string,
+) (templateContext any) {
+	// Only populate context variables as they are available:
+	switch {
+	case name != "" && ns != "":
+		// - Namespaced object with metadata.name or objectSelector
+		return struct {
+			Object          map[string]any
+			ObjectNamespace string
+			ObjectName      string
+		}{Object: obj, ObjectNamespace: ns, ObjectName: name}
+
+	case name != "":
+		// - Cluster-scoped object with metadata.name or objectSelector
+		return struct {
+			Object     map[string]any
+			ObjectName string
+		}{Object: obj, ObjectName: name}
+
+	case ns != "":
+		// - Unnamed namespaced object
+		return struct {
+			ObjectNamespace string
+		}{ObjectNamespace: ns}
+	}
+
+	return nil
+}
+
+// resolveGoTemplates resolves Go templates in the given raw object using the
+// provided template context and template resolver. It returns the resolved
+// template, a boolean indicating whether the object should be skipped, and an
+// error if any occurred.
+func resolveGoTemplates(
+	rawObj []byte,
+	templateContext any,
+	tmplResolver *templates.TemplateResolver,
+	resolveOptions *templates.ResolveOptions,
+) (
+	resolvedTemplate templates.TemplateResult,
+	skipObject bool,
+	err error,
+) {
+	resolveOptions.CustomFunctions = map[string]any{
+		"skipObject": func(skips ...any) (empty string, err error) {
+			switch len(skips) {
+			case 0:
+				skipObject = true
+			case 1:
+				if !skipObject {
+					if skip, ok := skips[0].(bool); ok {
+						skipObject = skip
+					} else {
+						err = fmt.Errorf(
+							"expected boolean but received '%v'", skips[0])
+					}
+				}
+			default:
+				err = fmt.Errorf(
+					"expected one optional boolean argument but received %d arguments", len(skips))
+			}
+
+			return empty, err
+		},
+	}
+
+	resolvedTemplate, err = tmplResolver.ResolveTemplate(rawObj, templateContext, resolveOptions)
+
+	return resolvedTemplate, skipObject, err
 }

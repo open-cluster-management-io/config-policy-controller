@@ -1357,8 +1357,37 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 		return nil, nil, errEvent, nil
 	}
 
+	skippedObjMsg := "All objects of kind %s were skipped by the `skipObject` template function"
+
 	scopedGVR, err := r.getMapping(objGVK, plc, index)
 	if err != nil {
+		// Parse templates in a generic way to check whether skipObject was called
+		if tmplResolver != nil && templates.HasTemplate(objectT.ObjectDefinition.Raw, "", true) {
+			// Provide a full but empty context to prevent template errors
+			templateContext := struct {
+				Object          map[string]any
+				ObjectNamespace string
+				ObjectName      string
+			}{Object: map[string]any{}, ObjectNamespace: "", ObjectName: ""}
+
+			_, skipObject, _ := resolveGoTemplates(
+				objectT.ObjectDefinition.Raw,
+				templateContext,
+				tmplResolver,
+				resolveOptions,
+			)
+
+			if skipObject {
+				event := &objectTmplEvalEvent{
+					compliant: true,
+					reason:    "",
+					message:   fmt.Sprintf(skippedObjMsg, objGVK.Kind),
+				}
+
+				return []*unstructured.Unstructured{}, nil, event, nil
+			}
+		}
+
 		errEvent := &objectTmplEvalEvent{
 			compliant: false,
 			reason:    "K8s error",
@@ -1650,63 +1679,16 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			if tmplResolver != nil && hasTemplate && desiredObj == nil { //nolint:gocritic
 				r.processedPolicyCache.Delete(plc.GetUID())
 
-				var templateContext any
-
 				// Remove managedFields because it has a key that's just a dot,
 				// which is problematic in the template library
 				unstructured.RemoveNestedField(obj.Object, "metadata", "managedFields")
 
-				// Only populate context variables as they are available:
-				switch {
-				case name != "" && ns != "":
-					// - Namespaced object with metadata.name or objectSelector
-					templateContext = struct {
-						Object          map[string]any
-						ObjectNamespace string
-						ObjectName      string
-					}{Object: obj.Object, ObjectNamespace: ns, ObjectName: name}
+				// Get the template context for resolving Go templates
+				templateContext := getTemplateContext(obj.Object, name, ns)
 
-				case name != "":
-					// - Cluster-scoped object with metadata.name or objectSelector
-					templateContext = struct {
-						Object     map[string]any
-						ObjectName string
-					}{Object: obj.Object, ObjectName: name}
-
-				case ns != "":
-					// - Unnamed namespaced object
-					templateContext = struct {
-						ObjectNamespace string
-					}{ObjectNamespace: ns}
-				}
-
-				skipObject := false
-
-				resolveOptions.CustomFunctions = map[string]any{
-					"skipObject": func(skips ...any) (empty string, err error) {
-						switch len(skips) {
-						case 0:
-							skipObject = true
-						case 1:
-							if !skipObject {
-								if skip, ok := skips[0].(bool); ok {
-									skipObject = skip
-								} else {
-									err = fmt.Errorf(
-										"expected boolean but received '%v'", skips[0])
-								}
-							}
-						default:
-							err = fmt.Errorf(
-								"expected one optional boolean argument but received %d arguments", len(skips))
-						}
-
-						return empty, err
-					},
-				}
-
-				resolvedTemplate, err := tmplResolver.ResolveTemplate(
-					objectT.ObjectDefinition.Raw, templateContext, resolveOptions,
+				// Resolve the Go templates
+				resolvedTemplate, skipObject, err := resolveGoTemplates(
+					objectT.ObjectDefinition.Raw, templateContext, tmplResolver, resolveOptions,
 				)
 
 				if skipObject {
@@ -1844,7 +1826,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 
 		switch {
 		case skipObjectCalled:
-			msg = "All objects of kind %s were skipped by the `skipObject` template function"
+			msg = skippedObjMsg
 		case objectSelector != nil:
 			msg = "No objects of kind %s were matched from the policy objectSelector"
 		default:

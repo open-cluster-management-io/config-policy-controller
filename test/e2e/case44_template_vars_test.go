@@ -351,6 +351,37 @@ var _ = Describe("Test template context variables", func() {
 				))
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 		})
+
+		It("Should be compliant when skipObject is used with a non-existent CRD (ACM-23563)", func() {
+			const (
+				policyName = "case44-skipobject-missing-crd"
+			)
+
+			By("Applying the " + policyName + " ConfigurationPolicy with a non-existent kind")
+			utils.KubectlApplyAndLabel(
+				testLabel, "-n", testNamespace, "-f", rsrcPath+"case44_skipobject_missing_crd.yaml")
+
+			By("By verifying that the ConfigurationPolicy is compliant without CRD errors")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic,
+					gvrConfigPolicy,
+					policyName,
+					testNamespace,
+					true,
+					defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+				g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(
+					"All objects of kind FakeKind were skipped by the `skipObject` template function",
+				))
+
+				// Verify there are no related objects since everything was skipped
+				relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+				g.Expect(relatedObjects).To(BeEmpty())
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
 	})
 
 	Describe("Policy with the Object variable", Ordered, func() {

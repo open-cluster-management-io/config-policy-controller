@@ -5,8 +5,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stolostron/go-template-utils/v7/pkg/templates"
 	"github.com/stretchr/testify/assert"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/client-go/dynamic/fake"
+	"k8s.io/client-go/kubernetes/scheme"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
@@ -298,6 +301,263 @@ func TestGenerateDiff(t *testing.T) {
 			}
 
 			assert.Equal(t, test.expectedDiff, diff)
+		})
+	}
+}
+
+func TestGetTemplateContext(t *testing.T) {
+	t.Parallel()
+
+	testObj := map[string]any{
+		"apiVersion": "v1",
+		"kind":       "ConfigMap",
+		"metadata": map[string]any{
+			"name": "test-configmap",
+		},
+	}
+
+	tests := map[string]struct {
+		obj      map[string]any
+		name     string
+		ns       string
+		expected any
+	}{
+		"namespaced object with name and namespace": {
+			obj:  testObj,
+			name: "my-configmap",
+			ns:   "default",
+			expected: struct {
+				Object          map[string]any
+				ObjectNamespace string
+				ObjectName      string
+			}{
+				Object:          testObj,
+				ObjectNamespace: "default",
+				ObjectName:      "my-configmap",
+			},
+		},
+		"cluster-scoped object with name only": {
+			obj:  testObj,
+			name: "my-clusterrole",
+			ns:   "",
+			expected: struct {
+				Object     map[string]any
+				ObjectName string
+			}{
+				Object:     testObj,
+				ObjectName: "my-clusterrole",
+			},
+		},
+		"unnamed namespaced object with namespace only": {
+			obj:  testObj,
+			name: "",
+			ns:   "kube-system",
+			expected: struct {
+				ObjectNamespace string
+			}{
+				ObjectNamespace: "kube-system",
+			},
+		},
+		"no name and no namespace": {
+			obj:      testObj,
+			name:     "",
+			ns:       "",
+			expected: nil,
+		},
+		"empty object with name and namespace": {
+			obj:  map[string]any{},
+			name: "empty-obj",
+			ns:   "test-ns",
+			expected: struct {
+				Object          map[string]any
+				ObjectNamespace string
+				ObjectName      string
+			}{
+				Object:          map[string]any{},
+				ObjectNamespace: "test-ns",
+				ObjectName:      "empty-obj",
+			},
+		},
+		"nil object with name and namespace": {
+			obj:  nil,
+			name: "nil-obj",
+			ns:   "test-ns",
+			expected: struct {
+				Object          map[string]any
+				ObjectNamespace string
+				ObjectName      string
+			}{
+				Object:          nil,
+				ObjectNamespace: "test-ns",
+				ObjectName:      "nil-obj",
+			},
+		},
+	}
+
+	for testName, test := range tests {
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+
+			result := getTemplateContext(test.obj, test.name, test.ns)
+
+			assert.Equal(t, test.expected, result)
+		})
+	}
+}
+
+func TestResolveGoTemplates(t *testing.T) {
+	t.Parallel()
+
+	// Create a fake dynamic client and template resolver for testing
+	dynamicClient := fake.NewSimpleDynamicClient(scheme.Scheme)
+	tmplResolver, err := templates.NewResolverWithClients(
+		dynamicClient, nil, templates.Config{},
+	)
+	assert.NoError(t, err)
+
+	tests := map[string]struct {
+		rawObj           string
+		templateContext  any
+		expectSkipObject bool
+		expectError      bool
+		expectedResolved string
+		errorContains    string
+	}{
+		"simple template without skipObject": {
+			rawObj: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: test
+  namespace: '{{ .ObjectNamespace }}'`,
+			templateContext: struct {
+				ObjectNamespace string
+			}{
+				ObjectNamespace: "test-namespace",
+			},
+			expectSkipObject: false,
+			expectError:      false,
+			expectedResolved: `{"apiVersion":"v1",` +
+				`"kind":"ConfigMap",` +
+				`"metadata":{` +
+				`"name":"test",` +
+				`"namespace":"test-namespace"}}`,
+		},
+		"template with skipObject no arguments": {
+			rawObj: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: '{{ if true }}{{ skipObject }}{{ end }}test'`,
+			templateContext:  nil,
+			expectSkipObject: true,
+			expectError:      false,
+			expectedResolved: `{"apiVersion":"v1",` +
+				`"kind":"ConfigMap",` +
+				`"metadata":{"name":"test"}}`,
+		},
+		"template with skipObject true": {
+			rawObj: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: '{{ skipObject true }}test'`,
+			templateContext:  nil,
+			expectSkipObject: true,
+			expectError:      false,
+			expectedResolved: `{"apiVersion":"v1",` +
+				`"kind":"ConfigMap",` +
+				`"metadata":{"name":"test"}}`,
+		},
+		"template with skipObject false": {
+			rawObj: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: '{{ skipObject false }}test'`,
+			templateContext:  nil,
+			expectSkipObject: false,
+			expectError:      false,
+			expectedResolved: `{"apiVersion":"v1",` +
+				`"kind":"ConfigMap",` +
+				`"metadata":{"name":"test"}}`,
+		},
+		"template with skipObject invalid argument": {
+			rawObj: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: '{{ skipObject "invalid" }}test'`,
+			templateContext:  nil,
+			expectSkipObject: false,
+			expectError:      true,
+			errorContains:    "expected boolean but received",
+		},
+		"template with skipObject multiple arguments": {
+			rawObj: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: '{{ skipObject true false }}test'`,
+			templateContext:  nil,
+			expectSkipObject: false,
+			expectError:      true,
+			errorContains:    "expected one optional boolean argument but received 2 arguments",
+		},
+		"template without any templates": {
+			rawObj: `apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: plain-configmap`,
+			templateContext:  nil,
+			expectSkipObject: false,
+			expectError:      false,
+			expectedResolved: `{"apiVersion":"v1",` +
+				`"kind":"ConfigMap",` +
+				`"metadata":{` +
+				`"name":"plain-configmap"}}`,
+		},
+		"template with context variables": {
+			rawObj: `apiVersion: v1
+kind: Pod
+metadata:
+  name: '{{ .ObjectName }}'
+  namespace: '{{ .ObjectNamespace }}'`,
+			templateContext: struct {
+				ObjectName      string
+				ObjectNamespace string
+			}{
+				ObjectName:      "test-pod",
+				ObjectNamespace: "test-namespace",
+			},
+			expectSkipObject: false,
+			expectError:      false,
+			expectedResolved: `{"apiVersion":"v1",` +
+				`"kind":"Pod",` +
+				`"metadata":{` +
+				`"name":"test-pod",` +
+				`"namespace":"test-namespace"}}`,
+		},
+	}
+
+	for testName, test := range tests {
+		t.Run(testName, func(t *testing.T) {
+			t.Parallel()
+
+			resolveOptions := &templates.ResolveOptions{}
+			resolvedTemplate, skipObject, err := resolveGoTemplates(
+				[]byte(test.rawObj),
+				test.templateContext,
+				tmplResolver,
+				resolveOptions,
+			)
+
+			if test.expectError {
+				assert.Error(t, err)
+
+				if test.errorContains != "" {
+					assert.Contains(t, err.Error(), test.errorContains)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.JSONEq(t, test.expectedResolved, string(resolvedTemplate.ResolvedJSON))
+			}
+
+			assert.Equal(t, test.expectSkipObject, skipObject)
 		})
 	}
 }
