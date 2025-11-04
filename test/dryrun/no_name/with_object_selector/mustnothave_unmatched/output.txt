@@ -1,0 +1,15 @@
+# Status compare:
+.compliancyDetails[0] matches
+.compliancyDetails matches
+.compliant: 'Compliant' does match 'Compliant'
+.history[0] matches
+.history matches
+.relatedObjects[0] matches
+.relatedObjects matches
+ Expected status matches the actual status
+
+# Diffs:
+v1 ConfigMap default/good-configmap:
+
+# Compliance messages:
+Compliant; notification - configmaps missing as expected in namespace default

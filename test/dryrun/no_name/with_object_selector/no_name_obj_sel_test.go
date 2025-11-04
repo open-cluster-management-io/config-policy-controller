@@ -7,18 +7,23 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/dryrun"
 )
 
-//go:embed musthave_mixed_noncompliant/*
-var musthaveMixedNoncompliant embed.FS
+var (
+	//go:embed musthave_mixed_noncompliant/*
+	musthaveMixedNoncompliant embed.FS
+	//go:embed mustnothave_mixed_noncompliant/*
+	mustnothaveMixedNoncompliant embed.FS
+	//go:embed mustnothave_unmatched/*
+	mustnothaveUnmatched embed.FS
 
-func TestMusthaveMixedNonCompliant(t *testing.T) {
-	t.Run("Test only selected and incorrect objects are marked as violations",
-		dryrun.Run(musthaveMixedNoncompliant))
-}
+	testCases = map[string]embed.FS{
+		"Test only selected and incorrect objects are marked as violations": musthaveMixedNoncompliant,
+		"Test only selected and matched objects are marked as violations":   mustnothaveMixedNoncompliant,
+		"Test no matched objects for mustnothave is compliant":              mustnothaveUnmatched,
+	}
+)
 
-//go:embed mustnothave_mixed_noncompliant/*
-var mustnothaveMixedNoncompliant embed.FS
-
-func TestMustnothaveMixedNonCompliant(t *testing.T) {
-	t.Run("Test only selected and matched objects are marked as violations",
-		dryrun.Run(mustnothaveMixedNoncompliant))
+func TestNoNameObjSelector(t *testing.T) {
+	for name, testFiles := range testCases {
+		t.Run(name, dryrun.Run(testFiles))
+	}
 }
