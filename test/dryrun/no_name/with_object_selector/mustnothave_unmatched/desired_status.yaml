@@ -1,0 +1,17 @@
+relatedObjects:
+- compliant: Compliant
+  object:
+    apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: good-configmap
+      namespace: default
+compliancyDetails:
+- Compliant: Compliant
+  conditions:
+  - message: configmaps missing as expected in namespace default
+    status: "True"
+    type: notification
+compliant: Compliant
+history:
+- message: Compliant; notification - configmaps missing as expected in namespace default

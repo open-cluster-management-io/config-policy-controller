@@ -1037,9 +1037,15 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 			resolverToUse = tmplResolver
 		}
 
-		desiredObjects, scopedGVR, errEvent, err := r.determineDesiredObjects(
+		desiredObjects, scopedGVR, determinedRelatedObjects, errEvent, err := r.determineDesiredObjects(
 			plc, index, objectT, resolverToUse, resolveOptions,
 		)
+
+		// Merge the related objects returned from determineDesiredObjects into the outer relatedObjects
+		for _, object := range determinedRelatedObjects {
+			relatedObjects = addOrUpdateRelatedObject(relatedObjects, object)
+		}
+
 		if err != nil {
 			// Return all mapping and templating errors encountered and let the caller decide if the errors should be
 			// retried
@@ -1319,6 +1325,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 ) (
 	[]*unstructured.Unstructured,
 	*depclient.ScopedGVR,
+	[]policyv1.RelatedObject,
 	*objectTmplEvalEvent,
 	error,
 ) {
@@ -1339,7 +1346,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			message:   "Error parsing the namespace from the object definition",
 		}
 
-		return nil, nil, errEvent, err
+		return nil, nil, nil, errEvent, err
 	}
 
 	objGVK := parsedMinMetadata.GroupVersionKind()
@@ -1354,7 +1361,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			),
 		}
 
-		return nil, nil, errEvent, nil
+		return nil, nil, nil, errEvent, nil
 	}
 
 	skippedObjMsg := "All objects of kind %s were skipped by the `skipObject` template function"
@@ -1384,7 +1391,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 					message:   fmt.Sprintf(skippedObjMsg, objGVK.Kind),
 				}
 
-				return []*unstructured.Unstructured{}, nil, event, nil
+				return []*unstructured.Unstructured{}, nil, nil, event, nil
 			}
 		}
 
@@ -1394,7 +1401,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			message:   err.Error(),
 		}
 
-		return nil, nil, errEvent, err
+		return nil, nil, nil, errEvent, err
 	}
 
 	// Set up relevant object namespace-name-objects map to populate with the
@@ -1451,7 +1458,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				message:   msg,
 			}
 
-			return nil, &scopedGVR, errEvent, err
+			return nil, &scopedGVR, nil, errEvent, err
 		}
 
 		// Fetch object when:
@@ -1516,7 +1523,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 
 		errEvent := &objectTmplEvalEvent{false, "K8s missing namespace", msg}
 
-		return nil, &scopedGVR, errEvent, nil
+		return nil, &scopedGVR, nil, errEvent, nil
 	}
 
 	// Fetch related objects from the cluster
@@ -1540,7 +1547,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 					message:   msg,
 				}
 
-				return nil, &scopedGVR, errEvent, err
+				return nil, &scopedGVR, nil, errEvent, err
 			}
 		} else {
 			existingObj, _ = getObject(desiredNs, desiredName, scopedGVR, r.TargetK8sDynamicClient)
@@ -1569,7 +1576,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 				message:   msg,
 			}
 
-			return nil, &scopedGVR, errEvent, err
+			return nil, &scopedGVR, nil, errEvent, err
 		}
 
 		listOpts := metav1.ListOptions{
@@ -1612,7 +1619,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 					message:   msg,
 				}
 
-				return nil, &scopedGVR, errEvent, err
+				return nil, &scopedGVR, nil, errEvent, err
 			}
 
 			// Populate objects from objectSelector results
@@ -1713,7 +1720,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 						message:   complianceMsg,
 					}
 
-					return nil, &scopedGVR, errEvent, err
+					return nil, &scopedGVR, nil, errEvent, err
 				}
 
 				if objectT.RecordDiff == "" && resolvedTemplate.HasSensitiveData {
@@ -1753,7 +1760,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 						index, plc.Name, err),
 				}
 
-				return nil, &scopedGVR, errEvent, err
+				return nil, &scopedGVR, nil, errEvent, err
 			}
 
 			// Populate the namespace and name if applicable
@@ -1780,7 +1787,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 						"from the namespace selector after template resolution",
 				}
 
-				return nil, &scopedGVR, errEvent, nil
+				return nil, &scopedGVR, nil, errEvent, nil
 			}
 
 			// Error if the namespace is templated and returns empty.
@@ -1799,7 +1806,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 					),
 				}
 
-				return nil, &scopedGVR, errEvent, nil
+				return nil, &scopedGVR, nil, errEvent, nil
 			}
 
 			// Error if the name doesn't match the parsed name from the objectSelector
@@ -1811,7 +1818,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 						"from the object selector after template resolution",
 				}
 
-				return nil, &scopedGVR, errEvent, nil
+				return nil, &scopedGVR, nil, errEvent, nil
 			}
 
 			desiredObjects = append(desiredObjects, desiredObj)
@@ -1839,7 +1846,7 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			message:   fmt.Sprintf(msg, objGVK.Kind),
 		}
 
-		return nil, &scopedGVR, event, nil
+		return nil, &scopedGVR, nil, event, nil
 	}
 
 	// For mustnothave with no name and with an object selector, filter the "desired" objects
@@ -1862,10 +1869,55 @@ func (r *ConfigurationPolicyReconciler) determineDesiredObjects(
 			}
 		}
 
-		return targetedObjects, &scopedGVR, nil, nil
+		// If no objects were matched, return a compliant event since this is
+		// mustnothave and no objects were found.
+		if len(targetedObjects) == 0 {
+			var namespaces []string
+			var relatedObjects []policyv1.RelatedObject
+
+			// Populate the related objects list with the objects
+			// that were matched by the object selector.
+			for ns := range relevantNsNames {
+				namespaces = append(namespaces, ns)
+
+				for name := range relevantNsNames[ns] {
+					relatedObjects = addRelatedObjects(
+						true,
+						scopedGVR,
+						objGVK.Kind,
+						ns,
+						[]string{name},
+						"",
+						nil,
+					)
+				}
+			}
+
+			sort.Strings(namespaces)
+
+			nsMsg := "namespace"
+			if len(namespaces) > 1 {
+				nsMsg = "namespaces:"
+			}
+
+			event := &objectTmplEvalEvent{
+				compliant: true,
+				reason:    "",
+				message: fmt.Sprintf(
+					"%s missing as expected in %s %s",
+					scopedGVR.Resource,
+					nsMsg,
+					strings.Join(namespaces, ", "),
+				),
+			}
+
+			return nil, &scopedGVR, relatedObjects, event, nil
+		}
+
+		return targetedObjects, &scopedGVR, nil, nil, nil
 	}
 
-	return desiredObjects, &scopedGVR, nil, nil
+	return desiredObjects, &scopedGVR, nil, nil, nil
 }
 
 // batchedEvents combines compliance events into batches that should be emitted in order. For example,
