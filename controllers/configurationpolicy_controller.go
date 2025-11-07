@@ -551,7 +551,9 @@ func (r *ConfigurationPolicyReconciler) shouldEvaluatePolicy(
 
 // cleanUpChildObjects conditionally removed child objects that are no longer referenced in the
 // `newRelated` list, compared to what is currently in the policy. It does not delete anything in
-// inform mode, and it obeys the pruneObjectBehavior setting.
+// inform mode, and it obeys the pruneObjectBehavior setting. During normal reconciliation, cleanup
+// is skipped when any object template uses objectSelector to prevent deletion of objects that stop
+// matching the selector after being updated. Cleanup still occurs when the policy itself is deleted.
 func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 	plc *policyv1.ConfigurationPolicy, newRelated []policyv1.RelatedObject, usingWatch bool,
 ) []string {
@@ -1029,6 +1031,13 @@ func (r *ConfigurationPolicyReconciler) handleObjectTemplates(plc *policyv1.Conf
 	var skipCleanupChildObjects bool
 
 	for index, objectT := range plc.Spec.ObjectTemplates {
+		// Check if any object template uses objectSelector - pruning should be disabled during
+		// normal reconciliation to prevent deletion of objects that stop matching the selector
+		if !skipCleanupChildObjects && objectT.ObjectSelector != nil {
+			skipCleanupChildObjects = true
+			log.V(2).Info("Disabling object cleanup during reconciliation because objectSelector is in use")
+		}
+
 		nsNameToResults := map[string]objectTmplEvalResult{}
 
 		var resolverToUse *templates.TemplateResolver
