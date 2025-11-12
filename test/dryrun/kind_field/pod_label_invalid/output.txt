@@ -1,0 +1,6 @@
+# Diffs:
+v1 Pod managed/nginx-pod-e2e-10:
+
+# Compliance messages:
+NonCompliant; violation - pods [nginx-pod-e2e-10] found but not as specified in namespace managed
+NonCompliant; violation - invalid label, error: contains non-string value in the map under key "problem": true is of the type bool, expected string
