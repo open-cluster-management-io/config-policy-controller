@@ -3553,17 +3553,34 @@ func handleKeys(
 			continue
 		}
 
-		// only look at labels and annotations for metadata - configurationPolicies do not update other metadata fields
 		if key == "metadata" {
-			// if it's not the right type, the map will be empty
-			mdMap, _ := mergedObj.(map[string]interface{})
+			if mdMap, ok := mergedObj.(map[string]any); ok {
+				// ConfigurationPolicies should not affect metadata fields other than labels and
+				// annotations, and if the desired state is invalid, a violation should be raised.
+				mergedAnnos, found, err := unstructured.NestedStringMap(mdMap, "annotations")
+				if err != nil {
+					// A test verifies that this error text is stable
+					errMsg, _ := strings.CutPrefix(err.Error(), ".annotations accessor error: ")
 
-			// if either isn't found, they'll just be empty
-			mergedAnnotations, _, _ := unstructured.NestedStringMap(mdMap, "annotations")
-			mergedLabels, _, _ := unstructured.NestedStringMap(mdMap, "labels")
+					return true, fmt.Sprintf("invalid annotation, error: %v", errMsg), true, statusMismatch, missingKey
+				}
 
-			existingObj.SetAnnotations(mergedAnnotations)
-			existingObj.SetLabels(mergedLabels)
+				if found {
+					existingObj.SetAnnotations(mergedAnnos)
+				}
+
+				mergedLabels, found, err := unstructured.NestedStringMap(mdMap, "labels")
+				if err != nil {
+					// A test verifies that this error text is stable
+					errMsg, _ := strings.CutPrefix(err.Error(), ".labels accessor error: ")
+
+					return true, fmt.Sprintf("invalid label, error: %v", errMsg), true, statusMismatch, missingKey
+				}
+
+				if found {
+					existingObj.SetLabels(mergedLabels)
+				}
+			}
 		} else {
 			existingObj.UnstructuredContent()[key] = mergedObj
 		}

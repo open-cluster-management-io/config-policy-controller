@@ -23,3 +23,17 @@ var podAnnotationMismatch embed.FS
 func TestPodAnnotationMisMatch(t *testing.T) {
 	t.Run("Test pod annotation mismatch", dryrun.Run(podAnnotationMismatch))
 }
+
+//go:embed pod_label_invalid/*
+var podLabelInvalid embed.FS
+
+func TestPodLabelInvalid(t *testing.T) {
+	t.Run("Test invalid pod label in policy", dryrun.Run(podLabelInvalid))
+}
+
+//go:embed pod_annotation_invalid/*
+var podAnnotationInvalid embed.FS
+
+func TestPodAnnotationInvalid(t *testing.T) {
+	t.Run("Test invalid pod annotation in policy", dryrun.Run(podAnnotationInvalid))
+}
