@@ -18,7 +18,7 @@ type DryRunner struct {
 	statusPath    string
 	desiredStatus string
 	mappingsPath  string
-	logPath       string
+	LogPath       string
 	noColors      bool
 	fullDiffs     bool
 	fromCluster   bool
