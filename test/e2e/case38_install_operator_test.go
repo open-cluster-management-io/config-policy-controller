@@ -216,7 +216,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 	}
 
-	Describe("Testing an all default operator policy", Ordered, func() {
+	Describe("Testing an all default operator policy", Serial, Ordered, func() {
 		const (
 			opPolYAML   = "../resources/case38_operator_install/operator-policy-all-defaults.yaml"
 			opPolName   = "oppol-all-defaults"
@@ -1097,7 +1097,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			Expect(events).To(BeEmpty())
 		})
 	})
-	Describe("Test status reporting for CatalogSource", Ordered, func() {
+	Describe("Test status reporting for CatalogSource", Serial, Ordered, func() {
 		const (
 			OpPlcYAML  = "../resources/case38_operator_install/operator-policy-with-group.yaml"
 			OpPlcName  = "oppol-with-group"
