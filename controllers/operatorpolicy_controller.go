@@ -1183,8 +1183,6 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 		}
 
-		desiredOpGroup.ResourceVersion = opGroup.GetResourceVersion()
-
 		opLog.Info("Updating OperatorGroup to match desired state", "opGroupName", opGroup.GetName())
 
 		err = r.TargetClient.Update(ctx, &opGroup)
@@ -1192,9 +1190,9 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 			return false, nil, changed, fmt.Errorf("error updating the OperatorGroup: %w", err)
 		}
 
-		desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Update stripped this information
+		opGroup.SetGroupVersionKind(operatorGroupGVK) // Update stripped this information
 
-		updateStatus(policy, updatedCond("OperatorGroup"), updatedObj(desiredOpGroup))
+		updateStatus(policy, updatedCond("OperatorGroup"), updatedObj(&opGroup))
 
 		return true, earlyConds, true, nil
 	default:
