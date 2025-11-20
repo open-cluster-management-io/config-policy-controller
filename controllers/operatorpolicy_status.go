@@ -191,7 +191,23 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		messages = append(messages, cond.Message)
 
 		if cond.Status != metav1.ConditionTrue {
-			foundNonCompliant = true
+			// When the policy spec is invalid, short-circuit and only report the validation message
+			// to avoid repetitive and confusing concatenations for other components.
+			message := "NonCompliant; " + strings.Join(messages, ", ")
+
+			maxMessageLength := 4096
+			if len(message) > maxMessageLength {
+				truncMsg := "...[truncated]"
+				message = message[:(maxMessageLength-len(truncMsg))] + truncMsg
+			}
+
+			return metav1.Condition{
+				Type:               compliantConditionType,
+				Status:             metav1.ConditionFalse,
+				LastTransitionTime: metav1.Now(),
+				Reason:             "NonCompliant",
+				Message:            message,
+			}
 		}
 	}
 

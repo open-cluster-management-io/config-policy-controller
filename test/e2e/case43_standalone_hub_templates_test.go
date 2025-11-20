@@ -329,7 +329,7 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 			KubectlHub("apply", "-f", hubConfigmapYAML)
 
 			By("Checking the compliance message")
-			desiredMessage := `NonCompliant; the operator namespace \('hello'\) does not exist,`
+			desiredMessage := `NonCompliant; the operator namespace \('hello'\) does not exist`
 			Eventually(func() []string {
 				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
 					policyName, testNamespace, "")
@@ -347,7 +347,7 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 			KubectlHub("apply", "-f", modifiedYAML)
 
 			By("Checking the compliance message")
-			desiredMessage := `NonCompliant; the operator namespace \('changed'\) does not exist,`
+			desiredMessage := `NonCompliant; the operator namespace \('changed'\) does not exist`
 			Eventually(func() []string {
 				return utils.GetHistoryMessages(clientManagedDynamic, gvrOperatorPolicy,
 					policyName, testNamespace, "")

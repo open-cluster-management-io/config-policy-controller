@@ -11,6 +11,34 @@ import (
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 )
 
+func TestCalculateComplianceConditionShortCircuitOnInvalid(t *testing.T) {
+	pol := &policyv1beta1.OperatorPolicy{}
+	// Simulate invalid validation condition only
+	pol.Status.Conditions = []metav1.Condition{
+		{
+			Type:    validPolicyConditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  "InvalidPolicySpec",
+			Message: "spec is invalid: installPlanApproval is prohibited in spec.subscription",
+		},
+		{
+			Type:    opGroupConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "OperatorGroupCompliant",
+			Message: "the OperatorGroup is compliant",
+		},
+	}
+
+	cond := calculateComplianceCondition(pol)
+
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Contains(t, cond.Message, "NonCompliant; ")
+	assert.Contains(t, cond.Message, "spec is invalid: installPlanApproval is prohibited in spec.subscription")
+	assert.NotContains(t, cond.Message, "the status of the OperatorGroup could not be determined")
+	assert.NotContains(t, cond.Message, "the status of the Subscription could not be determined")
+	assert.NotContains(t, cond.Message, "the status of the InstallPlan could not be determined")
+}
+
 func TestExistingInstallPlanObj(t *testing.T) {
 	// Empty InstallPlan
 	testIP := &operatorv1alpha1.InstallPlan{

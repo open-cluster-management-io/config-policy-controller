@@ -356,7 +356,7 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 	)
 
 	opLog.Info("Reconciling complete", "finalErr", finalErr,
-		"conditionChanged", conditionChanged, "eventCount", len(conditionsToEmit))
+		"statusChanged", statusChanged, "eventCount", len(conditionsToEmit))
 
 	return result, finalErr
 }
@@ -487,16 +487,14 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *policyv1beta1.OperatorPolicy) (
 	*operatorv1alpha1.Subscription, *operatorv1.OperatorGroup, bool, error,
 ) {
-	var returnedErr error
-	var tmplResolver *templates.TemplateResolver
-
 	opLog := ctrl.LoggerFrom(ctx)
-	validationErrors := make([]error, 0)
 	disableTemplates := false
 
 	if disableAnnotation, ok := policy.GetAnnotations()["policy.open-cluster-management.io/disable-templates"]; ok {
 		disableTemplates, _ = strconv.ParseBool(disableAnnotation) // on error, templates will not be disabled
 	}
+
+	var tmplResolver *templates.TemplateResolver
 
 	if !disableTemplates {
 		var err error
@@ -505,12 +503,16 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 			r.DynamicWatcher, templates.Config{SkipBatchManagement: true},
 		)
 		if err != nil {
-			validationErrors = append(validationErrors, fmt.Errorf("unable to create template resolver: %w", err))
-		} else {
-			err := resolveVersionsTemplates(policy, tmplResolver)
-			if err != nil {
-				validationErrors = append(validationErrors, err)
-			}
+			newError := fmt.Errorf("unable to create template resolver: %w", err)
+
+			return nil, nil, updateStatus(policy, validationCond([]error{newError})), nil
+		}
+
+		err = resolveVersionsTemplates(policy, tmplResolver)
+		if err != nil {
+			newError := fmt.Errorf("unable to create template resolver: %w", err)
+
+			return nil, nil, updateStatus(policy, validationCond([]error{newError})), nil
 		}
 	} else {
 		opLog.V(1).Info("Templates disabled by annotation")
@@ -518,30 +520,35 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 
 	canonicalizeVersions(policy)
 
+	var returnedErr error
+
 	sub, subErr := buildSubscription(policy, tmplResolver)
 	if subErr == nil {
 		err := r.applySubscriptionDefaults(ctx, policy, sub)
 		if err != nil {
-			sub = nil
-
 			// If it's a PackageManifest API error, then that means it should be returned for the Reconcile method
 			// to requeue the request. This is to workaround the PackageManifest API not supporting watches.
 			if errors.Is(err, ErrPackageManifest) {
 				returnedErr = err
 			}
 
-			validationErrors = append(validationErrors, err)
+			updateStatus(policy, validationCond([]error{err}))
+
+			return nil, nil, true, returnedErr
 		}
 
 		if sub != nil && sub.Namespace == "" {
 			if r.DefaultNamespace != "" {
 				sub.Namespace = r.DefaultNamespace
 			} else {
-				validationErrors = append(validationErrors, errors.New("namespace is required in spec.subscription"))
+				newError := errors.New("namespace is required in spec.subscription")
+
+				return nil, nil, updateStatus(policy, validationCond([]error{newError})), returnedErr
 			}
 		}
 	} else {
-		validationErrors = append(validationErrors, subErr)
+		// Invalid subscription spec - mark status and return without an API error
+		return nil, nil, updateStatus(policy, validationCond([]error{subErr})), returnedErr
 	}
 
 	opGroupNS := r.DefaultNamespace
@@ -551,36 +558,36 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 
 	opGroup, ogErr := buildOperatorGroup(policy, opGroupNS, tmplResolver)
 	if ogErr != nil {
-		validationErrors = append(validationErrors, ogErr)
-	} else {
-		watcher := opPolIdentifier(policy.Namespace, policy.Name)
+		// OperatorGroup spec invalid - mark status, don't requeue
+		return nil, nil, updateStatus(policy, validationCond([]error{ogErr})), nil
+	}
 
-		gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
-		if err != nil {
-			return sub, opGroup, false, fmt.Errorf("error getting operator namespace: %w", err)
-		}
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
-		if gotNamespace == nil && policy.Spec.ComplianceType.IsMustHave() {
-			validationErrors = append(validationErrors,
-				fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS))
-		}
+	gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("error getting operator namespace: %w", err)
+	}
+
+	if gotNamespace == nil && policy.Spec.ComplianceType.IsMustHave() {
+		newError := fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS)
+		// sub and opgroup should be nil to prevent creation/update.
+		return nil, nil, updateStatus(policy, validationCond([]error{newError})), nil
 	}
 
 	changed, overlapErr, apiErr := r.checkSubOverlap(ctx, policy, sub)
-	if apiErr != nil && returnedErr == nil {
+	if apiErr != nil {
 		returnedErr = apiErr
 	}
 
 	if overlapErr != nil {
 		// When an overlap is detected, the generated subscription and operatorgroup
 		// will be considered to be invalid to prevent creations/updates.
-		sub = nil
-		opGroup = nil
-
-		validationErrors = append(validationErrors, overlapErr)
+		// sub and opgroup should be nil to prevent creation/update.
+		return nil, nil, updateStatus(policy, validationCond([]error{overlapErr})), returnedErr
 	}
 
-	changed = updateStatus(policy, validationCond(validationErrors)) || changed
+	changed = updateStatus(policy, validationCond([]error{})) || changed
 
 	return sub, opGroup, changed, returnedErr
 }
@@ -1111,6 +1118,8 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 
 		// Now the OperatorGroup should match, so report Compliance
 		updateStatus(policy, createdCond("OperatorGroup"), createdObj(desiredOpGroup))
+		// Emit a dedicated "created" event regardless of later status aggregation
+		earlyConds = append(earlyConds, createdCond("OperatorGroup"))
 
 		return true, earlyConds, true, nil
 	case 1:
@@ -1408,6 +1417,7 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 		}
 
+		log.Info("!!!!!!!!!!!!!! create subscription!!!!!!!!!!!")
 		err := r.createWithNamespace(ctx, desiredSub)
 		if err != nil {
 			return nil, nil, changed, fmt.Errorf("error creating the Subscription: %w", err)
@@ -1417,6 +1427,10 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 
 		// Now it should match, so report Compliance
 		updateStatus(policy, createdCond("Subscription"), createdObj(desiredSub))
+		// Emit a dedicated "created" event regardless of later status aggregation
+		cond := createdCond("Subscription")
+		cond.LastTransitionTime = metav1.Now()
+		earlyConds = append(earlyConds, cond)
 
 		return desiredSub, earlyConds, true, nil
 	}
