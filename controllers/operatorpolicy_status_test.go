@@ -11,6 +11,276 @@ import (
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 )
 
+func TestCalculateComplianceConditionShortCircuitOnInvalid(t *testing.T) {
+	pol := &policyv1beta1.OperatorPolicy{}
+	// Simulate invalid validation condition only
+	pol.Status.Conditions = []metav1.Condition{
+		{
+			Type:    validPolicyConditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  "InvalidPolicySpec",
+			Message: "spec is invalid: installPlanApproval is prohibited in spec.subscription",
+		},
+		{
+			Type:    opGroupConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "OperatorGroupCompliant",
+			Message: "the OperatorGroup is compliant",
+		},
+	}
+
+	cond := calculateComplianceCondition(pol)
+
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Contains(t, cond.Message, "NonCompliant; ")
+	assert.Contains(t, cond.Message, "spec is invalid: installPlanApproval is prohibited in spec.subscription")
+	assert.NotContains(t, cond.Message, "the status of the OperatorGroup could not be determined")
+	assert.NotContains(t, cond.Message, "the status of the Subscription could not be determined")
+	assert.NotContains(t, cond.Message, "the status of the InstallPlan could not be determined")
+	// When invalid, short-circuit immediately with only the validation message.
+	assert.NotContains(t, cond.Message, "the OperatorGroup is compliant")
+}
+
+func TestCalculateComplianceConditionInvalidOperatorNamespaceDoesNotShortCircuit(t *testing.T) {
+	pol := &policyv1beta1.OperatorPolicy{}
+	// When the invalid validation message is about the operator namespace, it should not short-circuit.
+	pol.Status.Conditions = []metav1.Condition{
+		{
+			Type:    validPolicyConditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  "InvalidPolicySpec",
+			Message: "the operator namespace ('airflow-helm') does not exist",
+		},
+		{
+			Type:    opGroupConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "OperatorGroupCompliant",
+			Message: "the OperatorGroup required by the policy was created",
+		},
+		{
+			Type:    subConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "SubscriptionMatches",
+			Message: "the Subscription required by the policy was created",
+		},
+	}
+
+	cond := calculateComplianceCondition(pol)
+
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Contains(t, cond.Message, "NonCompliant; ")
+	assert.Contains(t, cond.Message, "the operator namespace ('airflow-helm') does not exist")
+	// Not short-circuited: should include later condition messages too.
+	assert.Contains(t, cond.Message, "the OperatorGroup required by the policy was created")
+	assert.Contains(t, cond.Message, "the Subscription required by the policy was created")
+}
+
+func TestShortCircuitOnMissingValidPolicySpec(t *testing.T) {
+	pol := &policyv1beta1.OperatorPolicy{}
+
+	cond := calculateComplianceCondition(pol)
+
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, "NonCompliant;", cond.Message)
+}
+
+func TestCalculateComplianceConditionWithSubscriptionCreated(t *testing.T) {
+	pol := &policyv1beta1.OperatorPolicy{}
+	pol.Status.Conditions = []metav1.Condition{
+		{
+			Type:    validPolicyConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "PolicyValidated",
+			Message: "the policy spec is valid",
+		},
+		{
+			Type:    opGroupConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "OperatorGroupCompliant",
+			Message: "the OperatorGroup is compliant",
+		},
+		createdCond("Subscription"),
+	}
+
+	cond := calculateComplianceCondition(pol)
+
+	expected := "NonCompliant; the policy spec is valid, the OperatorGroup is compliant, " +
+		createdCond("Subscription").Message
+
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, expected, cond.Message)
+}
+
+func TestShortCircuitOnMissingOperatorGroup(t *testing.T) {
+	pol := &policyv1beta1.OperatorPolicy{}
+	pol.Status.Conditions = []metav1.Condition{
+		{
+			Type:    validPolicyConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "PolicyValidated",
+			Message: "the policy spec is valid",
+		},
+	}
+
+	cond := calculateComplianceCondition(pol)
+
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, "NonCompliant; the policy spec is valid", cond.Message)
+}
+
+func TestShortCircuitOnMissingSubscription(t *testing.T) {
+	pol := &policyv1beta1.OperatorPolicy{}
+	pol.Status.Conditions = []metav1.Condition{
+		{
+			Type:    validPolicyConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "PolicyValidated",
+			Message: "the policy spec is valid",
+		},
+		{
+			Type:    opGroupConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "OperatorGroupCompliant",
+			Message: "the OperatorGroup is compliant",
+		},
+	}
+
+	cond := calculateComplianceCondition(pol)
+
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, "NonCompliant; the policy spec is valid, the OperatorGroup is compliant", cond.Message)
+}
+
+func TestCalculateComplianceConditionAggregatesAllCompliant(t *testing.T) {
+	pol := &policyv1beta1.OperatorPolicy{}
+	pol.Status.Conditions = []metav1.Condition{
+		{
+			Type:    validPolicyConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "PolicyValidated",
+			Message: "the policy spec is valid",
+		},
+		{
+			Type:    opGroupConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "OperatorGroupMatches",
+			Message: "the OperatorGroup matches what is required by the policy",
+		},
+		{
+			Type:    subConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "SubscriptionMatches",
+			Message: "the Subscription matches what is required by the policy",
+		},
+		{
+			Type:    installPlanConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "NoInstallPlansFound",
+			Message: "there are no relevant InstallPlans in the namespace",
+		},
+		{
+			Type:    csvConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Succeeded",
+			Message: "the ClusterServiceVersion is succeeded",
+		},
+		{
+			Type:    crdConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "RelevantCRDFound",
+			Message: "there are CRDs present for the operator",
+		},
+		{
+			Type:    deploymentConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "DeploymentsAvailable",
+			Message: "all operator Deployments have their minimum availability",
+		},
+		// CatalogSource polarity: False means healthy/non-blocking for compliance aggregation
+		{
+			Type:    catalogSrcConditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  "CatalogSourcesFound",
+			Message: "CatalogSource was found",
+		},
+	}
+
+	cond := calculateComplianceCondition(pol)
+
+	expected := "Compliant; " +
+		"the policy spec is valid, " +
+		"the OperatorGroup matches what is required by the policy, " +
+		"the Subscription matches what is required by the policy, " +
+		"there are no relevant InstallPlans in the namespace, " +
+		"the ClusterServiceVersion is succeeded, " +
+		"there are CRDs present for the operator, " +
+		"all operator Deployments have their minimum availability, " +
+		"CatalogSource was found"
+
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, expected, cond.Message)
+}
+
+func TestCalculateComplianceConditionWithOperatorGroupCreated(t *testing.T) {
+	pol := &policyv1beta1.OperatorPolicy{}
+	pol.Status.Conditions = []metav1.Condition{
+		{
+			Type:    validPolicyConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "PolicyValidated",
+			Message: "the policy spec is valid",
+		},
+		createdCond("OperatorGroup"),
+		matchesCond("Subscription"),
+		{
+			Type:    installPlanConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "NoInstallPlansFound",
+			Message: "there are no relevant InstallPlans in the namespace",
+		},
+		{
+			Type:    csvConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "Succeeded",
+			Message: "the ClusterServiceVersion is succeeded",
+		},
+		{
+			Type:    crdConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "RelevantCRDFound",
+			Message: "there are CRDs present for the operator",
+		},
+		{
+			Type:    deploymentConditionType,
+			Status:  metav1.ConditionTrue,
+			Reason:  "DeploymentsAvailable",
+			Message: "all operator Deployments have their minimum availability",
+		},
+		// CatalogSource polarity: False means healthy/non-blocking for compliance aggregation
+		{
+			Type:    catalogSrcConditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  "CatalogSourcesFound",
+			Message: "CatalogSource was found",
+		},
+	}
+
+	cond := calculateComplianceCondition(pol)
+
+	expected := "Compliant; " +
+		"the policy spec is valid, " +
+		createdCond("OperatorGroup").Message + ", " +
+		matchesCond("Subscription").Message + ", " +
+		"there are no relevant InstallPlans in the namespace, " +
+		"the ClusterServiceVersion is succeeded, " +
+		"there are CRDs present for the operator, " +
+		"all operator Deployments have their minimum availability, " +
+		"CatalogSource was found"
+
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, expected, cond.Message)
+}
+
 func TestExistingInstallPlanObj(t *testing.T) {
 	// Empty InstallPlan
 	testIP := &operatorv1alpha1.InstallPlan{
