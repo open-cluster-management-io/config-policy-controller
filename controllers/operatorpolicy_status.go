@@ -180,133 +180,144 @@ func conditionChanged(updatedCondition, existingCondition metav1.Condition) bool
 // order, checking if there are any reasons the policy should be NonCompliant, and accumulating
 // the reasons into one string to reflect the whole status.
 func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.Condition {
-	foundNonCompliant := false
 	messages := make([]string, 0)
 
+	foundNonCompliant := false
+
 	idx, cond := policy.Status.GetCondition(validPolicyConditionType)
-	if idx == -1 {
-		messages = append(messages, "the validity of the policy is unknown")
-		foundNonCompliant = true
-	} else {
+	if idx != -1 {
 		messages = append(messages, cond.Message)
 
 		if cond.Status != metav1.ConditionTrue {
+			// When invalid, short-circuit immediately with only the validation message, except when the
+			// validation message is really a runtime status signal (like a missing operator namespace).
+			if !strings.HasPrefix(strings.ToLower(cond.Message), "the operator namespace") {
+				message := "NonCompliant; " + cond.Message
+
+				maxMessageLength := 4096
+				if len(message) > maxMessageLength {
+					truncMsg := "...[truncated]"
+					message = message[:(maxMessageLength-len(truncMsg))] + truncMsg
+				}
+
+				return metav1.Condition{
+					Type:               compliantConditionType,
+					Status:             metav1.ConditionFalse,
+					LastTransitionTime: metav1.Now(),
+					Reason:             "NonCompliant",
+					Message:            message,
+				}
+			}
+
 			foundNonCompliant = true
 		}
+	} else {
+		foundNonCompliant = true
 	}
 
 	idx, cond = policy.Status.GetCondition(opGroupConditionType)
-	if idx == -1 {
-		messages = append(messages, "the status of the OperatorGroup is unknown")
-		foundNonCompliant = true
-	} else {
+	if idx != -1 {
 		messages = append(messages, cond.Message)
 
 		if cond.Status != metav1.ConditionTrue {
 			foundNonCompliant = true
 		}
+	} else {
+		foundNonCompliant = true
 	}
 
 	idx, cond = policy.Status.GetCondition(subConditionType)
-	if idx == -1 {
-		messages = append(messages, "the status of the Subscription is unknown")
-		foundNonCompliant = true
-	} else {
+	if idx != -1 {
 		messages = append(messages, cond.Message)
 
 		if cond.Status != metav1.ConditionTrue {
 			foundNonCompliant = true
 		}
+	} else {
+		foundNonCompliant = true
 	}
 
 	idx, cond = policy.Status.GetCondition(installPlanConditionType)
-
-	if idx == -1 {
-		messages = append(messages, "the status of the InstallPlan is unknown")
-
-		foundNonCompliant = true
-	} else {
+	if idx != -1 {
 		messages = append(messages, cond.Message)
 
 		if cond.Status != metav1.ConditionTrue {
 			foundNonCompliant = true
 		}
+	} else {
+		foundNonCompliant = true
 	}
 
 	idx, cond = policy.Status.GetCondition(csvConditionType)
-	if idx == -1 {
-		messages = append(messages, "the status of the ClusterServiceVersion is unknown")
-		foundNonCompliant = true
-	} else {
+	if idx != -1 {
 		messages = append(messages, cond.Message)
 
 		if cond.Status != metav1.ConditionTrue {
 			foundNonCompliant = true
 		}
+	} else {
+		foundNonCompliant = true
 	}
 
 	idx, cond = policy.Status.GetCondition(crdConditionType)
-	if idx == -1 {
-		messages = append(messages, "the status of the CustomResourceDefinitions is unknown")
-		foundNonCompliant = true
-	} else {
+	if idx != -1 {
 		messages = append(messages, cond.Message)
 
 		if cond.Status != metav1.ConditionTrue {
 			foundNonCompliant = true
 		}
+	} else {
+		foundNonCompliant = true
 	}
 
 	idx, cond = policy.Status.GetCondition(deploymentConditionType)
-
-	if idx == -1 {
-		messages = append(messages, "the status of the Deployments are unknown")
-
-		foundNonCompliant = true
-	} else {
+	if idx != -1 {
 		messages = append(messages, cond.Message)
 
 		if cond.Status != metav1.ConditionTrue {
 			foundNonCompliant = true
 		}
+	} else {
+		foundNonCompliant = true
 	}
 
 	idx, cond = policy.Status.GetCondition(catalogSrcConditionType)
-
-	if idx == -1 {
-		messages = append(messages, "the status of the CatalogSource is unknown")
-
-		foundNonCompliant = true
-	} else {
+	if idx != -1 {
 		messages = append(messages, cond.Message)
 
 		// Note: the CatalogSource condition has a different polarity
 		if cond.Status != metav1.ConditionFalse {
 			foundNonCompliant = true
 		}
+	} else {
+		foundNonCompliant = true
 	}
 
-	idx, cond = policy.Status.GetCondition(deprecationType)
 	if !policy.Spec.ComplianceType.IsMustNotHave() &&
 		policy.Spec.ComplianceConfig.DeprecationsPresent == "NonCompliant" {
-		if idx == -1 {
-			messages = append(messages, "The deprecation status is unknown")
-			foundNonCompliant = true
-		} else {
+		idx, cond = policy.Status.GetCondition(deprecationType)
+		if idx != -1 {
 			messages = append(messages, cond.Message)
 
 			if cond.Status != metav1.ConditionTrue {
 				foundNonCompliant = true
 			}
+		} else {
+			foundNonCompliant = true
 		}
 	}
 
 	message := strings.Join(messages, ", ")
 
+	prefix := "Compliant"
 	if foundNonCompliant {
-		message = "NonCompliant; " + message
+		prefix = "NonCompliant"
+	}
+
+	if len(message) > 0 {
+		message = prefix + "; " + message
 	} else {
-		message = "Compliant; " + message
+		message = prefix + ";"
 	}
 
 	maxMessageLength := 4096
