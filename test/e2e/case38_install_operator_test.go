@@ -98,6 +98,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		expectedRelatedObjs []policyv1.RelatedObject,
 		expectedCondition metav1.Condition,
 		expectedEventMsgSnippet string,
+		opts ...string,
 	) {
 		GinkgoHelper()
 
@@ -190,7 +191,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		}
 
 		Eventually(checkFunc, eventuallyTimeout*2, 3).Should(Succeed())
-		Consistently(checkFunc, consistentlyDuration, 1).Should(Succeed())
+
+		if !slices.Contains(opts, "skipConsistently") {
+			Consistently(checkFunc, consistentlyDuration, 1).Should(Succeed())
+		}
 	}
 
 	preFunc := func() {
@@ -3826,5 +3830,156 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 				checkCompliance(bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
 			})
+	})
+
+	Describe("Test changes to subscription config and operator group selector", Ordered, func() {
+		const (
+			policyYAML = "../resources/case38_operator_install/operator-policy-with-group-and-config.yaml"
+			policyName = "oppol-with-group-and-config"
+		)
+
+		BeforeEach(func() {
+			preFunc()
+		})
+
+		It("Should be able to update the subscription when the policy changes", func(ctx SpecContext) {
+			createObjWithParent(parentPolicyYAML, parentPolicyName,
+				policyYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+
+			By("Verifying the initial state of the policy")
+			check(
+				policyName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "Subscription",
+						APIVersion: "operators.coreos.com/v1alpha1",
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "SubscriptionMatches",
+					Message: "the Subscription matches what is required by the policy",
+				},
+				"the Subscription required by the policy was created",
+				"skipConsistently",
+			)
+
+			By("Verifying the initial state of the config in the subscription")
+			Eventually(func(g Gomega) {
+				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+					Get(ctx, "example-operator", metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(sub).NotTo(BeNil())
+
+				sel, found, err := unstructured.NestedStringMap(sub.Object, "spec", "config", "nodeSelector")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				g.Expect(sel).To(HaveKeyWithValue("node-role.kubernetes.io/infra", ""))
+			}, olmWaitTimeout, 5).Should(Succeed())
+
+			By("Verifying the initial state of the operator group")
+			Eventually(func(g Gomega) {
+				group, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					Get(ctx, "scoped-operator-group", metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(group).NotTo(BeNil())
+
+				target, found, err := unstructured.NestedStringSlice(group.Object, "spec", "targetNamespaces")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				g.Expect(target).To(ContainElement("operator-policy-testns"))
+
+				_, found, err = unstructured.NestedMap(group.Object, "spec", "selector")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeFalse())
+			}, olmWaitTimeout, 5).Should(Succeed())
+
+			By("Adjusting the policy to observe how the subscription and operator group change")
+			utils.Kubectl("patch", "operatorpolicy", policyName, "-n", testNamespace, "--type=json", "-p", "["+
+				`{"op": "replace", "path": "/spec/subscription/config/nodeSelector",`+
+				` "value": {"node-role.kubernetes.io/worker": ""} },`+
+				`{"op": "replace", "path": "/spec/operatorGroup/targetNamespaces",`+
+				` "value": ["another-namespace"] },`+
+				`{"op": "add", "path": "/spec/operatorGroup/selector",`+
+				` "value": {"matchLabels": {"foo": "bar"}}}`+
+				"]")
+
+			By("Verifying the new state of the config in the subscription")
+			Eventually(func(g Gomega) {
+				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+					Get(ctx, "example-operator", metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(sub).NotTo(BeNil())
+
+				sel, found, err := unstructured.NestedStringMap(sub.Object, "spec", "config", "nodeSelector")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				g.Expect(sel).NotTo(HaveKeyWithValue("node-role.kubernetes.io/infra", ""))
+				g.Expect(sel).To(HaveKeyWithValue("node-role.kubernetes.io/worker", ""))
+			}, olmWaitTimeout, 5).Should(Succeed())
+
+			By("Verifying the new state of the operator group")
+			Eventually(func(g Gomega) {
+				group, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					Get(ctx, "scoped-operator-group", metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(group).NotTo(BeNil())
+
+				target, found, err := unstructured.NestedStringSlice(group.Object, "spec", "targetNamespaces")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				g.Expect(target).NotTo(ContainElement("operator-policy-testns"))
+				g.Expect(target).To(ContainElement("another-namespace"))
+
+				sel, found, err := unstructured.NestedMap(group.Object, "spec", "selector")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				g.Expect(sel).To(HaveKey("matchLabels"))
+			}, olmWaitTimeout, 5).Should(Succeed())
+
+			By("Removing some fields from the policy to verify previous configurations are preserved")
+			utils.Kubectl("patch", "operatorpolicy", policyName, "-n", testNamespace, "--type=json", "-p", "["+
+				`{"op": "remove", "path": "/spec/subscription/config/nodeSelector"},`+
+				`{"op": "remove", "path": "/spec/operatorGroup/targetNamespaces"},`+
+				`{"op": "replace", "path": "/spec/operatorGroup/selector",`+
+				` "value": {"matchExpressions": [{"key": "foo", "operator": "In", "values": ["bar"]}]}}`+
+				"]")
+
+			By("Verifying the final state of the config in the subscription")
+			Eventually(func(g Gomega) {
+				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+					Get(ctx, "example-operator", metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(sub).NotTo(BeNil())
+
+				sel, found, err := unstructured.NestedStringMap(sub.Object, "spec", "config", "nodeSelector")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				g.Expect(sel).To(HaveKeyWithValue("node-role.kubernetes.io/worker", ""))
+			}, olmWaitTimeout, 5).Should(Succeed())
+
+			By("Verifying the final state of the operator group")
+			Eventually(func(g Gomega) {
+				group, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+					Get(ctx, "scoped-operator-group", metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(group).NotTo(BeNil())
+
+				target, found, err := unstructured.NestedStringSlice(group.Object, "spec", "targetNamespaces")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				g.Expect(target).To(ContainElement("another-namespace"))
+
+				sel, found, err := unstructured.NestedMap(group.Object, "spec", "selector")
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(found).To(BeTrue())
+				g.Expect(sel).NotTo(HaveKey("matchLabels"))
+				g.Expect(sel).To(HaveKey("matchExpressions"))
+			}, olmWaitTimeout, 5).Should(Succeed())
+		})
 	})
 })
