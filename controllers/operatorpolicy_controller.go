@@ -1138,13 +1138,7 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 			return false, nil, updateStatus(policy, mismatchCond("OperatorGroup"), missing, badExisting), nil
 		}
 
-		// check whether the specs match
-		desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desiredOpGroup)
-		if err != nil {
-			return false, nil, false, fmt.Errorf("error converting desired OperatorGroup to an Unstructured: %w", err)
-		}
-
-		updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, &opGroup, policy.Spec.ComplianceType)
+		updateNeeded, skipUpdate, err := r.mergeOpGroups(ctx, desiredOpGroup, &opGroup)
 		if err != nil {
 			return false, nil, false, fmt.Errorf("error checking if the OperatorGroup needs an update: %w", err)
 		}
@@ -1420,18 +1414,7 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	}
 
 	// Subscription found; check if specs match
-	desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desiredSub)
-	if err != nil {
-		return nil, nil, false, fmt.Errorf("error converting desired Subscription to an Unstructured: %w", err)
-	}
-
-	// Clear `installPlanApproval` from the desired subscription when in inform mode - since that field can not
-	// be set in the policy, we should not check it on the object in the cluster.
-	if policy.Spec.RemediationAction.IsInform() {
-		unstructured.RemoveNestedField(desiredUnstruct, "spec", "installPlanApproval")
-	}
-
-	updateNeeded, skipUpdate, err := r.mergeObjects(ctx, desiredUnstruct, foundSub, policy.Spec.ComplianceType)
+	updateNeeded, skipUpdate, err := r.mergeSubscriptions(ctx, desiredSub, foundSub, policy.Spec.RemediationAction)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("error checking if the Subscription needs an update: %w", err)
 	}
@@ -2857,14 +2840,118 @@ func opPolIdentifier(namespace, name string) depclient.ObjectIdentifier {
 	}
 }
 
+func (r *OperatorPolicyReconciler) mergeOpGroups(
+	ctx context.Context,
+	desired *operatorv1.OperatorGroup,
+	existing *unstructured.Unstructured,
+) (updateNeeded, updateIsForbidden bool, err error) {
+	forceUpdate := false
+
+	desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desired)
+	if err != nil {
+		return false, false, fmt.Errorf("unable to convert desired OperatorGroup to an Unstructured: %w", err)
+	}
+
+	// when specified, manually handle targetNamespaces as if it's "mustonlyhave"
+	if len(desired.Spec.TargetNamespaces) > 0 {
+		desiredTarget, _, err := unstructured.NestedStringSlice(desiredUnstruct, "spec", "targetNamespaces")
+		if err != nil {
+			return false, false, fmt.Errorf("unable to get targetNamespaces from desired OperatorGroup: %w", err)
+		}
+
+		existingTarget, found, err := unstructured.NestedStringSlice(existing.Object, "spec", "targetNamespaces")
+		if err != nil {
+			return false, false, fmt.Errorf("unable to get targetNamespaces from existing OperatorGroup: %w", err)
+		} else if !found {
+			forceUpdate = true
+			_ = unstructured.SetNestedStringSlice(existing.Object,
+				desired.Spec.TargetNamespaces, "spec", "targetNamespaces")
+		} else if eq, _ := deeplyEquivalent(desiredTarget, existingTarget, true); !eq {
+			forceUpdate = true
+			_ = unstructured.SetNestedStringSlice(existing.Object,
+				desired.Spec.TargetNamespaces, "spec", "targetNamespaces")
+		}
+	}
+
+	usesExpressions := desired.Spec.Selector != nil && len(desired.Spec.Selector.MatchExpressions) > 0
+	usesLabels := desired.Spec.Selector != nil && len(desired.Spec.Selector.MatchLabels) > 0
+
+	// when specified, manually handle selector as if it's "mustonlyhave"
+	if usesExpressions || usesLabels {
+		desiredSelector, _, err := unstructured.NestedMap(desiredUnstruct, "spec", "selector")
+		if err != nil {
+			return false, false, fmt.Errorf("unable to get selector from desired OperatorGroup: %w", err)
+		}
+
+		existingSelector, found, err := unstructured.NestedMap(existing.Object, "spec", "selector")
+		if err != nil {
+			return false, false, fmt.Errorf("unable to get selector from existing OperatorGroup: %w", err)
+		} else if !found {
+			forceUpdate = true
+			_ = unstructured.SetNestedMap(existing.Object, desiredSelector, "spec", "selector")
+		} else if eq, _ := deeplyEquivalent(desiredSelector, existingSelector, true); !eq {
+			forceUpdate = true
+			_ = unstructured.SetNestedMap(existing.Object, desiredSelector, "spec", "selector")
+		}
+	}
+
+	updateNeeded, forbidden, err := r.mergeObjects(ctx, desiredUnstruct, existing)
+
+	return updateNeeded || forceUpdate, forbidden, err
+}
+
+func (r *OperatorPolicyReconciler) mergeSubscriptions(
+	ctx context.Context,
+	desired *operatorv1alpha1.Subscription,
+	existing *unstructured.Unstructured,
+	action policyv1.RemediationAction,
+) (updateNeeded, updateIsForbidden bool, err error) {
+	forceUpdate := false
+
+	desiredUnstruct, err := runtime.DefaultUnstructuredConverter.ToUnstructured(desired)
+	if err != nil {
+		return false, false, fmt.Errorf("unable to convert desired Subscription to an Unstructured: %w", err)
+	}
+
+	// when specified, manually handle config as if it's "mustonlyhave"
+	if desired.Spec.Config != nil {
+		desiredConfig, _, err := unstructured.NestedMap(desiredUnstruct, "spec", "config")
+		if err != nil {
+			return false, false, fmt.Errorf("unable to get config from desired Subscription: %w", err)
+		}
+
+		if len(desiredConfig) > 0 {
+			existingConfig, found, err := unstructured.NestedMap(existing.Object, "spec", "config")
+			if err != nil {
+				return false, false, fmt.Errorf("unable to get config from existing Subscription: %w", err)
+			} else if !found {
+				forceUpdate = true
+				_ = unstructured.SetNestedMap(existing.Object, desiredConfig, "spec", "config")
+			} else if eq, _ := deeplyEquivalent(desiredConfig, existingConfig, true); !eq {
+				forceUpdate = true
+				_ = unstructured.SetNestedMap(existing.Object, desiredConfig, "spec", "config")
+			}
+		}
+	}
+
+	// Clear `installPlanApproval` from the desired subscription when in inform mode - since that field can not
+	// be set in the policy, we should not check it on the object in the cluster.
+	if action.IsInform() {
+		unstructured.RemoveNestedField(desiredUnstruct, "spec", "installPlanApproval")
+	}
+
+	updateNeeded, forbidden, err := r.mergeObjects(ctx, desiredUnstruct, existing)
+
+	return updateNeeded || forceUpdate, forbidden, err
+}
+
 // mergeObjects takes fields from the desired object and sets/merges them on the
 // existing object. It checks and returns whether an update is really necessary
 // with a server-side dry-run.
 func (r *OperatorPolicyReconciler) mergeObjects(
 	ctx context.Context,
-	desired map[string]interface{},
+	desired map[string]any,
 	existing *unstructured.Unstructured,
-	complianceType policyv1.ComplianceType,
 ) (updateNeeded, updateIsForbidden bool, err error) {
 	desiredObj := &unstructured.Unstructured{Object: desired}
 
@@ -2873,7 +2960,7 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	removeFieldsForComparison(existingObjectCopy)
 
 	//nolint:dogsled
-	_, errMsg, updateNeeded, _, _ := handleKeys(desiredObj, existing, existingObjectCopy, complianceType, "")
+	_, errMsg, updateNeeded, _, _ := handleKeys(desiredObj, existing, existingObjectCopy, policyv1.MustHave, "")
 	if errMsg != "" {
 		return updateNeeded, false, errors.New(errMsg)
 	}
