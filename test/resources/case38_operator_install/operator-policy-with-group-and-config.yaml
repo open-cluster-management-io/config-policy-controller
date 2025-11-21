@@ -1,0 +1,31 @@
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: oppol-with-group-and-config
+  labels:
+    policy.open-cluster-management.io/cluster-name: "managed"
+    policy.open-cluster-management.io/cluster-namespace: "managed"
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    kind: Policy
+    name: parent-policy
+    uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
+spec:
+  remediationAction: enforce
+  severity: medium
+  complianceType: musthave
+  operatorGroup:
+    name: scoped-operator-group
+    namespace: operator-policy-testns
+    targetNamespaces: # will be changed
+      - operator-policy-testns
+  subscription:
+    channel: stable
+    config:
+      nodeSelector: # will be changed
+        node-role.kubernetes.io/infra: ''
+    name: example-operator
+    namespace: operator-policy-testns
+    source: grc-mock-source
+    sourceNamespace: olm
+  upgradeApproval: Automatic
