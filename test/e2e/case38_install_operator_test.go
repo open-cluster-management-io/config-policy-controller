@@ -2,8 +2,11 @@ package e2e
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
@@ -24,11 +27,11 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), func() {
+var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	const (
-		opPolTestNS          = "operator-policy-testns"
+		opPolTestNSBase      = "operator-policy-testns"
 		parentPolicyYAML     = "../resources/case38_operator_install/parent-policy.yaml"
-		parentPolicyName     = "parent-policy"
+		parentPolicyNameBase = "parent-policy"
 		eventuallyTimeout    = 90
 		consistentlyDuration = 5
 		olmWaitTimeout       = 60
@@ -85,6 +88,25 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		if len(consistencyArgs) > 0 {
 			Consistently(compCheck, consistencyArgs...).Should(Succeed())
 		}
+	}
+
+	// Adds a suffix for namespaces and resource names to avoid parallel test
+	// collisions. The suffix is a hash of the current test's container path
+	// at runtime
+	getTestSuffix := func() string {
+		specReport := CurrentSpecReport()
+		containerPath := strings.Join(specReport.ContainerHierarchyTexts, "")
+		hash := sha256.Sum256([]byte(containerPath))
+
+		return "-" + hex.EncodeToString(hash[:4])
+	}
+
+	getOpPolTestNS := func() string {
+		return opPolTestNSBase + getTestSuffix()
+	}
+
+	getParentPolicyName := func() string {
+		return parentPolicyNameBase + getTestSuffix()
 	}
 
 	// checks that the policy has the proper compliance, that the relatedObjects of a given
@@ -182,6 +204,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			}
 
 			if expectedEventMsgSnippet != "" {
+				parentPolicyName := getParentPolicyName()
 				events := utils.GetMatchingEvents(
 					clientManaged, testNamespace, parentPolicyName, "", expectedEventMsgSnippet, eventuallyTimeout,
 				)
@@ -194,6 +217,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	}
 
 	preFunc := func() {
+		GinkgoHelper()
+		opPolTestNS := getOpPolTestNS()
+		parentPolicyName := getParentPolicyName()
+
 		utils.Kubectl("create", "ns", opPolTestNS)
 		utils.KubectlDelete(
 			"event", "--field-selector=involvedObject.name="+parentPolicyName, "-n", testNamespace, "--wait",
@@ -204,10 +231,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		}
 
 		DeferCleanup(func() {
-			utils.KubectlDelete("operatorpolicy", "-n", testNamespace, "--all", "--wait")
 			utils.KubectlDelete(
 				"event", "--field-selector=involvedObject.name="+parentPolicyName, "-n", testNamespace, "--wait",
 			)
+
 			utils.KubectlDelete("ns", opPolTestNS, "--wait")
 
 			if IsHosted {
@@ -216,14 +243,149 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 	}
 
+	patchSingleField := func(patchFilepath, applyNs, fieldPath, value string) string {
+		GinkgoHelper()
+		patch := fmt.Sprintf(`[{"op": "replace", "path": %s, "value": %s}]`, fieldPath, value)
+
+		return utils.KubectlJSONPatchToFile(patch, "-n", applyNs, "-f", patchFilepath)
+	}
+
+	// appends a suffix to the resource names and namespaces to
+	// avoid conflicts in parallel tests
+	// the caller should run os.Remove() on the returned filepath when done
+	parallelizeOpPol := func(opPolYAML, desiredPolName string) string {
+		GinkgoHelper()
+		filesToClean := []string{}
+		defer func() {
+			for _, file := range filesToClean {
+				os.Remove(file)
+			}
+		}()
+
+		getSpecObj := func(parsedYAML *unstructured.Unstructured, field string) (map[string]interface{}, bool) {
+			GinkgoHelper()
+			obj := parsedYAML.Object["spec"].(map[string]interface{})[field]
+			mapObj, objExists := obj.(map[string]interface{})
+
+			return mapObj, objExists
+		}
+
+		// patchSubNsIfExists patches the testns namespace in the subscription with parallel namespace suffix
+		// returns true if a new filepath was created with the patched namespace
+		patchSubNsIfExists := func(filepath string, parsedYAML *unstructured.Unstructured) (string, bool) {
+			GinkgoHelper()
+			opPolTestNS := getOpPolTestNS()
+
+			sub, exists := getSpecObj(parsedYAML, "subscription")
+			if !exists {
+				return filepath, false
+			}
+
+			subNs, found, _ := unstructured.NestedString(sub, "namespace")
+			if !found {
+				return filepath, false
+			}
+
+			if subNs != opPolTestNSBase {
+				return filepath, false
+			}
+
+			patchFilepath := patchSingleField(filepath, testNamespace, "/spec/subscription/namespace", opPolTestNS)
+
+			return patchFilepath, true
+		}
+
+		// patchOperatorGroupFields patches the namespace fields with parallel namespace suffix
+		// returns true if a new filepath was created with the patched namespace(s)
+		patchOperatorGroupFields := func(filepath string, parsedYAML *unstructured.Unstructured) (string, bool) {
+			GinkgoHelper()
+			opPolTestNS := getOpPolTestNS()
+
+			operatorGroup, exists := getSpecObj(parsedYAML, "operatorGroup")
+			if !exists {
+				return filepath, false
+			}
+
+			patchedOpGroupNs := patchSingleField(filepath, testNamespace, "/spec/operatorGroup/namespace", opPolTestNS)
+
+			targetNamespaces, found, _ := unstructured.NestedStringSlice(operatorGroup, "targetNamespaces")
+			if !found {
+				return patchedOpGroupNs, true
+			}
+
+			patchedTargetNs := patchedOpGroupNs
+
+			// patch only the first occurrence of opPolTestNSBase then remove the outdated file copy
+			for i, ns := range targetNamespaces {
+				shouldModifyTargetNs := ns == opPolTestNSBase
+				if !shouldModifyTargetNs {
+					continue
+				}
+
+				patchedTargetNs = patchSingleField(patchedTargetNs, testNamespace,
+					fmt.Sprintf("/spec/operatorGroup/targetNamespaces/%d", i), opPolTestNS)
+				os.Remove(patchedOpGroupNs)
+
+				return patchedTargetNs, true
+			}
+
+			return patchedOpGroupNs, true
+		}
+
+		opPolObj := utils.ParseYaml(opPolYAML)
+		patchSubNs, found := patchSubNsIfExists(opPolYAML, opPolObj)
+		if found {
+			filesToClean = append(filesToClean, patchSubNs)
+		}
+
+		patchOpGroupNs, found := patchOperatorGroupFields(patchSubNs, opPolObj)
+		if found {
+			filesToClean = append(filesToClean, patchOpGroupNs)
+		}
+
+		patchOpPolName := patchSingleField(
+			patchOpGroupNs, testNamespace, "/metadata/name", desiredPolName)
+		filesToClean = append(filesToClean, patchOpPolName)
+
+		parentPolicyName := getParentPolicyName()
+		patchOwnerRefName := patchSingleField(
+			patchOpPolName, testNamespace, "/metadata/ownerReferences/0/name", parentPolicyName)
+
+		return patchOwnerRefName
+	}
+
+	setupPolicy := func(opPolYAML, opPolName, parentPolicyName string) {
+		GinkgoHelper()
+		patchedParentYAML := patchSingleField(parentPolicyYAML, testNamespace, "/metadata/name", parentPolicyName)
+		patchedOpPolYAML := parallelizeOpPol(opPolYAML, opPolName)
+
+		createObjWithParent(patchedParentYAML, parentPolicyName,
+			patchedOpPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+
+		DeferCleanup(func() {
+			// delete child policy, then parent policy
+			utils.KubectlDelete("policy", "-n", testNamespace, parentPolicyName, "--cascade=foreground", "--wait")
+
+			os.Remove(patchedOpPolYAML)
+			os.Remove(patchedParentYAML)
+		})
+	}
+
 	Describe("Testing an all default operator policy", Ordered, func() {
 		const (
 			opPolYAML   = "../resources/case38_operator_install/operator-policy-all-defaults.yaml"
-			opPolName   = "oppol-all-defaults"
 			subName     = "airflow-helm-operator"
 			suggestedNS = "airflow-helm"
 		)
+		var (
+			opPolName        string
+			parentPolicyName string
+		)
+
 		BeforeAll(func() {
+			opPolName = "oppol-all-defaults" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			DeferCleanup(func() {
 				utils.KubectlDelete("ns", suggestedNS, "--wait")
 
@@ -233,9 +395,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			})
 
 			preFunc()
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 		AfterAll(func(ctx context.Context) {
 			By("Fixing the catalog source")
@@ -318,16 +478,22 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 	})
 
-	Describe("Testing an operator policy with invalid partial defaults", Ordered, func() {
+	Describe("Testing an operator policy with invalid partial defaults", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-defaults-invalid-source.yaml"
-			opPolName = "oppol-defaults-invalid-source"
 			subName   = "project-quay"
 		)
-		BeforeAll(func() {
+		var (
+			opPolName        string
+			parentPolicyName string
+		)
+
+		BeforeEach(func() {
+			opPolName = "oppol-defaults-invalid-source" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should be NonCompliant specifying a source not matching the PackageManifest", func(ctx context.Context) {
@@ -354,15 +520,22 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing OperatorGroup behavior when it is not specified in the policy", Ordered, func() {
 		const (
 			opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName        = "oppol-no-group"
 			extraOpGroupYAML = "../resources/case38_operator_install/extra-operator-group.yaml"
 			extraOpGroupName = "extra-operator-group"
 		)
-		BeforeAll(func() {
-			preFunc()
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially be NonCompliant", func() {
@@ -473,25 +646,21 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 	})
 
-	Describe("Testing namespace creation", Ordered, func() {
+	Describe("Testing namespace creation", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			opPolName = "oppol-no-group-enforce"
 		)
-		BeforeAll(func() {
-			DeferCleanup(func() {
-				utils.KubectlDelete(
-					"-f", parentPolicyYAML, "-n", testNamespace, "--cascade=foreground", "--wait",
-				)
-				if IsHosted {
-					KubectlTarget("delete", "ns", opPolTestNS, "--ignore-not-found")
-				}
-				utils.KubectlDelete("ns", opPolTestNS, "--wait")
-			})
+		var (
+			opPolName        string
+			parentPolicyName string
+		)
 
-			createObjWithParent(
-				parentPolicyYAML, parentPolicyName, opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy,
-			)
+		BeforeEach(func() {
+			opPolName = "oppol-no-group-enforce" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should be compliant when enforced", func() {
@@ -504,22 +673,37 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing OperatorGroup behavior when it is specified in the policy", Ordered, func() {
 		const (
 			opPolYAML            = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			opPolName            = "oppol-with-group"
 			incorrectOpGroupYAML = "../resources/case38_operator_install/incorrect-operator-group.yaml"
 			incorrectOpGroupName = "incorrect-operator-group"
-			scopedOpGroupYAML    = "../resources/case38_operator_install/scoped-operator-group.yaml"
 			scopedOpGroupName    = "scoped-operator-group"
 			extraOpGroupYAML     = "../resources/case38_operator_install/extra-operator-group.yaml"
 			extraOpGroupName     = "extra-operator-group"
 		)
+		var (
+			opPolTestNS       string
+			opPolName         string
+			scopedOpGroupYAML string
+			parentPolicyName  string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-group" + getTestSuffix()
+			scopedOpGroupYAML = "../resources/case38_operator_install/scoped-operator-group.yaml"
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 
 			KubectlTarget("apply", "-f", incorrectOpGroupYAML, "-n", opPolTestNS)
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+
+			scopedOpGroupYAML = patchSingleField(scopedOpGroupYAML, testNamespace,
+				"/spec/targetNamespaces", "[\""+opPolTestNS+"\"]")
+
+			DeferCleanup(func() {
+				os.Remove(scopedOpGroupYAML)
+			})
 		})
 
 		It("Should initially be NonCompliant", func() {
@@ -675,19 +859,24 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing Subscription behavior for musthave mode while enforcing", Ordered, func() {
 		const (
 			opPolYAML        = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			opPolName        = "oppol-with-group"
 			subName          = "project-quay"
 			extraOpGroupYAML = "../resources/case38_operator_install/extra-operator-group.yaml"
 			extraOpGroupName = "extra-operator-group"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
-
 			KubectlTarget("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially be NonCompliant", func() {
@@ -833,18 +1022,23 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing Subscription behavior for musthave mode while informing", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName = "oppol-no-group"
 			subName   = "project-quay"
 			subYAML   = "../resources/case38_operator_install/subscription.yaml"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
-
 			KubectlTarget("apply", "-f", subYAML, "-n", opPolTestNS)
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 		It("Should initially notice the matching Subscription", func() {
 			check(
@@ -902,16 +1096,24 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
 		const (
 			opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce-one-version.yaml"
-			opPolName        = "oppol-no-group-enforce-one-version"
 			opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
-			opPolNoExistName = "oppol-no-exist-enforce"
 			operatorName     = "example-operator.v0.0.3"
 		)
-		BeforeAll(func() {
-			preFunc()
+		var (
+			opPolTestNS      string
+			opPolName        string
+			opPolNoExistName string
+			parentPolicyName string
+		)
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-group-enforce-one-version" + getTestSuffix()
+			opPolNoExistName = "oppol-no-exist-enforce" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
@@ -975,8 +1177,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 
 		It("Should only be noncompliant if the subscription error relates to the one in the operator policy", func() {
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolNoExistYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolNoExistYAML, opPolNoExistName, parentPolicyName)
 
 			By("Checking that " + opPolNoExistName + " is NonCompliant")
 			check(
@@ -1027,13 +1228,20 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Test health checks on OLM resources on OperatorPolicy with failed CSV", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-csv-fail.yaml"
-			opPolName = "oppol-no-allnamespaces"
 		)
-		BeforeAll(func() {
-			preFunc()
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-allnamespaces" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
@@ -1099,13 +1307,21 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	})
 	Describe("Test status reporting for CatalogSource", Ordered, func() {
 		const (
-			OpPlcYAML  = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			OpPlcName  = "oppol-with-group"
+			opPolYAML  = "../resources/case38_operator_install/operator-policy-with-group.yaml"
 			subName    = "project-quay"
 			catSrcName = "operatorhubio-catalog"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			By("Applying creating a ns and the test policy")
 			preFunc()
 			DeferCleanup(func() {
@@ -1113,14 +1329,13 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:latest"}]`)
 			})
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				OpPlcYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially show the CatalogSource is compliant", func() {
 			By("Checking the condition fields")
 			check(
-				OpPlcName,
+				opPolName,
 				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1145,11 +1360,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should remain compliant when policy is enforced", func() {
 			By("Enforcing the policy")
-			utils.EnforceOperatorPolicy(OpPlcName, testNamespace)
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
 
 			By("Checking the condition fields")
 			check(
-				OpPlcName,
+				opPolName,
 				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1174,12 +1389,12 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should report in status when CatalogSource DNE", func() {
 			By("Patching the policy to reference a CatalogSource that DNE to emulate failure")
-			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/subscription/source", "value": "fakeName"}]`)
 
 			By("Checking the conditions and relatedObj in the policy")
 			check(
-				OpPlcName,
+				opPolName,
 				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1204,7 +1419,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should report unhealthy status when CatalogSource fails", func() {
 			By("Patching the policy to point to an existing CatalogSource")
-			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/subscription/source", "value": "operatorhubio-catalog"}]`)
 
 			By("Patching the CatalogSource to reference a broken image link")
@@ -1213,7 +1428,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 			By("Checking the conditions and relatedObj in the policy")
 			check(
-				OpPlcName,
+				opPolName,
 				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1238,12 +1453,12 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should become NonCompliant when ComplianceConfig is modified", func() {
 			By("Patching the policy ComplianceConfig to NonCompliant")
-			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceConfig/catalogSourceUnhealthy", "value": "NonCompliant"}]`)
 
 			By("Checking the conditions and relatedObj in the policy")
 			check(
-				OpPlcName,
+				opPolName,
 				true,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1270,20 +1485,23 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing InstallPlan approval and status behavior", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-manual-upgrades.yaml"
-			opPolName = "oppol-manual-upgrades"
 			subName   = "strimzi-kafka-operator"
 		)
-
 		var (
+			opPolTestNS           string
+			opPolName             string
+			parentPolicyName      string
 			firstInstallPlanName  string
 			secondInstallPlanName string
 		)
 
 		BeforeAll(func() {
-			preFunc()
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-manual-upgrades" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially report the ConstraintsNotSatisfiable Subscription", func(ctx SpecContext) {
@@ -1548,20 +1766,28 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "NoInstallPlansRequiringApproval",
 					Message: "no InstallPlans requiring approval were found",
 				},
-				"the InstallPlan.*36.*was approved",
+				"the InstallPlan.*36.0.*was approved",
 			)
 		})
 	})
-	Describe("Testing full installation behavior, including CRD reporting", Ordered, func() {
+	Describe("Testing full installation behavior, including CRD reporting", Serial, Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
-			opPolName = "oppol-no-group"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
+
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially not report on CRDs because they won't exist yet", func() {
@@ -1663,18 +1889,25 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing OperatorPolicy validation messages", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-validity-test.yaml"
-			opPolName = "oppol-validity-test"
 			subName   = "project-quay"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-validity-test" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 			DeferCleanup(func() {
 				KubectlTarget("delete", "ns", "nonexist-testns")
 			})
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially report unknown fields", func() {
@@ -1733,7 +1966,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Type:   "ValidPolicySpec",
 					Status: metav1.ConditionFalse,
 					Reason: "InvalidPolicySpec",
-					Message: "the namespace specified in spec.operatorGroup ('operator-policy-testns') must match " +
+					Message: "the namespace specified in spec.operatorGroup ('" + opPolTestNS + "') must match " +
 						"the namespace used for the subscription ('nonexist-testns')",
 				},
 				"NonCompliant",
@@ -1794,22 +2027,28 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 	})
-	Describe("Testing general OperatorPolicy mustnothave behavior", Ordered, func() {
+	Describe("Testing general OperatorPolicy mustnothave behavior", Serial, Ordered, func() {
 		const (
 			opPolYAML      = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
-			opPolName      = "oppol-mustnothave"
 			subName        = "project-quay"
 			deploymentName = "quay-operator-tng"
 			catSrcName     = "operatorhubio-catalog"
 			catSrcNS       = "olm"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-mustnothave" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should be Compliant and report all the things are correctly missing", func() {
@@ -2694,19 +2933,23 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
 		})
 	})
-	Describe("Test CRD deletion delayed because of a finalizer", Ordered, func() {
+	Describe("Test CRD deletion delayed because of a finalizer", Serial, Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
-			opPolName = "oppol-mustnothave"
 			subName   = "project-quay"
+		)
+		var (
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeAll(func() {
+			opPolName = "oppol-mustnothave" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 		AfterAll(func(ctx SpecContext) {
 			crd, err := targetK8sDynamic.Resource(gvrCRD).Get(
@@ -2824,15 +3067,20 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing mustnothave behavior for an operator group that is different than the specified one", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			opPolName = "oppol-with-group"
-			subName   = "project-quay"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeEach(func() {
-			preFunc()
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("should not report an operator group that does not match the spec", func() {
@@ -2871,15 +3119,19 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Test mustnothave message when the namespace does not exist", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName = "oppol-no-group"
 			subName   = "project-quay"
+		)
+		var (
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeEach(func() {
-			preFunc()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("should report compliant", func() {
@@ -2907,16 +3159,25 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
 			otherYAML = "../resources/case38_operator_install/operator-policy-authorino.yaml"
-			opPolName = "oppol-mustnothave"
 			subName   = "project-quay"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			otherOpPolName   string
+			parentPolicyName string
 		)
 
 		BeforeEach(func() {
+			testSuffix := getTestSuffix()
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-mustnothave" + testSuffix
+			otherOpPolName = "oppol-authorino" + testSuffix
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("should delete the inferred operator group when there is only one subscription", func(ctx SpecContext) {
@@ -2967,7 +3228,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
 					`{"op": "add", "path": "/spec/operatorGroup", "value": {"name": "scoped-operator-group", `+
-					`"namespace": "operator-policy-testns", "targetNamespaces": ["operator-policy-testns"]}}]`)
+					`"namespace": "`+opPolTestNS+`", "targetNamespaces": ["`+opPolTestNS+`"]}}]`)
 
 			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
@@ -3010,7 +3271,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
 					`{"op": "add", "path": "/spec/operatorGroup", "value": {"name": "scoped-operator-group", `+
-					`"namespace": "operator-policy-testns", "targetNamespaces": ["operator-policy-testns"]}}]`)
+					`"namespace": "`+opPolTestNS+`", "targetNamespaces": ["`+opPolTestNS+`"]}}]`)
 
 			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
@@ -3086,14 +3347,13 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
 
 			By("Creating another operator policy in the namespace")
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				otherYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(otherYAML, otherOpPolName, parentPolicyName)
 
 			// enforce the other policy
-			utils.EnforceOperatorPolicy("oppol-authorino", testNamespace)
+			utils.EnforceOperatorPolicy(otherOpPolName, testNamespace)
 
 			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			checkCompliance("oppol-authorino", testNamespace, olmWaitTimeout, policyv1.Compliant)
+			checkCompliance(otherOpPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
 
 			// revert main policy to mustnothave
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
@@ -3112,14 +3372,18 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing defaulted values of removalBehavior in an OperatorPolicy", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName = "oppol-no-group"
+		)
+		var (
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeEach(func() {
-			preFunc()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should have applied defaults to the removalBehavior field", func(ctx SpecContext) {
@@ -3141,14 +3405,19 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing defaulted values of ComplianceConfig in an OperatorPolicy", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName = "oppol-no-group"
+		)
+
+		var (
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeEach(func() {
-			preFunc()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should have applied defaults to the ComplianceConfig field", func(ctx SpecContext) {
@@ -3166,22 +3435,28 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			Expect(complianceConfig).To(HaveKeyWithValue("upgradesAvailable", "Compliant"))
 		})
 	})
-	Describe("Testing operator policies that specify the same subscription", Ordered, func() {
+	Describe("Testing operator policies that specify the same subscription", Serial, Ordered, func() {
 		const (
 			musthaveYAML    = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			musthaveName    = "oppol-no-group"
 			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
-			mustnothaveName = "oppol-mustnothave"
+		)
+
+		var (
+			musthaveName     string
+			mustnothaveName  string
+			parentPolicyName string
+			testSuffix       string
 		)
 
 		BeforeAll(func() {
+			testSuffix = getTestSuffix()
+			musthaveName = "oppol-no-group" + testSuffix
+			mustnothaveName = "oppol-mustnothave" + testSuffix
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				musthaveYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				mustnothaveYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(musthaveYAML, musthaveName, parentPolicyName)
+			setupPolicy(mustnothaveYAML, mustnothaveName, parentPolicyName)
 		})
 
 		It("Should not display a validation error when both are in inform mode", func() {
@@ -3211,10 +3486,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 
-		// This test requires that no other OperatorPolicies are active. Ideally it would be marked
-		// with the Serial decorator, but then this whole file would need to be marked that way,
-		// which would slow down the suite. As long as no other test files use OperatorPolicy, the
-		// Ordered property on this file should ensure this is stable.
+		// This test requires that no other OperatorPolicies are active
 		It("Should not cause an infinite reconcile loop", func() {
 			recMetrics := utils.GetMetrics("controller_runtime_reconcile_total",
 				`controller=\"operator-policy-controller\"`)
@@ -3248,51 +3520,50 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			utils.EnforceOperatorPolicy(mustnothaveName, testNamespace)
 			utils.EnforceOperatorPolicy(musthaveName, testNamespace)
 
+			wantedCondition := metav1.Condition{
+				Type:   "ValidPolicySpec",
+				Status: metav1.ConditionFalse,
+				Reason: "InvalidPolicySpec",
+				Message: `the specified operator is managed by multiple enforced policies ` +
+					`(oppol-mustnothave` + testSuffix + `.` + testNamespace + `, oppol-no-group` +
+					testSuffix + `.` + testNamespace + `)`,
+			}
+			wantedEventMsg := `the specified operator is managed by multiple enforced policies`
+
 			check(
 				mustnothaveName,
 				true,
 				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:   "ValidPolicySpec",
-					Status: metav1.ConditionFalse,
-					Reason: "InvalidPolicySpec",
-					Message: `the specified operator is managed by multiple enforced policies ` +
-						`(oppol-mustnothave.` + testNamespace + `, oppol-no-group.` + testNamespace + `)`,
-				},
-				`the specified operator is managed by multiple enforced policies`,
+				wantedCondition,
+				wantedEventMsg,
 			)
 			check(
 				musthaveName,
 				true,
 				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:   "ValidPolicySpec",
-					Status: metav1.ConditionFalse,
-					Reason: "InvalidPolicySpec",
-					Message: `the specified operator is managed by multiple enforced policies ` +
-						`(oppol-mustnothave.` + testNamespace + `, oppol-no-group.` + testNamespace + `)`,
-				},
-				`the specified operator is managed by multiple enforced policies`,
+				wantedCondition,
+				wantedEventMsg,
 			)
 		})
 
-		// This test requires that no other OperatorPolicies are active. Ideally it would be marked
-		// with the Serial decorator, but then this whole file would need to be marked that way,
-		// which would slow down the suite. As long as no other test files use OperatorPolicy, the
-		// Ordered property on this file should ensure this is stable.
+		// This test requires that no other OperatorPolicies are active
 		It("Should not cause an infinite reconcile loop when enforced", func() {
+			wantedCondition := metav1.Condition{
+				Type:   "ValidPolicySpec",
+				Status: metav1.ConditionFalse,
+				Reason: "InvalidPolicySpec",
+				Message: `the specified operator is managed by multiple enforced policies ` +
+					`(oppol-mustnothave` + testSuffix + `.` + testNamespace + `, oppol-no-group` +
+					testSuffix + `.` + testNamespace + `)`,
+			}
+			wantedEventMsg := `the specified operator is managed by multiple enforced policies`
+
 			check(
 				mustnothaveName,
 				true,
 				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:   "ValidPolicySpec",
-					Status: metav1.ConditionFalse,
-					Reason: "InvalidPolicySpec",
-					Message: `the specified operator is managed by multiple enforced policies ` +
-						`(oppol-mustnothave.` + testNamespace + `, oppol-no-group.` + testNamespace + `)`,
-				},
-				`the specified operator is managed by multiple enforced policies`,
+				wantedCondition,
+				wantedEventMsg,
 			)
 
 			recMetrics := utils.GetMetrics("controller_runtime_reconcile_total",
@@ -3342,19 +3613,45 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing templates in an OperatorPolicy", Ordered, func() {
 		const (
 			opPolYAML     = "../resources/case38_operator_install/operator-policy-with-templates.yaml"
-			opPolName     = "oppol-with-templates"
 			configmapYAML = "../resources/case38_operator_install/template-configmap.yaml"
 			opGroupName   = "scoped-operator-group"
 			subName       = "project-quay"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-templates" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 
-			KubectlTarget("apply", "-f", configmapYAML, "-n", opPolTestNS)
+			targetNsPatch := `"{{ (fromConfigMap \"` + opPolTestNS +
+				`\" \"op-config\" \"namespaces\") | toLiteral }}"`
+			channelPatch := `"{{ (lookup \"v1\" \"ConfigMap\" \"` + opPolTestNS +
+				`\" \"op-config\").data.channel }}"`
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			tempPatchedTargetNs := patchSingleField(
+				opPolYAML, testNamespace, "/spec/operatorGroup/targetNamespaces", targetNsPatch)
+			tempPatchedNsAndChannel := patchSingleField(
+				tempPatchedTargetNs, testNamespace, "/spec/subscription/channel", channelPatch)
+
+			configMapPatch := `"[\"foo\", \"bar\", \"` + opPolTestNS + `\"]"`
+			tempPatchedConfigMap := patchSingleField(configmapYAML, testNamespace, "/data/namespaces",
+				configMapPatch)
+			KubectlTarget("apply", "-f", tempPatchedConfigMap, "-n", opPolTestNS)
+
+			setupPolicy(tempPatchedNsAndChannel, opPolName, parentPolicyName)
+
+			DeferCleanup(func() {
+				os.Remove(tempPatchedTargetNs)
+				os.Remove(tempPatchedNsAndChannel)
+				os.Remove(tempPatchedConfigMap)
+			})
 		})
 
 		It("Should lookup values for operator policy resources when enforced", func(ctx SpecContext) {
@@ -3439,17 +3736,23 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing recovery of sub-csv connection", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			opPolName = "oppol-no-group-enforce"
 			subName   = "example-operator"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
 		)
 
 		scenarioTriggered := true
 
 		BeforeAll(func() {
-			preFunc()
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-group-enforce" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		BeforeEach(func() {
@@ -3521,9 +3824,25 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			opPolKafkaYAML    = "../resources/case38_operator_install/operator-policy-strimzi-kafka-operator.yaml"
 			subscriptionsYAML = "../resources/case38_operator_install/multiple-subscriptions.yaml"
 		)
+		var (
+			opPolTestNS      string
+			opPolArgoCDName  string
+			opPolKafkaName   string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolArgoCDName = "argocd-operator" + getTestSuffix()
+			opPolKafkaName = "strimzi-kafka-operator" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
+
+			DeferCleanup(func() {
+				utils.KubectlDelete("-f", opPolArgoCDYAML, "-n", testNamespace)
+				utils.KubectlDelete("-f", opPolKafkaYAML, "-n", testNamespace)
+			})
 		})
 
 		It("OperatorPolicy can approve an InstallPlan with two CSVs", func(ctx SpecContext) {
@@ -3562,13 +3881,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			}, olmWaitTimeout, 1).Should(Succeed())
 
 			By("Creating an OperatorPolicy to adopt the argocd-operator Subscription")
-			createObjWithParent(
-				parentPolicyYAML, parentPolicyName, opPolArgoCDYAML, testNamespace, gvrPolicy, gvrOperatorPolicy,
-			)
+			setupPolicy(opPolArgoCDYAML, opPolArgoCDName, parentPolicyName)
 
 			By("Checking the OperatorPolicy InstallPlan is not approved because of strimzi-cluster-operator.v0.35.0")
 			check(
-				"argocd-operator",
+				opPolArgoCDName,
 				true,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -3593,9 +3910,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 
 			By("Creating an OperatorPolicy to adopt the strimzi-cluster-operator Subscription")
-			createObjWithParent(
-				parentPolicyYAML, parentPolicyName, opPolKafkaYAML, testNamespace, gvrPolicy, gvrOperatorPolicy,
-			)
+			setupPolicy(opPolKafkaYAML, opPolKafkaName, parentPolicyName)
 
 			By("Verifying the initial installPlan for startingCSV was approved")
 			Eventually(func(g Gomega) {
@@ -3634,19 +3949,25 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			}, olmWaitTimeout, 1).Should(Succeed())
 		})
 	})
-	Describe("Test reporting of unapproved version after installation", func() {
+	Describe("Test reporting of unapproved version after installation", Ordered, func() {
 		const (
 			opPolYAML     = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			opPolName     = "oppol-no-group-enforce"
 			latestExample = "example-operator.v0.0.3"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
 		)
 
 		// The first 'It' test is a prerequisite for the second 'It' test.
 		BeforeAll(func() {
-			preFunc()
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-group-enforce" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should start compliant", func(ctx SpecContext) {
@@ -3732,21 +4053,30 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Test Deprecation message in OperatorPolicy", Ordered, func() {
 		const (
 			allPolYAML     = "../resources/case38_operator_install/deprecation/all.yaml"
-			allPolName     = "deprecation-operator"
 			channelPolYAML = "../resources/case38_operator_install/deprecation/channel.yaml"
-			channelPolName = "dep-channel-operator"
 			bundlePolYAML  = "../resources/case38_operator_install/deprecation/bundle.yaml"
-			bundlePolName  = "dep-bundle-operator"
 		)
+		var (
+			allPolName       string
+			channelPolName   string
+			bundlePolName    string
+			parentPolicyName string
+		)
+
 		BeforeEach(func() {
+			testSuffix := getTestSuffix()
+			allPolName = "deprecation-operator" + testSuffix
+			channelPolName = "dep-channel-operator" + testSuffix
+			bundlePolName = "dep-bundle-operator" + testSuffix
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 		})
 
 		It("Should have only package deprecation message is displayed "+
 			"when package, channel, and bundle are deprecated.",
 			func() {
-				createObjWithParent(parentPolicyYAML, parentPolicyName,
-					allPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+				setupPolicy(allPolYAML, allPolName, parentPolicyName)
 
 				check(
 					allPolName,
@@ -3766,8 +4096,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		It("Should have channel deprecation message is displayed "+
 			"when channel is deprecated.",
 			func() {
-				createObjWithParent(parentPolicyYAML, parentPolicyName,
-					channelPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+				setupPolicy(channelPolYAML, channelPolName, parentPolicyName)
 
 				check(
 					channelPolName,
@@ -3787,8 +4116,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		It("Should have bundle deprecation message is displayed "+
 			"when bundle is deprecated.",
 			func() {
-				createObjWithParent(parentPolicyYAML, parentPolicyName,
-					bundlePolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+				setupPolicy(bundlePolYAML, bundlePolName, parentPolicyName)
 
 				check(
 					bundlePolName,
@@ -3807,8 +4135,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		It("Should have deprecation message is displayed and policy compliance is Compliant "+
 			"when bundle is deprecated and deprecationAvaliable is set to NonCompliant",
 			func() {
-				createObjWithParent(parentPolicyYAML, parentPolicyName,
-					bundlePolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+				setupPolicy(bundlePolYAML, bundlePolName, parentPolicyName)
 
 				utils.Kubectl("patch", "operatorpolicy", bundlePolName, "-n", testNamespace, "--type=json", "-p",
 					`[{"op": "replace",
