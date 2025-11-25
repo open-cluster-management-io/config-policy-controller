@@ -3307,7 +3307,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 			KubectlTarget("patch", "operatorgroup", "scoped-operator-group", "-n", opPolTestNS, "--type=json", "-p",
 				`[{"op": "add", "path": "/metadata/ownerReferences", "value": [{"apiVersion": "v1",
-				"kind": "ConfigMap", "name": "ownercm", "uid": "`+ownerUID+`"}]}]`)
+					"kind": "ConfigMap", "name": "ownercm", "uid": "`+ownerUID+`"}]}]`)
 
 			// revert it to mustnothave
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
@@ -4143,8 +4143,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 				utils.Kubectl("patch", "operatorpolicy", bundlePolName, "-n", testNamespace, "--type=json", "-p",
 					`[{"op": "replace",
-					"path": "/spec/complianceConfig/deprecationsPresent",
-					"value": "NonCompliant"}]`)
+						"path": "/spec/complianceConfig/deprecationsPresent",
+						"value": "NonCompliant"}]`)
 
 				checkCompliance(bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.NonCompliant)
 
@@ -4152,8 +4152,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 				utils.Kubectl("patch", "operatorpolicy", bundlePolName, "-n", testNamespace, "--type=json", "-p",
 					`[{"op": "replace",
-				"path": "/spec/complianceConfig/deprecationsPresent",
-				"value": "Compliant"}]`)
+					"path": "/spec/complianceConfig/deprecationsPresent",
+					"value": "Compliant"}]`)
 
 				checkCompliance(bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
 			})
