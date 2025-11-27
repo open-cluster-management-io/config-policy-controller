@@ -489,9 +489,10 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 ) {
 	var returnedErr error
 	var tmplResolver *templates.TemplateResolver
+	var sub *operatorv1alpha1.Subscription
+	var opGroup *operatorv1.OperatorGroup
 
 	opLog := ctrl.LoggerFrom(ctx)
-	validationErrors := make([]error, 0)
 	disableTemplates := false
 
 	if disableAnnotation, ok := policy.GetAnnotations()["policy.open-cluster-management.io/disable-templates"]; ok {
@@ -505,12 +506,16 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 			r.DynamicWatcher, templates.Config{SkipBatchManagement: true},
 		)
 		if err != nil {
-			validationErrors = append(validationErrors, fmt.Errorf("unable to create template resolver: %w", err))
-		} else {
-			err := resolveVersionsTemplates(policy, tmplResolver)
-			if err != nil {
-				validationErrors = append(validationErrors, err)
-			}
+			newError := fmt.Errorf("unable to create template resolver: %w", err)
+
+			return sub, opGroup, updateStatus(policy, validationCond([]error{newError})), returnedErr
+		}
+
+		err = resolveVersionsTemplates(policy, tmplResolver)
+		if err != nil {
+			newError := fmt.Errorf("unable to create template resolver: %w", err)
+
+			return sub, opGroup, updateStatus(policy, validationCond([]error{newError})), returnedErr
 		}
 	} else {
 		opLog.V(1).Info("Templates disabled by annotation")
@@ -530,18 +535,22 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 				returnedErr = err
 			}
 
-			validationErrors = append(validationErrors, err)
+			updateStatus(policy, validationCond([]error{err}))
+
+			return sub, opGroup, true, returnedErr
 		}
 
 		if sub != nil && sub.Namespace == "" {
 			if r.DefaultNamespace != "" {
 				sub.Namespace = r.DefaultNamespace
 			} else {
-				validationErrors = append(validationErrors, errors.New("namespace is required in spec.subscription"))
+				newError := errors.New("namespace is required in spec.subscription")
+
+				return sub, opGroup, updateStatus(policy, validationCond([]error{newError})), returnedErr
 			}
 		}
 	} else {
-		validationErrors = append(validationErrors, subErr)
+		return sub, opGroup, updateStatus(policy, validationCond([]error{subErr})), returnedErr
 	}
 
 	opGroupNS := r.DefaultNamespace
@@ -551,23 +560,24 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 
 	opGroup, ogErr := buildOperatorGroup(policy, opGroupNS, tmplResolver)
 	if ogErr != nil {
-		validationErrors = append(validationErrors, ogErr)
-	} else {
-		watcher := opPolIdentifier(policy.Namespace, policy.Name)
+		return sub, opGroup, updateStatus(policy, validationCond([]error{ogErr})), returnedErr
+	}
 
-		gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
-		if err != nil {
-			return sub, opGroup, false, fmt.Errorf("error getting operator namespace: %w", err)
-		}
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
-		if gotNamespace == nil && policy.Spec.ComplianceType.IsMustHave() {
-			validationErrors = append(validationErrors,
-				fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS))
-		}
+	gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
+	if err != nil {
+		return sub, opGroup, false, fmt.Errorf("error getting operator namespace: %w", err)
+	}
+
+	if gotNamespace == nil && policy.Spec.ComplianceType.IsMustHave() {
+		newError := fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS)
+
+		return sub, opGroup, updateStatus(policy, validationCond([]error{newError})), returnedErr
 	}
 
 	changed, overlapErr, apiErr := r.checkSubOverlap(ctx, policy, sub)
-	if apiErr != nil && returnedErr == nil {
+	if apiErr != nil {
 		returnedErr = apiErr
 	}
 
@@ -577,10 +587,12 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		sub = nil
 		opGroup = nil
 
-		validationErrors = append(validationErrors, overlapErr)
+		updateStatus(policy, validationCond([]error{overlapErr}))
+
+		return sub, opGroup, true, returnedErr
 	}
 
-	changed = updateStatus(policy, validationCond(validationErrors)) || changed
+	changed = updateStatus(policy, validationCond([]error{})) || changed
 
 	return sub, opGroup, changed, returnedErr
 }

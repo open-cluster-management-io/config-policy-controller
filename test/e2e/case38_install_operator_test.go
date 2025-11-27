@@ -1669,15 +1669,18 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 		BeforeAll(func() {
 			preFunc()
+
+			KubectlTarget("delete", "ns", "nonexist-testns", "--ignore-not-found")
+
 			DeferCleanup(func() {
-				KubectlTarget("delete", "ns", "nonexist-testns")
+				KubectlTarget("delete", "ns", "nonexist-testns", "--ignore-not-found")
 			})
 
 			createObjWithParent(parentPolicyYAML, parentPolicyName,
 				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
 		})
 
-		It("Should initially report unknown fields", func() {
+		It("Should initially report subscription unknown fields", func() {
 			check(
 				opPolName,
 				true,
@@ -1690,24 +1693,18 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				},
 				`the status of the Subscription could not be determined because the policy is invalid`,
 			)
-			check(
-				opPolName,
-				true,
-				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:    "ValidPolicySpec",
-					Status:  metav1.ConditionFalse,
-					Reason:  "InvalidPolicySpec",
-					Message: `spec.operatorGroup is invalid: json: unknown field "foo"`,
-				},
-				`the status of the OperatorGroup could not be determined because the policy is invalid`,
-			)
 		})
 		It("Should report about the prohibited installPlanApproval value", func() {
-			// remove the "unknown" fields
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "remove", "path": "/spec/operatorGroup/foo"}, `+
-					`{"op": "remove", "path": "/spec/subscription/actually"}]`)
+			// Remove the subscription "unknown" fields
+			utils.Kubectl(
+				"patch",
+				"operatorpolicy",
+				opPolName,
+				"-n", testNamespace,
+				"--type=json",
+				"-p", `[{"op": "remove", "path": "/spec/subscription/actually"}]`,
+			)
+
 			check(
 				opPolName,
 				true,
@@ -1725,6 +1722,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			// Remove the `installPlanApproval` value
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "remove", "path": "/spec/subscription/installPlanApproval"}]`)
+
 			check(
 				opPolName,
 				true,
@@ -1739,10 +1737,30 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				"NonCompliant",
 			)
 		})
-		It("Should report about the namespace not existing", func() {
-			// Fix the namespace mismatch by removing the operator group spec
+
+		It("Should initially report OperatorGroup unknown fields", func() {
+			// Fix the OperatorGroup namespace and subscription namespace mismatch
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "remove", "path": "/spec/operatorGroup"}]`)
+				`[{"op": "replace", "path": "/spec/operatorGroup/namespace", "value": "nonexist-testns"}]`)
+
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionFalse,
+					Reason:  "InvalidPolicySpec",
+					Message: `spec.operatorGroup is invalid: json: unknown field "foo"`,
+				},
+				`the status of the OperatorGroup could not be determined because the policy is invalid`,
+			)
+		})
+		It("Should report about the namespace not existing", func() {
+			// Fix unknown field operatorGroup.foo
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "remove", "path": "/spec/operatorGroup/foo"}]`)
+
 			check(
 				opPolName,
 				true,
@@ -1768,7 +1786,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 		It("Should update the status after the namespace is created", func() {
+			// Create the nonexist-testns namespace
 			KubectlTarget("create", "namespace", "nonexist-testns")
+
 			check(
 				opPolName,
 				true,
