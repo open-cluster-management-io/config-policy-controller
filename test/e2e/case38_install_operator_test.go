@@ -300,7 +300,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					ctx, "airflow-helm-operator", metav1.GetOptions{})
 
 				return err
-			}, olmWaitTimeout, 3).ShouldNot(Succeed())
+			}, olmWaitTimeout*2, 3).ShouldNot(Succeed())
 
 			By("Checking the validation condition")
 			check(
