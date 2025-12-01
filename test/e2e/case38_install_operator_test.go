@@ -656,30 +656,6 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		})
 	})
 
-	Describe("Testing namespace creation", func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-		)
-		var (
-			opPolName        string
-			parentPolicyName string
-		)
-
-		BeforeEach(func() {
-			opPolName = "oppol-no-group-enforce" + getTestSuffix()
-			parentPolicyName = getParentPolicyName()
-
-			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
-		})
-
-		It("Should be compliant when enforced", func() {
-			By("Waiting for the operator policy " + opPolName + " to be compliant")
-			// Wait for a while, because it might have upgrades that could take longer
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
-		})
-	})
-
 	Describe("Testing OperatorGroup behavior when it is specified in the policy", Ordered, func() {
 		const (
 			opPolYAML            = "../resources/case38_operator_install/operator-policy-with-group.yaml"
@@ -1100,138 +1076,6 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					Message: "the Subscription found on the cluster does not match the policy",
 				},
 				"the Subscription found on the cluster does not match the policy",
-			)
-		})
-	})
-	Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
-		const (
-			opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce-one-version.yaml"
-			opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
-			operatorName     = "example-operator.v0.0.3"
-		)
-		var (
-			opPolTestNS      string
-			opPolName        string
-			opPolNoExistName string
-			parentPolicyName string
-		)
-
-		BeforeAll(func() {
-			opPolTestNS = getOpPolTestNS()
-			opPolName = "oppol-no-group-enforce-one-version" + getTestSuffix()
-			opPolNoExistName = "oppol-no-exist-enforce" + getTestSuffix()
-			parentPolicyName = getParentPolicyName()
-
-			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
-		})
-
-		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
-			Eventually(func(ctx SpecContext) string {
-				csv, _ := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
-					Get(ctx, operatorName, metav1.GetOptions{})
-
-				if csv == nil {
-					return ""
-				}
-
-				reason, _, _ := unstructured.NestedString(csv.Object, "status", "reason")
-
-				return reason
-			}, olmWaitTimeout, 5, ctx).Should(Equal("InstallSucceeded"))
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "ClusterServiceVersion",
-						APIVersion: "operators.coreos.com/v1alpha1",
-					},
-					Compliant: "Compliant",
-					Reason:    "InstallSucceeded",
-				}},
-				metav1.Condition{
-					Type:   "ClusterServiceVersionCompliant",
-					Status: metav1.ConditionTrue,
-					Reason: "InstallSucceeded",
-					Message: "ClusterServiceVersion (" + operatorName + ") - install strategy completed with " +
-						"no errors",
-				},
-				regexp.QuoteMeta(
-					"ClusterServiceVersion ("+operatorName+") - install strategy completed with no errors",
-				),
-			)
-		})
-
-		It("Should generate conditions and relatedobjects of Deployments", func() {
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Deployment",
-						APIVersion: "apps/v1",
-					},
-					Compliant: "Compliant",
-					Reason:    "Deployment Available",
-				}},
-				metav1.Condition{
-					Type:    "DeploymentCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "DeploymentsAvailable",
-					Message: "all operator Deployments have their minimum availability",
-				},
-				"all operator Deployments have their minimum availability",
-			)
-		})
-
-		It("Should only be noncompliant if the subscription error relates to the one in the operator policy", func() {
-			setupPolicy(opPolNoExistYAML, opPolNoExistName, parentPolicyName)
-
-			By("Checking that " + opPolNoExistName + " is NonCompliant")
-			check(
-				opPolNoExistName,
-				true,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Subscription",
-						APIVersion: "operators.coreos.com/v1alpha1",
-					},
-					Compliant: "NonCompliant",
-					Reason:    "ConstraintsNotSatisfiable",
-				}},
-				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "ConstraintsNotSatisfiable",
-					Message: "constraints not satisfiable: refer to the Subscription for more details",
-				},
-				"constraints not satisfiable",
-			)
-
-			// Check if the subscription is still compliant on the operator policy trying to install a valid operator.
-			// This tests that subscription status filtering is working properly since OLM includes the
-			// subscription errors as a condition on all subscriptions in the namespace.
-			By("Checking that " + opPolName + " is still Compliant and unaffected by " + opPolNoExistName)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Subscription",
-						APIVersion: "operators.coreos.com/v1alpha1",
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found as expected",
-				}},
-				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "SubscriptionMatches",
-					Message: "the Subscription matches what is required by the policy",
-				},
-				"the Subscription matches what is required by the policy",
 			)
 		})
 	})
@@ -3649,6 +3493,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 	})
+
 	Describe("Testing templates in an OperatorPolicy", Ordered, func() {
 		const (
 			opPolYAML     = "../resources/case38_operator_install/operator-policy-with-templates.yaml"
@@ -3772,88 +3617,350 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 	})
-	Describe("Testing recovery of sub-csv connection", Ordered, func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			subName   = "example-operator"
-		)
-		var (
-			opPolTestNS      string
-			opPolName        string
-			parentPolicyName string
-		)
 
-		scenarioTriggered := true
+	// These tests create a cluster-scoped operator.
+	// The tests can run alongside the other tests as long as no other
+	// tests fully install the same authorino operator at the same time.
+	Describe("Testing enforced operator policy with no OperatorGroup", Ordered, func() {
+		Describe("Testing namespace creation", func() {
+			const (
+				opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+			)
+			var (
+				opPolName        string
+				parentPolicyName string
+			)
 
-		BeforeAll(func() {
-			opPolTestNS = getOpPolTestNS()
-			opPolName = "oppol-no-group-enforce" + getTestSuffix()
-			parentPolicyName = getParentPolicyName()
+			BeforeEach(func() {
+				opPolName = "oppol-no-group-enforce" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
 
-			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			})
+
+			It("Should be compliant when enforced", func() {
+				By("Waiting for the operator policy " + opPolName + " to be compliant")
+				// Wait for a while, because it might have upgrades that could take longer
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+			})
 		})
+		Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
+			const (
+				opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce-one-version.yaml"
+				opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
+				operatorName     = "authorino-operator.v0.15.0"
+			)
+			var (
+				opPolTestNS      string
+				opPolName        string
+				opPolNoExistName string
+				parentPolicyName string
+			)
 
-		BeforeEach(func() {
-			if !scenarioTriggered {
-				Skip("test scenario was unable to be triggered")
-			}
+			BeforeAll(func() {
+				opPolTestNS = getOpPolTestNS()
+				opPolName = "oppol-no-group-enforce-one-version" + getTestSuffix()
+				opPolNoExistName = "oppol-no-exist-enforce" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
+
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			})
+
+			It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
+				Eventually(func(ctx SpecContext) string {
+					csv, _ := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
+						Get(ctx, operatorName, metav1.GetOptions{})
+
+					if csv == nil {
+						return ""
+					}
+
+					reason, _, _ := unstructured.NestedString(csv.Object, "status", "reason")
+
+					return reason
+				}, olmWaitTimeout, 5, ctx).Should(Equal("InstallSucceeded"))
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "ClusterServiceVersion",
+							APIVersion: "operators.coreos.com/v1alpha1",
+						},
+						Compliant: "Compliant",
+						Reason:    "InstallSucceeded",
+					}},
+					metav1.Condition{
+						Type:   "ClusterServiceVersionCompliant",
+						Status: metav1.ConditionTrue,
+						Reason: "InstallSucceeded",
+						Message: "ClusterServiceVersion (" + operatorName + ") - install strategy completed with " +
+							"no errors",
+					},
+					regexp.QuoteMeta(
+						"ClusterServiceVersion ("+operatorName+") - install strategy completed with no errors",
+					),
+				)
+			})
+
+			It("Should generate conditions and relatedobjects of Deployments", func() {
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Deployment",
+							APIVersion: "apps/v1",
+						},
+						Compliant: "Compliant",
+						Reason:    "Deployment Available",
+					}},
+					metav1.Condition{
+						Type:    "DeploymentCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeploymentsAvailable",
+						Message: "all operator Deployments have their minimum availability",
+					},
+					"all operator Deployments have their minimum availability",
+				)
+			})
+
+			It("Should only be noncompliant if the subscription error relates to the one in the operator policy", func() {
+				setupPolicy(opPolNoExistYAML, opPolNoExistName, parentPolicyName)
+
+				By("Checking that " + opPolNoExistName + " is NonCompliant")
+				check(
+					opPolNoExistName,
+					true,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Subscription",
+							APIVersion: "operators.coreos.com/v1alpha1",
+						},
+						Compliant: "NonCompliant",
+						Reason:    "ConstraintsNotSatisfiable",
+					}},
+					metav1.Condition{
+						Type:    "SubscriptionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "ConstraintsNotSatisfiable",
+						Message: "constraints not satisfiable: refer to the Subscription for more details",
+					},
+					"constraints not satisfiable",
+				)
+
+				// Check if the subscription is still compliant on the operator policy trying to install a valid operator.
+				// This tests that subscription status filtering is working properly since OLM includes the
+				// subscription errors as a condition on all subscriptions in the namespace.
+				By("Checking that " + opPolName + " is still Compliant and unaffected by " + opPolNoExistName)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Subscription",
+							APIVersion: "operators.coreos.com/v1alpha1",
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found as expected",
+					}},
+					metav1.Condition{
+						Type:    "SubscriptionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "SubscriptionMatches",
+						Message: "the Subscription matches what is required by the policy",
+					},
+					"the Subscription matches what is required by the policy",
+				)
+			})
 		})
+		Describe("Testing recovery of sub-csv connection", Ordered, func() {
+			const (
+				opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+				subName   = "authorino-operator"
+			)
+			var (
+				opPolTestNS      string
+				opPolName        string
+				parentPolicyName string
+			)
 
-		It("should get the 'csv exists and is not referenced' condition", func(ctx SpecContext) {
-			scenarioTriggered = false
+			scenarioTriggered := true
 
-			By("Verifying the policy starts compliant")
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+			BeforeAll(func() {
+				opPolTestNS = getOpPolTestNS()
+				opPolName = "oppol-no-group-enforce" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
 
-			By("Periodically deleting the subscription and checking the status")
-			scenarioDeadline := time.Now().Add(40 * time.Second)
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			})
 
-		scenarioTriggerLoop:
-			for scenarioDeadline.After(time.Now()) {
-				KubectlTarget("delete", "subscription", subName, "-n", opPolTestNS)
-				time.Sleep(time.Second)
-
-				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
-					Get(ctx, subName, metav1.GetOptions{})
-				if err != nil || sub == nil {
-					continue
+			BeforeEach(func() {
+				if !scenarioTriggered {
+					Skip("test scenario was unable to be triggered")
 				}
+			})
 
-				subConds, _, _ := unstructured.NestedSlice(sub.Object, "status", "conditions")
-				for _, cond := range subConds {
-					condMap, ok := cond.(map[string]interface{})
-					if !ok {
+			It("should get the 'csv exists and is not referenced' condition", func(ctx SpecContext) {
+				scenarioTriggered = false
+
+				By("Verifying the policy starts compliant")
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+
+				By("Periodically deleting the subscription and checking the status")
+				scenarioDeadline := time.Now().Add(40 * time.Second)
+
+			scenarioTriggerLoop:
+				for scenarioDeadline.After(time.Now()) {
+					KubectlTarget("delete", "subscription", subName, "-n", opPolTestNS)
+					time.Sleep(time.Second)
+
+					sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+						Get(ctx, subName, metav1.GetOptions{})
+					if err != nil || sub == nil {
 						continue
 					}
 
-					if condType, _, _ := unstructured.NestedString(condMap, "type"); condType != "ResolutionFailed" {
-						continue
+					subConds, _, _ := unstructured.NestedSlice(sub.Object, "status", "conditions")
+					for _, cond := range subConds {
+						condMap, ok := cond.(map[string]interface{})
+						if !ok {
+							continue
+						}
+
+						if condType, _, _ := unstructured.NestedString(condMap, "type"); condType != "ResolutionFailed" {
+							continue
+						}
+
+						if condStatus, _, _ := unstructured.NestedString(condMap, "status"); condStatus != "True" {
+							continue
+						}
+
+						condMessage, _, _ := unstructured.NestedString(condMap, "message")
+						notRefRgx := regexp.MustCompile(`clusterserviceversion (\S*) exists and is not referenced`)
+						if notRefRgx.MatchString(condMessage) {
+							scenarioTriggered = true
+
+							break scenarioTriggerLoop
+						}
 					}
 
-					if condStatus, _, _ := unstructured.NestedString(condMap, "status"); condStatus != "True" {
-						continue
-					}
-
-					condMessage, _, _ := unstructured.NestedString(condMap, "message")
-					notRefRgx := regexp.MustCompile(`clusterserviceversion (\S*) exists and is not referenced`)
-					if notRefRgx.MatchString(condMessage) {
-						scenarioTriggered = true
-
-						break scenarioTriggerLoop
-					}
+					time.Sleep(5 * time.Second)
 				}
+			})
 
-				time.Sleep(5 * time.Second)
-			}
+			It("Verifies the policy eventually fixes the 'not referenced' condition", func() {
+				By("Sleeping 25s, since OperatorPolicy should wait a while before intervening")
+				time.Sleep(25 * time.Second)
+
+				By("Verifying the policy becomes compliant")
+				checkCompliance(opPolName, testNamespace, 2*olmWaitTimeout, policyv1.Compliant, 30, 3)
+			})
 		})
+		Describe("Test reporting of unapproved version after installation", Ordered, func() {
+			const (
+				opPolYAML     = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+				latestExample = "authorino-operator.v0.16.0"
+			)
+			var (
+				opPolTestNS      string
+				opPolName        string
+				parentPolicyName string
+			)
 
-		It("Verifies the policy eventually fixes the 'not referenced' condition", func() {
-			By("Sleeping 25s, since OperatorPolicy should wait a while before intervening")
-			time.Sleep(25 * time.Second)
+			// The first 'It' test is a prerequisite for the second 'It' test.
+			BeforeAll(func() {
+				opPolTestNS = getOpPolTestNS()
+				opPolName = "oppol-no-group-enforce" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
 
-			By("Verifying the policy becomes compliant")
-			checkCompliance(opPolName, testNamespace, 2*olmWaitTimeout, policyv1.Compliant, 30, 3)
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			})
+
+			It("Should start compliant", func(ctx SpecContext) {
+				Eventually(func(ctx SpecContext) (map[string]interface{}, error) {
+					csv, err := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
+						Get(ctx, latestExample, metav1.GetOptions{})
+
+					if csv == nil || err != nil {
+						return map[string]interface{}{}, err
+					}
+
+					status, _, _ := unstructured.NestedMap(csv.Object, "status")
+
+					return status, nil
+				}, olmWaitTimeout, 5, ctx).Should(HaveKeyWithValue("reason", "InstallSucceeded"))
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "InstallPlan",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "The InstallPlan is Complete",
+					}},
+					metav1.Condition{
+						Type:    "InstallPlanCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "NoInstallPlansRequiringApproval",
+						Message: "no InstallPlans requiring approval were found",
+					},
+					"no InstallPlans requiring approval were found",
+				)
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{},
+					metav1.Condition{
+						Type:    "NoDeprecations",
+						Status:  metav1.ConditionTrue,
+						Reason:  "Recommended",
+						Message: "The requested package, channel, and bundle are all at the recommended versions",
+					},
+					"",
+				)
+			})
+			It("Should report a violation after the versions list is patched to exclude the current version", func() {
+				By("Patching the versions field to exclude the installed version")
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/versions", "value": ["pie.v3.14159"]}]`)
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "ClusterServiceVersion",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      latestExample,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "ClusterServiceVersion (" + latestExample + ") is not an approved version",
+					}},
+					metav1.Condition{
+						Type:    "ClusterServiceVersionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "UnapprovedVersion",
+						Message: "ClusterServiceVersion (" + latestExample + ") is not an approved version",
+					},
+					"ClusterServiceVersion .* is not an approved version",
+				)
+			})
 		})
 	})
 
@@ -3986,107 +4093,6 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 				g.Expect(approvedInstallPlan).To(BeTrue(), "Expect an InstallPlan for startingCSV to be approved")
 			}, olmWaitTimeout, 1).Should(Succeed())
-		})
-	})
-	Describe("Test reporting of unapproved version after installation", Ordered, func() {
-		const (
-			opPolYAML     = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			latestExample = "example-operator.v0.0.3"
-		)
-		var (
-			opPolTestNS      string
-			opPolName        string
-			parentPolicyName string
-		)
-
-		// The first 'It' test is a prerequisite for the second 'It' test.
-		BeforeAll(func() {
-			opPolTestNS = getOpPolTestNS()
-			opPolName = "oppol-no-group-enforce" + getTestSuffix()
-			parentPolicyName = getParentPolicyName()
-
-			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
-		})
-
-		It("Should start compliant", func(ctx SpecContext) {
-			Eventually(func(ctx SpecContext) (map[string]interface{}, error) {
-				csv, err := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
-					Get(ctx, latestExample, metav1.GetOptions{})
-
-				if csv == nil || err != nil {
-					return map[string]interface{}{}, err
-				}
-
-				status, _, _ := unstructured.NestedMap(csv.Object, "status")
-
-				return status, nil
-			}, olmWaitTimeout, 5, ctx).Should(HaveKeyWithValue("reason", "InstallSucceeded"))
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "The InstallPlan is Complete",
-				}},
-				metav1.Condition{
-					Type:    "InstallPlanCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "NoInstallPlansRequiringApproval",
-					Message: "no InstallPlans requiring approval were found",
-				},
-				"no InstallPlans requiring approval were found",
-			)
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:    "NoDeprecations",
-					Status:  metav1.ConditionTrue,
-					Reason:  "Recommended",
-					Message: "The requested package, channel, and bundle are all at the recommended versions",
-				},
-				"",
-			)
-		})
-		It("Should report a violation after the versions list is patched to exclude the current version", func() {
-			By("Patching the versions field to exclude the installed version")
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/versions", "value": ["pie.v3.14159"]}]`)
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "ClusterServiceVersion",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      latestExample,
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "ClusterServiceVersion (" + latestExample + ") is not an approved version",
-				}},
-				metav1.Condition{
-					Type:    "ClusterServiceVersionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "UnapprovedVersion",
-					Message: "ClusterServiceVersion (" + latestExample + ") is not an approved version",
-				},
-				"ClusterServiceVersion .* is not an approved version",
-			)
 		})
 	})
 	Describe("Test Deprecation message in OperatorPolicy", Ordered, func() {
