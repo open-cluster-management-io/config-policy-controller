@@ -1762,13 +1762,15 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		})
 	})
 
+	// These tests can run in an Ordered container as long as no other tests install the
+	// same operator at the same time. These tests will delete and recreate the operator's CRD.
+	// The relative order of the inner Describe containers does not matter.
 	Describe("Testing CRD behaviors", Ordered, func() {
-		// These tests are wrapped in an Ordered Describe block because they
-		// delete and recreate the same CRD. The order doesn't matter as long
-		// as these tests are not run in parallel with each other.
 		Describe("Testing full installation behavior, including CRD reporting", Ordered, func() {
 			const (
-				opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
+				opPolYAML      = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
+				deploymentName = "apicast-operator-controller-manager-v2"
+				crdName        = "apicasts.apps.3scale.net"
 			)
 			var (
 				opPolTestNS      string
@@ -1782,7 +1784,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				KubectlTarget("delete", "crd", "--selector=olm.managed=true")
+				KubectlTarget("delete", "crd", crdName, "--ignore-not-found")
 				setupPolicy(opPolYAML, opPolName, parentPolicyName)
 			})
 			It("Should initially not report on CRDs because they won't exist yet", func() {
@@ -1815,7 +1817,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				By("Waiting for a CRD to appear, which should indicate the operator is installing")
 				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
 					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-						"quayregistries.quay.redhat.com", metav1.GetOptions{})
+						crdName, metav1.GetOptions{})
 
 					return crd
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
@@ -1823,7 +1825,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				By("Waiting for the Deployment to be available, indicating the installation is complete")
 				Eventually(func(g Gomega) {
 					dep, err := targetK8sDynamic.Resource(gvrDeployment).Namespace(opPolTestNS).Get(
-						ctx, "quay-operator-tng", metav1.GetOptions{})
+						ctx, deploymentName, metav1.GetOptions{})
 					g.Expect(err).NotTo(HaveOccurred())
 					g.Expect(dep).NotTo(BeNil())
 
@@ -1844,7 +1846,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							Kind:       "CustomResourceDefinition",
 							APIVersion: "apiextensions.k8s.io/v1",
 							Metadata: policyv1.ObjectMetadata{
-								Name: "quayregistries.quay.redhat.com",
+								Name: crdName,
 							},
 						},
 						Compliant: "Compliant",
@@ -1885,8 +1887,10 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		Describe("Testing general OperatorPolicy mustnothave behavior", Ordered, func() {
 			const (
 				opPolYAML      = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
-				subName        = "project-quay"
-				deploymentName = "quay-operator-tng"
+				subName        = "apicast-community-operator"
+				deploymentName = "apicast-operator-controller-manager-v2"
+				crdName        = "apicasts.apps.3scale.net"
+				csvName        = "apicast-community-operator.v0.7.1"
 				catSrcName     = "operatorhubio-catalog"
 				catSrcNS       = "olm"
 			)
@@ -1902,7 +1906,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				KubectlTarget("delete", "crd", "--selector=olm.managed=true")
+				KubectlTarget("delete", "crd", crdName, "--ignore-not-found")
 				setupPolicy(opPolYAML, opPolName, parentPolicyName)
 			})
 
@@ -1939,7 +1943,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							APIVersion: "operators.coreos.com/v1alpha1",
 							Metadata: policyv1.ObjectMetadata{
 								Namespace: opPolTestNS,
-								Name:      "project-quay",
+								Name:      subName,
 							},
 						},
 						Compliant: "Compliant",
@@ -2058,7 +2062,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				By("Waiting for a CRD to appear, which should indicate the operator is installing")
 				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
 					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-						"quayregistries.quay.redhat.com", metav1.GetOptions{})
+						crdName, metav1.GetOptions{})
 
 					return crd
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
@@ -2100,7 +2104,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							APIVersion: "operators.coreos.com/v1alpha1",
 							Metadata: policyv1.ObjectMetadata{
 								Namespace: opPolTestNS,
-								Name:      "project-quay",
+								Name:      subName,
 							},
 						},
 						Compliant: "NonCompliant",
@@ -2154,9 +2158,9 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 						Type:    "ClusterServiceVersionCompliant",
 						Status:  metav1.ConditionFalse,
 						Reason:  "ClusterServiceVersionPresent",
-						Message: "the ClusterServiceVersion (quay-operator.v3.10.0) is present",
+						Message: "the ClusterServiceVersion (" + csvName + ") is present",
 					},
-					regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.10.0) is present"),
+					regexp.QuoteMeta("the ClusterServiceVersion ("+csvName+") is present"),
 				)
 				check(
 					opPolName,
@@ -2166,7 +2170,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							Kind:       "CustomResourceDefinition",
 							APIVersion: "apiextensions.k8s.io/v1",
 							Metadata: policyv1.ObjectMetadata{
-								Name: "quayregistries.quay.redhat.com",
+								Name: crdName,
 							},
 						},
 						Compliant: "NonCompliant",
@@ -2263,7 +2267,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							APIVersion: "operators.coreos.com/v1alpha1",
 							Metadata: policyv1.ObjectMetadata{
 								Namespace: opPolTestNS,
-								Name:      "project-quay",
+								Name:      subName,
 							},
 						},
 						Reason: "The Subscription is attached to a mustnothave policy, but does not need to be removed",
@@ -2306,7 +2310,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							Kind:       "CustomResourceDefinition",
 							APIVersion: "apiextensions.k8s.io/v1",
 							Metadata: policyv1.ObjectMetadata{
-								Name: "quayregistries.quay.redhat.com",
+								Name: crdName,
 							},
 						},
 						Reason: "The CustomResourceDefinition is attached to a mustnothave policy, but " +
@@ -2431,11 +2435,11 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				)
 
 				By("Checking that certain (named) resources are still there")
-				utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
+				utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, csvName,
 					opPolTestNS, true, eventuallyTimeout)
 				utils.GetWithTimeout(targetK8sDynamic, gvrSubscription, subName,
 					opPolTestNS, true, eventuallyTimeout)
-				utils.GetWithTimeout(targetK8sDynamic, gvrCRD, "quayregistries.quay.redhat.com",
+				utils.GetWithTimeout(targetK8sDynamic, gvrCRD, crdName,
 					"", true, eventuallyTimeout)
 			})
 			It("Should report a special status when the resources are stuck", func(ctx SpecContext) {
@@ -2529,7 +2533,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							APIVersion: "operators.coreos.com/v1alpha1",
 							Metadata: policyv1.ObjectMetadata{
 								Namespace: opPolTestNS,
-								Name:      "project-quay",
+								Name:      subName,
 							},
 						},
 						Compliant: "NonCompliant",
@@ -2618,11 +2622,11 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			})
 			It("Should report things as gone after the finalizers are removed", func() {
 				By("Checking that certain (named) resources are not there, indicating the removal was completed")
-				utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
+				utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, csvName,
 					opPolTestNS, false, eventuallyTimeout)
 				utils.GetWithTimeout(targetK8sDynamic, gvrSubscription, subName,
 					opPolTestNS, false, eventuallyTimeout)
-				utils.GetWithTimeout(targetK8sDynamic, gvrCRD, "quayregistries.quay.redhat.com",
+				utils.GetWithTimeout(targetK8sDynamic, gvrCRD, crdName,
 					"", false, eventuallyTimeout)
 
 				By("Checking the OperatorPolicy status")
@@ -2658,7 +2662,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							APIVersion: "operators.coreos.com/v1alpha1",
 							Metadata: policyv1.ObjectMetadata{
 								Namespace: opPolTestNS,
-								Name:      "project-quay",
+								Name:      subName,
 							},
 						},
 						Compliant: "Compliant",
@@ -2716,7 +2720,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 						Reason:  "ClusterServiceVersionNotPresent",
 						Message: "the ClusterServiceVersion is not present",
 					},
-					regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.10.0) was deleted"),
+					regexp.QuoteMeta("the ClusterServiceVersion ("+csvName+") was deleted"),
 				)
 				check(
 					opPolName,
@@ -2794,8 +2798,9 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 		Describe("Test CRD deletion delayed because of a finalizer", Ordered, func() {
 			const (
-				opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
-				subName   = "project-quay"
+				opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-apicast.yaml"
+				subName   = "apicast-community-operator"
+				crdName   = "apicasts.apps.3scale.net"
 			)
 			var (
 				opPolName        string
@@ -2807,18 +2812,18 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				KubectlTarget("delete", "crd", "--selector=olm.managed=true")
+				KubectlTarget("delete", "crd", crdName, "--ignore-not-found")
 				setupPolicy(opPolYAML, opPolName, parentPolicyName)
 			})
 			AfterAll(func(ctx SpecContext) {
 				crd, err := targetK8sDynamic.Resource(gvrCRD).Get(
-					ctx, "quayregistries.quay.redhat.com", metav1.GetOptions{})
+					ctx, crdName, metav1.GetOptions{})
 				if k8serrors.IsNotFound(err) {
 					return
 				}
 				Expect(crd).NotTo(BeNil())
 
-				KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
+				KubectlTarget("patch", "crd", crdName, "--type=json", "-p",
 					`[{"op": "remove", "path": "/metadata/finalizers"}]`)
 			})
 			It("Initially behaves correctly as musthave", func(ctx SpecContext) {
@@ -2830,7 +2835,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				By("Waiting for a CRD to appear, which should indicate the operator is installing")
 				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
 					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-						"quayregistries.quay.redhat.com", metav1.GetOptions{})
+						crdName, metav1.GetOptions{})
 
 					return crd
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
@@ -2845,7 +2850,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							Kind:       "CustomResourceDefinition",
 							APIVersion: "apiextensions.k8s.io/v1",
 							Metadata: policyv1.ObjectMetadata{
-								Name: "quayregistries.quay.redhat.com",
+								Name: crdName,
 							},
 						},
 						Compliant: "Compliant",
@@ -2861,7 +2866,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				)
 
 				By("Adding a finalizer to the CRD")
-				KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
+				KubectlTarget("patch", "crd", crdName, "--type=json", "-p",
 					`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
 				// cleanup for this is handled in an AfterAll
 			})
@@ -2878,7 +2883,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							Kind:       "CustomResourceDefinition",
 							APIVersion: "apiextensions.k8s.io/v1",
 							Metadata: policyv1.ObjectMetadata{
-								Name: "quayregistries.quay.redhat.com",
+								Name: crdName,
 							},
 						},
 						Compliant: "NonCompliant",
@@ -2894,7 +2899,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				)
 			})
 			It("Should become compliant after the finalizer is removed", func() {
-				KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
+				KubectlTarget("patch", "crd", crdName, "--type=json", "-p",
 					`[{"op": "remove", "path": "/metadata/finalizers"}]`)
 
 				check(
@@ -2926,9 +2931,10 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 		Describe("Testing mustnothave behavior of operator groups in DeleteIfUnused mode", Ordered, func() {
 			const (
-				opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
+				opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-apicast.yaml"
 				otherYAML = "../resources/case38_operator_install/operator-policy-authorino.yaml"
-				subName   = "project-quay"
+				subName   = "apicast-community-operator"
+				crdName   = "apicasts.apps.3scale.net"
 			)
 			var (
 				opPolTestNS      string
@@ -2940,12 +2946,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			BeforeEach(func() {
 				testSuffix := getTestSuffix()
 				opPolTestNS = getOpPolTestNS()
-				opPolName = "oppol-mustnothave" + testSuffix
+				opPolName = "oppol-mustnothave-apicast" + testSuffix
 				otherOpPolName = "oppol-authorino" + testSuffix
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				KubectlTarget("delete", "crd", "--selector=olm.managed=true")
+				KubectlTarget("delete", "crd", crdName, "--ignore-not-found")
 				setupPolicy(opPolYAML, opPolName, parentPolicyName)
 			})
 
@@ -2959,7 +2965,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
 					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-						"quayregistries.quay.redhat.com", metav1.GetOptions{})
+						crdName, metav1.GetOptions{})
 
 					return crd
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
@@ -3002,7 +3008,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
 					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-						"quayregistries.quay.redhat.com", metav1.GetOptions{})
+						crdName, metav1.GetOptions{})
 
 					return crd
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
@@ -3045,7 +3051,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
 					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-						"quayregistries.quay.redhat.com", metav1.GetOptions{})
+						crdName, metav1.GetOptions{})
 
 					return crd
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
@@ -3098,7 +3104,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				By("Waiting for a CRD to appear, which should indicate the operator is installing.")
 				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
 					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-						"quayregistries.quay.redhat.com", metav1.GetOptions{})
+						crdName, metav1.GetOptions{})
 
 					return crd
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
@@ -3303,7 +3309,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	Describe("Testing operator policies that specify the same subscription", Serial, Ordered, func() {
 		const (
 			musthaveYAML    = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
+			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-quay.yaml"
 		)
 		var (
 			musthaveName     string

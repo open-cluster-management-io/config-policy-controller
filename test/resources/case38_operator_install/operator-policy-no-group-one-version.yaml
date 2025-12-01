@@ -15,14 +15,14 @@ spec:
   severity: medium
   complianceType: musthave
   subscription:
-    channel: stable-3.10
-    name: project-quay
+    channel: stable
+    name: apicast-community-operator
     namespace: operator-policy-testns
     source: operatorhubio-catalog
     sourceNamespace: olm
-    startingCSV: quay-operator.v3.10.0
+    startingCSV: apicast-community-operator.v0.7.1
   versions:
     - '{{ if false }}some value to test empty string is discarded{{ end }}'
-    - '{{ if true }}quay-operator.v3.10.0{{ end }}'
+    - '{{ if true }}apicast-community-operator.v0.7.1{{ end }}'
     - '{{ if false }}some other value to test empty string is discarded{{ end }}'
   upgradeApproval: None
