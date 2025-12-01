@@ -16,11 +16,11 @@ spec:
   complianceType: musthave
   subscription:
     channel: stable
-    name: example-operator
+    name: authorino-operator
     namespace: operator-policy-testns
-    source: grc-mock-source
+    source: operatorhubio-catalog
     sourceNamespace: olm
-    startingCSV: example-operator.v0.0.3
+    startingCSV: authorino-operator.v0.15.0
   versions:
-  - example-operator.v0.0.3
+  - authorino-operator.v0.15.0
   upgradeApproval: Automatic
