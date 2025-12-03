@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1beta1
 kind: OperatorPolicy
 metadata:
-  name: oppol-mustnothave
+  name: oppol-mustnothave-apicast
   labels:
     policy.open-cluster-management.io/cluster-name: "managed"
     policy.open-cluster-management.io/cluster-namespace: "managed"
@@ -20,9 +20,6 @@ spec:
     namespace: operator-policy-testns
     source: operatorhubio-catalog
     sourceNamespace: olm
-    startingCSV: apicast-community-operator.v0.7.1
-  versions:
-    - apicast-community-operator.v0.7.1
   upgradeApproval: Automatic
   removalBehavior:
     operatorGroups: DeleteIfUnused
