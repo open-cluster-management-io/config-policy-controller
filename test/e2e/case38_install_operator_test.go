@@ -371,7 +371,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		})
 	}
 
-	Describe("Testing an all default operator policy", Ordered, func() {
+	Describe("Testing an all default operator policy", Serial, Ordered, func() {
 		const (
 			opPolYAML   = "../resources/case38_operator_install/operator-policy-all-defaults.yaml"
 			subName     = "airflow-helm-operator"
@@ -1305,7 +1305,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			Expect(events).To(BeEmpty())
 		})
 	})
-	Describe("Test status reporting for CatalogSource", Ordered, func() {
+	Describe("Test status reporting for CatalogSource", Serial, Ordered, func() {
 		const (
 			opPolYAML  = "../resources/case38_operator_install/operator-policy-with-group.yaml"
 			subName    = "project-quay"
