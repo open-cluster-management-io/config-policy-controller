@@ -832,6 +832,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 	})
+
 	Describe("Testing Subscription behavior for musthave mode while enforcing", Ordered, func() {
 		const (
 			opPolYAML        = "../resources/case38_operator_install/operator-policy-with-group.yaml"
@@ -995,6 +996,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 	})
+
 	Describe("Testing Subscription behavior for musthave mode while informing", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
@@ -1069,6 +1071,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 	})
+
 	Describe("Test health checks on OLM resources on OperatorPolicy with failed CSV", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-csv-fail.yaml"
@@ -1149,6 +1152,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			Expect(events).To(BeEmpty())
 		})
 	})
+
 	Describe("Test status reporting for CatalogSource", Serial, Ordered, func() {
 		const (
 			opPolYAML  = "../resources/case38_operator_install/operator-policy-with-group.yaml"
@@ -1326,6 +1330,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 	})
+
 	Describe("Testing InstallPlan approval and status behavior", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-manual-upgrades.yaml"
@@ -1614,122 +1619,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 	})
-	Describe("Testing full installation behavior, including CRD reporting", Serial, Ordered, func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
-		)
-		var (
-			opPolTestNS      string
-			opPolName        string
-			parentPolicyName string
-		)
 
-		BeforeAll(func() {
-			opPolTestNS = getOpPolTestNS()
-			opPolName = "oppol-no-group" + getTestSuffix()
-			parentPolicyName = getParentPolicyName()
-
-			preFunc()
-			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
-		})
-
-		It("Should initially not report on CRDs because they won't exist yet", func() {
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "-",
-						},
-					},
-					Compliant: "Inapplicable",
-					Reason:    "No relevant CustomResourceDefinitions found",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "RelevantCRDNotFound",
-					Message: "no CRDs were found for the operator",
-				},
-				"no CRDs were found for the operator",
-			)
-		})
-
-		It("Should generate conditions and relatedobjects of CRD", func(ctx SpecContext) {
-			utils.EnforceOperatorPolicy(opPolName, testNamespace)
-			By("Waiting for a CRD to appear, which should indicate the operator is installing")
-			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-					"quayregistries.quay.redhat.com", metav1.GetOptions{})
-
-				return crd
-			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
-
-			By("Waiting for the Deployment to be available, indicating the installation is complete")
-			Eventually(func(g Gomega) {
-				dep, err := targetK8sDynamic.Resource(gvrDeployment).Namespace(opPolTestNS).Get(
-					ctx, "quay-operator-tng", metav1.GetOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(dep).NotTo(BeNil())
-
-				var deploy appsv1.Deployment
-
-				err = runtime.DefaultUnstructuredConverter.FromUnstructured(dep.Object, &deploy)
-				g.Expect(err).NotTo(HaveOccurred())
-
-				g.Expect(deploy.Status.Replicas).NotTo(BeZero())
-				g.Expect(deploy.Status.ReadyReplicas).To(Equal(deploy.Status.Replicas))
-			}, olmWaitTimeout, 5).Should(Succeed())
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "quayregistries.quay.redhat.com",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found as expected",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "RelevantCRDFound",
-					Message: "there are CRDs present for the operator",
-				},
-				"there are CRDs present for the operator",
-			)
-		})
-
-		It("should send a new compliance event if the status is reset", func(ctx SpecContext) {
-			By("Waiting 10 seconds for any late reconciles")
-			time.Sleep(10 * time.Second)
-
-			originalEvents := utils.GetMatchingEvents(
-				clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
-			)
-
-			By("Resetting the status, and checking for a new event")
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "remove", "path": "/status/compliant"}]`, "--subresource=status")
-
-			Eventually(func() int {
-				newEvents := utils.GetMatchingEvents(
-					clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
-				)
-
-				return len(newEvents)
-			}, 10, 1, ctx).Should(BeNumerically(">", len(originalEvents)))
-		})
-	})
 	Describe("Testing OperatorPolicy validation messages", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-validity-test.yaml"
@@ -1871,7 +1761,124 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 	})
-	Describe("Testing general OperatorPolicy mustnothave behavior", Serial, Ordered, func() {
+
+	Describe("Testing full installation behavior, including CRD reporting", Ordered, func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
+
+		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+		})
+		It("Should initially not report on CRDs because they won't exist yet", func() {
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "-",
+						},
+					},
+					Compliant: "Inapplicable",
+					Reason:    "No relevant CustomResourceDefinitions found",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "RelevantCRDNotFound",
+					Message: "no CRDs were found for the operator",
+				},
+				"no CRDs were found for the operator",
+			)
+		})
+
+		It("Should generate conditions and relatedobjects of CRD", func(ctx SpecContext) {
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
+			By("Waiting for a CRD to appear, which should indicate the operator is installing")
+			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
+					"quayregistries.quay.redhat.com", metav1.GetOptions{})
+
+				return crd
+			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+			By("Waiting for the Deployment to be available, indicating the installation is complete")
+			Eventually(func(g Gomega) {
+				dep, err := targetK8sDynamic.Resource(gvrDeployment).Namespace(opPolTestNS).Get(
+					ctx, "quay-operator-tng", metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(dep).NotTo(BeNil())
+
+				var deploy appsv1.Deployment
+
+				err = runtime.DefaultUnstructuredConverter.FromUnstructured(dep.Object, &deploy)
+				g.Expect(err).NotTo(HaveOccurred())
+
+				g.Expect(deploy.Status.Replicas).NotTo(BeZero())
+				g.Expect(deploy.Status.ReadyReplicas).To(Equal(deploy.Status.Replicas))
+			}, olmWaitTimeout, 5).Should(Succeed())
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "CustomResourceDefinition",
+						APIVersion: "apiextensions.k8s.io/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Name: "quayregistries.quay.redhat.com",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource found as expected",
+				}},
+				metav1.Condition{
+					Type:    "CustomResourceDefinitionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "RelevantCRDFound",
+					Message: "there are CRDs present for the operator",
+				},
+				"there are CRDs present for the operator",
+			)
+		})
+
+		It("should send a new compliance event if the status is reset", func(ctx SpecContext) {
+			By("Waiting 10 seconds for any late reconciles")
+			time.Sleep(10 * time.Second)
+
+			originalEvents := utils.GetMatchingEvents(
+				clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
+			)
+
+			By("Resetting the status, and checking for a new event")
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "remove", "path": "/status/compliant"}]`, "--subresource=status")
+
+			Eventually(func() int {
+				newEvents := utils.GetMatchingEvents(
+					clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
+				)
+
+				return len(newEvents)
+			}, 10, 1, ctx).Should(BeNumerically(">", len(originalEvents)))
+		})
+	})
+
+	Describe("Testing general OperatorPolicy mustnothave behavior", Ordered, func() {
 		const (
 			opPolYAML      = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
 			subName        = "project-quay"
@@ -2232,7 +2239,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							Namespace: opPolTestNS,
 						},
 					},
-					Reason: "The OperatorGroup is attached to a mustnothave policy, but does not need to be removed",
+					Reason: `The OperatorGroup is attached to a mustnothave policy, ` +
+						`but does not need to be removed`,
 				}},
 				metav1.Condition{
 					Type:    "OperatorGroupCompliant",
@@ -2315,7 +2323,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "Keep"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Keep"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Keep"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Keep"}]`)
+					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", `+
+					`"value": "Keep"}]`)
 			By("Checking the OperatorPolicy status")
 			keptChecks()
 			check(
@@ -2481,7 +2490,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Delete"},`+
 					`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Delete"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Delete"}]`)
+					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", `+
+					`"value": "Delete"}]`)
 
 			check(
 				opPolName,
@@ -2777,7 +2787,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
 		})
 	})
-	Describe("Test CRD deletion delayed because of a finalizer", Serial, Ordered, func() {
+
+	Describe("Test CRD deletion delayed because of a finalizer", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
 			subName   = "project-quay"
@@ -2908,97 +2919,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
 		})
 	})
-	Describe("Testing mustnothave behavior for an operator group that is different than the specified one", func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-		)
-		var (
-			opPolTestNS      string
-			opPolName        string
-			parentPolicyName string
-		)
 
-		BeforeEach(func() {
-			opPolTestNS = getOpPolTestNS()
-			opPolName = "oppol-with-group" + getTestSuffix()
-			parentPolicyName = getParentPolicyName()
-
-			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
-		})
-
-		It("should not report an operator group that does not match the spec", func() {
-			// create the extra operator group
-			KubectlTarget("apply", "-f", "../resources/case38_operator_install/incorrect-operator-group.yaml",
-				"-n", opPolTestNS)
-			// change the operator policy to mustnothave
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "OperatorGroup",
-						APIVersion: "operators.coreos.com/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "scoped-operator-group",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource not found as expected",
-				}},
-				metav1.Condition{
-					Type:    "OperatorGroupCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "OperatorGroupNotPresent",
-					Message: "the OperatorGroup is not present",
-				},
-				"the OperatorGroup is not present",
-			)
-		})
-	})
-	Describe("Test mustnothave message when the namespace does not exist", func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			subName   = "project-quay"
-		)
-		var (
-			opPolName        string
-			parentPolicyName string
-		)
-
-		BeforeEach(func() {
-			opPolName = "oppol-no-group" + getTestSuffix()
-			parentPolicyName = getParentPolicyName()
-
-			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
-		})
-
-		It("should report compliant", func() {
-			// change the subscription namespace, and the complianceType to mustnothave
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/subscription/namespace", "value": "imaginaryfriend"},`+
-					`{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:    "ValidPolicySpec",
-					Status:  metav1.ConditionTrue,
-					Reason:  "PolicyValidated",
-					Message: "the policy spec is valid",
-				},
-				"the policy spec is valid",
-			)
-			checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
-		})
-	})
 	Describe("Testing mustnothave behavior of operator groups in DeleteIfUnused mode", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
@@ -3163,7 +3084,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			}, consistentlyDuration, 3, ctx).ShouldNot(BeEmpty())
 		})
 
-		It("should not delete the inferred operator group when there is another subscription", func(ctx SpecContext) {
+		It("shouldn't delete the inferred operator group when there's another subscription", func(ctx SpecContext) {
 			// enforce it as a musthave in order to install the operator
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
@@ -3213,6 +3134,100 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			}, consistentlyDuration, 3, ctx).ShouldNot(BeEmpty())
 		})
 	})
+
+	Describe("Testing mustnothave behavior for an operator group that is different than the specified one", func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-with-group.yaml"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
+
+		BeforeEach(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+		})
+
+		It("should not report an operator group that does not match the spec", func() {
+			// create the extra operator group
+			KubectlTarget("apply", "-f", "../resources/case38_operator_install/incorrect-operator-group.yaml",
+				"-n", opPolTestNS)
+			// change the operator policy to mustnothave
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "OperatorGroup",
+						APIVersion: "operators.coreos.com/v1",
+						Metadata: policyv1.ObjectMetadata{
+							Namespace: opPolTestNS,
+							Name:      "scoped-operator-group",
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Resource not found as expected",
+				}},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "OperatorGroupNotPresent",
+					Message: "the OperatorGroup is not present",
+				},
+				"the OperatorGroup is not present",
+			)
+		})
+	})
+
+	Describe("Test mustnothave message when the namespace does not exist", func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+			subName   = "project-quay"
+		)
+		var (
+			opPolName        string
+			parentPolicyName string
+		)
+
+		BeforeEach(func() {
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+		})
+
+		It("should report compliant", func() {
+			// change the subscription namespace, and the complianceType to mustnothave
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/subscription/namespace", "value": "imaginaryfriend"},`+
+					`{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "ValidPolicySpec",
+					Status:  metav1.ConditionTrue,
+					Reason:  "PolicyValidated",
+					Message: "the policy spec is valid",
+				},
+				"the policy spec is valid",
+			)
+			checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+		})
+	})
+
 	Describe("Testing defaulted values of removalBehavior in an OperatorPolicy", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
@@ -3246,11 +3261,11 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			Expect(remBehavior).To(HaveKeyWithValue("customResourceDefinitions", "Keep"))
 		})
 	})
+
 	Describe("Testing defaulted values of ComplianceConfig in an OperatorPolicy", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
 		)
-
 		var (
 			opPolName        string
 			parentPolicyName string
@@ -3279,12 +3294,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			Expect(complianceConfig).To(HaveKeyWithValue("upgradesAvailable", "Compliant"))
 		})
 	})
+
 	Describe("Testing operator policies that specify the same subscription", Serial, Ordered, func() {
 		const (
 			musthaveYAML    = "../resources/case38_operator_install/operator-policy-no-group.yaml"
 			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
 		)
-
 		var (
 			musthaveName     string
 			mustnothaveName  string
@@ -3478,9 +3493,10 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
 			})
 		})
+
 		Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
 			const (
-				opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce-one-version.yaml"
+				opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce-one-ver.yaml"
 				opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
 				operatorName     = "example-operator.v0.0.3"
 			)
@@ -3561,7 +3577,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				)
 			})
 
-			It("Should only be noncompliant if the subscription error relates to the one in the operator policy", func() {
+			It("Should only be noncompliant if subscription error relates to the one in the operator policy", func() {
 				setupPolicy(opPolNoExistYAML, opPolNoExistName, parentPolicyName)
 
 				By("Checking that " + opPolNoExistName + " is NonCompliant")
@@ -3585,7 +3601,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					"constraints not satisfiable",
 				)
 
-				// Check if the subscription is still compliant on the operator policy trying to install a valid operator.
+				// Check if subscription is still compliant on the operator policy trying to install a valid operator.
 				// This tests that subscription status filtering is working properly since OLM includes the
 				// subscription errors as a condition on all subscriptions in the namespace.
 				By("Checking that " + opPolName + " is still Compliant and unaffected by " + opPolNoExistName)
@@ -3610,6 +3626,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				)
 			})
 		})
+
 		Describe("Testing templates in an OperatorPolicy", Ordered, func() {
 			const (
 				opPolYAML     = "../resources/case38_operator_install/operator-policy-with-templates.yaml"
@@ -3733,6 +3750,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				)
 			})
 		})
+
 		Describe("Testing recovery of sub-csv connection", Ordered, func() {
 			const (
 				opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
@@ -3788,7 +3806,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 							continue
 						}
 
-						if condType, _, _ := unstructured.NestedString(condMap, "type"); condType != "ResolutionFailed" {
+						condType, _, _ := unstructured.NestedString(condMap, "type")
+						if condType != "ResolutionFailed" {
 							continue
 						}
 
@@ -4051,6 +4070,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			}, olmWaitTimeout, 1).Should(Succeed())
 		})
 	})
+
 	Describe("Test Deprecation message in OperatorPolicy", Ordered, func() {
 		const (
 			allPolYAML     = "../resources/case38_operator_install/deprecation/all.yaml"
