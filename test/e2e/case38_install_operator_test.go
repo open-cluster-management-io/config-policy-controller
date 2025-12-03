@@ -1182,9 +1182,18 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 			By("Applying creating a ns and the test policy")
 			preFunc()
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx context.Context) {
+				By("Fixing the catalog source")
 				KubectlTarget("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
 					`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:latest"}]`)
+
+				By("Waiting for a packagemanifest to reappear")
+				Eventually(func() error {
+					_, err := targetK8sDynamic.Resource(gvrPackageManifest).Namespace("default").Get(
+						ctx, "project-quay", metav1.GetOptions{})
+
+					return err
+				}, olmWaitTimeout*2, 3).Should(Succeed())
 			})
 
 			setupPolicy(opPolYAML, opPolName, parentPolicyName)
