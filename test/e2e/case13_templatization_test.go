@@ -107,10 +107,12 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
 
+		AfterAll(func() {
 			By("Clean up")
-			utils.KubectlDelete("configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace)
-			utils.KubectlDelete("configurationpolicy", case13CfgPolCheckSecret, "-n", testNamespace)
+			utils.KubectlDelete("configurationpolicy", case13CfgPolCreateSecret, "-n", testNamespace, "--wait")
+			utils.KubectlDelete("configurationpolicy", case13CfgPolCheckSecret, "-n", testNamespace, "--wait")
 		})
 	})
 
