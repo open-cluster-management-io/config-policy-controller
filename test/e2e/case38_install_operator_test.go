@@ -1438,12 +1438,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		})
 		It("Should report an available install when informing", func(ctx SpecContext) {
 			goodVersion := "strimzi-cluster-operator.v0.36.0"
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/subscription/startingCSV", "value": "`+goodVersion+`"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
-			KubectlTarget("patch", "subscription.operator", subName, "-n", opPolTestNS, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/startingCSV", "value": "`+goodVersion+`"}]`)
 			Eventually(func(ctx SpecContext) int {
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/subscription/startingCSV", "value": "`+goodVersion+`"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
+				KubectlTarget("patch", "subscription.operator", subName, "-n", opPolTestNS, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/startingCSV", "value": "`+goodVersion+`"}]`)
+
 				ipList, _ := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 
@@ -1510,11 +1511,11 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 			firstInstallPlanName = ipList.Items[0].GetName()
 
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
-					`{"op": "replace", "path": "/spec/upgradeApproval", "value": "Automatic"}]`)
-
 			Eventually(func(ctx SpecContext) int {
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+						`{"op": "replace", "path": "/spec/upgradeApproval", "value": "Automatic"}]`)
+
 				ipList, err = targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 
