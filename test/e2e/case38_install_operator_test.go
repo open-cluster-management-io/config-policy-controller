@@ -1484,7 +1484,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 		It("Should become NonCompliant when ComplianceConfig is modified to NonCompliant", func() {
-			By("Patching the policy ComplianceConfig to Compliant")
+			By("Patching the policy ComplianceConfig to NonCompliant")
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceConfig/upgradesAvailable", "value": "NonCompliant"}]`)
 
