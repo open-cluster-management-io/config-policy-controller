@@ -421,7 +421,8 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
-	changed, err = r.handleInstallPlan(ctx, policy, subscription)
+	changed, earlyConds, err = r.handleInstallPlan(ctx, policy, subscription)
+	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
 	condChanged = condChanged || changed
 
 	if err != nil {
@@ -543,12 +544,12 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 			} else {
 				newError := errors.New("namespace is required in spec.subscription")
 
-				return nil, nil, updateStatus(policy, validationCond([]error{newError})), returnedErr
+				return sub, nil, updateStatus(policy, validationCond([]error{newError})), nil
 			}
 		}
 	} else {
 		// Invalid subscription spec - mark status and return without an API error
-		return nil, nil, updateStatus(policy, validationCond([]error{subErr})), returnedErr
+		return sub, nil, updateStatus(policy, validationCond([]error{subErr})), nil
 	}
 
 	opGroupNS := r.DefaultNamespace
@@ -559,20 +560,20 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 	opGroup, ogErr := buildOperatorGroup(policy, opGroupNS, tmplResolver)
 	if ogErr != nil {
 		// OperatorGroup spec invalid - mark status, don't requeue
-		return nil, nil, updateStatus(policy, validationCond([]error{ogErr})), nil
+		return sub, nil, updateStatus(policy, validationCond([]error{ogErr})), nil
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("error getting operator namespace: %w", err)
+		return sub, opGroup, false, fmt.Errorf("error getting operator namespace: %w", err)
 	}
 
 	if gotNamespace == nil && policy.Spec.ComplianceType.IsMustHave() {
 		newError := fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS)
-		// sub and opgroup should be nil to prevent creation/update.
-		return nil, nil, updateStatus(policy, validationCond([]error{newError})), nil
+
+		return sub, opGroup, updateStatus(policy, validationCond([]error{newError})), nil
 	}
 
 	changed, overlapErr, apiErr := r.checkSubOverlap(ctx, policy, sub)
@@ -1119,7 +1120,9 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 		// Now the OperatorGroup should match, so report Compliance
 		updateStatus(policy, createdCond("OperatorGroup"), createdObj(desiredOpGroup))
 		// Emit a dedicated "created" event regardless of later status aggregation
-		earlyConds = append(earlyConds, createdCond("OperatorGroup"))
+		cond := createdCond("OperatorGroup")
+		cond.LastTransitionTime = metav1.Now()
+		earlyConds = append(earlyConds, cond)
 
 		return true, earlyConds, true, nil
 	case 1:
@@ -1204,6 +1207,10 @@ func (r *OperatorPolicyReconciler) musthaveOpGroup(
 		desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Update stripped this information
 
 		updateStatus(policy, updatedCond("OperatorGroup"), updatedObj(desiredOpGroup))
+		// Emit a dedicated "updated" event
+		upd := updatedCond("OperatorGroup")
+		upd.LastTransitionTime = metav1.Now()
+		earlyConds = append(earlyConds, upd)
 
 		return true, earlyConds, true, nil
 	default:
@@ -1364,6 +1371,10 @@ func (r *OperatorPolicyReconciler) mustnothaveOpGroup(
 	desiredOpGroup.SetGroupVersionKind(operatorGroupGVK) // Delete stripped this information
 
 	updateStatus(policy, deletedCond("OperatorGroup"), deletedObj(desiredOpGroup))
+	// Emit a dedicated "deleted" event
+	del := deletedCond("OperatorGroup")
+	del.LastTransitionTime = metav1.Now()
+	earlyConds = append(earlyConds, del)
 
 	return earlyConds, true, nil
 }
@@ -1417,7 +1428,6 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 			earlyConds = append(earlyConds, calculateComplianceCondition(policy))
 		}
 
-		log.Info("!!!!!!!!!!!!!! create subscription!!!!!!!!!!!")
 		err := r.createWithNamespace(ctx, desiredSub)
 		if err != nil {
 			return nil, nil, changed, fmt.Errorf("error creating the Subscription: %w", err)
@@ -1534,6 +1544,10 @@ func (r *OperatorPolicyReconciler) musthaveSubscription(
 	mergedSub.SetGroupVersionKind(subscriptionGVK) // Update stripped this information
 
 	updateStatus(policy, updatedCond("Subscription"), updatedObj(mergedSub))
+	// Emit a dedicated "updated" event
+	upd := updatedCond("Subscription")
+	upd.LastTransitionTime = metav1.Now()
+	earlyConds = append(earlyConds, upd)
 
 	return mergedSub, earlyConds, true, nil
 }
@@ -1857,6 +1871,10 @@ func (r *OperatorPolicyReconciler) mustnothaveSubscription(
 	}
 
 	updateStatus(policy, deletedCond("Subscription"), deletedObj(desiredSub))
+	// Emit a dedicated "deleted" event
+	del := deletedCond("Subscription")
+	del.LastTransitionTime = metav1.Now()
+	earlyConds = append(earlyConds, del)
 
 	return foundSub, earlyConds, true, nil
 }
@@ -1888,14 +1906,14 @@ func messageIncludesSubscription(subscription *operatorv1alpha1.Subscription, me
 
 func (r *OperatorPolicyReconciler) handleInstallPlan(
 	ctx context.Context, policy *policyv1beta1.OperatorPolicy, sub *operatorv1alpha1.Subscription,
-) (bool, error) {
+) (bool, []metav1.Condition, error) {
 	if sub == nil {
 		// Note: existing related objects will not be removed by this status update
-		return updateStatus(policy, invalidCausingUnknownCond("InstallPlan")), nil
+		return updateStatus(policy, invalidCausingUnknownCond("InstallPlan")), []metav1.Condition{}, nil
 	}
 
 	if sub.Status.CurrentCSV == "" && sub.Status.InstalledCSV == "" {
-		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
+		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), []metav1.Condition{}, nil
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
@@ -1908,14 +1926,14 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 	// potentially vulnerable operators.
 	installPlans, err := r.DynamicWatcher.List(watcher, installPlanGVK, sub.Namespace, labels.Everything())
 	if err != nil {
-		return false, fmt.Errorf("error listing InstallPlans: %w", err)
+		return false, []metav1.Condition{}, fmt.Errorf("error listing InstallPlans: %w", err)
 	}
 
 	// InstallPlans are generally kept in order to provide a history of actions on the cluster, but
 	// they can be deleted without impacting the installed operator. So, not finding any should not
 	// be considered a reason for NonCompliance, regardless of musthave or mustnothave.
 	if len(installPlans) == 0 {
-		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
+		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), []metav1.Condition{}, nil
 	}
 
 	var latestInstallPlan *unstructured.Unstructured
@@ -1983,16 +2001,18 @@ func (r *OperatorPolicyReconciler) handleInstallPlan(
 			"subscription", sub.Name, "namespace", sub.Namespace,
 		)
 
-		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), nil
+		return updateStatus(policy, noInstallPlansCond, noInstallPlansObj(sub.Namespace)), []metav1.Condition{}, nil
 	}
 
 	if policy.Spec.ComplianceType.IsMustHave() {
-		changed, err := r.musthaveInstallPlan(ctx, policy, sub, latestInstallPlan)
+		changed, earlyConds, err := r.musthaveInstallPlan(ctx, policy, sub, latestInstallPlan)
 
-		return changed, err
+		return changed, earlyConds, err
 	}
 
-	return r.mustnothaveInstallPlan(policy, latestInstallPlan)
+	changed := r.mustnothaveInstallPlan(policy, latestInstallPlan)
+
+	return changed, []metav1.Condition{}, nil
 }
 
 func (r *OperatorPolicyReconciler) musthaveInstallPlan(
@@ -2000,7 +2020,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 	policy *policyv1beta1.OperatorPolicy,
 	sub *operatorv1alpha1.Subscription,
 	latestInstallPlanUnstruct *unstructured.Unstructured,
-) (bool, error) {
+) (bool, []metav1.Condition, error) {
 	opLog := ctrl.LoggerFrom(ctx)
 	complianceConfig := policy.Spec.ComplianceConfig.UpgradesAvailable
 	latestInstallPlan := operatorv1alpha1.InstallPlan{}
@@ -2010,7 +2030,7 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		opLog.Error(err, "Unable to determine the CSV names of the current InstallPlan",
 			"InstallPlan.Name", latestInstallPlanUnstruct.GetName())
 
-		return updateStatus(policy, installPlansNoApprovals), nil
+		return updateStatus(policy, installPlansNoApprovals), []metav1.Condition{}, nil
 	}
 
 	ipCSVs := latestInstallPlan.Spec.ClusterServiceVersionNames
@@ -2025,21 +2045,21 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 		currentCSV := sub.Status.CurrentCSV
 
 		if installedCSV != "" && currentCSV != "" && installedCSV == currentCSV {
-			return updateStatus(policy, installPlansNoApprovals), nil
+			return updateStatus(policy, installPlansNoApprovals), []metav1.Condition{}, nil
 		}
 	case operatorv1alpha1.InstallPlanPhaseInstalling:
 		return updateStatus(
 			policy,
 			installPlanInstallingCond,
 			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
-		), nil
+		), []metav1.Condition{}, nil
 	case operatorv1alpha1.InstallPlanFailed:
 		// Generally, a failed InstallPlan is not a reason for NonCompliance, because it could be from
 		// an old installation. But if the current InstallPlan is failed, we should alert the user.
 		if len(ipCSVs) == 1 {
 			return updateStatus(
 				policy, installPlanFailed, existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
-			), nil
+			), []metav1.Condition{}, nil
 		}
 
 		// If there is more than one CSV in the InstallPlan, make sure this CSV failed before marking it as
@@ -2057,27 +2077,30 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 					policy,
 					installPlanFailed,
 					existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
-				), nil
+				), []metav1.Condition{}, nil
 			}
 		}
 
 		// If no step for this CSV failed in the InstallPlan, treat it the same as no install plans requiring approval
-		return updateStatus(policy, installPlansNoApprovals), nil
+		return updateStatus(policy, installPlansNoApprovals), []metav1.Condition{}, nil
 	default:
 		return updateStatus(
 			policy,
 			installPlansNoApprovals, existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
-		), nil
+		), []metav1.Condition{}, nil
 	}
 
 	// Check if it's already approved. This can happen if this OperatorPolicy or another managing the same InstallPlan
 	// performed the approval but it hasn't started installing yet.
 	if latestInstallPlan.Spec.Approved {
+		ipApproved := installPlanApprovedCond(sub.Status.CurrentCSV)
+		ipApproved.LastTransitionTime = metav1.Now()
+
 		return updateStatus(
 			policy,
 			installPlanApprovedCond(sub.Status.CurrentCSV),
 			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
-		), nil
+		), []metav1.Condition{ipApproved}, nil
 	}
 
 	initialInstall := sub.Status.InstalledCSV == ""
@@ -2086,43 +2109,54 @@ func (r *OperatorPolicyReconciler) musthaveInstallPlan(
 	// Only report this status when not approving an InstallPlan, because otherwise it could easily
 	// oscillate between this and another condition.
 	if policy.Spec.RemediationAction.IsInform() || (!initialInstall && !autoUpgrade) {
+		// Emit an early event to record that an upgrade is available and requires approval
+		ipUpgrade := installPlanUpgradeCond(complianceConfig, ipCSVs, nil)
+		ipUpgrade.LastTransitionTime = metav1.Now()
+
 		return updateStatus(
 			policy,
-			installPlanUpgradeCond(complianceConfig, ipCSVs, nil),
+			ipUpgrade,
 			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
-		), nil
+		), []metav1.Condition{ipUpgrade}, nil
 	}
 
 	remainingCSVsToApprove, err := r.getRemainingCSVApprovals(ctx, policy, sub, &latestInstallPlan)
 	if err != nil {
-		return false, fmt.Errorf("error finding the InstallPlan approvals: %w", err)
+		return false, []metav1.Condition{}, fmt.Errorf("error finding the InstallPlan approvals: %w", err)
 	}
 
 	if len(remainingCSVsToApprove) != 0 {
+		// Emit an early event that approval is required for the listed CSVs
+		ipUpgrade := installPlanUpgradeCond(complianceConfig, ipCSVs, remainingCSVsToApprove)
+		ipUpgrade.LastTransitionTime = metav1.Now()
+
 		return updateStatus(
 			policy,
-			installPlanUpgradeCond(complianceConfig, ipCSVs, remainingCSVsToApprove),
+			ipUpgrade,
 			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
-		), nil
+		), []metav1.Condition{ipUpgrade}, nil
 	}
 
 	opLog.Info("Approving InstallPlan", "InstallPlanName", latestInstallPlan.Name,
 		"InstallPlanNamespace", latestInstallPlan.Namespace)
 
 	if err := unstructured.SetNestedField(latestInstallPlanUnstruct.Object, true, "spec", "approved"); err != nil {
-		return false, fmt.Errorf("error approving InstallPlan: %w", err)
+		return false, []metav1.Condition{}, fmt.Errorf("error approving InstallPlan: %w", err)
 	}
 
 	if err := r.TargetClient.Update(ctx, latestInstallPlanUnstruct); err != nil {
-		return false, fmt.Errorf("error updating approved InstallPlan: %w", err)
+		return false, []metav1.Condition{}, fmt.Errorf("error updating approved InstallPlan: %w", err)
 	}
+
+	ipApproved := installPlanApprovedCond(sub.Status.CurrentCSV)
+	ipApproved.LastTransitionTime = metav1.Now()
 
 	return updateStatus(
 			policy,
 			installPlanApprovedCond(sub.Status.CurrentCSV),
 			existingInstallPlanObj(&latestInstallPlan, string(phase), complianceConfig),
 		),
-		nil
+		[]metav1.Condition{ipApproved}, nil
 }
 
 // getRemainingCSVApprovals will return all CSVs that can't be approved by an OperatorPolicy (currentPolicy and others).
@@ -2390,10 +2424,10 @@ func getDependencyCSVs(
 func (r *OperatorPolicyReconciler) mustnothaveInstallPlan(
 	policy *policyv1beta1.OperatorPolicy,
 	latestInstallPlan *unstructured.Unstructured,
-) (bool, error) {
+) bool {
 	changed := updateStatus(policy, notApplicableCond("InstallPlan"), foundNotApplicableObj(latestInstallPlan))
 
-	return changed, nil
+	return changed
 }
 
 func (r *OperatorPolicyReconciler) handleCSV(
@@ -2578,6 +2612,7 @@ func (r *OperatorPolicyReconciler) mustnothaveCSV(
 	}
 
 	updateStatus(policy, deletedCond("ClusterServiceVersion", csvNames...), relatedCSVs...)
+	earlyConds = append(earlyConds, deletedCond("ClusterServiceVersion", csvNames...))
 
 	return earlyConds, true, nil
 }
@@ -2756,6 +2791,7 @@ func (r *OperatorPolicyReconciler) handleCRDs(
 	}
 
 	updateStatus(policy, deletedCond("CustomResourceDefinition"), relatedCRDs...)
+	earlyConds = append(earlyConds, deletedCond("CustomResourceDefinition"))
 
 	return earlyConds, true, nil
 }

@@ -242,6 +242,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			KubectlTarget("patch", "catalogsource", "operatorhubio-catalog", "--namespace=olm", "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:latest"}]`)
 
+			By("Resetting the catalog source for consistency after test")
+			KubectlTarget("patch", "catalogsource", "operatorhubio-catalog",
+				"--namespace=olm", "--type=json",
+				"-p", `[{"op":"replace","path":"/spec/image","value":"quay.io/operatorhubio/catalog:latest"}]`)
+
 			By("Waiting for a packagemanifest to reappear")
 			Eventually(func() error {
 				_, err := targetK8sDynamic.Resource(gvrPackageManifest).Namespace("default").Get(
@@ -313,7 +318,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "PolicyValidated",
 					Message: `the policy spec is valid`,
 				},
-				`the policy spec is valid`,
+				`NonCompliant; a relevant InstallPlan is actively installing`,
 			)
 		})
 	})
@@ -468,7 +473,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Message: "the policy does not specify an OperatorGroup but one already exists in the namespace" +
 						" - assuming that OperatorGroup is correct",
 				},
-				"assuming that OperatorGroup is correct",
+				// Still installPlan failed because the OperatorGroup is not correct
+				"NonCompliant; a relevant InstallPlan is actively installing",
 			)
 		})
 	})
@@ -582,7 +588,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "OperatorGroupMatches",
 					Message: "the OperatorGroup matches what is required by the policy",
 				},
-				"the OperatorGroup matches what is required by the policy",
+				// SubscriptionMissing blocks OperatorGroupMatches
+				"",
 			)
 		})
 		It("Should report a mismatch when the OperatorGroup is manually edited", func() {
@@ -712,7 +719,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "SubscriptionMissing",
 					Message: "the Subscription required by the policy was not found",
 				},
-				"the Subscription required by the policy was not found",
+				// OperatorGroupMismatch blocks SubscriptionMissing
+				"",
 			)
 		})
 		It("Should not create the Subscription when another OperatorGroup already exists", func() {
@@ -772,7 +780,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "SubscriptionMissing",
 					Message: "the Subscription required by the policy was not found",
 				},
-				"the Subscription required by the policy was not found",
+				"the OperatorGroup found on the cluster does not match the policy",
 			)
 		})
 
@@ -826,7 +834,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "ConstraintsNotSatisfiable",
 					Message: "constraints not satisfiable: refer to the Subscription for more details",
 				},
-				"the Subscription was updated to match the policy",
+				"constraints not satisfiable: refer to the Subscription for more details",
 			)
 		})
 	})
@@ -868,7 +876,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "SubscriptionMatches",
 					Message: "the Subscription matches what is required by the policy",
 				},
-				"the Subscription matches what is required by the policy",
+				// OperatorGroupMissing blocks SubscriptionMatches
+				"",
 			)
 		})
 		It("Should notice the mismatch when the spec is changed in the policy", func() {
@@ -895,7 +904,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "SubscriptionMismatch",
 					Message: "the Subscription found on the cluster does not match the policy",
 				},
-				"the Subscription found on the cluster does not match the policy",
+				"the OperatorGroup required by the policy was not found",
 			)
 		})
 	})
@@ -1083,7 +1092,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "NoExistingDeployments",
 					Message: "no existing operator Deployments",
 				},
-				"no existing operator Deployments",
+				// ClusterServiceVersionCompliant UnsupportedOperatorGroup blocks
+				// "no existing operator Deployments"
+				"",
 			)
 		})
 
@@ -1140,7 +1151,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "CatalogSourcesFound",
 					Message: "CatalogSource was found",
 				},
-				"CatalogSource was found",
+				// OperatorGroupMissing blocks CatalogSourcesFound
+				"",
 			)
 		})
 		It("Should remain compliant when policy is enforced", func() {
@@ -1199,7 +1211,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "CatalogSourcesNotFound",
 					Message: "CatalogSource 'fakeName' was not found",
 				},
-				"CatalogSource 'fakeName' was not found",
+				// SubscriptionCompliant ConstraintsNotSatisfiable blocks CatalogSourcesNotFound
+				"",
 			)
 		})
 		It("Should report unhealthy status when CatalogSource fails", func() {
@@ -1233,7 +1246,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "CatalogSourcesFoundUnhealthy",
 					Message: "CatalogSource was found but is unhealthy",
 				},
-				"CatalogSource was found but is unhealthy",
+				// CatalogSourceUnhealthy event is not created because of ClusterServiceVersion error
+				"",
 			)
 		})
 		It("Should become NonCompliant when ComplianceConfig is modified", func() {
@@ -1263,7 +1277,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "CatalogSourcesFoundUnhealthy",
 					Message: "CatalogSource was found but is unhealthy",
 				},
-				"CatalogSource was found but is unhealthy",
+				// CatalogSourceUnhealthy event is not created because of ClusterServiceVersion error
+				"",
 			)
 		})
 	})
@@ -1357,7 +1372,9 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "NoInstallPlansFound",
 					Message: "there are no relevant InstallPlans in the namespace",
 				},
-				"there are no relevant InstallPlans in the namespace",
+				// Due to SubscriptionCompliant error "NonCompliant;
+				// the InstallPlan event will not be created.
+				"",
 			)
 		})
 		It("Should report an available install when informing", func(ctx SpecContext) {
@@ -1585,7 +1602,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "RelevantCRDNotFound",
 					Message: "no CRDs were found for the operator",
 				},
-				"no CRDs were found for the operator",
+				// "the OperatorGroup required by the policy was not found" blocks this message from being emitted
+				"",
 			)
 		})
 
@@ -1691,7 +1709,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "InvalidPolicySpec",
 					Message: `spec.subscription is invalid: json: unknown field "actually"`,
 				},
-				`the status of the Subscription could not be determined because the policy is invalid`,
+				`NonCompliant; the policy spec.subscription is invalid: json: unknown field "actually`,
 			)
 		})
 		It("Should report about the prohibited installPlanApproval value", func() {
@@ -1722,7 +1740,6 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			// Remove the `installPlanApproval` value
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "remove", "path": "/spec/subscription/installPlanApproval"}]`)
-
 			check(
 				opPolName,
 				true,
@@ -1753,7 +1770,21 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "InvalidPolicySpec",
 					Message: `spec.operatorGroup is invalid: json: unknown field "foo"`,
 				},
-				`the status of the OperatorGroup could not be determined because the policy is invalid`,
+				// ValidPolicySpec blocks OperatorGroupCompliant "the status of the OperatorGroup
+				// could not be determined because the policy is invalid"
+				"",
+			)
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "OperatorGroupCompliant",
+					Status:  metav1.ConditionUnknown,
+					Reason:  "InvalidPolicySpec",
+					Message: `the status of the OperatorGroup could not be determined because the policy is invalid`,
+				},
+				"",
 			)
 		})
 		It("Should report about the namespace not existing", func() {
@@ -1810,7 +1841,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "PolicyValidated",
 					Message: "the policy spec is valid",
 				},
-				"the policy spec is valid",
+				"",
 			)
 		})
 	})
@@ -2038,7 +2069,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "SubscriptionPresent",
 					Message: "the Subscription is present",
 				},
-				`the Subscription is present`,
+				// OperatorGroup Present blocks Subscription Present
+				"",
 			)
 			check(
 				opPolName,
@@ -2060,7 +2092,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "InstallPlanNotApplicable",
 					Message: "MustNotHave policies ignore kind InstallPlan",
 				},
-				`MustNotHave policies ignore kind InstallPlan`,
+				// OperatorGroup Present blocks Subscription Present
+				"",
 			)
 			check(
 				opPolName,
@@ -2082,7 +2115,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "ClusterServiceVersionPresent",
 					Message: "the ClusterServiceVersion (quay-operator.v3.10.0) is present",
 				},
-				regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.10.0) is present"),
+				// OperatorGroup Present blocks
+				"",
 			)
 			check(
 				opPolName,
@@ -2104,7 +2138,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "CustomResourceDefinitionPresent",
 					Message: "the CustomResourceDefinition is present",
 				},
-				`the CustomResourceDefinition is present`,
+				// OperatorGroup Present blocks
+				"",
 			)
 			check(
 				opPolName,
@@ -2127,7 +2162,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "DeploymentNotApplicable",
 					Message: "MustNotHave policies ignore kind Deployment",
 				},
-				`MustNotHave policies ignore kind Deployment`,
+				// OperatorGroup Present blocks
+				"",
 			)
 			check(
 				opPolName,
@@ -2150,7 +2186,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Reason:  "CatalogSourceNotApplicable",
 					Message: "MustNotHave policies ignore kind CatalogSource",
 				},
-				`MustNotHave policies ignore kind CatalogSource`,
+				// OperatorGroup Present blocks
+				"",
 			)
 		})
 

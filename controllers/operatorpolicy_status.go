@@ -204,95 +204,91 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 	idx, cond := policy.Status.GetCondition(validPolicyConditionType)
 	if idx == -1 {
 		return shortReturn("the validity of the policy is unknown")
-	} else {
-		if cond.Status != metav1.ConditionTrue {
-			// When invalid, short-circuit immediately with only the validation message.
-			return shortReturn(cond.Message)
-		}
-
-		messages = append(messages, cond.Message)
 	}
+
+	if cond.Status != metav1.ConditionTrue {
+		// When invalid, short-circuit immediately with only the validation message.
+		return shortReturn(cond.Message)
+	}
+
+	messages = append(messages, cond.Message)
 
 	idx, cond = policy.Status.GetCondition(opGroupConditionType)
 	if idx == -1 {
 		return shortReturn("the status of the OperatorGroup is unknown")
-	} else {
-		if cond.Status != metav1.ConditionTrue {
-			return shortReturn(cond.Message)
-		}
-
-		messages = append(messages, cond.Message)
 	}
+
+	if cond.Status != metav1.ConditionTrue {
+		return shortReturn(cond.Message)
+	}
+
+	messages = append(messages, cond.Message)
 
 	idx, cond = policy.Status.GetCondition(subConditionType)
+
 	if idx == -1 {
 		return shortReturn("the status of the Subscription is unknown")
-	} else {
-		if cond.Status != metav1.ConditionTrue {
-			return shortReturn(cond.Message)
-		}
-
-		messages = append(messages, cond.Message)
 	}
+
+	if cond.Status != metav1.ConditionTrue {
+		return shortReturn(cond.Message)
+	}
+
+	messages = append(messages, cond.Message)
 
 	idx, cond = policy.Status.GetCondition(installPlanConditionType)
-
 	if idx == -1 {
 		return shortReturn("the status of the InstallPlan is unknown")
-	} else {
-		if cond.Status != metav1.ConditionTrue {
-			return shortReturn(cond.Message)
-		}
-
-		messages = append(messages, cond.Message)
 	}
+
+	if cond.Status != metav1.ConditionTrue {
+		return shortReturn(cond.Message)
+	}
+
+	messages = append(messages, cond.Message)
 
 	idx, cond = policy.Status.GetCondition(csvConditionType)
 	if idx == -1 {
 		return shortReturn("the status of the ClusterServiceVersion is unknown")
-	} else {
-		if cond.Status != metav1.ConditionTrue {
-			return shortReturn(cond.Message)
-		}
-
-		messages = append(messages, cond.Message)
 	}
+
+	if cond.Status != metav1.ConditionTrue {
+		return shortReturn(cond.Message)
+	}
+
+	messages = append(messages, cond.Message)
 
 	idx, cond = policy.Status.GetCondition(crdConditionType)
 	if idx == -1 {
 		return shortReturn("the status of the CustomResourceDefinitions is unknown")
-	} else {
-
-		if cond.Status != metav1.ConditionTrue {
-			return shortReturn(cond.Message)
-		}
-
-		messages = append(messages, cond.Message)
 	}
+
+	if cond.Status != metav1.ConditionTrue {
+		return shortReturn(cond.Message)
+	}
+
+	messages = append(messages, cond.Message)
 
 	idx, cond = policy.Status.GetCondition(deploymentConditionType)
-
 	if idx == -1 {
 		return shortReturn("the status of the Deployments are unknown")
-	} else {
-
-		if cond.Status != metav1.ConditionTrue {
-			return shortReturn(cond.Message)
-		}
-
-		messages = append(messages, cond.Message)
 	}
 
-	idx, cond = policy.Status.GetCondition(catalogSrcConditionType)
+	if cond.Status != metav1.ConditionTrue {
+		return shortReturn(cond.Message)
+	}
 
+	messages = append(messages, cond.Message)
+
+	idx, cond = policy.Status.GetCondition(catalogSrcConditionType)
 	if idx == -1 {
 		return shortReturn("the status of the CatalogSource is unknown")
-	} else {
-		messages = append(messages, cond.Message)
+	}
 
-		if cond.Status != metav1.ConditionFalse {
-			return shortReturn(cond.Message)
-		}
+	messages = append(messages, cond.Message)
+
+	if cond.Status != metav1.ConditionFalse {
+		return shortReturn(cond.Message)
 	}
 
 	idx, cond = policy.Status.GetCondition(deprecationType)
@@ -300,13 +296,13 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		policy.Spec.ComplianceConfig.DeprecationsPresent == "NonCompliant" {
 		if idx == -1 {
 			return shortReturn("The deprecation status is unknown")
-		} else {
-			if cond.Status != metav1.ConditionTrue {
-				return shortReturn(cond.Message)
-			}
-
-			messages = append(messages, cond.Message)
 		}
+
+		if cond.Status != metav1.ConditionTrue {
+			return shortReturn(cond.Message)
+		}
+
+		messages = append(messages, cond.Message)
 	}
 
 	message := strings.Join(messages, ", ")
