@@ -180,158 +180,18 @@ func conditionChanged(updatedCondition, existingCondition metav1.Condition) bool
 // order, checking if there are any reasons the policy should be NonCompliant, and accumulating
 // the reasons into one string to reflect the whole status.
 func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.Condition {
-	foundNonCompliant := false
 	messages := make([]string, 0)
 
-	idx, cond := policy.Status.GetCondition(validPolicyConditionType)
-	if idx == -1 {
-		messages = append(messages, "the validity of the policy is unknown")
-		foundNonCompliant = true
-	} else {
-		messages = append(messages, cond.Message)
+	// Helper to build and return a NonCompliant condition using only the given message.
+	shortReturn := func(msg string) metav1.Condition {
+		message := "NonCompliant; " + msg
 
-		if cond.Status != metav1.ConditionTrue {
-			// When the policy spec is invalid, short-circuit and only report the validation message
-			// to avoid repetitive and confusing concatenations for other components.
-			message := "NonCompliant; " + strings.Join(messages, ", ")
-
-			maxMessageLength := 4096
-			if len(message) > maxMessageLength {
-				truncMsg := "...[truncated]"
-				message = message[:(maxMessageLength-len(truncMsg))] + truncMsg
-			}
-
-			return metav1.Condition{
-				Type:               compliantConditionType,
-				Status:             metav1.ConditionFalse,
-				LastTransitionTime: metav1.Now(),
-				Reason:             "NonCompliant",
-				Message:            message,
-			}
+		maxMessageLength := 4096
+		if len(message) > maxMessageLength {
+			truncMsg := "...[truncated]"
+			message = message[:(maxMessageLength-len(truncMsg))] + truncMsg
 		}
-	}
 
-	idx, cond = policy.Status.GetCondition(opGroupConditionType)
-	if idx == -1 {
-		messages = append(messages, "the status of the OperatorGroup is unknown")
-		foundNonCompliant = true
-	} else {
-		messages = append(messages, cond.Message)
-
-		if cond.Status != metav1.ConditionTrue {
-			foundNonCompliant = true
-		}
-	}
-
-	idx, cond = policy.Status.GetCondition(subConditionType)
-	if idx == -1 {
-		messages = append(messages, "the status of the Subscription is unknown")
-		foundNonCompliant = true
-	} else {
-		messages = append(messages, cond.Message)
-
-		if cond.Status != metav1.ConditionTrue {
-			foundNonCompliant = true
-		}
-	}
-
-	idx, cond = policy.Status.GetCondition(installPlanConditionType)
-
-	if idx == -1 {
-		messages = append(messages, "the status of the InstallPlan is unknown")
-
-		foundNonCompliant = true
-	} else {
-		messages = append(messages, cond.Message)
-
-		if cond.Status != metav1.ConditionTrue {
-			foundNonCompliant = true
-		}
-	}
-
-	idx, cond = policy.Status.GetCondition(csvConditionType)
-	if idx == -1 {
-		messages = append(messages, "the status of the ClusterServiceVersion is unknown")
-		foundNonCompliant = true
-	} else {
-		messages = append(messages, cond.Message)
-
-		if cond.Status != metav1.ConditionTrue {
-			foundNonCompliant = true
-		}
-	}
-
-	idx, cond = policy.Status.GetCondition(crdConditionType)
-	if idx == -1 {
-		messages = append(messages, "the status of the CustomResourceDefinitions is unknown")
-		foundNonCompliant = true
-	} else {
-		messages = append(messages, cond.Message)
-
-		if cond.Status != metav1.ConditionTrue {
-			foundNonCompliant = true
-		}
-	}
-
-	idx, cond = policy.Status.GetCondition(deploymentConditionType)
-
-	if idx == -1 {
-		messages = append(messages, "the status of the Deployments are unknown")
-
-		foundNonCompliant = true
-	} else {
-		messages = append(messages, cond.Message)
-
-		if cond.Status != metav1.ConditionTrue {
-			foundNonCompliant = true
-		}
-	}
-
-	idx, cond = policy.Status.GetCondition(catalogSrcConditionType)
-
-	if idx == -1 {
-		messages = append(messages, "the status of the CatalogSource is unknown")
-
-		foundNonCompliant = true
-	} else {
-		messages = append(messages, cond.Message)
-
-		// Note: the CatalogSource condition has a different polarity
-		if cond.Status != metav1.ConditionFalse {
-			foundNonCompliant = true
-		}
-	}
-
-	idx, cond = policy.Status.GetCondition(deprecationType)
-	if !policy.Spec.ComplianceType.IsMustNotHave() &&
-		policy.Spec.ComplianceConfig.DeprecationsPresent == "NonCompliant" {
-		if idx == -1 {
-			messages = append(messages, "The deprecation status is unknown")
-			foundNonCompliant = true
-		} else {
-			messages = append(messages, cond.Message)
-
-			if cond.Status != metav1.ConditionTrue {
-				foundNonCompliant = true
-			}
-		}
-	}
-
-	message := strings.Join(messages, ", ")
-
-	if foundNonCompliant {
-		message = "NonCompliant; " + message
-	} else {
-		message = "Compliant; " + message
-	}
-
-	maxMessageLength := 4096
-	if len(message) > maxMessageLength {
-		truncMsg := "...[truncated]"
-		message = message[:(maxMessageLength-len(truncMsg))] + truncMsg
-	}
-
-	if foundNonCompliant {
 		return metav1.Condition{
 			Type:               compliantConditionType,
 			Status:             metav1.ConditionFalse,
@@ -339,6 +199,124 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 			Reason:             "NonCompliant",
 			Message:            message,
 		}
+	}
+
+	idx, cond := policy.Status.GetCondition(validPolicyConditionType)
+	if idx == -1 {
+		return shortReturn("the validity of the policy is unknown")
+	} else {
+		if cond.Status != metav1.ConditionTrue {
+			// When invalid, short-circuit immediately with only the validation message.
+			return shortReturn(cond.Message)
+		}
+
+		messages = append(messages, cond.Message)
+	}
+
+	idx, cond = policy.Status.GetCondition(opGroupConditionType)
+	if idx == -1 {
+		return shortReturn("the status of the OperatorGroup is unknown")
+	} else {
+		if cond.Status != metav1.ConditionTrue {
+			return shortReturn(cond.Message)
+		}
+
+		messages = append(messages, cond.Message)
+	}
+
+	idx, cond = policy.Status.GetCondition(subConditionType)
+	if idx == -1 {
+		return shortReturn("the status of the Subscription is unknown")
+	} else {
+		if cond.Status != metav1.ConditionTrue {
+			return shortReturn(cond.Message)
+		}
+
+		messages = append(messages, cond.Message)
+	}
+
+	idx, cond = policy.Status.GetCondition(installPlanConditionType)
+
+	if idx == -1 {
+		return shortReturn("the status of the InstallPlan is unknown")
+	} else {
+		if cond.Status != metav1.ConditionTrue {
+			return shortReturn(cond.Message)
+		}
+
+		messages = append(messages, cond.Message)
+	}
+
+	idx, cond = policy.Status.GetCondition(csvConditionType)
+	if idx == -1 {
+		return shortReturn("the status of the ClusterServiceVersion is unknown")
+	} else {
+		if cond.Status != metav1.ConditionTrue {
+			return shortReturn(cond.Message)
+		}
+
+		messages = append(messages, cond.Message)
+	}
+
+	idx, cond = policy.Status.GetCondition(crdConditionType)
+	if idx == -1 {
+		return shortReturn("the status of the CustomResourceDefinitions is unknown")
+	} else {
+
+		if cond.Status != metav1.ConditionTrue {
+			return shortReturn(cond.Message)
+		}
+
+		messages = append(messages, cond.Message)
+	}
+
+	idx, cond = policy.Status.GetCondition(deploymentConditionType)
+
+	if idx == -1 {
+		return shortReturn("the status of the Deployments are unknown")
+	} else {
+
+		if cond.Status != metav1.ConditionTrue {
+			return shortReturn(cond.Message)
+		}
+
+		messages = append(messages, cond.Message)
+	}
+
+	idx, cond = policy.Status.GetCondition(catalogSrcConditionType)
+
+	if idx == -1 {
+		return shortReturn("the status of the CatalogSource is unknown")
+	} else {
+		messages = append(messages, cond.Message)
+
+		if cond.Status != metav1.ConditionFalse {
+			return shortReturn(cond.Message)
+		}
+	}
+
+	idx, cond = policy.Status.GetCondition(deprecationType)
+	if !policy.Spec.ComplianceType.IsMustNotHave() &&
+		policy.Spec.ComplianceConfig.DeprecationsPresent == "NonCompliant" {
+		if idx == -1 {
+			return shortReturn("The deprecation status is unknown")
+		} else {
+			if cond.Status != metav1.ConditionTrue {
+				return shortReturn(cond.Message)
+			}
+
+			messages = append(messages, cond.Message)
+		}
+	}
+
+	message := strings.Join(messages, ", ")
+
+	message = "Compliant; " + message
+
+	maxMessageLength := 4096
+	if len(message) > maxMessageLength {
+		truncMsg := "...[truncated]"
+		message = message[:(maxMessageLength-len(truncMsg))] + truncMsg
 	}
 
 	return metav1.Condition{
