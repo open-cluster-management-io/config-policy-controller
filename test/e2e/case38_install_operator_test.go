@@ -1003,6 +1003,37 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				"the Subscription was updated to match the policy",
 				skipConsistently,
 			)
+
+			By("Getting the subscription details for debugging")
+			Eventually(func(g Gomega) {
+				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+					Get(context.TODO(), subName, metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred(), "Failed to get subscription")
+
+				subJSON, err := json.MarshalIndent(sub.Object, "", "  ")
+				g.Expect(err).NotTo(HaveOccurred())
+
+				GinkgoWriter.Println("=== Subscription Details ===")
+				GinkgoWriter.Printf("Name: %s\n", sub.GetName())
+				GinkgoWriter.Printf("Namespace: %s\n", sub.GetNamespace())
+
+				// Print spec details
+				if spec, found, _ := unstructured.NestedMap(sub.Object, "spec"); found {
+					specJSON, _ := json.MarshalIndent(spec, "", "  ")
+					GinkgoWriter.Printf("Spec:\n%s\n", string(specJSON))
+				}
+
+				// Print status details
+				if status, found, _ := unstructured.NestedMap(sub.Object, "status"); found {
+					statusJSON, _ := json.MarshalIndent(status, "", "  ")
+					GinkgoWriter.Printf("Status:\n%s\n", string(statusJSON))
+				} else {
+					GinkgoWriter.Println("Status: (no status found)")
+				}
+
+				GinkgoWriter.Printf("\nFull Subscription JSON:\n%s\n", string(subJSON))
+				GinkgoWriter.Println("===========================")
+			}, eventuallyTimeout, 1).Should(Succeed())
 		})
 	})
 
