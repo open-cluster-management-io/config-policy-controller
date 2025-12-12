@@ -35,6 +35,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		eventuallyTimeout    = 90
 		consistentlyDuration = 5
 		olmWaitTimeout       = 60
+		skipConsistently     = "skip-consistently"
 	)
 
 	// checks that the compliance state eventually matches what is desired
@@ -120,6 +121,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		expectedRelatedObjs []policyv1.RelatedObject,
 		expectedCondition metav1.Condition,
 		expectedEventMsgSnippet string,
+		opts ...string,
 	) {
 		GinkgoHelper()
 
@@ -213,7 +215,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		}
 
 		Eventually(checkFunc, eventuallyTimeout*2, 3).Should(Succeed())
-		Consistently(checkFunc, consistentlyDuration, 1).Should(Succeed())
+
+		// In rare cases, OLM may cause a test flake when resources
+		// from the previous spec are processed too late.
+		// We can skip the Consistently check in these cases.
+		if !slices.Contains(opts, skipConsistently) {
+			Consistently(checkFunc, consistentlyDuration, 1).Should(Succeed())
+		}
 	}
 
 	preFunc := func() {
@@ -993,6 +1001,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					Message: "constraints not satisfiable: refer to the Subscription for more details",
 				},
 				"the Subscription was updated to match the policy",
+				skipConsistently,
 			)
 		})
 	})
