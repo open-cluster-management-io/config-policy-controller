@@ -35,6 +35,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		eventuallyTimeout    = 90
 		consistentlyDuration = 5
 		olmWaitTimeout       = 60
+		skipConsistently     = "skipConsistently"
 	)
 
 	// checks that the compliance state eventually matches what is desired
@@ -215,7 +216,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 		Eventually(checkFunc, eventuallyTimeout*2, 3).Should(Succeed())
 
-		if !slices.Contains(opts, "skipConsistently") {
+		if !slices.Contains(opts, skipConsistently) {
 			Consistently(checkFunc, consistentlyDuration, 1).Should(Succeed())
 		}
 	}
@@ -977,7 +978,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		})
 		It("Should apply an update to the Subscription", func() {
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/subscription/sourceNamespace", "value": "fake"}]`)
+				`[{"op": "replace", "path": "/spec/subscription/channel", "value": "fake"}]`)
 			check(
 				opPolName,
 				false,
@@ -1000,6 +1001,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					Message: "constraints not satisfiable: refer to the Subscription for more details",
 				},
 				"the Subscription was updated to match the policy",
+				skipConsistently,
 			)
 		})
 	})
@@ -3630,6 +3632,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					Message: "the Subscription matches what is required by the policy",
 				},
 				"the Subscription was updated to match the policy",
+				skipConsistently,
 			)
 		})
 	})
