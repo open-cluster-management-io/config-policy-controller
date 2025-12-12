@@ -14,9 +14,229 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/apimachinery/pkg/util/yaml"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 )
+
+func TestBuildResources_SubscriptionErrorUpdatesStatus(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-policy",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"policy.open-cluster-management.io/disable-templates": "true",
+			},
+		},
+		Spec: policyv1beta1.OperatorPolicySpec{
+			Severity:          "low",
+			RemediationAction: "inform",
+			ComplianceType:    "musthave",
+			Subscription: runtime.RawExtension{
+				Raw: []byte(`{
+					"namespace": "default",
+					"source": "my-catalog",
+					"sourceNamespace": "my-ns",
+					"name": "",
+					"channel": "stable"
+				}`),
+			},
+			UpgradeApproval: "None",
+		},
+	}
+
+	_, _, changed, returnedErr := r.buildResources(t.Context(), policy)
+	assert.True(t, changed, "expected status to be updated")
+	assert.NoError(t, returnedErr)
+
+	_, cond := policy.Status.GetCondition(validPolicyConditionType)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, "InvalidPolicySpec", cond.Reason)
+	assert.Equal(t, "name is required in spec.subscription", cond.Message)
+}
+
+func TestBuildResources_subInstallPlanApprovalErrorUpdatesStatus(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-policy",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"policy.open-cluster-management.io/disable-templates": "true",
+			},
+		},
+		Spec: policyv1beta1.OperatorPolicySpec{
+			Severity:          "low",
+			RemediationAction: "inform",
+			ComplianceType:    "musthave",
+			Subscription: runtime.RawExtension{
+				Raw: []byte(`{
+					"namespace": "default",
+					"source": "my-catalog",
+					"sourceNamespace": "my-ns",
+					"name": "my-operator",
+					"channel": "stable",
+					"installPlanApproval": "ERR"
+				}`),
+			},
+			UpgradeApproval: "None",
+		},
+	}
+
+	_, _, changed, returnedErr := r.buildResources(t.Context(), policy)
+	assert.True(t, changed, "expected status to be updated")
+	assert.NoError(t, returnedErr)
+
+	_, cond := policy.Status.GetCondition(validPolicyConditionType)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, "InvalidPolicySpec", cond.Reason)
+	assert.Equal(t, "installPlanApproval is prohibited in spec.subscription", cond.Message)
+}
+
+func TestBuildResources_SubDefaultsPkgManifestNotFoundUpdatesStatusAndReturnsErr(t *testing.T) {
+	// To test line 542
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{
+		// Use a fake dynamic client without any objects so PackageManifest GET returns NotFound
+		DynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+	}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-policy",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"policy.open-cluster-management.io/disable-templates": "true",
+			},
+		},
+		Spec: policyv1beta1.OperatorPolicySpec{
+			Severity:          "low",
+			RemediationAction: "inform",
+			ComplianceType:    "musthave",
+			Subscription: runtime.RawExtension{
+				// Omit namespace key entirely so buildSubscription succeeds with empty namespace,
+				// and omit source/sourceNamespace so defaultsNeeded = true (triggers PackageManifest lookup).
+				Raw: []byte(`{
+					"name": "my-operator",
+					"channel": "stable",
+					"startingCSV": "my-operator-v1"
+				}`),
+			},
+			UpgradeApproval: "None",
+		},
+	}
+
+	sub, opGroup, changed, returnedErr := r.buildResources(t.Context(), policy)
+	assert.True(t, changed, "expected status to be updated")
+	assert.ErrorIs(t, returnedErr, ErrPackageManifest, "expected returned error to wrap ErrPackageManifest")
+
+	_, cond := policy.Status.GetCondition(validPolicyConditionType)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, "InvalidPolicySpec", cond.Reason)
+	assert.Equal(t,
+		"the subscription defaults could not be determined because the PackageManifest was not found",
+		cond.Message)
+	assert.Nil(t, sub, "expected subscription to be nil")
+	assert.Nil(t, opGroup, "expected operator group to be nil")
+}
+
+func TestBuildResources_OperatorGroupErrorUpdatesStatus(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-policy",
+			Namespace: "default",
+			Annotations: map[string]string{
+				"policy.open-cluster-management.io/disable-templates": "true",
+			},
+		},
+		Spec: policyv1beta1.OperatorPolicySpec{
+			Severity:          "low",
+			RemediationAction: "inform",
+			ComplianceType:    "musthave",
+			Subscription: runtime.RawExtension{
+				Raw: []byte(`{
+					"namespace": "default",
+					"source": "my-catalog",
+					"sourceNamespace": "my-ns",
+					"name": "my-operator",
+					"channel": "stable"
+				}`),
+			},
+			// Invalid operatorGroup (missing name) should trigger a validation error
+			OperatorGroup: &runtime.RawExtension{
+				Raw: []byte(`{}`),
+			},
+			UpgradeApproval: "None",
+		},
+	}
+
+	_, _, changed, returnedErr := r.buildResources(t.Context(), policy)
+	assert.True(t, changed, "expected status to be updated")
+	assert.NoError(t, returnedErr)
+
+	_, cond := policy.Status.GetCondition(validPolicyConditionType)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, "InvalidPolicySpec", cond.Reason)
+	assert.Equal(t, "name is required in spec.operatorGroup", cond.Message)
+}
+
+func TestBuildResources_TemplateResolverCreationErrorUpdatesStatus(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{
+		DynamicWatcher: nil,
+	}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-policy",
+			Namespace: "default",
+		},
+		Spec: policyv1beta1.OperatorPolicySpec{
+			Severity:          "low",
+			RemediationAction: "inform",
+			ComplianceType:    "musthave",
+			// Include an obviously bad template so template resolution would fail if reached.
+			// In this test, resolver creation itself is expected to fail earlier.
+			Versions: []string{"{{ .badTemplate "},
+			Subscription: runtime.RawExtension{
+				Raw: []byte(`{
+					"namespace": "default",
+					"name": "my-operator",
+					"channel": "stable",
+					"startingCSV": "my-operator-v1"
+				}`),
+			},
+			UpgradeApproval: "None",
+		},
+	}
+
+	sub, opGroup, changed, returnedErr := r.buildResources(t.Context(), policy)
+	assert.True(t, changed, "expected status to be updated")
+	assert.NoError(t, returnedErr)
+	assert.Nil(t, sub, "expected subscription to be nil on early return")
+	assert.Nil(t, opGroup, "expected operator group to be nil on early return")
+
+	_, cond := policy.Status.GetCondition(validPolicyConditionType)
+	assert.Equal(t, metav1.ConditionFalse, cond.Status)
+	assert.Equal(t, "InvalidPolicySpec", cond.Reason)
+	assert.Equal(t,
+		"unable to create template resolver: could not resolve the version template: "+
+			"failed to parse the template JSON string [\"{{ .badTemplate \"]: template: tmpl:1: "+
+			"unterminated character constant", cond.Message)
+}
 
 func TestBuildSubscription(t *testing.T) {
 	testPolicy := &policyv1beta1.OperatorPolicy{
