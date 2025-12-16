@@ -14,6 +14,11 @@ spec:
   remediationAction: enforce
   severity: medium
   complianceType: musthave
+  operatorGroup:
+    name: manual-upgrades-operator-group
+    namespace: operator-policy-testns
+    targetNamespaces:
+      - operator-policy-testns
   subscription:
     channel: strimzi-0.36.x
     name: strimzi-kafka-operator
