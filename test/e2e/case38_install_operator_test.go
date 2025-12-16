@@ -3358,6 +3358,9 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			preFunc()
 			setupPolicy(musthaveYAML, musthaveName, parentPolicyName)
 			setupPolicy(mustnothaveYAML, mustnothaveName, parentPolicyName)
+
+			By("Waiting briefly to stabilize reconciles")
+			time.Sleep(5 * time.Second)
 		})
 
 		It("Should not display a validation error when both are in inform mode", func() {
