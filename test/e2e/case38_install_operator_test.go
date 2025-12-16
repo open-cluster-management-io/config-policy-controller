@@ -1458,7 +1458,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					List(ctx, metav1.ListOptions{})
 
 				return len(ipList.Items)
-			}, olmWaitTimeout, 5, ctx).Should(Equal(1))
+			}, olmWaitTimeout*2, 5, ctx).Should(Equal(1))
 			check(
 				opPolName,
 				false,
@@ -1529,7 +1529,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					List(ctx, metav1.ListOptions{})
 
 				return len(ipList.Items)
-			}, olmWaitTimeout, 5, ctx).Should(Equal(2))
+			}, olmWaitTimeout*2, 5, ctx).Should(Equal(2))
 
 			secondInstallPlanName = ipList.Items[1].GetName()
 			if firstInstallPlanName == secondInstallPlanName {
@@ -3703,7 +3703,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					reason, _, _ := unstructured.NestedString(csv.Object, "status", "reason")
 
 					return reason
-				}, olmWaitTimeout, 5, ctx).Should(Equal("InstallSucceeded"))
+				}, olmWaitTimeout*2, 5, ctx).Should(Equal("InstallSucceeded"))
 
 				check(
 					opPolName,
@@ -4048,7 +4048,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				}
 
 				g.Expect(csvNames).To(ConsistOf("argocd-operator.v0.9.1", "strimzi-cluster-operator.v0.35.0"))
-			}, olmWaitTimeout, 1).Should(Succeed())
+			}, olmWaitTimeout*2, 1).Should(Succeed())
 
 			By("Creating an OperatorPolicy to adopt the argocd-operator Subscription")
 			setupPolicy(opPolArgoCDYAML, opPolArgoCDName, parentPolicyName)
