@@ -87,6 +87,7 @@ type ctrlOpts struct {
 	secureMetrics            bool
 	probeAddr                string
 	operatorPolDefaultNS     string
+	operatorPolHistoryLength uint16
 	clientQPS                float32
 	clientBurst              uint16
 	evalBackoffSeconds       uint32
@@ -583,6 +584,7 @@ func main() {
 			DynamicWatcher:    watcher,
 			InstanceName:      instanceName,
 			DefaultNamespace:  opts.operatorPolDefaultNS,
+			MaxHistoryLength:  int(opts.operatorPolHistoryLength),
 			TargetClient:      targetClient,
 			HubDynamicWatcher: opPolHubDynamicWatcher,
 			HubClient:         hubClient,
@@ -908,6 +910,13 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		"operator-policy-default-namespace",
 		"",
 		"The default namespace to be used by an OperatorPolicy if not specified in the policy.",
+	)
+
+	flags.Uint16Var(
+		&opts.operatorPolHistoryLength,
+		"operator-policy-status-history-length",
+		10,
+		"The maximum number of compliance history entries stored on the OperatorPolicy status.",
 	)
 
 	flags.BoolVar(
