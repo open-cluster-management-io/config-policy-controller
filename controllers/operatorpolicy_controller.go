@@ -112,10 +112,13 @@ var (
 // OperatorPolicyReconciler reconciles a OperatorPolicy object
 type OperatorPolicyReconciler struct {
 	client.Client
-	DynamicClient     dynamic.Interface
-	DynamicWatcher    depclient.DynamicWatcher
-	InstanceName      string
-	DefaultNamespace  string
+	DynamicClient    dynamic.Interface
+	DynamicWatcher   depclient.DynamicWatcher
+	InstanceName     string
+	DefaultNamespace string
+	// MaxHistoryLength controls how many compliance history entries are stored in status.history.
+	// If set to < 1, it will default to 10.
+	MaxHistoryLength  int
 	TargetClient      client.Client
 	HubDynamicWatcher depclient.DynamicWatcher
 	HubClient         *kubernetes.Clientset
@@ -323,7 +326,11 @@ func (r *OperatorPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 
 			policy.Status.History = append([]policyv1.HistoryEvent{newEvent}, policy.Status.History...)
 
-			maxHistoryLength := 10 // At some point, we may make this length configurable
+			maxHistoryLength := r.MaxHistoryLength
+			if maxHistoryLength < 1 {
+				maxHistoryLength = 10
+			}
+
 			if len(policy.Status.History) > maxHistoryLength {
 				policy.Status.History = policy.Status.History[:maxHistoryLength]
 			}
