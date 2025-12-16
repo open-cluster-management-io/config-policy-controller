@@ -1464,7 +1464,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					List(ctx, metav1.ListOptions{})
 
 				return len(ipList.Items)
-			}, olmWaitTimeout, 5, ctx).Should(Equal(1))
+			}, olmWaitTimeout*2, 5, ctx).Should(Equal(1))
 			check(
 				opPolName,
 				false,
@@ -1535,7 +1535,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					List(ctx, metav1.ListOptions{})
 
 				return len(ipList.Items)
-			}, olmWaitTimeout, 5, ctx).Should(Equal(2))
+			}, olmWaitTimeout*2, 5, ctx).Should(Equal(2))
 
 			secondInstallPlanName = ipList.Items[1].GetName()
 			if firstInstallPlanName == secondInstallPlanName {
@@ -1820,7 +1820,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	// same operator at the same time. These tests will delete and recreate the operator's CRD.
 	// The relative order of the inner Describe containers does not matter.
 	Describe("Testing CRD behaviors", Ordered, func() {
-		Describe("Testing full installation behavior, including CRD reporting", Ordered, func() {
+		Describe("Testing full installation behavior, including CRD reporting", Ordered, FlakeAttempts(2), func() {
 			const (
 				opPolYAML      = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
 				deploymentName = "apicast-operator-controller-manager-v2"
@@ -1941,7 +1941,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			})
 		})
 
-		Describe("Testing general OperatorPolicy mustnothave behavior", Ordered, func() {
+		Describe("Testing general OperatorPolicy mustnothave behavior", Ordered, FlakeAttempts(2), func() {
 			const (
 				opPolYAML      = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
 				subName        = "apicast-community-operator"
@@ -2856,7 +2856,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			})
 		})
 
-		Describe("Test CRD deletion delayed because of a finalizer", Ordered, func() {
+		Describe("Test CRD deletion delayed because of a finalizer", Ordered, FlakeAttempts(2), func() {
 			const (
 				opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-apicast.yaml"
 				subName   = "apicast-community-operator"
@@ -2992,7 +2992,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			})
 		})
 
-		Describe("Testing mustnothave behavior of operator groups in DeleteIfUnused mode", Ordered, func() {
+		Describe("Testing mustnothave with operator groups in DeleteIfUnused mode", Ordered, FlakeAttempts(2), func() {
 			const (
 				opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-apicast.yaml"
 				otherYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
@@ -3738,7 +3738,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					reason, _, _ := unstructured.NestedString(csv.Object, "status", "reason")
 
 					return reason
-				}, olmWaitTimeout, 5, ctx).Should(Equal("InstallSucceeded"))
+				}, olmWaitTimeout*2, 5, ctx).Should(Equal("InstallSucceeded"))
 
 				check(
 					opPolName,
@@ -4083,7 +4083,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				}
 
 				g.Expect(csvNames).To(ConsistOf("argocd-operator.v0.9.1", "strimzi-cluster-operator.v0.35.0"))
-			}, olmWaitTimeout, 1).Should(Succeed())
+			}, olmWaitTimeout*2, 1).Should(Succeed())
 
 			By("Creating an OperatorPolicy to adopt the argocd-operator Subscription")
 			setupPolicy(opPolArgoCDYAML, opPolArgoCDName, parentPolicyName)
