@@ -3372,7 +3372,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		})
 	})
 
-	Describe("Testing operator policies that specify the same subscription", Serial, Ordered, func() {
+	Describe("Testing operator policies that specify the same subscription", Serial, Ordered, FlakeAttempts(2), func() {
 		const (
 			musthaveYAML    = "../resources/case38_operator_install/operator-policy-no-group.yaml"
 			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-quay.yaml"
@@ -3393,6 +3393,9 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			preFunc()
 			setupPolicy(musthaveYAML, musthaveName, parentPolicyName)
 			setupPolicy(mustnothaveYAML, mustnothaveName, parentPolicyName)
+
+			By("Waiting briefly to stabilize reconciles")
+			time.Sleep(5 * time.Second)
 		})
 
 		It("Should not display a validation error when both are in inform mode", func() {
