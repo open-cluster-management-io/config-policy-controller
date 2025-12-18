@@ -1,0 +1,8 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: Policy
+metadata:
+  name: parent-policy-c30
+spec:
+  remediationAction: inform
+  disabled: false
+  policy-templates: []

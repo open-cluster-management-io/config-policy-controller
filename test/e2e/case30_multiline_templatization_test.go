@@ -15,26 +15,28 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case30RangePolicyName      string = "case30-configpolicy"
-	case30NoTemplatePolicyName string = "case30-configpolicy-notemplate"
-	case30RangePolicyYaml      string = "../resources/case30_multiline_templatization/case30_policy.yaml"
-	case30NoTemplatePolicyYaml string = "../resources/case30_multiline_templatization/case30_policy_notemplate.yaml"
-	case30ConfigMapsYaml       string = "../resources/case30_multiline_templatization/case30_configmaps.yaml"
-	case30ConfigmapName1       string = "30config1"
-	case30ConfigmapName2       string = "30config2"
-)
-
-const (
-	case30Unterminated       string = "case30-configpolicy"
-	case30UnterminatedYaml   string = "../resources/case30_multiline_templatization/case30_unterminated.yaml"
-	case30WrongArgs          string = "case30-policy-pod-create-wrong-args"
-	case30WrongArgsYaml      string = "../resources/case30_multiline_templatization/case30_wrong_args.yaml"
-	case30NoObject           string = "case30-configpolicy-no-object"
-	case30NoObjectPolicyYaml string = "../resources/case30_multiline_templatization/case30_no_object.yaml"
-)
-
 var _ = Describe("Test multiline templatization", Ordered, func() {
+	const (
+		case30RangePolicyName      string = "case30-configpolicy"
+		case30NoTemplatePolicyName string = "case30-configpolicy-notemplate"
+		case30RangePolicyYaml      string = "../resources/case30_multiline_templatization/case30_policy.yaml"
+		case30NoTemplatePolicyYaml string = "../resources/case30_multiline_templatization/case30_policy_notemplate.yaml"
+		case30ConfigMapsYaml       string = "../resources/case30_multiline_templatization/case30_configmaps.yaml"
+		case30ConfigmapName1       string = "30config1"
+		case30ConfigmapName2       string = "30config2"
+	)
+
+	const (
+		case30Unterminated       string = "case30-configpolicy"
+		case30UnterminatedYaml   string = "../resources/case30_multiline_templatization/case30_unterminated.yaml"
+		case30WrongArgs          string = "case30-policy-pod-create-wrong-args"
+		case30WrongArgsYaml      string = "../resources/case30_multiline_templatization/case30_wrong_args.yaml"
+		case30NoObject           string = "case30-configpolicy-no-object"
+		case30NoObjectPolicyYaml string = "../resources/case30_multiline_templatization/case30_no_object.yaml"
+		case30ParentPolicy       string = "parent-policy-c30"
+		case30ParentPolicyYaml   string = "../resources/case30_multiline_templatization/case30_parent.yaml"
+	)
+
 	Describe("Verify multiline template with range keyword", Ordered, func() {
 		It("configmap should be created properly on the managed cluster", func() {
 			By("Creating config maps on managed")
@@ -199,8 +201,9 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 		})
 		It("should be compliant when no templates are specified", func() {
 			By("Creating policies on managed")
-			// create policy with unterminated template
-			utils.Kubectl("apply", "-f", case30NoObjectPolicyYaml, "-n", testNamespace)
+			// create policy with an empty range, so no object-templates
+			createObjWithParent(case30ParentPolicyYaml, case30ParentPolicy,
+				case30NoObjectPolicyYaml, testNamespace, gvrPolicy, gvrConfigPolicy)
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case30NoObject, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
@@ -219,9 +222,40 @@ var _ = Describe("Test multiline templatization", Ordered, func() {
 					"contains no object templates to check",
 				)
 			}, 10, 1).Should(BeTrue())
+
+			By("Verifying that only one event was sent for the parent policy")
+			Eventually(func(g Gomega) {
+				events := utils.GetMatchingEvents(
+					clientManaged,
+					testNamespace,
+					case30ParentPolicy,
+					".*"+case30NoObject+".*",
+					".*contains no object templates to check.*",
+					defaultTimeoutSeconds,
+				)
+				g.Expect(events).To(HaveLen(1))
+				g.Expect(events[0].Count).To(Equal(int32(1)))
+			}, defaultTimeoutSeconds, 3).Should(Succeed())
+			Consistently(func(g Gomega) {
+				events := utils.GetMatchingEvents(
+					clientManaged,
+					testNamespace,
+					case30ParentPolicy,
+					".*"+case30NoObject+".*",
+					".*contains no object templates to check.*",
+					defaultTimeoutSeconds,
+				)
+				g.Expect(events).To(HaveLen(1))
+				g.Expect(events[0].Count).To(Equal(int32(1)))
+			}, defaultConsistentlyDuration, 3).Should(Succeed())
 		})
 		AfterAll(func() {
 			deleteConfigPolicies([]string{case30Unterminated, case30WrongArgs, case30NoObject})
+			utils.Kubectl("delete", "-f", case30ParentPolicyYaml, "-n", testNamespace)
+			utils.Kubectl("delete", "events", "-n="+testNamespace,
+				"--field-selector=involvedObject.name=="+case30NoObject)
+			utils.Kubectl("delete", "events", "-n="+testNamespace,
+				"--field-selector=involvedObject.name=="+case30ParentPolicy)
 		})
 	})
 })
