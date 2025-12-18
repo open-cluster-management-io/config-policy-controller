@@ -2,6 +2,11 @@ apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
   name: case30-configpolicy-no-object
+  ownerReferences:
+    - apiVersion: policy.open-cluster-management.io/v1
+      kind: Policy
+      name: parent-policy-c30
+      uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
 spec:
   remediationAction: inform
   severity: low
