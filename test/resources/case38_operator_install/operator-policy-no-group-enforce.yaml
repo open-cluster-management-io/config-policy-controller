@@ -16,8 +16,8 @@ spec:
   complianceType: musthave
   subscription:
     channel: stable
-    name: example-operator
+    name: authorino-operator
     namespace: operator-policy-testns
-    source: grc-mock-source
+    source: operatorhubio-catalog
     sourceNamespace: olm
   upgradeApproval: Automatic

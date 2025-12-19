@@ -3583,9 +3583,9 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		})
 	})
 
-	// These tests create a cluster-scoped GRC example operator.
+	// These tests create a cluster-scoped operator.
 	// The tests can run alongside the other tests as long as no other
-	// tests install the GRC example operator at the same time.
+	// tests fully install the same authorino operator at the same time.
 	Describe("Testing enforced operator policy with no OperatorGroup", Ordered, func() {
 		Describe("Testing namespace creation", func() {
 			const (
@@ -3614,7 +3614,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			const (
 				opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce-one-version.yaml"
 				opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
-				operatorName     = "example-operator.v0.0.3"
+				operatorName     = "authorino-operator.v0.15.0"
 			)
 			var (
 				opPolTestNS      string
@@ -3745,7 +3745,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		Describe("Testing recovery of sub-csv connection", Ordered, func() {
 			const (
 				opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-				subName   = "example-operator"
+				subName   = "authorino-operator"
 			)
 			var (
 				opPolTestNS      string
@@ -3829,7 +3829,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		Describe("Test reporting of unapproved version after installation", Ordered, func() {
 			const (
 				opPolYAML     = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-				latestExample = "example-operator.v0.0.3"
+				latestExample = "authorino-operator.v0.16.0"
 			)
 			var (
 				opPolTestNS      string
