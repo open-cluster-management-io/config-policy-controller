@@ -2,8 +2,11 @@ package e2e
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"reflect"
 	"regexp"
 	"slices"
@@ -24,14 +27,15 @@ import (
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), func() {
+var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	const (
-		opPolTestNS          = "operator-policy-testns"
+		opPolTestNSBase      = "operator-policy-testns"
 		parentPolicyYAML     = "../resources/case38_operator_install/parent-policy.yaml"
-		parentPolicyName     = "parent-policy"
+		parentPolicyNameBase = "parent-policy"
 		eventuallyTimeout    = 90
 		consistentlyDuration = 5
 		olmWaitTimeout       = 60
+		skipConsistently     = "skipConsistently"
 	)
 
 	// checks that the compliance state eventually matches what is desired
@@ -85,6 +89,25 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		if len(consistencyArgs) > 0 {
 			Consistently(compCheck, consistencyArgs...).Should(Succeed())
 		}
+	}
+
+	// Adds a suffix for namespaces and resource names to avoid parallel test
+	// collisions. The suffix is a hash of the current test's container path
+	// at runtime
+	getTestSuffix := func() string {
+		specReport := CurrentSpecReport()
+		containerPath := strings.Join(specReport.ContainerHierarchyTexts, "")
+		hash := sha256.Sum256([]byte(containerPath))
+
+		return "-" + hex.EncodeToString(hash[:4])
+	}
+
+	getOpPolTestNS := func() string {
+		return opPolTestNSBase + getTestSuffix()
+	}
+
+	getParentPolicyName := func() string {
+		return parentPolicyNameBase + getTestSuffix()
 	}
 
 	// checks that the policy has the proper compliance, that the relatedObjects of a given
@@ -183,6 +206,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			}
 
 			if expectedEventMsgSnippet != "" {
+				parentPolicyName := getParentPolicyName()
 				events := utils.GetMatchingEvents(
 					clientManaged, testNamespace, parentPolicyName, "", expectedEventMsgSnippet, eventuallyTimeout,
 				)
@@ -192,12 +216,16 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 		Eventually(checkFunc, eventuallyTimeout*2, 3).Should(Succeed())
 
-		if !slices.Contains(opts, "skipConsistently") {
+		if !slices.Contains(opts, skipConsistently) {
 			Consistently(checkFunc, consistentlyDuration, 1).Should(Succeed())
 		}
 	}
 
 	preFunc := func() {
+		GinkgoHelper()
+		opPolTestNS := getOpPolTestNS()
+		parentPolicyName := getParentPolicyName()
+
 		utils.Kubectl("create", "ns", opPolTestNS)
 		utils.KubectlDelete(
 			"event", "--field-selector=involvedObject.name="+parentPolicyName, "-n", testNamespace, "--wait",
@@ -208,10 +236,10 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		}
 
 		DeferCleanup(func() {
-			utils.KubectlDelete("operatorpolicy", "-n", testNamespace, "--all", "--wait")
 			utils.KubectlDelete(
 				"event", "--field-selector=involvedObject.name="+parentPolicyName, "-n", testNamespace, "--wait",
 			)
+
 			utils.KubectlDelete("ns", opPolTestNS, "--wait")
 
 			if IsHosted {
@@ -220,14 +248,149 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 	}
 
-	Describe("Testing an all default operator policy", Ordered, func() {
+	patchSingleField := func(patchFilepath, applyNs, fieldPath, value string) string {
+		GinkgoHelper()
+		patch := fmt.Sprintf(`[{"op": "replace", "path": %s, "value": %s}]`, fieldPath, value)
+
+		return utils.KubectlJSONPatchToFile(patch, "-n", applyNs, "-f", patchFilepath)
+	}
+
+	// appends a suffix to the resource names and namespaces to
+	// avoid conflicts in parallel tests
+	// the caller should run os.Remove() on the returned filepath when done
+	parallelizeOpPol := func(opPolYAML, desiredPolName string) string {
+		GinkgoHelper()
+		filesToClean := []string{}
+		defer func() {
+			for _, file := range filesToClean {
+				os.Remove(file)
+			}
+		}()
+
+		getSpecObj := func(parsedYAML *unstructured.Unstructured, field string) (map[string]interface{}, bool) {
+			GinkgoHelper()
+			obj := parsedYAML.Object["spec"].(map[string]interface{})[field]
+			mapObj, objExists := obj.(map[string]interface{})
+
+			return mapObj, objExists
+		}
+
+		// patchSubNsIfExists patches the testns namespace in the subscription with parallel namespace suffix
+		// returns true if a new filepath was created with the patched namespace
+		patchSubNsIfExists := func(filepath string, parsedYAML *unstructured.Unstructured) (string, bool) {
+			GinkgoHelper()
+			opPolTestNS := getOpPolTestNS()
+
+			sub, exists := getSpecObj(parsedYAML, "subscription")
+			if !exists {
+				return filepath, false
+			}
+
+			subNs, found, _ := unstructured.NestedString(sub, "namespace")
+			if !found {
+				return filepath, false
+			}
+
+			if subNs != opPolTestNSBase {
+				return filepath, false
+			}
+
+			patchFilepath := patchSingleField(filepath, testNamespace, "/spec/subscription/namespace", opPolTestNS)
+
+			return patchFilepath, true
+		}
+
+		// patchOperatorGroupFields patches the namespace fields with parallel namespace suffix
+		// returns true if a new filepath was created with the patched namespace(s)
+		patchOperatorGroupFields := func(filepath string, parsedYAML *unstructured.Unstructured) (string, bool) {
+			GinkgoHelper()
+			opPolTestNS := getOpPolTestNS()
+
+			operatorGroup, exists := getSpecObj(parsedYAML, "operatorGroup")
+			if !exists {
+				return filepath, false
+			}
+
+			patchedOpGroupNs := patchSingleField(filepath, testNamespace, "/spec/operatorGroup/namespace", opPolTestNS)
+
+			targetNamespaces, found, _ := unstructured.NestedStringSlice(operatorGroup, "targetNamespaces")
+			if !found {
+				return patchedOpGroupNs, true
+			}
+
+			patchedTargetNs := patchedOpGroupNs
+
+			// patch only the first occurrence of opPolTestNSBase then remove the outdated file copy
+			for i, ns := range targetNamespaces {
+				shouldModifyTargetNs := ns == opPolTestNSBase
+				if !shouldModifyTargetNs {
+					continue
+				}
+
+				patchedTargetNs = patchSingleField(patchedTargetNs, testNamespace,
+					fmt.Sprintf("/spec/operatorGroup/targetNamespaces/%d", i), opPolTestNS)
+				os.Remove(patchedOpGroupNs)
+
+				return patchedTargetNs, true
+			}
+
+			return patchedOpGroupNs, true
+		}
+
+		opPolObj := utils.ParseYaml(opPolYAML)
+		patchSubNs, found := patchSubNsIfExists(opPolYAML, opPolObj)
+		if found {
+			filesToClean = append(filesToClean, patchSubNs)
+		}
+
+		patchOpGroupNs, found := patchOperatorGroupFields(patchSubNs, opPolObj)
+		if found {
+			filesToClean = append(filesToClean, patchOpGroupNs)
+		}
+
+		patchOpPolName := patchSingleField(
+			patchOpGroupNs, testNamespace, "/metadata/name", desiredPolName)
+		filesToClean = append(filesToClean, patchOpPolName)
+
+		parentPolicyName := getParentPolicyName()
+		patchOwnerRefName := patchSingleField(
+			patchOpPolName, testNamespace, "/metadata/ownerReferences/0/name", parentPolicyName)
+
+		return patchOwnerRefName
+	}
+
+	setupPolicy := func(opPolYAML, opPolName, parentPolicyName string) {
+		GinkgoHelper()
+		patchedParentYAML := patchSingleField(parentPolicyYAML, testNamespace, "/metadata/name", parentPolicyName)
+		patchedOpPolYAML := parallelizeOpPol(opPolYAML, opPolName)
+
+		createObjWithParent(patchedParentYAML, parentPolicyName,
+			patchedOpPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+
+		DeferCleanup(func() {
+			// delete child policy, then parent policy
+			utils.KubectlDelete("policy", "-n", testNamespace, parentPolicyName, "--cascade=foreground", "--wait")
+
+			os.Remove(patchedOpPolYAML)
+			os.Remove(patchedParentYAML)
+		})
+	}
+
+	Describe("Testing an all default operator policy", Serial, Ordered, func() {
 		const (
 			opPolYAML   = "../resources/case38_operator_install/operator-policy-all-defaults.yaml"
-			opPolName   = "oppol-all-defaults"
 			subName     = "airflow-helm-operator"
 			suggestedNS = "airflow-helm"
 		)
+		var (
+			opPolName        string
+			parentPolicyName string
+		)
+
 		BeforeAll(func() {
+			opPolName = "oppol-all-defaults" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			DeferCleanup(func() {
 				utils.KubectlDelete("ns", suggestedNS, "--wait")
 
@@ -237,9 +400,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			})
 
 			preFunc()
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 		AfterAll(func(ctx context.Context) {
 			By("Fixing the catalog source")
@@ -308,8 +469,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				_, err := targetK8sDynamic.Resource(gvrPackageManifest).Namespace("default").Get(
 					ctx, "airflow-helm-operator", metav1.GetOptions{})
 
+				KubectlTarget("patch", "catalogsource", "operatorhubio-catalog", "--namespace=olm", "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:broken"}]`)
+
 				return err
-			}, olmWaitTimeout, 3).ShouldNot(Succeed())
+			}, olmWaitTimeout, 10).ShouldNot(Succeed())
 
 			By("Checking the validation condition")
 			check(
@@ -327,16 +491,22 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 	})
 
-	Describe("Testing an operator policy with invalid partial defaults", Ordered, func() {
+	Describe("Testing an operator policy with invalid partial defaults", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-defaults-invalid-source.yaml"
-			opPolName = "oppol-defaults-invalid-source"
 			subName   = "project-quay"
 		)
-		BeforeAll(func() {
+		var (
+			opPolName        string
+			parentPolicyName string
+		)
+
+		BeforeEach(func() {
+			opPolName = "oppol-defaults-invalid-source" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should be NonCompliant specifying a source not matching the PackageManifest", func(ctx context.Context) {
@@ -363,15 +533,22 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Testing OperatorGroup behavior when it is not specified in the policy", Ordered, func() {
 		const (
 			opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName        = "oppol-no-group"
 			extraOpGroupYAML = "../resources/case38_operator_install/extra-operator-group.yaml"
 			extraOpGroupName = "extra-operator-group"
 		)
-		BeforeAll(func() {
-			preFunc()
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially be NonCompliant", func() {
@@ -482,53 +659,40 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 	})
 
-	Describe("Testing namespace creation", Ordered, func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			opPolName = "oppol-no-group-enforce"
-		)
-		BeforeAll(func() {
-			DeferCleanup(func() {
-				utils.KubectlDelete(
-					"-f", parentPolicyYAML, "-n", testNamespace, "--cascade=foreground", "--wait",
-				)
-				if IsHosted {
-					KubectlTarget("delete", "ns", opPolTestNS, "--ignore-not-found")
-				}
-				utils.KubectlDelete("ns", opPolTestNS, "--wait")
-			})
-
-			createObjWithParent(
-				parentPolicyYAML, parentPolicyName, opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy,
-			)
-		})
-
-		It("Should be compliant when enforced", func() {
-			By("Waiting for the operator policy " + opPolName + " to be compliant")
-			// Wait for a while, because it might have upgrades that could take longer
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
-		})
-	})
-
 	Describe("Testing OperatorGroup behavior when it is specified in the policy", Ordered, func() {
 		const (
 			opPolYAML            = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			opPolName            = "oppol-with-group"
 			incorrectOpGroupYAML = "../resources/case38_operator_install/incorrect-operator-group.yaml"
 			incorrectOpGroupName = "incorrect-operator-group"
-			scopedOpGroupYAML    = "../resources/case38_operator_install/scoped-operator-group.yaml"
 			scopedOpGroupName    = "scoped-operator-group"
 			extraOpGroupYAML     = "../resources/case38_operator_install/extra-operator-group.yaml"
 			extraOpGroupName     = "extra-operator-group"
 		)
+		var (
+			opPolTestNS       string
+			opPolName         string
+			scopedOpGroupYAML string
+			parentPolicyName  string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-group" + getTestSuffix()
+			scopedOpGroupYAML = "../resources/case38_operator_install/scoped-operator-group.yaml"
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 
 			KubectlTarget("apply", "-f", incorrectOpGroupYAML, "-n", opPolTestNS)
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+
+			scopedOpGroupYAML = patchSingleField(scopedOpGroupYAML, testNamespace,
+				"/spec/targetNamespaces", "[\""+opPolTestNS+"\"]")
+
+			DeferCleanup(func() {
+				os.Remove(scopedOpGroupYAML)
+			})
 		})
 
 		It("Should initially be NonCompliant", func() {
@@ -681,22 +845,28 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 	})
+
 	Describe("Testing Subscription behavior for musthave mode while enforcing", Ordered, func() {
 		const (
 			opPolYAML        = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			opPolName        = "oppol-with-group"
 			subName          = "project-quay"
 			extraOpGroupYAML = "../resources/case38_operator_install/extra-operator-group.yaml"
 			extraOpGroupName = "extra-operator-group"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
-
 			KubectlTarget("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially be NonCompliant", func() {
@@ -813,7 +983,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should apply an update to the Subscription", func() {
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/subscription/sourceNamespace", "value": "fake"}]`)
+				`[{"op": "replace", "path": "/spec/subscription/channel", "value": "fake"}]`)
 			check(
 				opPolName,
 				false,
@@ -836,24 +1006,31 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Message: "constraints not satisfiable: refer to the Subscription for more details",
 				},
 				"the Subscription was updated to match the policy",
+				skipConsistently,
 			)
 		})
 	})
+
 	Describe("Testing Subscription behavior for musthave mode while informing", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName = "oppol-no-group"
 			subName   = "project-quay"
 			subYAML   = "../resources/case38_operator_install/subscription.yaml"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
-
 			KubectlTarget("apply", "-f", subYAML, "-n", opPolTestNS)
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 		It("Should initially notice the matching Subscription", func() {
 			check(
@@ -908,141 +1085,24 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 	})
-	Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
-		const (
-			opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce-one-version.yaml"
-			opPolName        = "oppol-no-group-enforce-one-version"
-			opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
-			opPolNoExistName = "oppol-no-exist-enforce"
-			operatorName     = "example-operator.v0.0.3"
-		)
-		BeforeAll(func() {
-			preFunc()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-		})
-
-		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
-			Eventually(func(ctx SpecContext) string {
-				csv, _ := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
-					Get(ctx, operatorName, metav1.GetOptions{})
-
-				if csv == nil {
-					return ""
-				}
-
-				reason, _, _ := unstructured.NestedString(csv.Object, "status", "reason")
-
-				return reason
-			}, olmWaitTimeout, 5, ctx).Should(Equal("InstallSucceeded"))
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "ClusterServiceVersion",
-						APIVersion: "operators.coreos.com/v1alpha1",
-					},
-					Compliant: "Compliant",
-					Reason:    "InstallSucceeded",
-				}},
-				metav1.Condition{
-					Type:   "ClusterServiceVersionCompliant",
-					Status: metav1.ConditionTrue,
-					Reason: "InstallSucceeded",
-					Message: "ClusterServiceVersion (" + operatorName + ") - install strategy completed with " +
-						"no errors",
-				},
-				regexp.QuoteMeta(
-					"ClusterServiceVersion ("+operatorName+") - install strategy completed with no errors",
-				),
-			)
-		})
-
-		It("Should generate conditions and relatedobjects of Deployments", func() {
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Deployment",
-						APIVersion: "apps/v1",
-					},
-					Compliant: "Compliant",
-					Reason:    "Deployment Available",
-				}},
-				metav1.Condition{
-					Type:    "DeploymentCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "DeploymentsAvailable",
-					Message: "all operator Deployments have their minimum availability",
-				},
-				"all operator Deployments have their minimum availability",
-			)
-		})
-
-		It("Should only be noncompliant if the subscription error relates to the one in the operator policy", func() {
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolNoExistYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-
-			By("Checking that " + opPolNoExistName + " is NonCompliant")
-			check(
-				opPolNoExistName,
-				true,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Subscription",
-						APIVersion: "operators.coreos.com/v1alpha1",
-					},
-					Compliant: "NonCompliant",
-					Reason:    "ConstraintsNotSatisfiable",
-				}},
-				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "ConstraintsNotSatisfiable",
-					Message: "constraints not satisfiable: refer to the Subscription for more details",
-				},
-				"constraints not satisfiable",
-			)
-
-			// Check if the subscription is still compliant on the operator policy trying to install a valid operator.
-			// This tests that subscription status filtering is working properly since OLM includes the
-			// subscription errors as a condition on all subscriptions in the namespace.
-			By("Checking that " + opPolName + " is still Compliant and unaffected by " + opPolNoExistName)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Subscription",
-						APIVersion: "operators.coreos.com/v1alpha1",
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found as expected",
-				}},
-				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "SubscriptionMatches",
-					Message: "the Subscription matches what is required by the policy",
-				},
-				"the Subscription matches what is required by the policy",
-			)
-		})
-	})
 	Describe("Test health checks on OLM resources on OperatorPolicy with failed CSV", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-csv-fail.yaml"
-			opPolName = "oppol-no-allnamespaces"
 		)
-		BeforeAll(func() {
-			preFunc()
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-no-allnamespaces" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
@@ -1106,30 +1166,47 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			Expect(events).To(BeEmpty())
 		})
 	})
-	Describe("Test status reporting for CatalogSource", Ordered, func() {
+
+	Describe("Test status reporting for CatalogSource", Serial, Ordered, func() {
 		const (
-			OpPlcYAML  = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			OpPlcName  = "oppol-with-group"
+			opPolYAML  = "../resources/case38_operator_install/operator-policy-with-group.yaml"
 			subName    = "project-quay"
 			catSrcName = "operatorhubio-catalog"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			By("Applying creating a ns and the test policy")
 			preFunc()
-			DeferCleanup(func() {
+			DeferCleanup(func(ctx context.Context) {
+				By("Fixing the catalog source")
 				KubectlTarget("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
 					`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:latest"}]`)
+
+				By("Waiting for a packagemanifest to reappear")
+				Eventually(func() error {
+					_, err := targetK8sDynamic.Resource(gvrPackageManifest).Namespace("default").Get(
+						ctx, "project-quay", metav1.GetOptions{})
+
+					return err
+				}, olmWaitTimeout*2, 3).Should(Succeed())
 			})
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				OpPlcYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially show the CatalogSource is compliant", func() {
 			By("Checking the condition fields")
 			check(
-				OpPlcName,
+				opPolName,
 				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1154,11 +1231,11 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should remain compliant when policy is enforced", func() {
 			By("Enforcing the policy")
-			utils.EnforceOperatorPolicy(OpPlcName, testNamespace)
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
 
 			By("Checking the condition fields")
 			check(
-				OpPlcName,
+				opPolName,
 				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1183,12 +1260,12 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should report in status when CatalogSource DNE", func() {
 			By("Patching the policy to reference a CatalogSource that DNE to emulate failure")
-			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/subscription/source", "value": "fakeName"}]`)
 
 			By("Checking the conditions and relatedObj in the policy")
 			check(
-				OpPlcName,
+				opPolName,
 				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1213,7 +1290,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should report unhealthy status when CatalogSource fails", func() {
 			By("Patching the policy to point to an existing CatalogSource")
-			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/subscription/source", "value": "operatorhubio-catalog"}]`)
 
 			By("Patching the CatalogSource to reference a broken image link")
@@ -1222,7 +1299,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 			By("Checking the conditions and relatedObj in the policy")
 			check(
-				OpPlcName,
+				opPolName,
 				false,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1247,12 +1324,12 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should become NonCompliant when ComplianceConfig is modified", func() {
 			By("Patching the policy ComplianceConfig to NonCompliant")
-			utils.Kubectl("patch", "operatorpolicy", OpPlcName, "-n", testNamespace, "--type=json", "-p",
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceConfig/catalogSourceUnhealthy", "value": "NonCompliant"}]`)
 
 			By("Checking the conditions and relatedObj in the policy")
 			check(
-				OpPlcName,
+				opPolName,
 				true,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -1276,23 +1353,27 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 	})
+
 	Describe("Testing InstallPlan approval and status behavior", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-manual-upgrades.yaml"
-			opPolName = "oppol-manual-upgrades"
 			subName   = "strimzi-kafka-operator"
 		)
-
 		var (
+			opPolTestNS           string
+			opPolName             string
+			parentPolicyName      string
 			firstInstallPlanName  string
 			secondInstallPlanName string
 		)
 
 		BeforeAll(func() {
-			preFunc()
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-manual-upgrades" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially report the ConstraintsNotSatisfiable Subscription", func(ctx SpecContext) {
@@ -1371,17 +1452,18 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		})
 		It("Should report an available install when informing", func(ctx SpecContext) {
 			goodVersion := "strimzi-cluster-operator.v0.36.0"
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/subscription/startingCSV", "value": "`+goodVersion+`"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
-			KubectlTarget("patch", "subscription.operator", subName, "-n", opPolTestNS, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/startingCSV", "value": "`+goodVersion+`"}]`)
 			Eventually(func(ctx SpecContext) int {
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/subscription/startingCSV", "value": "`+goodVersion+`"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
+				KubectlTarget("patch", "subscription.operator", subName, "-n", opPolTestNS, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/startingCSV", "value": "`+goodVersion+`"}]`)
+
 				ipList, _ := targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 
 				return len(ipList.Items)
-			}, olmWaitTimeout, 5, ctx).Should(Equal(1))
+			}, olmWaitTimeout*2, 5, ctx).Should(Equal(1))
 			check(
 				opPolName,
 				false,
@@ -1407,7 +1489,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 		It("Should become NonCompliant when ComplianceConfig is modified to NonCompliant", func() {
-			By("Patching the policy ComplianceConfig to Compliant")
+			By("Patching the policy ComplianceConfig to NonCompliant")
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/complianceConfig/upgradesAvailable", "value": "NonCompliant"}]`)
 
@@ -1443,16 +1525,16 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 			firstInstallPlanName = ipList.Items[0].GetName()
 
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
-					`{"op": "replace", "path": "/spec/upgradeApproval", "value": "Automatic"}]`)
-
 			Eventually(func(ctx SpecContext) int {
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+						`{"op": "replace", "path": "/spec/upgradeApproval", "value": "Automatic"}]`)
+
 				ipList, err = targetK8sDynamic.Resource(gvrInstallPlan).Namespace(opPolTestNS).
 					List(ctx, metav1.ListOptions{})
 
 				return len(ipList.Items)
-			}, olmWaitTimeout, 5, ctx).Should(Equal(2))
+			}, olmWaitTimeout*2, 5, ctx).Should(Equal(2))
 
 			secondInstallPlanName = ipList.Items[1].GetName()
 			if firstInstallPlanName == secondInstallPlanName {
@@ -1561,122 +1643,23 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 	})
-	Describe("Testing full installation behavior, including CRD reporting", Ordered, func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
-			opPolName = "oppol-no-group"
-		)
-		BeforeAll(func() {
-			preFunc()
-			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-		})
 
-		It("Should initially not report on CRDs because they won't exist yet", func() {
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "-",
-						},
-					},
-					Compliant: "Inapplicable",
-					Reason:    "No relevant CustomResourceDefinitions found",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "RelevantCRDNotFound",
-					Message: "no CRDs were found for the operator",
-				},
-				"no CRDs were found for the operator",
-			)
-		})
-
-		It("Should generate conditions and relatedobjects of CRD", func(ctx SpecContext) {
-			utils.EnforceOperatorPolicy(opPolName, testNamespace)
-			By("Waiting for a CRD to appear, which should indicate the operator is installing")
-			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-					"quayregistries.quay.redhat.com", metav1.GetOptions{})
-
-				return crd
-			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
-
-			By("Waiting for the Deployment to be available, indicating the installation is complete")
-			Eventually(func(g Gomega) {
-				dep, err := targetK8sDynamic.Resource(gvrDeployment).Namespace(opPolTestNS).Get(
-					ctx, "quay-operator-tng", metav1.GetOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-				g.Expect(dep).NotTo(BeNil())
-
-				var deploy appsv1.Deployment
-
-				err = runtime.DefaultUnstructuredConverter.FromUnstructured(dep.Object, &deploy)
-				g.Expect(err).NotTo(HaveOccurred())
-
-				g.Expect(deploy.Status.Replicas).NotTo(BeZero())
-				g.Expect(deploy.Status.ReadyReplicas).To(Equal(deploy.Status.Replicas))
-			}, olmWaitTimeout, 5).Should(Succeed())
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "quayregistries.quay.redhat.com",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found as expected",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "RelevantCRDFound",
-					Message: "there are CRDs present for the operator",
-				},
-				"there are CRDs present for the operator",
-			)
-		})
-
-		It("should send a new compliance event if the status is reset", func(ctx SpecContext) {
-			By("Waiting 10 seconds for any late reconciles")
-			time.Sleep(10 * time.Second)
-
-			originalEvents := utils.GetMatchingEvents(
-				clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
-			)
-
-			By("Resetting the status, and checking for a new event")
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "remove", "path": "/status/compliant"}]`, "--subresource=status")
-
-			Eventually(func() int {
-				newEvents := utils.GetMatchingEvents(
-					clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
-				)
-
-				return len(newEvents)
-			}, 10, 1, ctx).Should(BeNumerically(">", len(originalEvents)))
-		})
-	})
 	Describe("Testing OperatorPolicy validation messages", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-validity-test.yaml"
-			opPolName = "oppol-validity-test"
 			subName   = "project-quay"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-validity-test" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 
 			KubectlTarget("delete", "ns", "nonexist-testns", "--ignore-not-found")
@@ -1685,8 +1668,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				KubectlTarget("delete", "ns", "nonexist-testns", "--ignore-not-found")
 			})
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially report subscription unknown fields", func() {
@@ -1739,7 +1721,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Type:   "ValidPolicySpec",
 					Status: metav1.ConditionFalse,
 					Reason: "InvalidPolicySpec",
-					Message: "the namespace specified in spec.operatorGroup ('operator-policy-testns') must match " +
+					Message: "the namespace specified in spec.operatorGroup ('" + opPolTestNS + "') must match " +
 						"the namespace used for the subscription ('nonexist-testns')",
 				},
 				"NonCompliant",
@@ -1832,1045 +1814,1420 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 	})
-	Describe("Testing general OperatorPolicy mustnothave behavior", Ordered, func() {
-		const (
-			opPolYAML      = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
-			opPolName      = "oppol-mustnothave"
-			subName        = "project-quay"
-			deploymentName = "quay-operator-tng"
-			catSrcName     = "operatorhubio-catalog"
-			catSrcNS       = "olm"
-		)
 
-		BeforeAll(func() {
-			preFunc()
-			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
+	// These tests can run in an Ordered container as long as no other tests install the
+	// same operator at the same time. These tests will delete and recreate the operator's CRD.
+	// The relative order of the inner Describe containers does not matter.
+	Describe("Testing CRD behaviors", Ordered, func() {
+		Describe("Testing full installation behavior, including CRD reporting", Ordered, func() {
+			const (
+				opPolYAML      = "../resources/case38_operator_install/operator-policy-no-group-one-version.yaml"
+				deploymentName = "apicast-operator-controller-manager-v2"
+				crdName        = "apicasts.apps.3scale.net"
+			)
+			var (
+				opPolTestNS      string
+				opPolName        string
+				parentPolicyName string
+			)
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			BeforeAll(func() {
+				opPolTestNS = getOpPolTestNS()
+				opPolName = "oppol-no-group" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
+
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+
+				DeferCleanup(func() {
+					KubectlTarget("delete", "crd", crdName, "--wait", "--ignore-not-found")
+				})
+			})
+			It("Should initially not report on CRDs because they won't exist yet", func() {
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: "-",
+							},
+						},
+						Compliant: "Inapplicable",
+						Reason:    "No relevant CustomResourceDefinitions found",
+					}},
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "RelevantCRDNotFound",
+						Message: "no CRDs were found for the operator",
+					},
+					"no CRDs were found for the operator",
+				)
+			})
+
+			It("Should generate conditions and relatedobjects of CRD", func(ctx SpecContext) {
+				utils.EnforceOperatorPolicy(opPolName, testNamespace)
+				By("Waiting for a CRD to appear, which should indicate the operator is installing")
+				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
+						crdName, metav1.GetOptions{})
+
+					return crd
+				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+				By("Waiting for the Deployment to be available, indicating the installation is complete")
+				Eventually(func(g Gomega) {
+					dep, err := targetK8sDynamic.Resource(gvrDeployment).Namespace(opPolTestNS).Get(
+						ctx, deploymentName, metav1.GetOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+					g.Expect(dep).NotTo(BeNil())
+
+					var deploy appsv1.Deployment
+
+					err = runtime.DefaultUnstructuredConverter.FromUnstructured(dep.Object, &deploy)
+					g.Expect(err).NotTo(HaveOccurred())
+
+					g.Expect(deploy.Status.Replicas).NotTo(BeZero())
+					g.Expect(deploy.Status.ReadyReplicas).To(Equal(deploy.Status.Replicas))
+				}, olmWaitTimeout, 5).Should(Succeed())
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: crdName,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found as expected",
+					}},
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "RelevantCRDFound",
+						Message: "there are CRDs present for the operator",
+					},
+					"there are CRDs present for the operator",
+				)
+			})
+
+			It("should send a new compliance event if the status is reset", func(ctx SpecContext) {
+				By("Waiting 10 seconds for any late reconciles")
+				time.Sleep(10 * time.Second)
+
+				originalEvents := utils.GetMatchingEvents(
+					clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
+				)
+
+				By("Resetting the status, and checking for a new event")
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "remove", "path": "/status/compliant"}]`, "--subresource=status")
+
+				Eventually(func() int {
+					newEvents := utils.GetMatchingEvents(
+						clientManaged, testNamespace, parentPolicyName, opPolName, "", eventuallyTimeout,
+					)
+
+					return len(newEvents)
+				}, 10, 1, ctx).Should(BeNumerically(">", len(originalEvents)))
+			})
 		})
 
-		It("Should be Compliant and report all the things are correctly missing", func() {
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "OperatorGroup",
-						APIVersion: "operators.coreos.com/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "-",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource not found as expected",
-				}},
-				metav1.Condition{
-					Type:    "OperatorGroupCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "OperatorGroupNotPresent",
-					Message: "the OperatorGroup is not present",
-				},
-				`the OperatorGroup is not present`,
+		Describe("Testing general OperatorPolicy mustnothave behavior", Ordered, func() {
+			const (
+				opPolYAML      = "../resources/case38_operator_install/operator-policy-mustnothave.yaml"
+				subName        = "apicast-community-operator"
+				deploymentName = "apicast-operator-controller-manager-v2"
+				crdName        = "apicasts.apps.3scale.net"
+				csvName        = "apicast-community-operator.v0.7.1"
+				catSrcName     = "operatorhubio-catalog"
+				catSrcNS       = "olm"
 			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Subscription",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "project-quay",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource not found as expected",
-				}},
-				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "SubscriptionNotPresent",
-					Message: "the Subscription is not present",
-				},
-				`the Subscription is not present`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "-",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "There are no relevant InstallPlans in this namespace",
-				}},
-				metav1.Condition{
-					Type:    "InstallPlanCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "NoInstallPlansFound",
-					Message: "there are no relevant InstallPlans in the namespace",
-				},
-				`there are no relevant InstallPlans in the namespace`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "ClusterServiceVersion",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "-",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource not found as expected",
-				}},
-				metav1.Condition{
-					Type:    "ClusterServiceVersionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "ClusterServiceVersionNotPresent",
-					Message: "the ClusterServiceVersion is not present",
-				},
-				`the ClusterServiceVersion is not present`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:    "DeploymentCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "DeploymentNotApplicable",
-					Message: "MustNotHave policies ignore kind Deployment",
-				},
-				`MustNotHave policies ignore kind Deployment`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "-",
-						},
-					},
-					Compliant: "Inapplicable",
-					Reason:    "No relevant CustomResourceDefinitions found",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "RelevantCRDNotFound",
-					Message: "no CRDs were found for the operator",
-				},
-				`no CRDs were found for the operator`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:    "CatalogSourcesUnhealthy",
-					Status:  metav1.ConditionFalse,
-					Reason:  "CatalogSourceNotApplicable",
-					Message: "MustNotHave policies ignore kind CatalogSource",
-				},
-				`MustNotHave policies ignore kind CatalogSource`,
+			var (
+				opPolTestNS      string
+				opPolName        string
+				parentPolicyName string
 			)
 
-			// The `check` function doesn't check that it is compliant, only that each piece is compliant
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
-		})
-		It("Should be NonCompliant and report resources when the operator is installed", func(ctx SpecContext) {
-			// Make it musthave and enforced, to install the operator
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+			BeforeAll(func() {
+				opPolTestNS = getOpPolTestNS()
+				opPolName = "oppol-mustnothave" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
 
-			By("Waiting for a CRD to appear, which should indicate the operator is installing")
-			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-					"quayregistries.quay.redhat.com", metav1.GetOptions{})
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
 
-				return crd
-			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+				DeferCleanup(func() {
+					KubectlTarget("delete", "crd", crdName, "--wait", "--ignore-not-found")
+				})
+			})
 
-			// Revert to the original mustnothave policy
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
+			It("Should be Compliant and report all the things are correctly missing", func() {
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "OperatorGroup",
+							APIVersion: "operators.coreos.com/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      "-",
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource not found as expected",
+					}},
+					metav1.Condition{
+						Type:    "OperatorGroupCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "OperatorGroupNotPresent",
+						Message: "the OperatorGroup is not present",
+					},
+					`the OperatorGroup is not present`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Subscription",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      subName,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource not found as expected",
+					}},
+					metav1.Condition{
+						Type:    "SubscriptionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "SubscriptionNotPresent",
+						Message: "the Subscription is not present",
+					},
+					`the Subscription is not present`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "InstallPlan",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      "-",
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "There are no relevant InstallPlans in this namespace",
+					}},
+					metav1.Condition{
+						Type:    "InstallPlanCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "NoInstallPlansFound",
+						Message: "there are no relevant InstallPlans in the namespace",
+					},
+					`there are no relevant InstallPlans in the namespace`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "ClusterServiceVersion",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      "-",
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource not found as expected",
+					}},
+					metav1.Condition{
+						Type:    "ClusterServiceVersionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "ClusterServiceVersionNotPresent",
+						Message: "the ClusterServiceVersion is not present",
+					},
+					`the ClusterServiceVersion is not present`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{},
+					metav1.Condition{
+						Type:    "DeploymentCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeploymentNotApplicable",
+						Message: "MustNotHave policies ignore kind Deployment",
+					},
+					`MustNotHave policies ignore kind Deployment`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: "-",
+							},
+						},
+						Compliant: "Inapplicable",
+						Reason:    "No relevant CustomResourceDefinitions found",
+					}},
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "RelevantCRDNotFound",
+						Message: "no CRDs were found for the operator",
+					},
+					`no CRDs were found for the operator`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{},
+					metav1.Condition{
+						Type:    "CatalogSourcesUnhealthy",
+						Status:  metav1.ConditionFalse,
+						Reason:  "CatalogSourceNotApplicable",
+						Message: "MustNotHave policies ignore kind CatalogSource",
+					},
+					`MustNotHave policies ignore kind CatalogSource`,
+				)
 
-			By("Checking the OperatorPolicy status")
-			check(
-				opPolName,
-				true,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "OperatorGroup",
-						APIVersion: "operators.coreos.com/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "Resource found but should not exist",
-				}},
-				metav1.Condition{
-					Type:    "OperatorGroupCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "OperatorGroupPresent",
-					Message: "the OperatorGroup is present",
-				},
-				`the OperatorGroup is present`,
-			)
-			check(
-				opPolName,
-				true,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Subscription",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "project-quay",
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "Resource found but should not exist",
-				}},
-				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "SubscriptionPresent",
-					Message: "the Subscription is present",
-				},
-				`the Subscription is present`,
-			)
-			check(
-				opPolName,
-				true,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "InstallPlanCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "InstallPlanNotApplicable",
-					Message: "MustNotHave policies ignore kind InstallPlan",
-				},
-				`MustNotHave policies ignore kind InstallPlan`,
-			)
-			check(
-				opPolName,
-				true,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "ClusterServiceVersion",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "Resource found but should not exist",
-				}},
-				metav1.Condition{
-					Type:    "ClusterServiceVersionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "ClusterServiceVersionPresent",
-					Message: "the ClusterServiceVersion (quay-operator.v3.10.0) is present",
-				},
-				regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.10.0) is present"),
-			)
-			check(
-				opPolName,
-				true,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "quayregistries.quay.redhat.com",
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "Resource found but should not exist",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "CustomResourceDefinitionPresent",
-					Message: "the CustomResourceDefinition is present",
-				},
-				`the CustomResourceDefinition is present`,
-			)
-			check(
-				opPolName,
-				true,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Deployment",
-						APIVersion: "apps/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      deploymentName,
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "DeploymentCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "DeploymentNotApplicable",
-					Message: "MustNotHave policies ignore kind Deployment",
-				},
-				`MustNotHave policies ignore kind Deployment`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CatalogSource",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      catSrcName,
-							Namespace: catSrcNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "CatalogSourcesUnhealthy",
-					Status:  metav1.ConditionFalse,
-					Reason:  "CatalogSourceNotApplicable",
-					Message: "MustNotHave policies ignore kind CatalogSource",
-				},
-				`MustNotHave policies ignore kind CatalogSource`,
-			)
-		})
+				// The `check` function doesn't check that it is compliant, only that each piece is compliant
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+			})
+			It("Should be NonCompliant and report resources when the operator is installed", func(ctx SpecContext) {
+				// Make it musthave and enforced, to install the operator
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
 
-		// These are the same for inform and enforce, so just write them once
-		keptChecks := func() {
-			GinkgoHelper()
+				By("Waiting for a CRD to appear, which should indicate the operator is installing")
+				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
+						crdName, metav1.GetOptions{})
 
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "OperatorGroup",
-						APIVersion: "operators.coreos.com/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-						},
-					},
-					Reason: "The OperatorGroup is attached to a mustnothave policy, but does not need to be removed",
-				}},
-				metav1.Condition{
-					Type:    "OperatorGroupCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "OperatorGroupKept",
-					Message: "the policy specifies to keep the OperatorGroup",
-				},
-				`the policy specifies to keep the OperatorGroup`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Subscription",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "project-quay",
-						},
-					},
-					Reason: "The Subscription is attached to a mustnothave policy, but does not need to be removed",
-				}},
-				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "SubscriptionKept",
-					Message: "the policy specifies to keep the Subscription",
-				},
-				`the policy specifies to keep the Subscription`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "ClusterServiceVersion",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-						},
-					},
-					Reason: "The ClusterServiceVersion is attached to a mustnothave policy, " +
-						"but does not need to be removed",
-				}},
-				metav1.Condition{
-					Type:    "ClusterServiceVersionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "ClusterServiceVersionKept",
-					Message: "the policy specifies to keep the ClusterServiceVersion",
-				},
-				`the policy specifies to keep the ClusterServiceVersion`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "quayregistries.quay.redhat.com",
-						},
-					},
-					Reason: "The CustomResourceDefinition is attached to a mustnothave policy, but " +
-						"does not need to be removed",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "CustomResourceDefinitionKept",
-					Message: "the policy specifies to keep the CustomResourceDefinition",
-				},
-				`the policy specifies to keep the CustomResourceDefinition`,
-			)
-		}
-		It("Should report resources differently when told to keep them", func() {
-			// Change the removal behaviors from Delete to Keep
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "Keep"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Keep"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Keep"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Keep"}]`)
-			By("Checking the OperatorPolicy status")
-			keptChecks()
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Deployment",
-						APIVersion: "apps/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      deploymentName,
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "DeploymentCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "DeploymentNotApplicable",
-					Message: "MustNotHave policies ignore kind Deployment",
-				},
-				`MustNotHave policies ignore kind Deployment`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CatalogSource",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      catSrcName,
-							Namespace: catSrcNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "CatalogSourcesUnhealthy",
-					Status:  metav1.ConditionFalse,
-					Reason:  "CatalogSourceNotApplicable",
-					Message: "MustNotHave policies ignore kind CatalogSource",
-				},
-				`MustNotHave policies ignore kind CatalogSource`,
-			)
-		})
-		It("Should not remove anything when enforced while set to Keep everything", func() {
-			// Enforce the policy
-			utils.EnforceOperatorPolicy(opPolName, testNamespace)
-			By("Checking the OperatorPolicy status")
-			keptChecks()
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Deployment",
-						APIVersion: "apps/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      deploymentName,
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "DeploymentCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "DeploymentNotApplicable",
-					Message: "MustNotHave policies ignore kind Deployment",
-				},
-				`MustNotHave policies ignore kind Deployment`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CatalogSource",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      catSrcName,
-							Namespace: catSrcNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "CatalogSourcesUnhealthy",
-					Status:  metav1.ConditionFalse,
-					Reason:  "CatalogSourceNotApplicable",
-					Message: "MustNotHave policies ignore kind CatalogSource",
-				},
-				`MustNotHave policies ignore kind CatalogSource`,
-			)
+					return crd
+				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
-			By("Checking that certain (named) resources are still there")
-			utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
-				opPolTestNS, true, eventuallyTimeout)
-			utils.GetWithTimeout(targetK8sDynamic, gvrSubscription, subName,
-				opPolTestNS, true, eventuallyTimeout)
-			utils.GetWithTimeout(targetK8sDynamic, gvrCRD, "quayregistries.quay.redhat.com",
-				"", true, eventuallyTimeout)
-		})
-		It("Should report a special status when the resources are stuck", func(ctx SpecContext) {
-			By("Adding a finalizer to each of the resources")
-			pol, err := clientManagedDynamic.Resource(gvrOperatorPolicy).
-				Namespace(testNamespace).Get(ctx, opPolName, metav1.GetOptions{})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(pol).NotTo(BeNil())
+				// Revert to the original mustnothave policy
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "inform"}]`)
 
-			relatedObjects, found, err := unstructured.NestedSlice(pol.Object, "status", "relatedObjects")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(found).To(BeTrue())
+				By("Checking the OperatorPolicy status")
+				check(
+					opPolName,
+					true,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "OperatorGroup",
+							APIVersion: "operators.coreos.com/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "Resource found but should not exist",
+					}},
+					metav1.Condition{
+						Type:    "OperatorGroupCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "OperatorGroupPresent",
+						Message: "the OperatorGroup is present",
+					},
+					`the OperatorGroup is present`,
+				)
+				check(
+					opPolName,
+					true,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Subscription",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      subName,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "Resource found but should not exist",
+					}},
+					metav1.Condition{
+						Type:    "SubscriptionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "SubscriptionPresent",
+						Message: "the Subscription is present",
+					},
+					`the Subscription is present`,
+				)
+				check(
+					opPolName,
+					true,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "InstallPlan",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "InstallPlanCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "InstallPlanNotApplicable",
+						Message: "MustNotHave policies ignore kind InstallPlan",
+					},
+					`MustNotHave policies ignore kind InstallPlan`,
+				)
+				check(
+					opPolName,
+					true,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "ClusterServiceVersion",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "Resource found but should not exist",
+					}},
+					metav1.Condition{
+						Type:    "ClusterServiceVersionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "ClusterServiceVersionPresent",
+						Message: "the ClusterServiceVersion (" + csvName + ") is present",
+					},
+					regexp.QuoteMeta("the ClusterServiceVersion ("+csvName+") is present"),
+				)
+				check(
+					opPolName,
+					true,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: crdName,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "Resource found but should not exist",
+					}},
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "CustomResourceDefinitionPresent",
+						Message: "the CustomResourceDefinition is present",
+					},
+					`the CustomResourceDefinition is present`,
+				)
+				check(
+					opPolName,
+					true,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Deployment",
+							APIVersion: "apps/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name:      deploymentName,
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "DeploymentCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeploymentNotApplicable",
+						Message: "MustNotHave policies ignore kind Deployment",
+					},
+					`MustNotHave policies ignore kind Deployment`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CatalogSource",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Name:      catSrcName,
+								Namespace: catSrcNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "CatalogSourcesUnhealthy",
+						Status:  metav1.ConditionFalse,
+						Reason:  "CatalogSourceNotApplicable",
+						Message: "MustNotHave policies ignore kind CatalogSource",
+					},
+					`MustNotHave policies ignore kind CatalogSource`,
+				)
+			})
 
-			var opGroupName, installPlanName, csvName string
-			crdNames := make([]string, 0)
+			// These are the same for inform and enforce, so just write them once
+			keptChecks := func() {
+				GinkgoHelper()
 
-			for _, relatedObject := range relatedObjects {
-				relatedObj, ok := relatedObject.(map[string]interface{})
-				Expect(ok).To(BeTrue())
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "OperatorGroup",
+							APIVersion: "operators.coreos.com/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+							},
+						},
+						Reason: `The OperatorGroup is attached to a mustnothave policy, ` +
+							`but does not need to be removed`,
+					}},
+					metav1.Condition{
+						Type:    "OperatorGroupCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "OperatorGroupKept",
+						Message: "the policy specifies to keep the OperatorGroup",
+					},
+					`the policy specifies to keep the OperatorGroup`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Subscription",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      subName,
+							},
+						},
+						Reason: "The Subscription is attached to a mustnothave policy, but does not need to be removed",
+					}},
+					metav1.Condition{
+						Type:    "SubscriptionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "SubscriptionKept",
+						Message: "the policy specifies to keep the Subscription",
+					},
+					`the policy specifies to keep the Subscription`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "ClusterServiceVersion",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+							},
+						},
+						Reason: "The ClusterServiceVersion is attached to a mustnothave policy, " +
+							"but does not need to be removed",
+					}},
+					metav1.Condition{
+						Type:    "ClusterServiceVersionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "ClusterServiceVersionKept",
+						Message: "the policy specifies to keep the ClusterServiceVersion",
+					},
+					`the policy specifies to keep the ClusterServiceVersion`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: crdName,
+							},
+						},
+						Reason: "The CustomResourceDefinition is attached to a mustnothave policy, but " +
+							"does not need to be removed",
+					}},
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "CustomResourceDefinitionKept",
+						Message: "the policy specifies to keep the CustomResourceDefinition",
+					},
+					`the policy specifies to keep the CustomResourceDefinition`,
+				)
+			}
+			It("Should report resources differently when told to keep them", func() {
+				// Change the removal behaviors from Delete to Keep
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "Keep"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Keep"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Keep"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", `+
+						`"value": "Keep"}]`)
+				By("Checking the OperatorPolicy status")
+				keptChecks()
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Deployment",
+							APIVersion: "apps/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name:      deploymentName,
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "DeploymentCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeploymentNotApplicable",
+						Message: "MustNotHave policies ignore kind Deployment",
+					},
+					`MustNotHave policies ignore kind Deployment`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CatalogSource",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Name:      catSrcName,
+								Namespace: catSrcNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "CatalogSourcesUnhealthy",
+						Status:  metav1.ConditionFalse,
+						Reason:  "CatalogSourceNotApplicable",
+						Message: "MustNotHave policies ignore kind CatalogSource",
+					},
+					`MustNotHave policies ignore kind CatalogSource`,
+				)
+			})
+			It("Should not remove anything when enforced while set to Keep everything", func() {
+				// Enforce the policy
+				utils.EnforceOperatorPolicy(opPolName, testNamespace)
+				By("Checking the OperatorPolicy status")
+				keptChecks()
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Deployment",
+							APIVersion: "apps/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name:      deploymentName,
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "DeploymentCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeploymentNotApplicable",
+						Message: "MustNotHave policies ignore kind Deployment",
+					},
+					`MustNotHave policies ignore kind Deployment`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CatalogSource",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Name:      catSrcName,
+								Namespace: catSrcNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "CatalogSourcesUnhealthy",
+						Status:  metav1.ConditionFalse,
+						Reason:  "CatalogSourceNotApplicable",
+						Message: "MustNotHave policies ignore kind CatalogSource",
+					},
+					`MustNotHave policies ignore kind CatalogSource`,
+				)
 
-				objKind, found, err := unstructured.NestedString(relatedObj, "object", "kind")
+				By("Checking that certain (named) resources are still there")
+				utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, csvName,
+					opPolTestNS, true, eventuallyTimeout)
+				utils.GetWithTimeout(targetK8sDynamic, gvrSubscription, subName,
+					opPolTestNS, true, eventuallyTimeout)
+				utils.GetWithTimeout(targetK8sDynamic, gvrCRD, crdName,
+					"", true, eventuallyTimeout)
+			})
+			It("Should report a special status when the resources are stuck", func(ctx SpecContext) {
+				By("Adding a finalizer to each of the resources")
+				pol, err := clientManagedDynamic.Resource(gvrOperatorPolicy).
+					Namespace(testNamespace).Get(ctx, opPolName, metav1.GetOptions{})
+				Expect(err).NotTo(HaveOccurred())
+				Expect(pol).NotTo(BeNil())
+
+				relatedObjects, found, err := unstructured.NestedSlice(pol.Object, "status", "relatedObjects")
 				Expect(err).NotTo(HaveOccurred())
 				Expect(found).To(BeTrue())
 
-				objName, found, err := unstructured.NestedString(relatedObj, "object", "metadata", "name")
-				Expect(err).NotTo(HaveOccurred())
-				Expect(found).To(BeTrue())
+				var opGroupName, installPlanName, csvName string
+				crdNames := make([]string, 0)
 
-				switch objKind {
-				case "OperatorGroup":
-					opGroupName = objName
-				case "Subscription":
-					// just do the finalizer; we already know the subscription name
-				case "ClusterServiceVersion":
-					csvName = objName
-				case "InstallPlan":
-					installPlanName = objName
-				case "CustomResourceDefinition":
-					crdNames = append(crdNames, objName)
-				default:
-					// skip adding / removing the finalizer for other types
-					continue
+				for _, relatedObject := range relatedObjects {
+					relatedObj, ok := relatedObject.(map[string]interface{})
+					Expect(ok).To(BeTrue())
+
+					objKind, found, err := unstructured.NestedString(relatedObj, "object", "kind")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(found).To(BeTrue())
+
+					objName, found, err := unstructured.NestedString(relatedObj, "object", "metadata", "name")
+					Expect(err).NotTo(HaveOccurred())
+					Expect(found).To(BeTrue())
+
+					switch objKind {
+					case "OperatorGroup":
+						opGroupName = objName
+					case "Subscription":
+						// just do the finalizer; we already know the subscription name
+					case "ClusterServiceVersion":
+						csvName = objName
+					case "InstallPlan":
+						installPlanName = objName
+					case "CustomResourceDefinition":
+						crdNames = append(crdNames, objName)
+					default:
+						// skip adding / removing the finalizer for other types
+						continue
+					}
+
+					KubectlTarget("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
+						`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
+					DeferCleanup(func() {
+						By("removing the finalizer from " + objKind + " " + objName)
+						KubectlTarget("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
+							`[{"op": "remove", "path": "/metadata/finalizers"}]`)
+					})
 				}
 
-				KubectlTarget("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
-					`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
+				By("Setting the removal behaviors to Delete")
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Delete"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Delete"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", `+
+						`"value": "Delete"}]`)
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "OperatorGroup",
+							APIVersion: "operators.coreos.com/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      opGroupName,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "The object is being deleted but has not been removed yet",
+					}},
+					metav1.Condition{
+						Type:    "OperatorGroupCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "OperatorGroupDeleting",
+						Message: "the OperatorGroup has a deletion timestamp",
+					},
+					`the OperatorGroup was deleted`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Subscription",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      subName,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "The object is being deleted but has not been removed yet",
+					}},
+					metav1.Condition{
+						Type:    "SubscriptionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "SubscriptionDeleting",
+						Message: "the Subscription has a deletion timestamp",
+					},
+					`the Subscription was deleted`,
+				)
+				check(
+					opPolName,
+					true,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "InstallPlan",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Name:      installPlanName,
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "InstallPlanCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "InstallPlanNotApplicable",
+						Message: "MustNotHave policies ignore kind InstallPlan",
+					},
+					`MustNotHave policies ignore kind InstallPlan`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "ClusterServiceVersion",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      csvName,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "The object is being deleted but has not been removed yet",
+					}},
+					metav1.Condition{
+						Type:    "ClusterServiceVersionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "ClusterServiceVersionDeleting",
+						Message: "the ClusterServiceVersion (" + csvName + ") has a deletion timestamp",
+					},
+					regexp.QuoteMeta("the ClusterServiceVersion ("+csvName+") was deleted"),
+				)
+				desiredCRDObjects := make([]policyv1.RelatedObject, 0)
+				for _, name := range crdNames {
+					desiredCRDObjects = append(desiredCRDObjects, policyv1.RelatedObject{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: name,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "The object is being deleted but has not been removed yet",
+					})
+				}
+				check(
+					opPolName,
+					false,
+					desiredCRDObjects,
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "CustomResourceDefinitionDeleting",
+						Message: "the CustomResourceDefinition has a deletion timestamp",
+					},
+					`the CustomResourceDefinition was deleted`,
+				)
+			})
+			It("Should report things as gone after the finalizers are removed", func() {
+				By("Checking that certain (named) resources are not there, indicating the removal was completed")
+				utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, csvName,
+					opPolTestNS, false, eventuallyTimeout)
+				utils.GetWithTimeout(targetK8sDynamic, gvrSubscription, subName,
+					opPolTestNS, false, eventuallyTimeout)
+				utils.GetWithTimeout(targetK8sDynamic, gvrCRD, crdName,
+					"", false, eventuallyTimeout)
+
+				By("Checking the OperatorPolicy status")
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "OperatorGroup",
+							APIVersion: "operators.coreos.com/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      "-",
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource not found as expected",
+					}},
+					metav1.Condition{
+						Type:    "OperatorGroupCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "OperatorGroupNotPresent",
+						Message: "the OperatorGroup is not present",
+					},
+					`the OperatorGroup was deleted`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Subscription",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      subName,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource not found as expected",
+					}},
+					metav1.Condition{
+						Type:    "SubscriptionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "SubscriptionNotPresent",
+						Message: "the Subscription is not present",
+					},
+					`the Subscription was deleted`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "InstallPlan",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      "-",
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "There are no relevant InstallPlans in this namespace",
+					}},
+					metav1.Condition{
+						Type:    "InstallPlanCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "NoInstallPlansFound",
+						Message: "there are no relevant InstallPlans in the namespace",
+					},
+					`there are no relevant InstallPlans in the namespace`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "ClusterServiceVersion",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      "-",
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource not found as expected",
+					}},
+					metav1.Condition{
+						Type:    "ClusterServiceVersionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "ClusterServiceVersionNotPresent",
+						Message: "the ClusterServiceVersion is not present",
+					},
+					regexp.QuoteMeta("the ClusterServiceVersion ("+csvName+") was deleted"),
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: "-",
+							},
+						},
+						Compliant: "Inapplicable",
+						Reason:    "No relevant CustomResourceDefinitions found",
+					}},
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "RelevantCRDNotFound",
+						Message: "no CRDs were found for the operator",
+					},
+					`the CustomResourceDefinition was deleted`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Deployment",
+							APIVersion: "apps/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name:      deploymentName,
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "DeploymentCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeploymentNotApplicable",
+						Message: "MustNotHave policies ignore kind Deployment",
+					},
+					`MustNotHave policies ignore kind Deployment`,
+				)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CatalogSource",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Name:      catSrcName,
+								Namespace: catSrcNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found but will not be handled in mustnothave mode",
+					}},
+					metav1.Condition{
+						Type:    "CatalogSourcesUnhealthy",
+						Status:  metav1.ConditionFalse,
+						Reason:  "CatalogSourceNotApplicable",
+						Message: "MustNotHave policies ignore kind CatalogSource",
+					},
+					`MustNotHave policies ignore kind CatalogSource`,
+				)
+
+				// the checks don't verify that the policy is compliant, do that now:
+				checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+			})
+		})
+
+		Describe("Test CRD deletion delayed because of a finalizer", Ordered, func() {
+			const (
+				opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-apicast.yaml"
+				subName   = "apicast-community-operator"
+				crdName   = "apicasts.apps.3scale.net"
+			)
+			var (
+				opPolName        string
+				parentPolicyName string
+			)
+
+			BeforeAll(func() {
+				opPolName = "oppol-mustnothave" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
+
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+
 				DeferCleanup(func() {
-					By("removing the finalizer from " + objKind + " " + objName)
-					KubectlTarget("patch", objKind, objName, "-n", opPolTestNS, "--type=json", "-p",
-						`[{"op": "remove", "path": "/metadata/finalizers"}]`)
+					KubectlTarget("delete", "crd", crdName, "--wait", "--ignore-not-found")
 				})
-			}
+			})
+			AfterAll(func(ctx SpecContext) {
+				crd, err := targetK8sDynamic.Resource(gvrCRD).Get(
+					ctx, crdName, metav1.GetOptions{})
+				if k8serrors.IsNotFound(err) {
+					return
+				}
+				Expect(crd).NotTo(BeNil())
 
-			By("Setting the removal behaviors to Delete")
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/subscriptions", "value": "Delete"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/clusterServiceVersions", "value": "Delete"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/customResourceDefinitions", "value": "Delete"}]`)
+				KubectlTarget("patch", "crd", crdName, "--type=json", "-p",
+					`[{"op": "remove", "path": "/metadata/finalizers"}]`)
+			})
+			It("Initially behaves correctly as musthave", func(ctx SpecContext) {
+				// Make it musthave and enforced, to install the operator
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
 
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "OperatorGroup",
-						APIVersion: "operators.coreos.com/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      opGroupName,
+				By("Waiting for a CRD to appear, which should indicate the operator is installing")
+				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
+						crdName, metav1.GetOptions{})
+
+					return crd
+				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: crdName,
+							},
 						},
+						Compliant: "Compliant",
+						Reason:    "Resource found as expected",
+					}},
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "RelevantCRDFound",
+						Message: "there are CRDs present for the operator",
 					},
-					Compliant: "NonCompliant",
-					Reason:    "The object is being deleted but has not been removed yet",
-				}},
-				metav1.Condition{
-					Type:    "OperatorGroupCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "OperatorGroupDeleting",
-					Message: "the OperatorGroup has a deletion timestamp",
-				},
-				`the OperatorGroup was deleted`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Subscription",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "project-quay",
+					"there are CRDs present for the operator",
+				)
+
+				By("Adding a finalizer to the CRD")
+				KubectlTarget("patch", "crd", crdName, "--type=json", "-p",
+					`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
+				// cleanup for this is handled in an AfterAll
+			})
+			It("Should become noncompliant because the CRD is not fully removed", func() {
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: crdName,
+							},
 						},
+						Compliant: "NonCompliant",
+						Reason:    "The object is being deleted but has not been removed yet",
+					}},
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "CustomResourceDefinitionDeleting",
+						Message: "the CustomResourceDefinition has a deletion timestamp",
 					},
-					Compliant: "NonCompliant",
-					Reason:    "The object is being deleted but has not been removed yet",
-				}},
-				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "SubscriptionDeleting",
-					Message: "the Subscription has a deletion timestamp",
-				},
-				`the Subscription was deleted`,
-			)
-			check(
-				opPolName,
-				true,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      installPlanName,
-							Namespace: opPolTestNS,
+					`the CustomResourceDefinition was deleted`,
+				)
+			})
+			It("Should become compliant after the finalizer is removed", func() {
+				KubectlTarget("patch", "crd", crdName, "--type=json", "-p",
+					`[{"op": "remove", "path": "/metadata/finalizers"}]`)
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "CustomResourceDefinition",
+							APIVersion: "apiextensions.k8s.io/v1",
+							Metadata: policyv1.ObjectMetadata{
+								Name: "-",
+							},
 						},
+						Compliant: "Inapplicable",
+						Reason:    "No relevant CustomResourceDefinitions found",
+					}},
+					metav1.Condition{
+						Type:    "CustomResourceDefinitionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "RelevantCRDNotFound",
+						Message: "no CRDs were found for the operator",
 					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "InstallPlanCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "InstallPlanNotApplicable",
-					Message: "MustNotHave policies ignore kind InstallPlan",
-				},
-				`MustNotHave policies ignore kind InstallPlan`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "ClusterServiceVersion",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      csvName,
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "The object is being deleted but has not been removed yet",
-				}},
-				metav1.Condition{
-					Type:    "ClusterServiceVersionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "ClusterServiceVersionDeleting",
-					Message: "the ClusterServiceVersion (" + csvName + ") has a deletion timestamp",
-				},
-				regexp.QuoteMeta("the ClusterServiceVersion ("+csvName+") was deleted"),
-			)
-			desiredCRDObjects := make([]policyv1.RelatedObject, 0)
-			for _, name := range crdNames {
-				desiredCRDObjects = append(desiredCRDObjects, policyv1.RelatedObject{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: name,
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "The object is being deleted but has not been removed yet",
-				})
-			}
-			check(
-				opPolName,
-				false,
-				desiredCRDObjects,
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "CustomResourceDefinitionDeleting",
-					Message: "the CustomResourceDefinition has a deletion timestamp",
-				},
-				`the CustomResourceDefinition was deleted`,
-			)
+					`the CustomResourceDefinition was deleted`,
+				)
+
+				checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+			})
 		})
-		It("Should report things as gone after the finalizers are removed", func() {
-			By("Checking that certain (named) resources are not there, indicating the removal was completed")
-			utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, "quay-operator.v3.10.0",
-				opPolTestNS, false, eventuallyTimeout)
-			utils.GetWithTimeout(targetK8sDynamic, gvrSubscription, subName,
-				opPolTestNS, false, eventuallyTimeout)
-			utils.GetWithTimeout(targetK8sDynamic, gvrCRD, "quayregistries.quay.redhat.com",
-				"", false, eventuallyTimeout)
 
-			By("Checking the OperatorPolicy status")
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "OperatorGroup",
-						APIVersion: "operators.coreos.com/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "-",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource not found as expected",
-				}},
-				metav1.Condition{
-					Type:    "OperatorGroupCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "OperatorGroupNotPresent",
-					Message: "the OperatorGroup is not present",
-				},
-				`the OperatorGroup was deleted`,
+		Describe("Testing mustnothave behavior of operator groups in DeleteIfUnused mode", Ordered, func() {
+			const (
+				opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-apicast.yaml"
+				otherYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+				subName   = "apicast-community-operator"
+				crdName   = "apicasts.apps.3scale.net"
 			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Subscription",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "project-quay",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource not found as expected",
-				}},
-				metav1.Condition{
-					Type:    "SubscriptionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "SubscriptionNotPresent",
-					Message: "the Subscription is not present",
-				},
-				`the Subscription was deleted`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "-",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "There are no relevant InstallPlans in this namespace",
-				}},
-				metav1.Condition{
-					Type:    "InstallPlanCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "NoInstallPlansFound",
-					Message: "there are no relevant InstallPlans in the namespace",
-				},
-				`there are no relevant InstallPlans in the namespace`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "ClusterServiceVersion",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      "-",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource not found as expected",
-				}},
-				metav1.Condition{
-					Type:    "ClusterServiceVersionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "ClusterServiceVersionNotPresent",
-					Message: "the ClusterServiceVersion is not present",
-				},
-				regexp.QuoteMeta("the ClusterServiceVersion (quay-operator.v3.10.0) was deleted"),
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "-",
-						},
-					},
-					Compliant: "Inapplicable",
-					Reason:    "No relevant CustomResourceDefinitions found",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "RelevantCRDNotFound",
-					Message: "no CRDs were found for the operator",
-				},
-				`the CustomResourceDefinition was deleted`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "Deployment",
-						APIVersion: "apps/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      deploymentName,
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "DeploymentCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "DeploymentNotApplicable",
-					Message: "MustNotHave policies ignore kind Deployment",
-				},
-				`MustNotHave policies ignore kind Deployment`,
-			)
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CatalogSource",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Name:      catSrcName,
-							Namespace: catSrcNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found but will not be handled in mustnothave mode",
-				}},
-				metav1.Condition{
-					Type:    "CatalogSourcesUnhealthy",
-					Status:  metav1.ConditionFalse,
-					Reason:  "CatalogSourceNotApplicable",
-					Message: "MustNotHave policies ignore kind CatalogSource",
-				},
-				`MustNotHave policies ignore kind CatalogSource`,
+			var (
+				opPolTestNS      string
+				opPolName        string
+				otherOpPolName   string
+				parentPolicyName string
 			)
 
-			// the checks don't verify that the policy is compliant, do that now:
-			checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+			BeforeEach(func() {
+				testSuffix := getTestSuffix()
+				opPolTestNS = getOpPolTestNS()
+				opPolName = "oppol-mustnothave-apicast" + testSuffix
+				otherOpPolName = "oppol-no-group" + testSuffix
+				parentPolicyName = getParentPolicyName()
+
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+
+				DeferCleanup(func() {
+					KubectlTarget("delete", "crd", crdName, "--wait", "--ignore-not-found")
+				})
+			})
+
+			It("should delete the inferred operator group when there is only one subscription", func(ctx SpecContext) {
+				// enforce it as a musthave in order to install the operator
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"}]`)
+
+				By("Waiting for a CRD to appear, which should indicate the operator is installing.")
+				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
+						crdName, metav1.GetOptions{})
+
+					return crd
+				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+				By("Waiting for the policy to become compliant, indicating the operator is installed")
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+
+				By("Verifying that an operator group exists")
+				Eventually(func(g Gomega) []unstructured.Unstructured {
+					list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+						List(ctx, metav1.ListOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+
+					return list.Items
+				}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
+
+				// revert it to mustnothave
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+				By("Verifying that the operator group was removed")
+				Eventually(func(g Gomega) []unstructured.Unstructured {
+					list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+						List(ctx, metav1.ListOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+
+					return list.Items
+				}, eventuallyTimeout, 3, ctx).Should(BeEmpty())
+			})
+
+			It("should delete the specified operator group when there is only one subscription", func(ctx SpecContext) {
+				// enforce it as a musthave in order to install the operator
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
+						`{"op": "add", "path": "/spec/operatorGroup", "value": {"name": "scoped-operator-group", `+
+						`"namespace": "`+opPolTestNS+`", "targetNamespaces": ["`+opPolTestNS+`"]}}]`)
+
+				By("Waiting for a CRD to appear, which should indicate the operator is installing.")
+				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
+						crdName, metav1.GetOptions{})
+
+					return crd
+				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+				By("Waiting for the policy to become compliant, indicating the operator is installed")
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+
+				By("Verifying that an operator group exists")
+				Eventually(func(g Gomega) []unstructured.Unstructured {
+					list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+						List(ctx, metav1.ListOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+
+					return list.Items
+				}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
+
+				// revert it to mustnothave
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+				By("Verifying that the operator group was removed")
+				Eventually(func(g Gomega) []unstructured.Unstructured {
+					list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+						List(ctx, metav1.ListOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+
+					return list.Items
+				}, eventuallyTimeout, 3, ctx).Should(BeEmpty())
+			})
+
+			It("should keep the specified operator group when it is owned by something", func(ctx SpecContext) {
+				// enforce it as a musthave in order to install the operator
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
+						`{"op": "add", "path": "/spec/operatorGroup", "value": {"name": "scoped-operator-group", `+
+						`"namespace": "`+opPolTestNS+`", "targetNamespaces": ["`+opPolTestNS+`"]}}]`)
+
+				By("Waiting for a CRD to appear, which should indicate the operator is installing.")
+				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
+						crdName, metav1.GetOptions{})
+
+					return crd
+				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+				By("Waiting for the policy to become compliant, indicating the operator is installed")
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+
+				By("Verifying that an operator group exists")
+				Eventually(func(g Gomega) []unstructured.Unstructured {
+					list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+						List(ctx, metav1.ListOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+
+					return list.Items
+				}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
+
+				By("Creating and setting an owner for the operator group")
+				KubectlTarget("create", "configmap", "ownercm", "-n", opPolTestNS, "--from-literal=foo=bar")
+
+				ownerCM := utils.GetWithTimeout(targetK8sDynamic, gvrConfigMap, "ownercm",
+					opPolTestNS, true, eventuallyTimeout)
+				ownerUID := string(ownerCM.GetUID())
+				Expect(ownerUID).NotTo(BeEmpty())
+
+				KubectlTarget("patch", "operatorgroup", "scoped-operator-group", "-n", opPolTestNS, "--type=json", "-p",
+					`[{"op": "add", "path": "/metadata/ownerReferences", "value": [{"apiVersion": "v1",
+					"kind": "ConfigMap", "name": "ownercm", "uid": "`+ownerUID+`"}]}]`)
+
+				// revert it to mustnothave
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+				By("Verifying the operator group was not removed")
+				Consistently(func(g Gomega) []unstructured.Unstructured {
+					list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+						List(ctx, metav1.ListOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+
+					return list.Items
+				}, consistentlyDuration, 3, ctx).ShouldNot(BeEmpty())
+			})
+
+			It("shouldn't delete the inferred operator group when there's another subscription", func(ctx SpecContext) {
+				// enforce it as a musthave in order to install the operator
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
+						`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
+						`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"}]`)
+
+				By("Waiting for a CRD to appear, which should indicate the operator is installing.")
+				Eventually(func(ctx SpecContext) *unstructured.Unstructured {
+					crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
+						crdName, metav1.GetOptions{})
+
+					return crd
+				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
+
+				By("Waiting for the policy to become compliant, indicating the operator is installed")
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+
+				By("Verifying that an operator group exists")
+				Eventually(func(g Gomega) []unstructured.Unstructured {
+					list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+						List(ctx, metav1.ListOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+
+					return list.Items
+				}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
+
+				By("Creating another operator policy in the namespace")
+				setupPolicy(otherYAML, otherOpPolName, parentPolicyName)
+
+				// enforce the other policy
+				utils.EnforceOperatorPolicy(otherOpPolName, testNamespace)
+
+				By("Waiting for the policy to become compliant, indicating the operator is installed")
+				checkCompliance(otherOpPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+
+				// revert main policy to mustnothave
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
+
+				By("Verifying the operator group was not removed")
+				Consistently(func(g Gomega) []unstructured.Unstructured {
+					list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
+						List(ctx, metav1.ListOptions{})
+					g.Expect(err).NotTo(HaveOccurred())
+
+					return list.Items
+				}, consistentlyDuration, 3, ctx).ShouldNot(BeEmpty())
+			})
 		})
 	})
-	Describe("Test CRD deletion delayed because of a finalizer", Ordered, func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
-			opPolName = "oppol-mustnothave"
-			subName   = "project-quay"
-		)
 
-		BeforeAll(func() {
-			preFunc()
-			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-		})
-		AfterAll(func(ctx SpecContext) {
-			crd, err := targetK8sDynamic.Resource(gvrCRD).Get(
-				ctx, "quayregistries.quay.redhat.com", metav1.GetOptions{})
-			if k8serrors.IsNotFound(err) {
-				return
-			}
-			Expect(crd).NotTo(BeNil())
-
-			KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
-				`[{"op": "remove", "path": "/metadata/finalizers"}]`)
-		})
-		It("Initially behaves correctly as musthave", func(ctx SpecContext) {
-			// Make it musthave and enforced, to install the operator
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
-
-			By("Waiting for a CRD to appear, which should indicate the operator is installing")
-			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-					"quayregistries.quay.redhat.com", metav1.GetOptions{})
-
-				return crd
-			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
-
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "quayregistries.quay.redhat.com",
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "Resource found as expected",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "RelevantCRDFound",
-					Message: "there are CRDs present for the operator",
-				},
-				"there are CRDs present for the operator",
-			)
-
-			By("Adding a finalizer to the CRD")
-			KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
-				`[{"op": "add", "path": "/metadata/finalizers", "value": ["donutdelete"]}]`)
-			// cleanup for this is handled in an AfterAll
-		})
-		It("Should become noncompliant because the CRD is not fully removed", func() {
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"}]`)
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "quayregistries.quay.redhat.com",
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "The object is being deleted but has not been removed yet",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "CustomResourceDefinitionDeleting",
-					Message: "the CustomResourceDefinition has a deletion timestamp",
-				},
-				`the CustomResourceDefinition was deleted`,
-			)
-		})
-		It("Should become compliant after the finalizer is removed", func() {
-			KubectlTarget("patch", "crd", "quayregistries.quay.redhat.com", "--type=json", "-p",
-				`[{"op": "remove", "path": "/metadata/finalizers"}]`)
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "CustomResourceDefinition",
-						APIVersion: "apiextensions.k8s.io/v1",
-						Metadata: policyv1.ObjectMetadata{
-							Name: "-",
-						},
-					},
-					Compliant: "Inapplicable",
-					Reason:    "No relevant CustomResourceDefinitions found",
-				}},
-				metav1.Condition{
-					Type:    "CustomResourceDefinitionCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "RelevantCRDNotFound",
-					Message: "no CRDs were found for the operator",
-				},
-				`the CustomResourceDefinition was deleted`,
-			)
-
-			checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
-		})
-	})
 	Describe("Testing mustnothave behavior for an operator group that is different than the specified one", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			opPolName = "oppol-with-group"
-			subName   = "project-quay"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeEach(func() {
-			preFunc()
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("should not report an operator group that does not match the spec", func() {
@@ -2906,18 +3263,23 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 	})
+
 	Describe("Test mustnothave message when the namespace does not exist", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName = "oppol-no-group"
 			subName   = "project-quay"
+		)
+		var (
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeEach(func() {
-			preFunc()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("should report compliant", func() {
@@ -2941,223 +3303,22 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
 		})
 	})
-	Describe("Testing mustnothave behavior of operator groups in DeleteIfUnused mode", Ordered, func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
-			otherYAML = "../resources/case38_operator_install/operator-policy-authorino.yaml"
-			opPolName = "oppol-mustnothave"
-			subName   = "project-quay"
-		)
 
-		BeforeEach(func() {
-			preFunc()
-			KubectlTarget("delete", "crd", "--selector=olm.managed=true")
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-		})
-
-		It("should delete the inferred operator group when there is only one subscription", func(ctx SpecContext) {
-			// enforce it as a musthave in order to install the operator
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"}]`)
-
-			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
-			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-					"quayregistries.quay.redhat.com", metav1.GetOptions{})
-
-				return crd
-			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
-
-			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
-
-			By("Verifying that an operator group exists")
-			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
-					List(ctx, metav1.ListOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-
-				return list.Items
-			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
-
-			// revert it to mustnothave
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
-
-			By("Verifying that the operator group was removed")
-			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
-					List(ctx, metav1.ListOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-
-				return list.Items
-			}, eventuallyTimeout, 3, ctx).Should(BeEmpty())
-		})
-
-		It("should delete the specified operator group when there is only one subscription", func(ctx SpecContext) {
-			// enforce it as a musthave in order to install the operator
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
-					`{"op": "add", "path": "/spec/operatorGroup", "value": {"name": "scoped-operator-group", `+
-					`"namespace": "operator-policy-testns", "targetNamespaces": ["operator-policy-testns"]}}]`)
-
-			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
-			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-					"quayregistries.quay.redhat.com", metav1.GetOptions{})
-
-				return crd
-			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
-
-			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
-
-			By("Verifying that an operator group exists")
-			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
-					List(ctx, metav1.ListOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-
-				return list.Items
-			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
-
-			// revert it to mustnothave
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
-
-			By("Verifying that the operator group was removed")
-			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
-					List(ctx, metav1.ListOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-
-				return list.Items
-			}, eventuallyTimeout, 3, ctx).Should(BeEmpty())
-		})
-
-		It("should keep the specified operator group when it is owned by something", func(ctx SpecContext) {
-			// enforce it as a musthave in order to install the operator
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"},`+
-					`{"op": "add", "path": "/spec/operatorGroup", "value": {"name": "scoped-operator-group", `+
-					`"namespace": "operator-policy-testns", "targetNamespaces": ["operator-policy-testns"]}}]`)
-
-			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
-			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-					"quayregistries.quay.redhat.com", metav1.GetOptions{})
-
-				return crd
-			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
-
-			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
-
-			By("Verifying that an operator group exists")
-			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
-					List(ctx, metav1.ListOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-
-				return list.Items
-			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
-
-			By("Creating and setting an owner for the operator group")
-			KubectlTarget("create", "configmap", "ownercm", "-n", opPolTestNS, "--from-literal=foo=bar")
-
-			ownerCM := utils.GetWithTimeout(targetK8sDynamic, gvrConfigMap, "ownercm",
-				opPolTestNS, true, eventuallyTimeout)
-			ownerUID := string(ownerCM.GetUID())
-			Expect(ownerUID).NotTo(BeEmpty())
-
-			KubectlTarget("patch", "operatorgroup", "scoped-operator-group", "-n", opPolTestNS, "--type=json", "-p",
-				`[{"op": "add", "path": "/metadata/ownerReferences", "value": [{"apiVersion": "v1",
-				"kind": "ConfigMap", "name": "ownercm", "uid": "`+ownerUID+`"}]}]`)
-
-			// revert it to mustnothave
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
-
-			By("Verifying the operator group was not removed")
-			Consistently(func(g Gomega) []unstructured.Unstructured {
-				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
-					List(ctx, metav1.ListOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-
-				return list.Items
-			}, consistentlyDuration, 3, ctx).ShouldNot(BeEmpty())
-		})
-
-		It("should not delete the inferred operator group when there is another subscription", func(ctx SpecContext) {
-			// enforce it as a musthave in order to install the operator
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "musthave"},`+
-					`{"op": "replace", "path": "/spec/remediationAction", "value": "enforce"},`+
-					`{"op": "replace", "path": "/spec/removalBehavior/operatorGroups", "value": "DeleteIfUnused"}]`)
-
-			By("Waiting for a CRD to appear, which should indicate the operator is installing.")
-			Eventually(func(ctx SpecContext) *unstructured.Unstructured {
-				crd, _ := targetK8sDynamic.Resource(gvrCRD).Get(ctx,
-					"quayregistries.quay.redhat.com", metav1.GetOptions{})
-
-				return crd
-			}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
-
-			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
-
-			By("Verifying that an operator group exists")
-			Eventually(func(g Gomega) []unstructured.Unstructured {
-				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
-					List(ctx, metav1.ListOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-
-				return list.Items
-			}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
-
-			By("Creating another operator policy in the namespace")
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				otherYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-
-			// enforce the other policy
-			utils.EnforceOperatorPolicy("oppol-authorino", testNamespace)
-
-			By("Waiting for the policy to become compliant, indicating the operator is installed")
-			checkCompliance("oppol-authorino", testNamespace, olmWaitTimeout, policyv1.Compliant)
-
-			// revert main policy to mustnothave
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/complianceType", "value": "mustnothave"}]`)
-
-			By("Verifying the operator group was not removed")
-			Consistently(func(g Gomega) []unstructured.Unstructured {
-				list, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(opPolTestNS).
-					List(ctx, metav1.ListOptions{})
-				g.Expect(err).NotTo(HaveOccurred())
-
-				return list.Items
-			}, consistentlyDuration, 3, ctx).ShouldNot(BeEmpty())
-		})
-	})
 	Describe("Testing defaulted values of removalBehavior in an OperatorPolicy", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName = "oppol-no-group"
+		)
+		var (
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeEach(func() {
-			preFunc()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should have applied defaults to the removalBehavior field", func(ctx SpecContext) {
@@ -3176,17 +3337,22 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			Expect(remBehavior).To(HaveKeyWithValue("customResourceDefinitions", "Keep"))
 		})
 	})
+
 	Describe("Testing defaulted values of ComplianceConfig in an OperatorPolicy", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			opPolName = "oppol-no-group"
+		)
+		var (
+			opPolName        string
+			parentPolicyName string
 		)
 
 		BeforeEach(func() {
-			preFunc()
+			opPolName = "oppol-no-group" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should have applied defaults to the ComplianceConfig field", func(ctx SpecContext) {
@@ -3204,22 +3370,31 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			Expect(complianceConfig).To(HaveKeyWithValue("upgradesAvailable", "Compliant"))
 		})
 	})
-	Describe("Testing operator policies that specify the same subscription", Ordered, func() {
+
+	Describe("Testing operator policies that specify the same subscription", Serial, Ordered, func() {
 		const (
 			musthaveYAML    = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			musthaveName    = "oppol-no-group"
-			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version.yaml"
-			mustnothaveName = "oppol-mustnothave"
+			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-quay.yaml"
+		)
+		var (
+			musthaveName     string
+			mustnothaveName  string
+			parentPolicyName string
+			testSuffix       string
 		)
 
 		BeforeAll(func() {
+			testSuffix = getTestSuffix()
+			musthaveName = "oppol-no-group" + testSuffix
+			mustnothaveName = "oppol-mustnothave" + testSuffix
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
+			setupPolicy(musthaveYAML, musthaveName, parentPolicyName)
+			setupPolicy(mustnothaveYAML, mustnothaveName, parentPolicyName)
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				musthaveYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				mustnothaveYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			By("Waiting briefly to stabilize reconciles")
+			time.Sleep(5 * time.Second)
 		})
 
 		It("Should not display a validation error when both are in inform mode", func() {
@@ -3249,10 +3424,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 
-		// This test requires that no other OperatorPolicies are active. Ideally it would be marked
-		// with the Serial decorator, but then this whole file would need to be marked that way,
-		// which would slow down the suite. As long as no other test files use OperatorPolicy, the
-		// Ordered property on this file should ensure this is stable.
+		// This test requires that no other OperatorPolicies are active
 		It("Should not cause an infinite reconcile loop", func() {
 			recMetrics := utils.GetMetrics("controller_runtime_reconcile_total",
 				`controller=\"operator-policy-controller\"`)
@@ -3286,51 +3458,50 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			utils.EnforceOperatorPolicy(mustnothaveName, testNamespace)
 			utils.EnforceOperatorPolicy(musthaveName, testNamespace)
 
+			wantedCondition := metav1.Condition{
+				Type:   "ValidPolicySpec",
+				Status: metav1.ConditionFalse,
+				Reason: "InvalidPolicySpec",
+				Message: `the specified operator is managed by multiple enforced policies ` +
+					`(oppol-mustnothave` + testSuffix + `.` + testNamespace + `, oppol-no-group` +
+					testSuffix + `.` + testNamespace + `)`,
+			}
+			wantedEventMsg := `the specified operator is managed by multiple enforced policies`
+
 			check(
 				mustnothaveName,
 				true,
 				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:   "ValidPolicySpec",
-					Status: metav1.ConditionFalse,
-					Reason: "InvalidPolicySpec",
-					Message: `the specified operator is managed by multiple enforced policies ` +
-						`(oppol-mustnothave.` + testNamespace + `, oppol-no-group.` + testNamespace + `)`,
-				},
-				`the specified operator is managed by multiple enforced policies`,
+				wantedCondition,
+				wantedEventMsg,
 			)
 			check(
 				musthaveName,
 				true,
 				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:   "ValidPolicySpec",
-					Status: metav1.ConditionFalse,
-					Reason: "InvalidPolicySpec",
-					Message: `the specified operator is managed by multiple enforced policies ` +
-						`(oppol-mustnothave.` + testNamespace + `, oppol-no-group.` + testNamespace + `)`,
-				},
-				`the specified operator is managed by multiple enforced policies`,
+				wantedCondition,
+				wantedEventMsg,
 			)
 		})
 
-		// This test requires that no other OperatorPolicies are active. Ideally it would be marked
-		// with the Serial decorator, but then this whole file would need to be marked that way,
-		// which would slow down the suite. As long as no other test files use OperatorPolicy, the
-		// Ordered property on this file should ensure this is stable.
+		// This test requires that no other OperatorPolicies are active
 		It("Should not cause an infinite reconcile loop when enforced", func() {
+			wantedCondition := metav1.Condition{
+				Type:   "ValidPolicySpec",
+				Status: metav1.ConditionFalse,
+				Reason: "InvalidPolicySpec",
+				Message: `the specified operator is managed by multiple enforced policies ` +
+					`(oppol-mustnothave` + testSuffix + `.` + testNamespace + `, oppol-no-group` +
+					testSuffix + `.` + testNamespace + `)`,
+			}
+			wantedEventMsg := `the specified operator is managed by multiple enforced policies`
+
 			check(
 				mustnothaveName,
 				true,
 				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:   "ValidPolicySpec",
-					Status: metav1.ConditionFalse,
-					Reason: "InvalidPolicySpec",
-					Message: `the specified operator is managed by multiple enforced policies ` +
-						`(oppol-mustnothave.` + testNamespace + `, oppol-no-group.` + testNamespace + `)`,
-				},
-				`the specified operator is managed by multiple enforced policies`,
+				wantedCondition,
+				wantedEventMsg,
 			)
 
 			recMetrics := utils.GetMetrics("controller_runtime_reconcile_total",
@@ -3377,22 +3548,49 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 		})
 	})
+
 	Describe("Testing templates in an OperatorPolicy", Ordered, func() {
 		const (
 			opPolYAML     = "../resources/case38_operator_install/operator-policy-with-templates.yaml"
-			opPolName     = "oppol-with-templates"
 			configmapYAML = "../resources/case38_operator_install/template-configmap.yaml"
 			opGroupName   = "scoped-operator-group"
 			subName       = "project-quay"
 		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-with-templates" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 
-			KubectlTarget("apply", "-f", configmapYAML, "-n", opPolTestNS)
+			targetNsPatch := `"{{ (fromConfigMap \"` + opPolTestNS +
+				`\" \"op-config\" \"namespaces\") | toLiteral }}"`
+			channelPatch := `"{{ (lookup \"v1\" \"ConfigMap\" \"` + opPolTestNS +
+				`\" \"op-config\").data.channel }}"`
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+			tempPatchedTargetNs := patchSingleField(
+				opPolYAML, testNamespace, "/spec/operatorGroup/targetNamespaces", targetNsPatch)
+			tempPatchedNsAndChannel := patchSingleField(
+				tempPatchedTargetNs, testNamespace, "/spec/subscription/channel", channelPatch)
+
+			configMapPatch := `"[\"foo\", \"bar\", \"` + opPolTestNS + `\"]"`
+			tempPatchedConfigMap := patchSingleField(configmapYAML, testNamespace, "/data/namespaces",
+				configMapPatch)
+			KubectlTarget("apply", "-f", tempPatchedConfigMap, "-n", opPolTestNS)
+
+			setupPolicy(tempPatchedNsAndChannel, opPolName, parentPolicyName)
+
+			DeferCleanup(func() {
+				os.Remove(tempPatchedTargetNs)
+				os.Remove(tempPatchedNsAndChannel)
+				os.Remove(tempPatchedConfigMap)
+			})
 		})
 
 		It("Should lookup values for operator policy resources when enforced", func(ctx SpecContext) {
@@ -3471,85 +3669,356 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 					Message: "the Subscription matches what is required by the policy",
 				},
 				"the Subscription was updated to match the policy",
+				skipConsistently,
 			)
 		})
 	})
-	Describe("Testing recovery of sub-csv connection", Ordered, func() {
-		const (
-			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			opPolName = "oppol-no-group-enforce"
-			subName   = "example-operator"
-		)
 
-		scenarioTriggered := true
+	// These tests create a cluster-scoped operator.
+	// The tests can run alongside the other tests as long as no other
+	// tests fully install the same authorino operator at the same time.
+	Describe("Testing enforced operator policy with no OperatorGroup", Ordered, func() {
+		Describe("Testing namespace creation", func() {
+			const (
+				opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+			)
+			var (
+				opPolName        string
+				parentPolicyName string
+			)
 
-		BeforeAll(func() {
-			preFunc()
+			BeforeEach(func() {
+				opPolName = "oppol-no-group-enforce" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
 
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			})
+
+			It("Should be compliant when enforced", func() {
+				By("Waiting for the operator policy " + opPolName + " to be compliant")
+				// Wait for a while, because it might have upgrades that could take longer
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+			})
 		})
 
-		BeforeEach(func() {
-			if !scenarioTriggered {
-				Skip("test scenario was unable to be triggered")
-			}
+		Describe("Test health checks on OLM resources after OperatorPolicy operator installation", Ordered, func() {
+			const (
+				opPolYAML        = "../resources/case38_operator_install/operator-policy-no-group-enforce-one-ver.yaml"
+				opPolNoExistYAML = "../resources/case38_operator_install/operator-policy-no-exist-enforce.yaml"
+				operatorName     = "authorino-operator.v0.15.0"
+			)
+			var (
+				opPolTestNS      string
+				opPolName        string
+				opPolNoExistName string
+				parentPolicyName string
+			)
+
+			BeforeAll(func() {
+				opPolTestNS = getOpPolTestNS()
+				opPolName = "oppol-no-group-enforce-one-version" + getTestSuffix()
+				opPolNoExistName = "oppol-no-exist-enforce" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
+
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			})
+
+			It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
+				Eventually(func(ctx SpecContext) string {
+					csv, _ := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
+						Get(ctx, operatorName, metav1.GetOptions{})
+
+					if csv == nil {
+						return ""
+					}
+
+					reason, _, _ := unstructured.NestedString(csv.Object, "status", "reason")
+
+					return reason
+				}, olmWaitTimeout*2, 5, ctx).Should(Equal("InstallSucceeded"))
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "ClusterServiceVersion",
+							APIVersion: "operators.coreos.com/v1alpha1",
+						},
+						Compliant: "Compliant",
+						Reason:    "InstallSucceeded",
+					}},
+					metav1.Condition{
+						Type:   "ClusterServiceVersionCompliant",
+						Status: metav1.ConditionTrue,
+						Reason: "InstallSucceeded",
+						Message: "ClusterServiceVersion (" + operatorName + ") - install strategy completed with " +
+							"no errors",
+					},
+					regexp.QuoteMeta(
+						"ClusterServiceVersion ("+operatorName+") - install strategy completed with no errors",
+					),
+				)
+			})
+
+			It("Should generate conditions and relatedobjects of Deployments", func() {
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Deployment",
+							APIVersion: "apps/v1",
+						},
+						Compliant: "Compliant",
+						Reason:    "Deployment Available",
+					}},
+					metav1.Condition{
+						Type:    "DeploymentCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "DeploymentsAvailable",
+						Message: "all operator Deployments have their minimum availability",
+					},
+					"all operator Deployments have their minimum availability",
+				)
+			})
+
+			It("Should only be noncompliant if subscription error relates to the one in the operator policy", func() {
+				setupPolicy(opPolNoExistYAML, opPolNoExistName, parentPolicyName)
+
+				By("Checking that " + opPolNoExistName + " is NonCompliant")
+				check(
+					opPolNoExistName,
+					true,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Subscription",
+							APIVersion: "operators.coreos.com/v1alpha1",
+						},
+						Compliant: "NonCompliant",
+						Reason:    "ConstraintsNotSatisfiable",
+					}},
+					metav1.Condition{
+						Type:    "SubscriptionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "ConstraintsNotSatisfiable",
+						Message: "constraints not satisfiable: refer to the Subscription for more details",
+					},
+					"constraints not satisfiable",
+				)
+
+				// Check if subscription is still compliant on the operator policy trying to install a valid operator.
+				// This tests that subscription status filtering is working properly since OLM includes the
+				// subscription errors as a condition on all subscriptions in the namespace.
+				By("Checking that " + opPolName + " is still Compliant and unaffected by " + opPolNoExistName)
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "Subscription",
+							APIVersion: "operators.coreos.com/v1alpha1",
+						},
+						Compliant: "Compliant",
+						Reason:    "Resource found as expected",
+					}},
+					metav1.Condition{
+						Type:    "SubscriptionCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "SubscriptionMatches",
+						Message: "the Subscription matches what is required by the policy",
+					},
+					"the Subscription matches what is required by the policy",
+				)
+			})
 		})
+		Describe("Testing recovery of sub-csv connection", Ordered, func() {
+			const (
+				opPolYAML = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+				subName   = "authorino-operator"
+			)
+			var (
+				opPolTestNS      string
+				opPolName        string
+				parentPolicyName string
+			)
 
-		It("should get the 'csv exists and is not referenced' condition", func(ctx SpecContext) {
-			scenarioTriggered = false
+			scenarioTriggered := true
 
-			By("Verifying the policy starts compliant")
-			checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+			BeforeAll(func() {
+				opPolTestNS = getOpPolTestNS()
+				opPolName = "oppol-no-group-enforce" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
 
-			By("Periodically deleting the subscription and checking the status")
-			scenarioDeadline := time.Now().Add(40 * time.Second)
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			})
 
-		scenarioTriggerLoop:
-			for scenarioDeadline.After(time.Now()) {
-				KubectlTarget("delete", "subscription", subName, "-n", opPolTestNS)
-				time.Sleep(time.Second)
-
-				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
-					Get(ctx, subName, metav1.GetOptions{})
-				if err != nil || sub == nil {
-					continue
+			BeforeEach(func() {
+				if !scenarioTriggered {
+					Skip("test scenario was unable to be triggered")
 				}
+			})
 
-				subConds, _, _ := unstructured.NestedSlice(sub.Object, "status", "conditions")
-				for _, cond := range subConds {
-					condMap, ok := cond.(map[string]interface{})
-					if !ok {
+			It("should get the 'csv exists and is not referenced' condition", func(ctx SpecContext) {
+				scenarioTriggered = false
+
+				By("Verifying the policy starts compliant")
+				checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+
+				By("Periodically deleting the subscription and checking the status")
+				scenarioDeadline := time.Now().Add(40 * time.Second)
+
+			scenarioTriggerLoop:
+				for scenarioDeadline.After(time.Now()) {
+					KubectlTarget("delete", "subscription", subName, "-n", opPolTestNS)
+					time.Sleep(time.Second)
+
+					sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
+						Get(ctx, subName, metav1.GetOptions{})
+					if err != nil || sub == nil {
 						continue
 					}
 
-					if condType, _, _ := unstructured.NestedString(condMap, "type"); condType != "ResolutionFailed" {
-						continue
+					subConds, _, _ := unstructured.NestedSlice(sub.Object, "status", "conditions")
+					for _, cond := range subConds {
+						condMap, ok := cond.(map[string]interface{})
+						if !ok {
+							continue
+						}
+
+						condType, _, _ := unstructured.NestedString(condMap, "type")
+						if condType != "ResolutionFailed" {
+							continue
+						}
+
+						if condStatus, _, _ := unstructured.NestedString(condMap, "status"); condStatus != "True" {
+							continue
+						}
+
+						condMessage, _, _ := unstructured.NestedString(condMap, "message")
+						notRefRgx := regexp.MustCompile(`clusterserviceversion (\S*) exists and is not referenced`)
+						if notRefRgx.MatchString(condMessage) {
+							scenarioTriggered = true
+
+							break scenarioTriggerLoop
+						}
 					}
 
-					if condStatus, _, _ := unstructured.NestedString(condMap, "status"); condStatus != "True" {
-						continue
-					}
-
-					condMessage, _, _ := unstructured.NestedString(condMap, "message")
-					notRefRgx := regexp.MustCompile(`clusterserviceversion (\S*) exists and is not referenced`)
-					if notRefRgx.MatchString(condMessage) {
-						scenarioTriggered = true
-
-						break scenarioTriggerLoop
-					}
+					time.Sleep(5 * time.Second)
 				}
+			})
 
-				time.Sleep(5 * time.Second)
-			}
+			It("Verifies the policy eventually fixes the 'not referenced' condition", func() {
+				By("Sleeping 25s, since OperatorPolicy should wait a while before intervening")
+				time.Sleep(25 * time.Second)
+
+				By("Verifying the policy becomes compliant")
+				checkCompliance(opPolName, testNamespace, 2*olmWaitTimeout, policyv1.Compliant, 30, 3)
+			})
 		})
+		Describe("Test reporting of unapproved version after installation", Ordered, func() {
+			const (
+				opPolYAML     = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
+				latestExample = "authorino-operator.v0.16.0"
+			)
+			var (
+				opPolTestNS      string
+				opPolName        string
+				parentPolicyName string
+			)
 
-		It("Verifies the policy eventually fixes the 'not referenced' condition", func() {
-			By("Sleeping 25s, since OperatorPolicy should wait a while before intervening")
-			time.Sleep(25 * time.Second)
+			// The first 'It' test is a prerequisite for the second 'It' test.
+			BeforeAll(func() {
+				opPolTestNS = getOpPolTestNS()
+				opPolName = "oppol-no-group-enforce" + getTestSuffix()
+				parentPolicyName = getParentPolicyName()
 
-			By("Verifying the policy becomes compliant")
-			checkCompliance(opPolName, testNamespace, 2*olmWaitTimeout, policyv1.Compliant, 30, 3)
+				preFunc()
+				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			})
+
+			It("Should start compliant", func(ctx SpecContext) {
+				Eventually(func(ctx SpecContext) (map[string]interface{}, error) {
+					csv, err := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
+						Get(ctx, latestExample, metav1.GetOptions{})
+
+					if csv == nil || err != nil {
+						return map[string]interface{}{}, err
+					}
+
+					status, _, _ := unstructured.NestedMap(csv.Object, "status")
+
+					return status, nil
+				}, olmWaitTimeout, 5, ctx).Should(HaveKeyWithValue("reason", "InstallSucceeded"))
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "InstallPlan",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+							},
+						},
+						Compliant: "Compliant",
+						Reason:    "The InstallPlan is Complete",
+					}},
+					metav1.Condition{
+						Type:    "InstallPlanCompliant",
+						Status:  metav1.ConditionTrue,
+						Reason:  "NoInstallPlansRequiringApproval",
+						Message: "no InstallPlans requiring approval were found",
+					},
+					"no InstallPlans requiring approval were found",
+				)
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{},
+					metav1.Condition{
+						Type:    "NoDeprecations",
+						Status:  metav1.ConditionTrue,
+						Reason:  "Recommended",
+						Message: "The requested package, channel, and bundle are all at the recommended versions",
+					},
+					"",
+				)
+			})
+			It("Should report a violation after the versions list is patched to exclude the current version", func() {
+				By("Patching the versions field to exclude the installed version")
+				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+					`[{"op": "replace", "path": "/spec/versions", "value": ["pie.v3.14159"]}]`)
+
+				check(
+					opPolName,
+					false,
+					[]policyv1.RelatedObject{{
+						Object: policyv1.ObjectResource{
+							Kind:       "ClusterServiceVersion",
+							APIVersion: "operators.coreos.com/v1alpha1",
+							Metadata: policyv1.ObjectMetadata{
+								Namespace: opPolTestNS,
+								Name:      latestExample,
+							},
+						},
+						Compliant: "NonCompliant",
+						Reason:    "ClusterServiceVersion (" + latestExample + ") is not an approved version",
+					}},
+					metav1.Condition{
+						Type:    "ClusterServiceVersionCompliant",
+						Status:  metav1.ConditionFalse,
+						Reason:  "UnapprovedVersion",
+						Message: "ClusterServiceVersion (" + latestExample + ") is not an approved version",
+					},
+					"ClusterServiceVersion .* is not an approved version",
+				)
+			})
 		})
 	})
 
@@ -3559,9 +4028,25 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			opPolKafkaYAML    = "../resources/case38_operator_install/operator-policy-strimzi-kafka-operator.yaml"
 			subscriptionsYAML = "../resources/case38_operator_install/multiple-subscriptions.yaml"
 		)
+		var (
+			opPolTestNS      string
+			opPolArgoCDName  string
+			opPolKafkaName   string
+			parentPolicyName string
+		)
 
 		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			opPolArgoCDName = "argocd-operator" + getTestSuffix()
+			opPolKafkaName = "strimzi-kafka-operator" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
+
+			DeferCleanup(func() {
+				utils.KubectlDelete("-f", opPolArgoCDYAML, "-n", testNamespace)
+				utils.KubectlDelete("-f", opPolKafkaYAML, "-n", testNamespace)
+			})
 		})
 
 		It("OperatorPolicy can approve an InstallPlan with two CSVs", func(ctx SpecContext) {
@@ -3597,16 +4082,14 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				}
 
 				g.Expect(csvNames).To(ConsistOf("argocd-operator.v0.9.1", "strimzi-cluster-operator.v0.35.0"))
-			}, olmWaitTimeout, 1).Should(Succeed())
+			}, olmWaitTimeout*2, 1).Should(Succeed())
 
 			By("Creating an OperatorPolicy to adopt the argocd-operator Subscription")
-			createObjWithParent(
-				parentPolicyYAML, parentPolicyName, opPolArgoCDYAML, testNamespace, gvrPolicy, gvrOperatorPolicy,
-			)
+			setupPolicy(opPolArgoCDYAML, opPolArgoCDName, parentPolicyName)
 
 			By("Checking the OperatorPolicy InstallPlan is not approved because of strimzi-cluster-operator.v0.35.0")
 			check(
-				"argocd-operator",
+				opPolArgoCDName,
 				true,
 				[]policyv1.RelatedObject{{
 					Object: policyv1.ObjectResource{
@@ -3631,9 +4114,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			)
 
 			By("Creating an OperatorPolicy to adopt the strimzi-cluster-operator Subscription")
-			createObjWithParent(
-				parentPolicyYAML, parentPolicyName, opPolKafkaYAML, testNamespace, gvrPolicy, gvrOperatorPolicy,
-			)
+			setupPolicy(opPolKafkaYAML, opPolKafkaName, parentPolicyName)
 
 			By("Verifying the initial installPlan for startingCSV was approved")
 			Eventually(func(g Gomega) {
@@ -3672,119 +4153,34 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 			}, olmWaitTimeout, 1).Should(Succeed())
 		})
 	})
-	Describe("Test reporting of unapproved version after installation", func() {
-		const (
-			opPolYAML     = "../resources/case38_operator_install/operator-policy-no-group-enforce.yaml"
-			opPolName     = "oppol-no-group-enforce"
-			latestExample = "example-operator.v0.0.3"
-		)
 
-		// The first 'It' test is a prerequisite for the second 'It' test.
-		BeforeAll(func() {
-			preFunc()
-
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				opPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-		})
-
-		It("Should start compliant", func(ctx SpecContext) {
-			Eventually(func(ctx SpecContext) (map[string]interface{}, error) {
-				csv, err := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(opPolTestNS).
-					Get(ctx, latestExample, metav1.GetOptions{})
-
-				if csv == nil || err != nil {
-					return map[string]interface{}{}, err
-				}
-
-				status, _, _ := unstructured.NestedMap(csv.Object, "status")
-
-				return status, nil
-			}, olmWaitTimeout, 5, ctx).Should(HaveKeyWithValue("reason", "InstallSucceeded"))
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "InstallPlan",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-						},
-					},
-					Compliant: "Compliant",
-					Reason:    "The InstallPlan is Complete",
-				}},
-				metav1.Condition{
-					Type:    "InstallPlanCompliant",
-					Status:  metav1.ConditionTrue,
-					Reason:  "NoInstallPlansRequiringApproval",
-					Message: "no InstallPlans requiring approval were found",
-				},
-				"no InstallPlans requiring approval were found",
-			)
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{},
-				metav1.Condition{
-					Type:    "NoDeprecations",
-					Status:  metav1.ConditionTrue,
-					Reason:  "Recommended",
-					Message: "The requested package, channel, and bundle are all at the recommended versions",
-				},
-				"",
-			)
-		})
-		It("Should report a violation after the versions list is patched to exclude the current version", func() {
-			By("Patching the versions field to exclude the installed version")
-			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/versions", "value": ["pie.v3.14159"]}]`)
-
-			check(
-				opPolName,
-				false,
-				[]policyv1.RelatedObject{{
-					Object: policyv1.ObjectResource{
-						Kind:       "ClusterServiceVersion",
-						APIVersion: "operators.coreos.com/v1alpha1",
-						Metadata: policyv1.ObjectMetadata{
-							Namespace: opPolTestNS,
-							Name:      latestExample,
-						},
-					},
-					Compliant: "NonCompliant",
-					Reason:    "ClusterServiceVersion (" + latestExample + ") is not an approved version",
-				}},
-				metav1.Condition{
-					Type:    "ClusterServiceVersionCompliant",
-					Status:  metav1.ConditionFalse,
-					Reason:  "UnapprovedVersion",
-					Message: "ClusterServiceVersion (" + latestExample + ") is not an approved version",
-				},
-				"ClusterServiceVersion .* is not an approved version",
-			)
-		})
-	})
 	Describe("Test Deprecation message in OperatorPolicy", Ordered, func() {
 		const (
 			allPolYAML     = "../resources/case38_operator_install/deprecation/all.yaml"
-			allPolName     = "deprecation-operator"
 			channelPolYAML = "../resources/case38_operator_install/deprecation/channel.yaml"
-			channelPolName = "dep-channel-operator"
 			bundlePolYAML  = "../resources/case38_operator_install/deprecation/bundle.yaml"
-			bundlePolName  = "dep-bundle-operator"
 		)
+		var (
+			allPolName       string
+			channelPolName   string
+			bundlePolName    string
+			parentPolicyName string
+		)
+
 		BeforeEach(func() {
+			testSuffix := getTestSuffix()
+			allPolName = "deprecation-operator" + testSuffix
+			channelPolName = "dep-channel-operator" + testSuffix
+			bundlePolName = "dep-bundle-operator" + testSuffix
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
 		})
 
 		It("Should have only package deprecation message is displayed "+
 			"when package, channel, and bundle are deprecated.",
 			func() {
-				createObjWithParent(parentPolicyYAML, parentPolicyName,
-					allPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+				setupPolicy(allPolYAML, allPolName, parentPolicyName)
 
 				check(
 					allPolName,
@@ -3804,8 +4200,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		It("Should have channel deprecation message is displayed "+
 			"when channel is deprecated.",
 			func() {
-				createObjWithParent(parentPolicyYAML, parentPolicyName,
-					channelPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+				setupPolicy(channelPolYAML, channelPolName, parentPolicyName)
 
 				check(
 					channelPolName,
@@ -3825,8 +4220,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		It("Should have bundle deprecation message is displayed "+
 			"when bundle is deprecated.",
 			func() {
-				createObjWithParent(parentPolicyYAML, parentPolicyName,
-					bundlePolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+				setupPolicy(bundlePolYAML, bundlePolName, parentPolicyName)
 
 				check(
 					bundlePolName,
@@ -3845,13 +4239,12 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 		It("Should have deprecation message is displayed and policy compliance is Compliant "+
 			"when bundle is deprecated and deprecationAvaliable is set to NonCompliant",
 			func() {
-				createObjWithParent(parentPolicyYAML, parentPolicyName,
-					bundlePolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
+				setupPolicy(bundlePolYAML, bundlePolName, parentPolicyName)
 
 				utils.Kubectl("patch", "operatorpolicy", bundlePolName, "-n", testNamespace, "--type=json", "-p",
 					`[{"op": "replace",
-					"path": "/spec/complianceConfig/deprecationsPresent",
-					"value": "NonCompliant"}]`)
+						"path": "/spec/complianceConfig/deprecationsPresent",
+						"value": "NonCompliant"}]`)
 
 				checkCompliance(bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.NonCompliant)
 
@@ -3859,8 +4252,8 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 
 				utils.Kubectl("patch", "operatorpolicy", bundlePolName, "-n", testNamespace, "--type=json", "-p",
 					`[{"op": "replace",
-				"path": "/spec/complianceConfig/deprecationsPresent",
-				"value": "Compliant"}]`)
+					"path": "/spec/complianceConfig/deprecationsPresent",
+					"value": "Compliant"}]`)
 
 				checkCompliance(bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
 			})
@@ -3869,17 +4262,24 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 	Describe("Test changes to subscription config and operator group selector", Ordered, func() {
 		const (
 			policyYAML = "../resources/case38_operator_install/operator-policy-with-group-and-config.yaml"
-			policyName = "oppol-with-group-and-config"
 		)
 
-		BeforeEach(func() {
+		var (
+			opPolTestNS      string
+			policyName       string
+			parentPolicyName string
+		)
+
+		BeforeAll(func() {
+			opPolTestNS = getOpPolTestNS()
+			policyName = "oppol-with-group-and-config" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
 			preFunc()
+			setupPolicy(policyYAML, policyName, parentPolicyName)
 		})
 
 		It("Should be able to update the subscription when the policy changes", func(ctx SpecContext) {
-			createObjWithParent(parentPolicyYAML, parentPolicyName,
-				policyYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
-
 			By("Verifying the initial state of the policy")
 			check(
 				policyName,
@@ -3925,7 +4325,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				target, found, err := unstructured.NestedStringSlice(group.Object, "spec", "targetNamespaces")
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(found).To(BeTrue())
-				g.Expect(target).To(ContainElement("operator-policy-testns"))
+				g.Expect(target).To(ContainElement(opPolTestNS))
 
 				_, found, err = unstructured.NestedMap(group.Object, "spec", "selector")
 				g.Expect(err).NotTo(HaveOccurred())
@@ -3966,7 +4366,7 @@ var _ = Describe("Testing OperatorPolicy", Ordered, Label("supports-hosted"), fu
 				target, found, err := unstructured.NestedStringSlice(group.Object, "spec", "targetNamespaces")
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(found).To(BeTrue())
-				g.Expect(target).NotTo(ContainElement("operator-policy-testns"))
+				g.Expect(target).NotTo(ContainElement(opPolTestNS))
 				g.Expect(target).To(ContainElement("another-namespace"))
 
 				sel, found, err := unstructured.NestedMap(group.Object, "spec", "selector")

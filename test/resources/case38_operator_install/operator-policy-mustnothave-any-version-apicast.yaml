@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1beta1
 kind: OperatorPolicy
 metadata:
-  name: oppol-no-group-enforce-one-version
+  name: oppol-mustnothave-apicast
   labels:
     policy.open-cluster-management.io/cluster-name: "managed"
     policy.open-cluster-management.io/cluster-namespace: "managed"
@@ -11,16 +11,18 @@ metadata:
     name: parent-policy
     uid: 12345678-90ab-cdef-1234-567890abcdef # must be replaced before creation
 spec:
-  remediationAction: enforce
+  remediationAction: inform
   severity: medium
-  complianceType: musthave
+  complianceType: mustnothave
   subscription:
     channel: stable
-    name: example-operator
+    name: apicast-community-operator
     namespace: operator-policy-testns
-    source: grc-mock-source
+    source: operatorhubio-catalog
     sourceNamespace: olm
-    startingCSV: example-operator.v0.0.3
-  versions:
-  - example-operator.v0.0.3
   upgradeApproval: Automatic
+  removalBehavior:
+    operatorGroups: DeleteIfUnused
+    subscriptions: Delete
+    clusterServiceVersions: Delete
+    customResourceDefinitions: Delete
