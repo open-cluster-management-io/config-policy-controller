@@ -157,6 +157,18 @@ spec:
                       map is equivalent to an element of matchExpressions, whose key field is "key", the
                       operator is "In", and the values array contains only "value". The requirements are ANDed.
                     type: object
+                  terminatingInclusion:
+                    default: Default
+                    description: |-
+                      TerminatingInclusion adjusts whether terminating objects should be included in the selection.
+                      Use 'IfMatch' to include them if they match the other filters, or use 'Never' to always skip
+                      terminating objects. 'Default' uses the controller's default behavior (which defaults to
+                      'IfMatch', but can be adjusted via a flag).
+                    enum:
+                    - IfMatch
+                    - Never
+                    - Default
+                    type: string
                 type: object
                 x-kubernetes-map-type: atomic
               object-templates:
