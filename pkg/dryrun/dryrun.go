@@ -454,11 +454,20 @@ func (d *DryRunner) setupReconciler(
 			return nil, err
 		}
 
-		nsSelReconciler = common.NewNamespaceSelectorReconciler(nsSelClient, nsSelUpdatesChan)
+		nsSelReconciler, err = common.NewNamespaceSelectorReconciler(nsSelClient, nsSelUpdatesChan, "IfMatch")
+		if err != nil {
+			return nil, err
+		}
 	} else {
+		var err error
+
 		dynamicClient = dynfake.NewSimpleDynamicClient(scheme.Scheme)
 		clientset = clientsetfake.NewSimpleClientset()
-		nsSelReconciler = common.NewNamespaceSelectorReconciler(runtimeClient, nsSelUpdatesChan)
+
+		nsSelReconciler, err = common.NewNamespaceSelectorReconciler(runtimeClient, nsSelUpdatesChan, "IfMatch")
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	watcherReconciler, _ := depclient.NewControllerRuntimeSource()

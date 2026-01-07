@@ -100,6 +100,7 @@ type ctrlOpts struct {
 	enableOcmPolicyNamespace bool
 
 	standaloneHubTemplateKubeConfigPath string
+	defaultTerminatingNSInclusion       string
 }
 
 func main() {
@@ -177,8 +178,9 @@ func main() {
 		ns := obj.(*corev1.Namespace)
 		guttedNS := &corev1.Namespace{
 			ObjectMeta: metav1.ObjectMeta{
-				Name:   ns.Name,
-				Labels: ns.Labels,
+				Name:              ns.Name,
+				Labels:            ns.Labels,
+				DeletionTimestamp: ns.DeletionTimestamp,
 			},
 		}
 
@@ -443,7 +445,14 @@ func main() {
 		nsSelUpdatesChan := make(chan event.GenericEvent, 20)
 		nsSelUpdatesSource = source.Channel(nsSelUpdatesChan, &handler.EnqueueRequestForObject{})
 
-		nsSelReconciler = common.NewNamespaceSelectorReconciler(nsSelMgr.GetClient(), nsSelUpdatesChan)
+		nsSelReconciler, err = common.NewNamespaceSelectorReconciler(
+			nsSelMgr.GetClient(), nsSelUpdatesChan, opts.defaultTerminatingNSInclusion,
+		)
+		if err != nil {
+			log.Error(err, "Unable to create controller", "controller", "NamespaceSelector")
+			os.Exit(1)
+		}
+
 		if err = nsSelReconciler.SetupWithManager(nsSelMgr); err != nil {
 			log.Error(err, "Unable to create controller", "controller", "NamespaceSelector")
 			os.Exit(1)
@@ -932,6 +941,15 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		"",
 		"The kubeconfig for the hub cluster, to be used for hub templates. "+
 			"If not set, hub templates must be resolved by the policy-framework.",
+	)
+
+	flags.StringVar(
+		&opts.defaultTerminatingNSInclusion,
+		"default-terminating-namespace-inclusion",
+		"IfMatch",
+		"Whether or not to include terminating namespaces in a selector, when not specified by "+
+			"the policy. Use 'IfMatch' for inclusion if the namespace matches the rest of the "+
+			"selector, or use 'Drop' to exclude terminating namespaces.",
 	)
 
 	_ = flags.Parse(args)

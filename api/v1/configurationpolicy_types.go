@@ -77,6 +77,15 @@ type Target struct {
 
 	// Exclude is an array of filepath expressions to exclude objects by name.
 	Exclude []NonEmptyString `json:"exclude,omitempty"`
+
+	// TerminatingInclusion adjusts whether terminating objects should be included in the selection.
+	// Use 'IfMatch' to include them if they match the other filters, or use 'Never' to always skip
+	// terminating objects. 'Default' uses the controller's default behavior (which defaults to
+	// 'IfMatch', but can be adjusted via a flag).
+	//
+	// +kubebuilder:default:=Default
+	// +kubebuilder:validation:Enum=IfMatch;Never;Default
+	TerminatingInclusion string `json:"terminatingInclusion,omitempty"`
 }
 
 // IsEmpty returns whether the defined Target would always return no objects.
@@ -86,13 +95,13 @@ func (t Target) IsEmpty() bool {
 
 // Define String() so that the LabelSelector is dereferenced in the logs
 func (t Target) String() string {
-	fmtSelectorStr := "{include:%s,exclude:%s,matchLabels:%+v,matchExpressions:%+v}"
+	fmtSelectorStr := "{include:%s,exclude:%s,matchLabels:%+v,matchExpressions:%+v,terminatingInclusion:%s}"
 
 	if t.LabelSelector == nil {
-		return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, nil, nil)
+		return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, nil, nil, t.TerminatingInclusion)
 	}
 
-	return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, t.MatchLabels, t.MatchExpressions)
+	return fmt.Sprintf(fmtSelectorStr, t.Include, t.Exclude, t.MatchLabels, t.MatchExpressions, t.TerminatingInclusion)
 }
 
 // EvaluationInterval configures the minimum elapsed time before a configuration policy is

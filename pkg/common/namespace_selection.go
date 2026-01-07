@@ -49,16 +49,28 @@ type NamespaceSelectorReconciler struct {
 	updateChannel chan<- event.GenericEvent
 	selections    map[string]namespaceSelection
 	lock          sync.RWMutex
+
+	defaultIncludeTerminating string
 }
 
 func NewNamespaceSelectorReconciler(
-	k8sClient client.Client, updateChannel chan<- event.GenericEvent,
-) NamespaceSelectorReconciler {
-	return NamespaceSelectorReconciler{
-		client:        k8sClient,
-		updateChannel: updateChannel,
-		selections:    make(map[string]namespaceSelection),
+	k8sClient client.Client, updateChannel chan<- event.GenericEvent, includeTerminating string,
+) (NamespaceSelectorReconciler, error) {
+	switch includeTerminating {
+	case "Drop":
+	case "IfMatch":
+	default:
+		err := fmt.Errorf("unknown option for default terminating namespace inclusion: %q", includeTerminating)
+
+		return NamespaceSelectorReconciler{}, err
 	}
+
+	return NamespaceSelectorReconciler{
+		client:                    k8sClient,
+		updateChannel:             updateChannel,
+		selections:                make(map[string]namespaceSelection),
+		defaultIncludeTerminating: includeTerminating,
+	}, nil
 }
 
 type namespaceSelection struct {
@@ -119,7 +131,7 @@ func (r *NamespaceSelectorReconciler) Reconcile(ctx context.Context, _ ctrl.Requ
 	for nsName, oldSelection := range oldSelections {
 		policyNs, policyName := splitKey(nsName)
 
-		newNamespaces, err := filter(namespaces, oldSelection.target)
+		newNamespaces, err := filter(namespaces, oldSelection.target, r.defaultIncludeTerminating)
 		if err != nil {
 			log.Error(err, "Unable to filter namespaces for policy", "namespace", policyNs, "name", policyName)
 
@@ -199,7 +211,7 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 		return nil, err
 	}
 
-	selected, err := filter(nsList, t)
+	selected, err := filter(nsList, t, r.defaultIncludeTerminating)
 	if err != nil {
 		log.Error(err, "Unable to filter namespaces for policy", "namespace", objNS, "policy", objName)
 	}
@@ -275,7 +287,7 @@ func (r *NamespaceSelectorReconciler) update(namespace string, name string, sel 
 	}
 }
 
-func filter(allNSList corev1.NamespaceList, t policyv1.Target) ([]string, error) {
+func filter(allNSList corev1.NamespaceList, t policyv1.Target, defaultIncludeTerminating string) ([]string, error) {
 	// If MatchLabels and MatchExpressions are nil, the resulting label selector
 	// matches all namespaces. This is to guard against that.
 	if t.IsEmpty() {
@@ -296,7 +308,16 @@ func filter(allNSList corev1.NamespaceList, t policyv1.Target) ([]string, error)
 
 	nsToFilter := make([]string, 0)
 
+	includeTerminating := t.TerminatingInclusion == "IfMatch"
+	if t.TerminatingInclusion == "Default" && defaultIncludeTerminating == "IfMatch" {
+		includeTerminating = true
+	}
+
 	for _, ns := range allNSList.Items {
+		if !includeTerminating && !ns.DeletionTimestamp.IsZero() {
+			continue
+		}
+
 		if selector.Matches(labels.Set(ns.GetLabels())) {
 			nsToFilter = append(nsToFilter, ns.Name)
 		}
