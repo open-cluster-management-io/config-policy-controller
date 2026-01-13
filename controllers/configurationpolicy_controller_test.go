@@ -1163,10 +1163,10 @@ secrets:
 	compType := policyv1.MustOnlyHave
 	mdCompType := policyv1.MustOnlyHave
 
-	throwSpecViolation, _, updateNeeded, statusMismatch, _ := handleKeys(&desiredObj, &existingObj,
+	throwViolation, _, updateNeeded, statusMismatch, _ := handleKeys(&desiredObj, &existingObj,
 		&existingObjCopy, compType, mdCompType)
 
-	assert.False(t, throwSpecViolation)
+	assert.False(t, throwViolation)
 	assert.False(t, updateNeeded)
 	assert.False(t, statusMismatch)
 }

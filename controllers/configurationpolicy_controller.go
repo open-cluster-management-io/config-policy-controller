@@ -3193,7 +3193,7 @@ type cachedEvaluationResult struct {
 func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	obj singleObject, objectT *policyv1.ObjectTemplate, remediation policyv1.RemediationAction,
 ) (
-	throwSpecViolation bool,
+	throwViolation bool,
 	message string,
 	diff string,
 	updateNeeded bool,
@@ -3238,7 +3238,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	existingObjectCopy := obj.existingObj.DeepCopy()
 	removeFieldsForComparison(existingObjectCopy)
 
-	throwSpecViolation, errMsg, updateNeeded, statusMismatch, missingKey := handleKeys(
+	throwViolation, errMsg, updateNeeded, statusMismatch, missingKey := handleKeys(
 		obj.desiredObj,
 		obj.existingObj,
 		existingObjectCopy,
@@ -3254,19 +3254,27 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 	isInform := remediation.IsInform()
 
-	if !updateNeeded && !missingKey {
-		if throwSpecViolation && recordDiff != policyv1.RecordDiffNone {
-			// The spec didn't require a change but throwSpecViolation indicates the status didn't match. Handle
-			// this diff for this case.
-			mergedObjCopy := obj.existingObj.DeepCopy()
-			removeFieldsForComparison(mergedObjCopy)
+	if statusMismatch && recordDiff != policyv1.RecordDiffNone {
+		// The spec might not require a change but the status didn't match. Handle
+		// this diff for this case.
+		mergedObjCopy := obj.existingObj.DeepCopy()
+		removeFieldsForComparison(mergedObjCopy)
 
-			diff = handleDiff(log, recordDiff, existingObjectCopy, mergedObjCopy, r.FullDiffs)
+		diff = handleDiff(log, recordDiff, existingObjectCopy, mergedObjCopy, r.FullDiffs)
+	}
+
+	if !updateNeeded && !missingKey {
+		if !statusMismatch {
+			// No spec changes needed, and no status mismatch, so it's Compliant.
+			r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
+
+			return false, "", "", updateNeeded, updatedObj, false
 		}
 
-		r.setEvaluatedObject(obj.policy, obj.existingObj, !throwSpecViolation, "")
+		// No spec changes needed, but the status mismatches, so it's NonCompliant.
+		r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
 
-		return throwSpecViolation, "", diff, updateNeeded, updatedObj, false
+		return true, "", diff, updateNeeded, updatedObj, false
 	}
 
 	if updateNeeded {
@@ -3346,23 +3354,18 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		removeFieldsForComparison(dryRunUpdatedObj)
 
 		if reflect.DeepEqual(dryRunUpdatedObj.Object, existingObjectCopy.Object) {
-			log.Info("A mismatch was detected but a dry run update didn't make any changes. " +
-				"Assuming the object is compliant.")
+			log.Info("A mismatch was detected but a dry run update didn't make any changes.")
 
-			if throwSpecViolation && recordDiff != policyv1.RecordDiffNone {
-				// The spec didn't require a change but throwSpecViolation indicates the status didn't match. Handle
-				// this diff for this case.
-				mergedObjCopy := obj.existingObj.DeepCopy()
-				removeFieldsForComparison(mergedObjCopy)
+			if !statusMismatch {
+				r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
 
-				// The provided isInform value is always true because the status checking can only be inform.
-				diff = handleDiff(log, recordDiff, existingObjectCopy, mergedObjCopy, r.FullDiffs)
+				return false, "", "", false, updatedObj, true
 			}
 
-			// treat the object as compliant, with no updates needed
-			r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
+			// No spec changes needed, but the status is incorrect, so it's NonCompliant.
+			r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
 
-			return false, "", diff, false, updatedObj, true
+			return true, "", diff, updateNeeded, updatedObj, false
 		}
 
 		diff = handleDiff(log, recordDiff, existingObjectCopy, dryRunUpdatedObj, r.FullDiffs)
@@ -3453,7 +3456,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 		r.setEvaluatedObject(obj.policy, updatedObj, true, message)
 	}
 
-	return throwSpecViolation, "", diff, updateNeeded, updatedObj, false
+	return throwViolation, "", diff, updateNeeded, updatedObj, false
 }
 
 func getMsgPrefix(obj *singleObject) string {
@@ -3511,7 +3514,7 @@ func handleDiff(
 // the result of merging its current value with the desired value.
 //
 // It returns:
-//   - throwSpecViolation: true if the status has a discrepancy from what is desired
+//   - throwViolation: true if there is a discrepancy from what is desired
 //   - message: information when an error occurs
 //   - updateNeeded: true if the object should be updated on the cluster to be enforced
 //   - statusMismatch: true if the status has a discrepancy from what is desired
@@ -3523,13 +3526,12 @@ func handleKeys(
 	existingObjectCopy *unstructured.Unstructured,
 	compType policyv1.ComplianceType,
 	mdCompType policyv1.ComplianceType,
-) (throwSpecViolation bool, message string, updateNeeded bool, statusMismatch bool, missingKey bool) {
+) (throwViolation bool, message string, updateNeeded bool, statusMismatch bool, missingKey bool) {
 	handledKeys := map[string]bool{}
 
 	// Iterate over keys of the desired object to compare with the existing object on the cluster
 	for key := range desiredObj.Object {
 		handledKeys[key] = true
-		isStatus := key == "status"
 
 		// use metadatacompliancetype to evaluate metadata if it is set
 		keyComplianceType := compType
@@ -3586,8 +3588,8 @@ func handleKeys(
 		}
 
 		if keyUpdateNeeded {
-			if isStatus {
-				throwSpecViolation = true
+			if key == "status" {
+				throwViolation = true
 				statusMismatch = true
 			} else {
 				updateNeeded = true
@@ -3615,7 +3617,7 @@ func handleKeys(
 		}
 	}
 
-	return throwSpecViolation, message, updateNeeded, statusMismatch, missingKey
+	return throwViolation, message, updateNeeded, statusMismatch, missingKey
 }
 
 func removeFieldsForComparison(obj *unstructured.Unstructured) {

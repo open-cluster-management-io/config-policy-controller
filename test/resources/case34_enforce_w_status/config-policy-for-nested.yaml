@@ -1,0 +1,36 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case34-for-nested
+  ownerReferences:
+  - apiVersion: policy.open-cluster-management.io/v1
+    blockOwnerDeletion: false
+    controller: true
+    kind: Policy
+    name: case34-parent
+    uid: 08bae967-4262-498a-84e9-d1f0e321b41e # to be replaced!
+spec:
+  remediationAction: enforce
+  severity: low
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: policy.open-cluster-management.io/v1
+        kind: ConfigurationPolicy
+        metadata:
+          name: case34-nested
+          namespace: default
+        spec:
+          remediationAction: inform
+          severity: low
+          object-templates:
+            - complianceType: musthave
+              objectDefinition:
+                apiVersion: v1
+                kind: Namespace
+                metadata:
+                  name: default
+        status:
+          compliant: NonCompliant
+          
+
