@@ -1,7 +1,7 @@
 apiVersion: policy.open-cluster-management.io/v1
 kind: ConfigurationPolicy
 metadata:
-  name: case34-cfgpol
+  name: case34-for-ns
   ownerReferences:
   - apiVersion: policy.open-cluster-management.io/v1
     blockOwnerDeletion: false
