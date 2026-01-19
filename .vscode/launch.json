@@ -34,7 +34,7 @@
                 "--log-level=3",
                 "--v=5",
                 "--enable-operator-policy=true",
-                "--target-kubeconfig-path=${workspaceFolder}/kubeconfig_managed2_e2e",
+                "--target-kubeconfig-path=${workspaceFolder}/kubeconfig_managed2",
                 "--evaluation-backoff=2",
             ],
             "env": {
