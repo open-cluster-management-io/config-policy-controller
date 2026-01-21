@@ -1,0 +1,20 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case13-default-denylist-error
+spec:
+  remediationAction: inform
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        kind: ConfigMap
+        apiVersion: v1
+        metadata:
+          name: case13-denylist-test-configmap
+          namespace: default
+        data:
+          home-env: |
+            {{ printf "%s" (env "HOME") }}

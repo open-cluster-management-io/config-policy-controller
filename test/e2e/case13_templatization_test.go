@@ -67,6 +67,11 @@ var _ = Describe("Test templatization", Ordered, func() {
 		case13PruneTmpErrYaml string = case13RsrcPath + "case13_prune_template_error.yaml"
 	)
 
+	const (
+		case13DefaultDenylistErr     string = "case13-default-denylist-error"
+		case13DefaultDenylistErrYaml string = case13RsrcPath + "case13_default_denylist_error.yaml"
+	)
+
 	AfterAll(func() {
 		utils.KubectlDelete("-f", case13ClusterClaimYaml)
 	})
@@ -478,6 +483,39 @@ var _ = Describe("Test templatization", Ordered, func() {
 			utils.KubectlDelete("configurationpolicy", case13PruneTmpErr, "-n", testNamespace)
 			utils.KubectlDelete("configmap", case13PruneTmpErr+"-configmap", "-n", "default")
 			utils.KubectlDelete("secret", case13Secret, "-n", "default")
+		})
+	})
+
+	Describe("Test default denied template functions with denylist", Ordered, func() {
+		It("should return an error when using a denied template function", func() {
+			utils.Kubectl("apply", "-f", case13DefaultDenylistErrYaml, "-n", testNamespace)
+
+			By("Verifying that the configurationpolicy is NonCompliant due to unusable function error")
+			Eventually(func(g Gomega) {
+				managedPlc := utils.GetWithTimeout(
+					clientManagedDynamic,
+					gvrConfigPolicy,
+					case13DefaultDenylistErr,
+					testNamespace,
+					true,
+					defaultTimeoutSeconds,
+				)
+
+				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
+				g.Expect(utils.GetStatusMessage(managedPlc)).To(Equal(
+					`failed to resolve the template {"apiVersion":"v1","data":` +
+						`{"home-env":"{{ printf \"%s\" (env \"HOME\") }}\n"},` +
+						`"kind":"ConfigMap","metadata":` +
+						`{"name":"case13-denylist-test-configmap","namespace":"default"}}: ` +
+						`template: tmpl:4:20: executing "tmpl" at <env "HOME">: ` +
+						`error calling env: use of denylisted template function: ` +
+						`function 'env' is considered a security risk`,
+				))
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+		})
+
+		AfterAll(func() {
+			utils.KubectlDelete("configurationpolicy", case13DefaultDenylistErr, "-n", testNamespace, "--wait")
 		})
 	})
 })

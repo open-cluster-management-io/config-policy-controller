@@ -82,6 +82,12 @@ func resolveHubTemplates(ctx context.Context, r hubResolver, policyCopy client.O
 		Watcher: &objID,
 	}
 
+	if configPolicyReconciler, ok := r.(*ConfigurationPolicyReconciler); ok {
+		if len(configPolicyReconciler.TemplateFuncDenylist) > 0 {
+			resolveOptions.DenylistFunctions = configPolicyReconciler.TemplateFuncDenylist
+		}
+	}
+
 	if strings.Contains(string(jsonBytes), ".ManagedClusterLabels") {
 		resolveOptions.ContextTransformers = append(
 			resolveOptions.ContextTransformers, addManagedClusterLabels(r.getClusterName()))
