@@ -205,6 +205,8 @@ type ConfigurationPolicyReconciler struct {
 	// This flag is only used for dryrun. When true, the status will display the full diff in the output.
 	// By default, the maximum number of diff lines shown is 53.
 	FullDiffs bool
+	// List of additional template functions to deny
+	TemplateFuncDenylist []string
 }
 
 //+kubebuilder:rbac:groups=*,resources=*,verbs=*
@@ -869,7 +871,9 @@ func (r *ConfigurationPolicyReconciler) getTemplateResolver(plc *policyv1.Config
 	var resolveOptions *templates.ResolveOptions
 	var err error
 
-	resolveOptions = &templates.ResolveOptions{}
+	resolveOptions = &templates.ResolveOptions{
+		DenylistFunctions: r.TemplateFuncDenylist,
+	}
 
 	if currentlyUsingWatch(plc) {
 		tmplResolver, err = templates.NewResolverWithDynamicWatcher(

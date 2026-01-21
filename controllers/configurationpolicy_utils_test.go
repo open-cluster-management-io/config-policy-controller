@@ -7,7 +7,9 @@ import (
 
 	"github.com/stolostron/go-template-utils/v7/pkg/templates"
 	"github.com/stretchr/testify/assert"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 
@@ -558,6 +560,62 @@ metadata:
 			}
 
 			assert.Equal(t, test.expectSkipObject, skipObject)
+		})
+	}
+}
+
+func TestGetTemplateResolver_DenylistFunctions(t *testing.T) {
+	tests := []struct {
+		name             string
+		denylist         []string
+		expectedDenylist []string
+	}{
+		{
+			name:             "no denylist",
+			denylist:         []string{},
+			expectedDenylist: []string{},
+		},
+		{
+			name:             "single denylisted function",
+			denylist:         []string{"add"},
+			expectedDenylist: []string{"add"},
+		},
+		{
+			name:             "multiple denylisted functions",
+			denylist:         []string{"add1", "add"},
+			expectedDenylist: []string{"add1", "add"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dynamicClient := fake.NewSimpleDynamicClient(scheme.Scheme)
+
+			policy := &policyv1.ConfigurationPolicy{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-policy",
+					Namespace: "default",
+				},
+				Spec: policyv1.ConfigurationPolicySpec{
+					ObjectTemplates: []*policyv1.ObjectTemplate{
+						{
+							ComplianceType:   "musthave",
+							ObjectDefinition: runtime.RawExtension{},
+						},
+					},
+				},
+			}
+
+			r := &ConfigurationPolicyReconciler{
+				TemplateFuncDenylist:   tt.denylist,
+				TargetK8sDynamicClient: dynamicClient,
+			}
+
+			_, resolveOptions, err := r.getTemplateResolver(policy)
+
+			assert.NoError(t, err)
+
+			assert.Equal(t, tt.expectedDenylist, resolveOptions.DenylistFunctions)
 		})
 	}
 }

@@ -101,6 +101,7 @@ type ctrlOpts struct {
 
 	standaloneHubTemplateKubeConfigPath string
 	defaultTerminatingNSInclusion       string
+	templateFuncDenylist                []string
 }
 
 func main() {
@@ -530,6 +531,7 @@ func main() {
 		HubClient:              hubClient,
 		ClusterName:            opts.clusterName,
 		FullDiffs:              false,
+		TemplateFuncDenylist:   opts.templateFuncDenylist,
 	}
 
 	if err = reconciler.SetupWithManager(
@@ -950,6 +952,14 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		"Whether or not to include terminating namespaces in a selector, when not specified by "+
 			"the policy. Use 'IfMatch' for inclusion if the namespace matches the rest of the "+
 			"selector, or use 'Drop' to exclude terminating namespaces.",
+	)
+
+	flags.StringSliceVar(
+		&opts.templateFuncDenylist,
+		"template-function-denylist",
+		[]string{},
+		"A comma-separated list of additional template functions to deny. "+
+			"The default deny list will remain active regardless of this setting.",
 	)
 
 	_ = flags.Parse(args)
