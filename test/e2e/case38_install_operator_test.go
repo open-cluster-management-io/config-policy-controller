@@ -40,6 +40,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 	// checks that the compliance state eventually matches what is desired
 	checkCompliance := func(
+		ctx context.Context,
 		polName string,
 		ns string,
 		timeoutSeconds int,
@@ -60,7 +61,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			GinkgoHelper()
 
 			unstructPolicy, err := clientManagedDynamic.Resource(gvrOperatorPolicy).Namespace(ns).
-				Get(context.TODO(), polName, metav1.GetOptions{})
+				Get(ctx, polName, metav1.GetOptions{})
 			g.Expect(err).NotTo(HaveOccurred())
 
 			unstructured.RemoveNestedField(unstructPolicy.Object, "metadata", "managedFields")
@@ -1970,7 +1971,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				})
 			})
 
-			It("Should be Compliant and report all the things are correctly missing", func() {
+			It("Should be Compliant and report all the things are correctly missing", func(ctx SpecContext) {
 				check(
 					opPolName,
 					false,
@@ -2111,7 +2112,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				)
 
 				// The `check` function doesn't check that it is compliant, only that each piece is compliant
-				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
 			})
 			It("Should be NonCompliant and report resources when the operator is installed", func(ctx SpecContext) {
 				// Make it musthave and enforced, to install the operator
@@ -2680,7 +2681,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					`the CustomResourceDefinition was deleted`,
 				)
 			})
-			It("Should report things as gone after the finalizers are removed", func() {
+			It("Should report things as gone after the finalizers are removed", func(ctx SpecContext) {
 				By("Checking that certain (named) resources are not there, indicating the removal was completed")
 				utils.GetWithTimeout(targetK8sDynamic, gvrClusterServiceVersion, csvName,
 					opPolTestNS, false, eventuallyTimeout)
@@ -2852,7 +2853,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				)
 
 				// the checks don't verify that the policy is compliant, do that now:
-				checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
 			})
 		})
 
@@ -2903,7 +2904,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					return crd
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
-				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
 
 				check(
 					opPolName,
@@ -2961,7 +2962,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					`the CustomResourceDefinition was deleted`,
 				)
 			})
-			It("Should become compliant after the finalizer is removed", func() {
+			It("Should become compliant after the finalizer is removed", func(ctx SpecContext) {
 				KubectlTarget("patch", "crd", crdName, "--type=json", "-p",
 					`[{"op": "remove", "path": "/metadata/finalizers"}]`)
 
@@ -2988,7 +2989,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					`the CustomResourceDefinition was deleted`,
 				)
 
-				checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
 			})
 		})
 
@@ -3037,7 +3038,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
 				By("Waiting for the policy to become compliant, indicating the operator is installed")
-				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
 
 				By("Verifying that an operator group exists")
 				Eventually(func(g Gomega) []unstructured.Unstructured {
@@ -3080,7 +3081,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
 				By("Waiting for the policy to become compliant, indicating the operator is installed")
-				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
 
 				By("Verifying that an operator group exists")
 				Eventually(func(g Gomega) []unstructured.Unstructured {
@@ -3123,7 +3124,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
 				By("Waiting for the policy to become compliant, indicating the operator is installed")
-				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
 
 				By("Verifying that an operator group exists")
 				Eventually(func(g Gomega) []unstructured.Unstructured {
@@ -3176,7 +3177,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				}, olmWaitTimeout, 5, ctx).ShouldNot(BeNil())
 
 				By("Waiting for the policy to become compliant, indicating the operator is installed")
-				checkCompliance(opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
 
 				By("Verifying that an operator group exists")
 				Eventually(func(g Gomega) []unstructured.Unstructured {
@@ -3194,7 +3195,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				utils.EnforceOperatorPolicy(otherOpPolName, testNamespace)
 
 				By("Waiting for the policy to become compliant, indicating the operator is installed")
-				checkCompliance(otherOpPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
+				checkCompliance(ctx, otherOpPolName, testNamespace, olmWaitTimeout, policyv1.Compliant)
 
 				// revert main policy to mustnothave
 				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
@@ -3283,7 +3284,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			setupPolicy(opPolYAML, opPolName, parentPolicyName)
 		})
 
-		It("should report compliant", func() {
+		It("should report compliant", func(ctx SpecContext) {
 			// change the subscription namespace, and the complianceType to mustnothave
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 				`[{"op": "replace", "path": "/spec/subscription/namespace", "value": "imaginaryfriend"},`+
@@ -3301,7 +3302,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				},
 				"the policy spec is valid",
 			)
-			checkCompliance(opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+			checkCompliance(ctx, opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
 		})
 	})
 
@@ -3696,10 +3697,10 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				setupPolicy(opPolYAML, opPolName, parentPolicyName)
 			})
 
-			It("Should be compliant when enforced", func() {
+			It("Should be compliant when enforced", func(ctx SpecContext) {
 				By("Waiting for the operator policy " + opPolName + " to be compliant")
 				// Wait for a while, because it might have upgrades that could take longer
-				checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
 			})
 		})
 
@@ -3867,7 +3868,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				scenarioTriggered = false
 
 				By("Verifying the policy starts compliant")
-				checkCompliance(opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+				checkCompliance(ctx, opPolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
 
 				By("Periodically deleting the subscription and checking the status")
 				scenarioDeadline := time.Now().Add(40 * time.Second)
@@ -3912,12 +3913,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				}
 			})
 
-			It("Verifies the policy eventually fixes the 'not referenced' condition", func() {
+			It("Verifies the policy eventually fixes the 'not referenced' condition", func(ctx SpecContext) {
 				By("Sleeping 25s, since OperatorPolicy should wait a while before intervening")
 				time.Sleep(25 * time.Second)
 
 				By("Verifying the policy becomes compliant")
-				checkCompliance(opPolName, testNamespace, 2*olmWaitTimeout, policyv1.Compliant, 30, 3)
+				checkCompliance(ctx, opPolName, testNamespace, 2*olmWaitTimeout, policyv1.Compliant, 30, 3)
 			})
 		})
 		Describe("Test reporting of unapproved version after installation", Ordered, func() {
@@ -4239,7 +4240,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			})
 		It("Should have deprecation message is displayed and policy compliance is Compliant "+
 			"when bundle is deprecated and deprecationAvaliable is set to NonCompliant",
-			func() {
+			func(ctx SpecContext) {
 				setupPolicy(bundlePolYAML, bundlePolName, parentPolicyName)
 
 				utils.Kubectl("patch", "operatorpolicy", bundlePolName, "-n", testNamespace, "--type=json", "-p",
@@ -4247,7 +4248,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 						"path": "/spec/complianceConfig/deprecationsPresent",
 						"value": "NonCompliant"}]`)
 
-				checkCompliance(bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.NonCompliant)
+				checkCompliance(ctx, bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.NonCompliant)
 
 				By("Should have status.compliant is Compliant again when deprecationsPresent config changes")
 
@@ -4256,7 +4257,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					"path": "/spec/complianceConfig/deprecationsPresent",
 					"value": "Compliant"}]`)
 
-				checkCompliance(bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
+				checkCompliance(ctx, bundlePolName, testNamespace, olmWaitTimeout*2, policyv1.Compliant)
 			})
 	})
 
