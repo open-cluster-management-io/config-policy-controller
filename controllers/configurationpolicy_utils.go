@@ -881,7 +881,7 @@ func getTemplateContext(
 		}{ObjectNamespace: ns}
 	}
 
-	return nil
+	return struct{}{}
 }
 
 // resolveGoTemplates resolves Go templates in the given raw object using the

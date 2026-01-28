@@ -364,7 +364,7 @@ func TestGetTemplateContext(t *testing.T) {
 			obj:      testObj,
 			name:     "",
 			ns:       "",
-			expected: nil,
+			expected: struct{}{},
 		},
 		"empty object with name and namespace": {
 			obj:  map[string]any{},
