@@ -509,7 +509,7 @@ func TestGetApprovedCSVs(t *testing.T) {
 		},
 	}
 
-	csvs := getApprovedCSVs(policy, subscription, odfIP)
+	csvs := getApprovedCSVs(t.Context(), policy, subscription, odfIP)
 
 	expectedCSVs := sets.Set[string]{}
 	expectedCSVs.Insert(odfIP.Spec.ClusterServiceVersionNames...)
@@ -530,7 +530,7 @@ func TestGetApprovedCSVs(t *testing.T) {
 		},
 	}
 
-	csvs = getApprovedCSVs(policy, subscription, odfIP)
+	csvs = getApprovedCSVs(t.Context(), policy, subscription, odfIP)
 
 	if !csvs.Equal(expectedCSVs) {
 		t.Fatalf(
@@ -548,7 +548,7 @@ func TestGetApprovedCSVs(t *testing.T) {
 		},
 	}
 
-	csvs = getApprovedCSVs(policy, subscription, odfIP)
+	csvs = getApprovedCSVs(t.Context(), policy, subscription, odfIP)
 	if len(csvs) != 0 {
 		t.Fatalf("Expected no CSVs to be approved, but got: %s", strings.Join(csvs.UnsortedList(), ", "))
 	}
@@ -586,7 +586,7 @@ func TestGetApprovedCSVsWithPackageNameLookup(t *testing.T) {
 		},
 	}
 
-	csvs := getApprovedCSVs(policy, subscription, installPlan)
+	csvs := getApprovedCSVs(t.Context(), policy, subscription, installPlan)
 
 	expectedCSVs := sets.Set[string]{}
 	expectedCSVs.Insert("mtc-operator.v1.8.9")

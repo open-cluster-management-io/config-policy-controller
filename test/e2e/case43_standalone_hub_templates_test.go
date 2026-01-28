@@ -285,11 +285,11 @@ var _ = Describe("When standalone-hub-templates is enabled", Ordered, Label("hub
 			modifiedYAML = "../resources/case43_standalone_hub_templates/hub-configmap-modified.yaml"
 		)
 
-		AfterAll(func() {
+		AfterAll(func(ctx SpecContext) {
 			utils.KubectlDelete("-n", testNamespace, "-f", policyYAML)
 
 			err := clientManagedDynamic.Resource(gvrPolicy).Namespace(testNamespace).Delete(
-				context.TODO(), parentPolicyName, metav1.DeleteOptions{},
+				ctx, parentPolicyName, metav1.DeleteOptions{},
 			)
 			if !errors.IsNotFound(err) {
 				Expect(err).ToNot(HaveOccurred())
