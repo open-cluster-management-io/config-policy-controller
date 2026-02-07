@@ -117,7 +117,7 @@ var _ = Describe("Test results of resource selection", Ordered, func() {
 		Entry("MatchExpressions with missing values",
 			`{"matchExpressions":[{"key":"name","operator":"In","values":[]}]}`,
 			fmt.Sprintf(filterErrMsgFmt,
-				"values: Invalid value: []string(nil): for 'in', 'notin' operators, values set can't be empty"),
+				"values: Invalid value: null: for 'in', 'notin' operators, values set can't be empty"),
 		),
 	)
 })
