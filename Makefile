@@ -66,7 +66,7 @@ test: envtest kubebuilder
 	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test $(TESTARGS) $(TEST_PKGS)
 
 .PHONY: test-coverage
-test-coverage: TESTARGS = -cover -covermode=atomic -coverprofile=coverage_unit.out
+test-coverage: TESTARGS = -coverpkg=./... -covermode=atomic -coverprofile=coverage_unit.out
 test-coverage: test
 
 .PHONY: gosec-scan
