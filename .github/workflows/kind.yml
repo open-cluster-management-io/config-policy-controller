@@ -117,8 +117,8 @@ jobs:
         uses: actions/upload-artifact@v6
         if: ${{ matrix.kind == 'latest' }}
         with:
-          name: coverage_e2e
-          path: coverage_e2e.out
+          name: coverage_e2e_basic
+          path: coverage_e2e_basic.out
 
       - name: Debug
         if: ${{ failure() }}

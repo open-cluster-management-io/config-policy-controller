@@ -28,7 +28,7 @@ KIND_CLUSTER_NAME ?= kind-$(KIND_NAME)
 KIND_NAMESPACE ?= open-cluster-management-agent-addon
 # Test coverage threshold
 export COVERAGE_MIN ?= 75
-COVERAGE_E2E_OUT ?= coverage_e2e.out
+COVERAGE_E2E_OUT ?= coverage_e2e_basic.out
 
 # Image URL to use all building/pushing image targets;
 # Use your own docker registry and image name for dev/test by overridding the IMG and REGISTRY environment variable.
@@ -59,12 +59,14 @@ fmt:
 # test section
 ############################################################
 
+TEST_PKGS ?= ./api/v1 ./controllers ./pkg/common ./pkg/dryrun ./test/dryrun/...
+
 .PHONY: test
 test: envtest kubebuilder
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test $(TESTARGS) `go list ./... | grep -v test/e2e`
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test $(TESTARGS) $(TEST_PKGS)
 
 .PHONY: test-coverage
-test-coverage: TESTARGS = -json -cover -covermode=atomic -coverprofile=coverage_unit.out
+test-coverage: TESTARGS = -cover -covermode=atomic -coverprofile=coverage_unit.out
 test-coverage: test
 
 .PHONY: gosec-scan
@@ -278,7 +280,7 @@ e2e-test-standalone-templates-coverage: e2e-run-instrumented e2e-test e2e-stop-i
 
 .PHONY: e2e-build-instrumented
 e2e-build-instrumented:
-	go test -covermode=atomic -coverpkg=$(shell cat go.mod | head -1 | cut -d ' ' -f 2)/... -c -tags e2e ./ -o build/_output/bin/$(IMG)-instrumented
+	go test -covermode=atomic -coverpkg=./... -c -tags e2e ./ -o build/_output/bin/$(IMG)-instrumented
 
 .PHONY: e2e-run-instrumented
 e2e-run-instrumented: e2e-build-instrumented
@@ -298,13 +300,16 @@ e2e-debug:
 ############################################################
 # test coverage
 ############################################################
-COVERAGE_FILE = coverage.out
-
 .PHONY: coverage-merge
 coverage-merge: coverage-dependencies
-	@echo Merging the coverage reports into $(COVERAGE_FILE)
-	$(GOCOVMERGE) $(PWD)/coverage_* > $(COVERAGE_FILE)
+	@echo Merging the coverage reports into coverage.out
+	$(GOCOVMERGE) $(PWD)/coverage_* > coverage.out
+
+.PHONY: coverage-merge-e2e
+coverage-merge-e2e: coverage-dependencies
+	@echo Merging the e2e coverage reports into coverage_e2e.out
+	$(GOCOVMERGE) $(PWD)/coverage_e2e* > coverage_e2e.out
 
 .PHONY: coverage-verify
-coverage-verify:
+coverage-verify: coverage-merge-e2e
 	./build/common/scripts/coverage_calc.sh
