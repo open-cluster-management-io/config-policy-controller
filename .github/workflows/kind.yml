@@ -261,3 +261,23 @@ jobs:
         run: |
           make coverage-verify
           make gosec-scan
+
+      - name: Report unit coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
+          files: ./coverage_unit.out
+          flags: unit-tests
+          name: unit-tests
+          verbose: true
+          fail_ci_if_error: false
+
+      - name: Report e2e coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
+          files: ./coverage_e2e.out
+          flags: e2e-tests
+          name: e2e-tests
+          verbose: true
+          fail_ci_if_error: false
