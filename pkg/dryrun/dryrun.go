@@ -387,7 +387,7 @@ func (d *DryRunner) applyInputResources(
 // setupLogs configures klog and the controller-runtime logger to send logs to the
 // path defined in the configuration. If that option is empty, logs will be discarded.
 func (d *DryRunner) setupLogs() error {
-	if d.logPath == "" {
+	if d.LogPath == "" {
 		klog.SetLogger(logr.Discard())
 		runtime.SetLogger(logr.Discard())
 
@@ -397,9 +397,9 @@ func (d *DryRunner) setupLogs() error {
 	z := zaputil.NewFlagConfig()
 	cfg := z.GetConfig()
 
-	cfg.Level = zap.NewAtomicLevelAt(zapcore.Level(-1))
+	cfg.Level = zap.NewAtomicLevelAt(zapcore.Level(-2))
 	cfg.Encoding = "console"
-	cfg.OutputPaths = []string{d.logPath}
+	cfg.OutputPaths = []string{d.LogPath}
 
 	ctrlZap, err := cfg.Build()
 	if err != nil {
