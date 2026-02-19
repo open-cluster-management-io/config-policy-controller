@@ -1,6 +1,7 @@
 package controllers
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -611,7 +612,7 @@ func TestGetTemplateResolver_DenylistFunctions(t *testing.T) {
 				TargetK8sDynamicClient: dynamicClient,
 			}
 
-			_, resolveOptions, err := r.getTemplateResolver(policy)
+			_, resolveOptions, err := r.getTemplateResolver(context.TODO(), policy)
 
 			assert.NoError(t, err)
 
