@@ -18,7 +18,6 @@ import (
 	apiRes "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/util/json"
 	"sigs.k8s.io/yaml"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
@@ -104,19 +103,6 @@ func addCondensedRelatedObjs(
 	relatedObjects = append(relatedObjects, relatedObject)
 
 	return relatedObjects
-}
-
-// unmarshalFromJSON unmarshals raw JSON data into an object
-func unmarshalFromJSON(rawData []byte) (unstructured.Unstructured, error) {
-	var unstruct unstructured.Unstructured
-
-	if jsonErr := json.Unmarshal(rawData, &unstruct.Object); jsonErr != nil {
-		log.Error(jsonErr, "Could not unmarshal data from JSON")
-
-		return unstruct, jsonErr
-	}
-
-	return unstruct, nil
 }
 
 // addOrUpdateRelatedObject adds or updates the RelatedObject in the given list
