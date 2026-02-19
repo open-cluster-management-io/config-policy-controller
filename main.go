@@ -344,7 +344,7 @@ func main() {
 	if err != nil {
 		log.Error(err, "Failed to determine if the controller is being uninstalled at startup. Will assume it's not.")
 	} else {
-		beingUninstalled, err = controllers.IsBeingUninstalled(uninstallCheckClient)
+		beingUninstalled, err = controllers.IsBeingUninstalled(uninstallingCtx, uninstallCheckClient)
 		if err != nil {
 			log.Error(
 				err,
@@ -640,7 +640,7 @@ func main() {
 				leaseUpdater = leaseUpdater.WithHubLeaseConfig(hubCfg, opts.clusterName)
 			}
 
-			go leaseUpdater.Start(context.TODO())
+			go leaseUpdater.Start(managerCtx)
 
 			if standaloneHubCfg != nil {
 				log.Info("Starting lease controller for governance-standalone-hub-templating")
@@ -649,7 +649,7 @@ func main() {
 					leaseClientset, "governance-standalone-hub-templating", operatorNs,
 				).WithHubLeaseConfig(standaloneHubCfg, opts.clusterName)
 
-				go standaloneLeaseUpdater.Start(context.TODO())
+				go standaloneLeaseUpdater.Start(managerCtx)
 
 				configFiles = append(configFiles, opts.standaloneHubTemplateKubeConfigPath)
 

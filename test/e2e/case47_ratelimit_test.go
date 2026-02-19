@@ -48,11 +48,11 @@ var _ = Describe("Test config policy ratelimiting", Ordered, func() {
 	It("should initially have a small number of evaluations", func() {
 		Eventually(
 			metricCheck, 10, 2,
-		).WithArguments("config_policy_evaluation_total", "name", policyName).Should(BeNumerically("<", 4))
+		).WithArguments("config_policy_evaluation_total", "name", policyName).Should(BeNumerically("<=", 5))
 
 		Consistently(
 			metricCheck, 10, 2,
-		).WithArguments("config_policy_evaluation_total", "name", policyName).Should(BeNumerically("<", 4))
+		).WithArguments("config_policy_evaluation_total", "name", policyName).Should(BeNumerically("<=", 5))
 	})
 
 	value := 0

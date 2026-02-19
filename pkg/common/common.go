@@ -31,12 +31,14 @@ func CreateRecorder(kubeClient kubernetes.Interface, componentName string) (reco
 	return eventBroadcaster.NewRecorder(eventsScheme, v1.EventSource{Component: componentName}), nil
 }
 
-func LogConstructor(controllerName string, kind string, req *reconcile.Request) logr.Logger {
-	log := ctrl.Log.WithName(controllerName)
+func LogConstructor(controllerName, kind string) func(req *reconcile.Request) logr.Logger {
+	log := ctrl.Log.WithName(controllerName).WithValues("kind", kind)
 
-	if req != nil {
-		log = log.WithValues("kind", kind, "namespace", req.Namespace, "name", req.Name)
+	return func(req *reconcile.Request) logr.Logger {
+		if req != nil {
+			return log.WithValues("namespace", req.Namespace, "name", req.Name)
+		}
+
+		return log
 	}
-
-	return log
 }

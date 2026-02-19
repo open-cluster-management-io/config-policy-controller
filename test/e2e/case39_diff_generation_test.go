@@ -113,10 +113,10 @@ var _ = Describe("Generate the diff", Ordered, func() {
 +  fieldToUpdate: "2"
  kind: ConfigMap`))
 
-		Expect(diff).Should(ContainSubstring(
-			`{"policy": "case39-policy-cfgmap-create", "name": "case39-map", "namespace": "default", ` +
-				`"resource": "configmaps"}`,
-		))
+		Expect(diff).Should(ContainSubstring(`"name": "case39-policy-cfgmap-create"`))
+		Expect(diff).Should(ContainSubstring(`"objName": "case39-map"`))
+		Expect(diff).Should(ContainSubstring(`"objNamespace": "default"`))
+		Expect(diff).Should(ContainSubstring(`"resource": "configmaps"`))
 	})
 
 	It("configmap and status should be updated properly on the managed cluster", func() {

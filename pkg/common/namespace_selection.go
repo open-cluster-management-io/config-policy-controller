@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -204,8 +205,11 @@ func (r *NamespaceSelectorReconciler) Get(objNS string, objName string, t policy
 
 	nsList := corev1.NamespaceList{}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
 	// Fetch namespaces -- this List will be from the controller-runtime cache
-	if err := r.client.List(context.TODO(), &nsList); err != nil {
+	if err := r.client.List(ctx, &nsList); err != nil {
 		log.Error(err, "Unable to list namespaces from the cache")
 
 		return nil, err

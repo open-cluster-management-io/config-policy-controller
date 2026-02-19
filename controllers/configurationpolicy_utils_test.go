@@ -611,7 +611,7 @@ func TestGetTemplateResolver_DenylistFunctions(t *testing.T) {
 				TargetK8sDynamicClient: dynamicClient,
 			}
 
-			_, resolveOptions, err := r.getTemplateResolver(policy)
+			_, resolveOptions, err := r.getTemplateResolver(t.Context(), policy)
 
 			assert.NoError(t, err)
 
