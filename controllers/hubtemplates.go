@@ -15,6 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/kubernetes"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
@@ -29,6 +30,8 @@ type hubResolver interface {
 }
 
 func resolveHubTemplates(ctx context.Context, r hubResolver, policyCopy client.Object) error {
+	log := ctrl.LoggerFrom(ctx)
+
 	jsonBytes, err := json.Marshal(policyCopy)
 	if err != nil { // This condition is likely impossible.
 		return err

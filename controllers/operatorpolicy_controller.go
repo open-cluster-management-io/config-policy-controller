@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/go-logr/logr"
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	templates "github.com/stolostron/go-template-utils/v7/pkg/templates"
@@ -178,9 +177,7 @@ func (r *OperatorPolicyReconciler) SetupWithManager(
 			&policyv1beta1.OperatorPolicy{},
 			handler.EnqueueRequestsFromMapFunc(overlapMapper)).
 		WatchesRawSource(depEvents).
-		WithLogConstructor(func(req *reconcile.Request) logr.Logger {
-			return common.LogConstructor(OperatorControllerName, "OperatorPolicy", req)
-		}).
+		WithLogConstructor(common.LogConstructor(OperatorControllerName, "OperatorPolicy")).
 		Complete(r)
 }
 
@@ -2975,6 +2972,7 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	desired map[string]any,
 	existing *unstructured.Unstructured,
 ) (updateNeeded, updateIsForbidden bool, err error) {
+	log := ctrl.LoggerFrom(ctx, "objName", existing.GetName(), "objNamespace", existing.GetNamespace())
 	desiredObj := &unstructured.Unstructured{Object: desired}
 
 	// Use a copy since some values can be directly assigned to mergedObj in handleSingleKey.
@@ -2982,7 +2980,7 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	removeFieldsForComparison(existingObjectCopy)
 
 	//nolint:dogsled
-	_, errMsg, updateNeeded, _, _ := handleKeys(desiredObj, existing, existingObjectCopy, policyv1.MustHave, "")
+	_, errMsg, updateNeeded, _, _ := handleKeys(log, desiredObj, existing, existingObjectCopy, policyv1.MustHave, "")
 	if errMsg != "" {
 		return updateNeeded, false, errors.New(errMsg)
 	}

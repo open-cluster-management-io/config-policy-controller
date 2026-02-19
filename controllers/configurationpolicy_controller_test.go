@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -1163,7 +1164,7 @@ secrets:
 	compType := policyv1.MustOnlyHave
 	mdCompType := policyv1.MustOnlyHave
 
-	throwViolation, _, updateNeeded, statusMismatch, _ := handleKeys(&desiredObj, &existingObj,
+	throwViolation, _, updateNeeded, statusMismatch, _ := handleKeys(logr.Discard(), &desiredObj, &existingObj,
 		&existingObjCopy, compType, mdCompType)
 
 	assert.False(t, throwViolation)
@@ -1486,7 +1487,7 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 					lastEvaluatedCache: *test.lastEvaluatedCache, //nolint: govet
 				}
 
-				actual, actualDuration := r.shouldEvaluatePolicy(policyCopy)
+				actual, actualDuration := r.shouldEvaluatePolicy(policyCopy, logr.Discard())
 
 				if actual != test.expected {
 					t.Fatalf("expected %v but got %v", test.expected, actual)
