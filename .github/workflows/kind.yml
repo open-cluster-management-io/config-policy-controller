@@ -271,6 +271,7 @@ jobs:
           name: unit-tests
           verbose: true
           fail_ci_if_error: false
+          disable_search: true
 
       - name: Report e2e coverage to Codecov
         uses: codecov/codecov-action@v5
@@ -281,3 +282,4 @@ jobs:
           name: e2e-tests
           verbose: true
           fail_ci_if_error: false
+          disable_search: true
