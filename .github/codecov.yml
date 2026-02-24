@@ -1,0 +1,22 @@
+coverage:
+  # range specifies the colors in the report: <65% = red, >85% = green, otherwise yellow. 
+  range: 65..85
+  round: nearest
+  status:
+    project:
+      default:
+        target: auto 
+        threshold: 2
+        flags:
+          - unit-tests
+          - e2e-tests
+    patch:
+      default:
+        target: auto 
+        threshold: 2
+        flags:
+          - unit-tests
+          - e2e-tests
+
+comment:
+  behavior: new
