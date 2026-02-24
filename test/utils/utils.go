@@ -122,6 +122,9 @@ func GetWithTimeout(
 	return nil
 }
 
+// GetMatchingEvents returns Events in the given namespace that match objName and the given
+// reason and message regexes. The list is sorted by LastTimestamp ascending, so the most
+// recent event is the last in the list (highest index).
 func GetMatchingEvents(
 	client kubernetes.Interface, namespace, objName, reasonRegex, msgRegex string, timeout int,
 ) []corev1.Event {
@@ -146,6 +149,18 @@ func GetMatchingEvents(
 			matchingEvents = append(matchingEvents, event)
 		}
 	}
+
+	slices.SortStableFunc(matchingEvents, func(a, b corev1.Event) int {
+		if a.LastTimestamp.Before(&b.LastTimestamp) {
+			return -1
+		}
+
+		if b.LastTimestamp.Before(&a.LastTimestamp) {
+			return 1
+		}
+
+		return 0
+	})
 
 	return matchingEvents
 }
