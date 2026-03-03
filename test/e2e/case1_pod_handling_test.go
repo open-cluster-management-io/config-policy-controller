@@ -8,6 +8,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
@@ -272,8 +273,10 @@ var _ = Describe("Test pod obj template handling", Ordered, func() {
 			By("Removing the finalizer on the namespace")
 			utils.Kubectl("patch", "ns", podNS, "--type=merge", `-p={"metadata":{"finalizers":[]}}`)
 
-			By("Waiting 5s for the namespace to finish being removed")
-			time.Sleep(5 * time.Second)
+			By("Waiting for the namespace to finish being removed")
+			Eventually(func() *unstructured.Unstructured {
+				return utils.GetWithTimeout(clientManagedDynamic, gvrNS, podNS, "", false, defaultTimeoutSeconds)
+			}, defaultTimeoutSeconds, 1).Should(BeNil())
 
 			By("Re-creating the namespace")
 			utils.Kubectl("create", "ns", podNS)

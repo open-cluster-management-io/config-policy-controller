@@ -381,7 +381,7 @@ func (r *OperatorPolicyReconciler) emitComplianceEvent(
 		FirstTimestamp: timestamp,
 		LastTimestamp:  timestamp,
 		Count:          1,
-		Type:           "Normal",
+		Type:           corev1.EventTypeNormal,
 		Action:         "ComplianceStateUpdate",
 		Related: &corev1.ObjectReference{
 			Kind:       policy.Kind,
@@ -395,7 +395,7 @@ func (r *OperatorPolicyReconciler) emitComplianceEvent(
 	}
 
 	if policy.Status.ComplianceState != policyv1.Compliant {
-		event.Type = "Warning"
+		event.Type = corev1.EventTypeWarning
 	}
 
 	return r.Create(ctx, event)

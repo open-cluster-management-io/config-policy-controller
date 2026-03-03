@@ -49,7 +49,7 @@ var _ = Describe("Verify status update after updating object", Ordered, func() {
 			g.Expect(statusEvents).NotTo(BeEmpty())
 
 			events := utils.GetMatchingEvents(clientManaged, testNamespace, case27ConfigPolicyName,
-				"Policy updated", regexp.QuoteMeta(messageFragment), defaultTimeoutSeconds)
+				"PolicyUpdate", regexp.QuoteMeta(messageFragment), defaultTimeoutSeconds)
 
 			var foundEvent bool
 

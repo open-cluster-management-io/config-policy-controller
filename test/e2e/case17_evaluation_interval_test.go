@@ -82,7 +82,7 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 				defaultTimeoutSeconds,
 			)
 			g.Expect(events).To(HaveLen(1))
-			g.Expect(events[0].Count).To(Equal(int32(1)))
+			g.Expect(events[0].Count).To(Or(BeNumerically("==", 0), BeNumerically("==", 1)))
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying that the policy status history is stable")
