@@ -59,7 +59,7 @@ var _ = Describe("Generate the diff", Ordered, func() {
 		Eventually(func(g Gomega) {
 			events := utils.GetMatchingEvents(clientManaged, testNamespace,
 				configPolicyName,
-				"Policy updated",
+				"PolicyUpdate",
 				regexp.QuoteMeta(
 					`Policy status is Compliant: configmaps [case39-map] was updated successfully in namespace default`,
 				),

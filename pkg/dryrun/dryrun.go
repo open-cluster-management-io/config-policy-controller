@@ -34,7 +34,7 @@ import (
 	clientsetfake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	klog "k8s.io/klog/v2"
 	parentpolicyv1 "open-cluster-management.io/governance-policy-propagator/api/v1"
 	runtime "sigs.k8s.io/controller-runtime"
@@ -462,7 +462,7 @@ func (d *DryRunner) setupReconciler(
 		var err error
 
 		dynamicClient = dynfake.NewSimpleDynamicClient(scheme.Scheme)
-		clientset = clientsetfake.NewSimpleClientset()
+		clientset = clientsetfake.NewClientset()
 
 		nsSelReconciler, err = common.NewNamespaceSelectorReconciler(runtimeClient, nsSelUpdatesChan, "IfMatch")
 		if err != nil {
@@ -490,7 +490,7 @@ func (d *DryRunner) setupReconciler(
 		DecryptionConcurrency:  1,
 		DynamicWatcher:         dynamicWatcher,
 		Scheme:                 scheme.Scheme,
-		Recorder:               record.NewFakeRecorder(8),
+		Recorder:               events.NewFakeRecorder(8),
 		InstanceName:           "policy-cli",
 		TargetK8sClient:        clientset,
 		TargetK8sDynamicClient: dynamicClient,

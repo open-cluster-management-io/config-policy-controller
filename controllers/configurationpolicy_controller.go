@@ -36,7 +36,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -71,9 +71,7 @@ const (
 )
 
 var (
-	eventNormal  = "Normal"
-	eventWarning = "Warning"
-	eventFmtStr  = "policy: %s/%s"
+	eventFmtStr = "policy: %s/%s"
 
 	ErrPolicyInvalid = errors.New("the Policy is invalid")
 
@@ -173,7 +171,7 @@ type ConfigurationPolicyReconciler struct {
 	DecryptionConcurrency uint8
 	DynamicWatcher        depclient.DynamicWatcher
 	Scheme                *runtime.Scheme
-	Recorder              record.EventRecorder
+	Recorder              events.EventRecorder
 	// processedPolicyCache has the ConfigurationPolicy UID as the key and the values are a *sync.Map with the keys
 	// as object UIDs and the values as cachedEvaluationResult objects.
 	processedPolicyCache sync.Map
@@ -3884,18 +3882,20 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 			}
 		}
 
-		eventType := eventNormal
+		eventType := corev1.EventTypeNormal
 		if policy.Status.ComplianceState == policyv1.NonCompliant {
-			eventType = eventWarning
+			eventType = corev1.EventTypeWarning
 		}
 
 		eventMessage := fmt.Sprintf("%s: %s", policy.Status.ComplianceState, strings.Join(condMessages, "; "))
 		log.Info("Policy status message", "policy", policy.GetName(), "status", eventMessage)
 
-		r.Recorder.Event(
+		r.Recorder.Eventf(
 			policy,
+			nil,
 			eventType,
-			"Policy updated",
+			"PolicyUpdate",
+			"Policy status updated",
 			"Policy status is "+eventMessage,
 		)
 	}
@@ -3906,14 +3906,16 @@ func (r *ConfigurationPolicyReconciler) updatePolicyStatus(
 // recordInfoEvent adds an informational event to the queue to be emitted (it does not emit it
 // synchronously). This event is not used for compliance, but may be used by other tools.
 func (r *ConfigurationPolicyReconciler) recordInfoEvent(plc *policyv1.ConfigurationPolicy, violation bool) {
-	eventType := eventNormal
+	eventType := corev1.EventTypeNormal
 	if violation {
-		eventType = eventWarning
+		eventType = corev1.EventTypeWarning
 	}
 
-	r.Recorder.Event(
+	r.Recorder.Eventf(
 		plc,
+		nil,
 		eventType,
+		"PolicyInfo",
 		"policy: "+plc.GetName(),
 		// Always use the default message for info events
 		defaultComplianceMessage(plc),
@@ -3954,7 +3956,7 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(
 		FirstTimestamp: metav1.NewTime(updateTime),
 		LastTimestamp:  metav1.NewTime(updateTime),
 		Count:          1,
-		Type:           "Normal",
+		Type:           corev1.EventTypeNormal,
 		Action:         "ComplianceStateUpdate",
 		Related: &corev1.ObjectReference{
 			Kind:       instance.Kind,
@@ -3968,7 +3970,7 @@ func (r *ConfigurationPolicyReconciler) sendComplianceEvent(
 	}
 
 	if instance.Status.ComplianceState != policyv1.Compliant {
-		event.Type = "Warning"
+		event.Type = corev1.EventTypeWarning
 	}
 
 	return r.Create(ctx, event)

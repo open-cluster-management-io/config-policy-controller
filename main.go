@@ -518,7 +518,7 @@ func main() {
 		DecryptionConcurrency:  opts.decryptionConcurrency,
 		DynamicWatcher:         dynamicWatcher,
 		Scheme:                 mgr.GetScheme(),
-		Recorder:               mgr.GetEventRecorderFor(controllers.ControllerName),
+		Recorder:               mgr.GetEventRecorder(controllers.ControllerName),
 		InstanceName:           instanceName,
 		TargetK8sClient:        targetK8sClient,
 		TargetK8sDynamicClient: targetK8sDynamicClient,
