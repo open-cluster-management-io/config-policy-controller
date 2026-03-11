@@ -17,6 +17,3 @@ coverage:
         flags:
           - unit-tests
           - e2e-tests
-
-comment:
-  behavior: new

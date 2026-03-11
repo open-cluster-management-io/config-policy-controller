@@ -62,8 +62,8 @@ fmt:
 TEST_PKGS ?= ./api/v1 ./controllers ./pkg/common ./pkg/dryrun ./test/dryrun/...
 
 .PHONY: test
-test: envtest kubebuilder
-	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" go test $(TESTARGS) $(TEST_PKGS)
+test: envtest kubebuilder gotestsum
+	KUBEBUILDER_ASSETS="$(shell $(ENVTEST) use $(ENVTEST_K8S_VERSION) -p path)" $(GOTESTSUM) $(GOTST_FMT) --junitfile report_unit.xml -- $(TESTARGS) $(TEST_PKGS)
 
 .PHONY: test-coverage
 test-coverage: TESTARGS = -coverpkg=./... -covermode=atomic -coverprofile=coverage_unit.out
@@ -151,7 +151,6 @@ generate-operator-yaml: manifests
 ############################################################
 # e2e test section
 ############################################################
-GINKGO = $(LOCAL_BIN)/ginkgo
 
 .PHONY: kind-bootstrap-cluster
 kind-bootstrap-cluster: kind-bootstrap-cluster-dev kind-deploy-controller
@@ -250,18 +249,22 @@ install-resources:
 
 IS_HOSTED ?= false
 E2E_PROCS = 20
+E2E_JSON = --json-report=report_e2e.json
+E2E_JUNIT = --junit-report=report_e2e.xml
 
 .PHONY: e2e-test
 e2e-test: e2e-dependencies
-	$(GINKGO) -v --procs=$(E2E_PROCS) $(E2E_TEST_ARGS) test/e2e -- -is_hosted=$(IS_HOSTED)
+	$(GINKGO) -v --procs=$(E2E_PROCS) $(E2E_TEST_ARGS) --output-dir=. $(E2E_JSON) $(E2E_JUNIT) test/e2e -- -is_hosted=$(IS_HOSTED)
 
 .PHONY: e2e-test-coverage
-e2e-test-coverage: E2E_TEST_ARGS = --json-report=report_e2e.json --label-filter='!hosted-mode && !running-in-cluster && !hub-templates-enabled' --output-dir=.
+e2e-test-coverage: E2E_TEST_ARGS = --label-filter='!hosted-mode && !running-in-cluster && !hub-templates-enabled' 
 e2e-test-coverage: e2e-run-instrumented e2e-test e2e-stop-instrumented
 
 .PHONY: e2e-test-hosted-mode-coverage
-e2e-test-hosted-mode-coverage: E2E_TEST_ARGS = --json-report=report_e2e_hosted_mode.json --label-filter="hosted-mode || supports-hosted && !running-in-cluster" --output-dir=.
+e2e-test-hosted-mode-coverage: E2E_TEST_ARGS = --label-filter="hosted-mode || supports-hosted && !running-in-cluster"
 e2e-test-hosted-mode-coverage: COVERAGE_E2E_OUT = coverage_e2e_hosted_mode.out
+e2e-test-hosted-mode-coverage: E2E_JSON = --json-report=report_e2e_hosted_mode.json
+e2e-test-hosted-mode-coverage: E2E_JUNIT = --junit-report=report_e2e_hosted_mode.xml
 e2e-test-hosted-mode-coverage: IS_HOSTED=true
 e2e-test-hosted-mode-coverage: E2E_PROCS=2
 e2e-test-hosted-mode-coverage: export TARGET_KUBECONFIG_PATH = $(PWD)/kubeconfig_managed2
@@ -269,11 +272,15 @@ e2e-test-hosted-mode-coverage: e2e-run-instrumented e2e-test e2e-stop-instrument
 
 .PHONY: e2e-test-running-in-cluster
 e2e-test-running-in-cluster: E2E_TEST_ARGS = --label-filter="running-in-cluster" --covermode=atomic --coverprofile=coverage_e2e_uninstall.out --coverpkg=open-cluster-management.io/config-policy-controller/pkg/triggeruninstall
+e2e-test-running-in-cluster: E2E_JSON = --json-report=report_e2e_uninstall.json
+e2e-test-running-in-cluster: E2E_JUNIT = --junit-report=report_e2e_uninstall.xml
 e2e-test-running-in-cluster: e2e-test
 
 .PHONY: e2e-test-standalone-templates-coverage
-e2e-test-standalone-templates-coverage: E2E_TEST_ARGS = --json-report=report_e2e_hub_templates.json --label-filter="hub-templates-enabled" --output-dir=.
+e2e-test-standalone-templates-coverage: E2E_TEST_ARGS = --label-filter="hub-templates-enabled"
 e2e-test-standalone-templates-coverage: COVERAGE_E2E_OUT = coverage_e2e_hub_templates.out
+e2e-test-standalone-templates-coverage: E2E_JSON = --json-report=report_e2e_hub_templates.json
+e2e-test-standalone-templates-coverage: E2E_JUNIT = --junit-report=report_e2e_hub_templates.xml
 e2e-test-standalone-templates-coverage: E2E_PROCS=2
 e2e-test-standalone-templates-coverage: export HUB_TEMPLATES_KUBECONFIG_PATH = $(PWD)/kubeconfig_managed2
 e2e-test-standalone-templates-coverage: e2e-run-instrumented e2e-test e2e-stop-instrumented
