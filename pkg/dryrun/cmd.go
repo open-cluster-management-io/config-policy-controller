@@ -49,6 +49,14 @@ func (d *DryRunner) GetCmd() *cobra.Command {
 		panic(err)
 	}
 
+	cmd.Flags().StringVarP(
+		&d.logPath,
+		"log-path",
+		"l",
+		"",
+		"The path to save the controller logs to. Set to 'stdout' to print to the console. It will overwrite any file path set here. If not set, logs will be discarded.",
+	)
+
 	cmd.Flags().StringVar(
 		&d.messagesPath,
 		"messages-path",

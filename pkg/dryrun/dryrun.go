@@ -397,9 +397,13 @@ func (d *DryRunner) setupLogs() error {
 	z := zaputil.NewFlagConfig()
 	cfg := z.GetConfig()
 
-	cfg.Level = zap.NewAtomicLevelAt(zapcore.Level(-1))
+	cfg.Level = zap.NewAtomicLevelAt(zapcore.Level(-2))
 	cfg.Encoding = "console"
-	cfg.OutputPaths = []string{d.logPath}
+	if d.logPath == "stdout" {
+		cfg.OutputPaths = []string{os.Stdout.Name()}
+	} else {
+		cfg.OutputPaths = []string{d.logPath}
+	}
 
 	ctrlZap, err := cfg.Build()
 	if err != nil {
