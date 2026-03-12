@@ -307,6 +307,19 @@ func calculateComplianceCondition(policy *policyv1beta1.OperatorPolicy) metav1.C
 		}
 	}
 
+	if !policy.Spec.ComplianceType.IsMustNotHave() &&
+		policy.Spec.ComplianceConfig.MinorChannelUpgradeAvailable == "NonCompliant" {
+		idx, cond = policy.Status.GetCondition(minorChannelConditionType)
+		if idx != -1 {
+			if cond.Status != metav1.ConditionTrue {
+				messages = append(messages, cond.Message)
+				foundNonCompliant = true
+			}
+		} else {
+			foundNonCompliant = true
+		}
+	}
+
 	message := strings.Join(messages, ", ")
 
 	prefix := "Compliant"
@@ -402,16 +415,17 @@ func (r *OperatorPolicyReconciler) emitComplianceEvent(
 }
 
 const (
-	compliantConditionType   = "Compliant"
-	validPolicyConditionType = "ValidPolicySpec"
-	opGroupConditionType     = "OperatorGroupCompliant"
-	subConditionType         = "SubscriptionCompliant"
-	csvConditionType         = "ClusterServiceVersionCompliant"
-	crdConditionType         = "CustomResourceDefinitionCompliant"
-	deploymentConditionType  = "DeploymentCompliant"
-	catalogSrcConditionType  = "CatalogSourcesUnhealthy"
-	installPlanConditionType = "InstallPlanCompliant"
-	deprecationType          = "NoDeprecations"
+	compliantConditionType    = "Compliant"
+	validPolicyConditionType  = "ValidPolicySpec"
+	opGroupConditionType      = "OperatorGroupCompliant"
+	subConditionType          = "SubscriptionCompliant"
+	csvConditionType          = "ClusterServiceVersionCompliant"
+	crdConditionType          = "CustomResourceDefinitionCompliant"
+	deploymentConditionType   = "DeploymentCompliant"
+	catalogSrcConditionType   = "CatalogSourcesUnhealthy"
+	installPlanConditionType  = "InstallPlanCompliant"
+	deprecationType           = "NoDeprecations"
+	minorChannelConditionType = "MinorChannelUpgradeAvailable"
 )
 
 func condType(kind string) string {
@@ -597,6 +611,17 @@ func updatedCond(kind string) metav1.Condition {
 		Status:  metav1.ConditionTrue,
 		Reason:  kind + "Updated",
 		Message: "the " + kind + " was updated to match the policy",
+	}
+}
+
+// minorChannelOKCond returns a Compliant condition indicating
+// the selected channel has no recommended minor version updates
+func minorChannelOKCond(reason, message string) metav1.Condition {
+	return metav1.Condition{
+		Type:    minorChannelConditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  reason,
+		Message: message,
 	}
 }
 

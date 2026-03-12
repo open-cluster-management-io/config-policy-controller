@@ -141,6 +141,12 @@ type ComplianceConfig struct {
 	//
 	// +kubebuilder:default=Compliant
 	DeprecationsPresent ComplianceConfigAction `json:"deprecationsPresent,omitempty"`
+	// MinorChannelUpgradeAvailable specifies how the availability of a newer minor version channel
+	// should affect overall policy compliance when spec.UpgradeApproval is Automatic. The default
+	// value is `Compliant`.
+	//
+	// +kubebuilder:default=Compliant
+	MinorChannelUpgradeAvailable ComplianceConfigAction `json:"minorChannelUpgradeAvailable,omitempty"`
 }
 
 // OperatorPolicySpec defines the desired state of a particular operator on the cluster.
