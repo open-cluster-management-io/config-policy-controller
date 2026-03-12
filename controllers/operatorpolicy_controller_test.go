@@ -10,6 +10,7 @@ import (
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -22,7 +23,9 @@ import (
 func TestBuildResources_SubscriptionErrorUpdatesStatus(t *testing.T) {
 	t.Parallel()
 
-	r := &OperatorPolicyReconciler{}
+	r := &OperatorPolicyReconciler{
+		DynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+	}
 
 	policy := &policyv1beta1.OperatorPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -49,7 +52,7 @@ func TestBuildResources_SubscriptionErrorUpdatesStatus(t *testing.T) {
 		},
 	}
 
-	_, _, changed, returnedErr := r.buildResources(t.Context(), policy)
+	_, _, _, changed, returnedErr := r.buildResources(t.Context(), policy) //nolint:dogsled
 	assert.True(t, changed, "expected status to be updated")
 	assert.NoError(t, returnedErr)
 
@@ -62,7 +65,9 @@ func TestBuildResources_SubscriptionErrorUpdatesStatus(t *testing.T) {
 func TestBuildResources_subInstallPlanApprovalErrorUpdatesStatus(t *testing.T) {
 	t.Parallel()
 
-	r := &OperatorPolicyReconciler{}
+	r := &OperatorPolicyReconciler{
+		DynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+	}
 
 	policy := &policyv1beta1.OperatorPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -90,7 +95,7 @@ func TestBuildResources_subInstallPlanApprovalErrorUpdatesStatus(t *testing.T) {
 		},
 	}
 
-	_, _, changed, returnedErr := r.buildResources(t.Context(), policy)
+	_, _, _, changed, returnedErr := r.buildResources(t.Context(), policy) //nolint:dogsled
 	assert.True(t, changed, "expected status to be updated")
 	assert.NoError(t, returnedErr)
 
@@ -134,7 +139,7 @@ func TestBuildResources_SubDefaultsPkgManifestNotFoundUpdatesStatusAndReturnsErr
 		},
 	}
 
-	sub, opGroup, changed, returnedErr := r.buildResources(t.Context(), policy)
+	sub, opGroup, packageManifest, changed, returnedErr := r.buildResources(t.Context(), policy)
 	assert.True(t, changed, "expected status to be updated")
 	assert.ErrorIs(t, returnedErr, ErrPackageManifest, "expected returned error to wrap ErrPackageManifest")
 
@@ -146,12 +151,26 @@ func TestBuildResources_SubDefaultsPkgManifestNotFoundUpdatesStatusAndReturnsErr
 		cond.Message)
 	assert.Nil(t, sub, "expected subscription to be nil")
 	assert.Nil(t, opGroup, "expected operator group to be nil")
+	assert.Nil(t, packageManifest, "expected package manifest to be nil")
 }
 
 func TestBuildResources_OperatorGroupErrorUpdatesStatus(t *testing.T) {
 	t.Parallel()
 
-	r := &OperatorPolicyReconciler{}
+	packageManifest := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "packages.operators.coreos.com/v1",
+			"kind":       "PackageManifest",
+			"metadata": map[string]interface{}{
+				"name":      "my-operator",
+				"namespace": "default",
+			},
+		},
+	}
+
+	r := &OperatorPolicyReconciler{
+		DynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), packageManifest),
+	}
 
 	policy := &policyv1beta1.OperatorPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -182,7 +201,7 @@ func TestBuildResources_OperatorGroupErrorUpdatesStatus(t *testing.T) {
 		},
 	}
 
-	_, _, changed, returnedErr := r.buildResources(t.Context(), policy)
+	_, _, _, changed, returnedErr := r.buildResources(t.Context(), policy) //nolint:dogsled
 	assert.True(t, changed, "expected status to be updated")
 	assert.NoError(t, returnedErr)
 
@@ -195,9 +214,7 @@ func TestBuildResources_OperatorGroupErrorUpdatesStatus(t *testing.T) {
 func TestBuildResources_TemplateResolverCreationErrorUpdatesStatus(t *testing.T) {
 	t.Parallel()
 
-	r := &OperatorPolicyReconciler{
-		DynamicWatcher: nil,
-	}
+	r := &OperatorPolicyReconciler{}
 
 	policy := &policyv1beta1.OperatorPolicy{
 		ObjectMeta: metav1.ObjectMeta{
@@ -223,11 +240,12 @@ func TestBuildResources_TemplateResolverCreationErrorUpdatesStatus(t *testing.T)
 		},
 	}
 
-	sub, opGroup, changed, returnedErr := r.buildResources(t.Context(), policy)
+	sub, opGroup, packageManifest, changed, returnedErr := r.buildResources(t.Context(), policy)
 	assert.True(t, changed, "expected status to be updated")
 	assert.NoError(t, returnedErr)
 	assert.Nil(t, sub, "expected subscription to be nil on early return")
 	assert.Nil(t, opGroup, "expected operator group to be nil on early return")
+	assert.Nil(t, packageManifest, "expected package manifest to be nil on early return")
 
 	_, cond := policy.Status.GetCondition(validPolicyConditionType)
 	assert.Equal(t, metav1.ConditionFalse, cond.Status)
@@ -699,5 +717,334 @@ func TestCanonicalizeVersions(t *testing.T) {
 
 	if !reflect.DeepEqual(policy.Spec.Versions, expected) {
 		t.Fatalf("Expected %v canonicalized versions, got %v", expected, policy.Spec.Versions)
+	}
+}
+
+func TestUpdateMinorChannelUpgradeStatus_PackageManifestNotFound(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{
+		// Use a fake dynamic client without any objects so PackageManifest GET returns NotFound
+		DynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+	}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			Severity:          "low",
+			RemediationAction: "inform",
+			ComplianceType:    "musthave",
+			UpgradeApproval:   "Automatic",
+			ComplianceConfig: policyv1beta1.ComplianceConfig{
+				MinorChannelUpgradeAvailable: "NonCompliant",
+			},
+		},
+	}
+
+	sub := &operatorv1alpha1.Subscription{
+		Spec: &operatorv1alpha1.SubscriptionSpec{
+			Package: "my-operator",
+			Channel: "stable",
+		},
+	}
+
+	changed, err := r.updateMinorChannelUpgradeStatus(policy, sub, nil)
+	assert.True(t, changed)
+	assert.NoError(t, err)
+
+	_, cond := policy.Status.GetCondition(minorChannelConditionType)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, "Skipped", cond.Reason)
+	assert.Equal(t, "skipping check for minor channel upgrades", cond.Message)
+}
+
+func TestUpdateMinorChannelUpgradeStatus_InstallPlanApprovalNotAutomatic(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			Severity:          "low",
+			RemediationAction: "inform",
+			ComplianceType:    "musthave",
+			UpgradeApproval:   "None",
+			ComplianceConfig: policyv1beta1.ComplianceConfig{
+				MinorChannelUpgradeAvailable: "NonCompliant",
+			},
+		},
+	}
+
+	sub := &operatorv1alpha1.Subscription{
+		Spec: &operatorv1alpha1.SubscriptionSpec{
+			Package: "my-operator",
+			Channel: "stable",
+		},
+	}
+
+	pkgManifest := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"status": map[string]interface{}{
+				"channels": []interface{}{
+					map[string]interface{}{"name": "stable"},
+				},
+			},
+		},
+	}
+
+	changed, err := r.updateMinorChannelUpgradeStatus(policy, sub, pkgManifest)
+	assert.True(t, changed)
+	assert.NoError(t, err)
+
+	_, cond := policy.Status.GetCondition(minorChannelConditionType)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, "Skipped", cond.Reason)
+	assert.Equal(t, "skipping check for minor channel upgrades", cond.Message)
+}
+
+func TestGetNewMinorChannel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		selectedChannel string
+		channels        []interface{}
+		expectedNames   []string
+		expectedFound   bool
+	}{
+		{
+			name:            "empty selected channel",
+			selectedChannel: "",
+			channels: []interface{}{
+				map[string]interface{}{"name": "fake-operatorv1.2"},
+			},
+			expectedNames: nil,
+			expectedFound: false,
+		},
+		{
+			name:            "nil channel",
+			selectedChannel: "fake-operatorv1.3",
+			channels: []interface{}{
+				nil,
+			},
+			expectedNames: nil,
+			expectedFound: false,
+		},
+		{
+			name:            "malformed channel name key",
+			selectedChannel: "fake-operatorv1.3",
+			channels: []interface{}{
+				map[string]interface{}{"notName": "fake-operatorv1.3"},
+			},
+			expectedNames: nil,
+			expectedFound: false,
+		},
+		{
+			name:            "nil channels list",
+			selectedChannel: "fake-operatorv1.3",
+			channels:        nil,
+			expectedNames:   nil,
+			expectedFound:   false,
+		},
+		{
+			name:            "no newer channel available",
+			selectedChannel: "fake-operatorv1.3",
+			channels: []interface{}{
+				map[string]interface{}{"name": "fake-operatorv1.2"},
+				map[string]interface{}{"name": "fake-operatorv1.3"},
+			},
+			expectedNames: nil,
+			expectedFound: false,
+		},
+		{
+			name:            "different channel prefix",
+			selectedChannel: "fake-operator-stablev1.3",
+			channels: []interface{}{
+				map[string]interface{}{"name": "fake-operator-stablev1.3"},
+				map[string]interface{}{"name": "fake-operator-fastv1.4"},
+			},
+			expectedNames: nil,
+			expectedFound: false,
+		},
+		{
+			name:            "no minor version",
+			selectedChannel: "stable-pg-v13",
+			channels: []interface{}{
+				map[string]interface{}{"name": "stable-pg-v13"},
+				map[string]interface{}{"name": "stable-pg-v14"},
+			},
+			expectedNames: nil,
+			expectedFound: false,
+		},
+		{
+			name:            "major version only",
+			selectedChannel: "stable-2.x",
+			channels: []interface{}{
+				map[string]interface{}{"name": "stable-2.x"},
+				map[string]interface{}{"name": "stable-3.x"},
+			},
+			expectedNames: nil,
+			expectedFound: false,
+		},
+		{
+			name:            "bad minor version",
+			selectedChannel: "v1.bad.x",
+			channels: []interface{}{
+				map[string]interface{}{"name": "v1.1.x"},
+				map[string]interface{}{"name": "v1.2.x"},
+			},
+			expectedNames: nil,
+			expectedFound: false,
+		},
+		{
+			name:            "happy path: v2026.30 to v2026.40",
+			selectedChannel: "Fake-Operatorv2026.30",
+			channels: []interface{}{
+				map[string]interface{}{"name": "Fake-Operatorv2026.30"},
+				map[string]interface{}{"name": "Fake-Operatorv2026.40"},
+				map[string]interface{}{"name": "Fake-Operatorv2026.50"},
+			},
+			expectedNames: []string{"Fake-Operatorv2026.40", "Fake-Operatorv2026.50"},
+			expectedFound: true,
+		},
+		{
+			name:            "happy path: unsorted -1.2 to -1.3",
+			selectedChannel: "openshift-virt-1.2",
+			channels: []interface{}{
+				map[string]interface{}{"name": "openshift-virt-1.2"},
+				map[string]interface{}{"name": "openshift-virt-1.4"},
+				map[string]interface{}{"name": "openshift-virt-1.3"},
+			},
+			expectedNames: []string{"openshift-virt-1.3", "openshift-virt-1.4"},
+			expectedFound: true,
+		},
+		{
+			name:            "happy path: version only",
+			selectedChannel: "1.1.x",
+			channels: []interface{}{
+				map[string]interface{}{"name": "1.1.x"},
+				map[string]interface{}{"name": "1.2.x"},
+			},
+			expectedNames: []string{"1.2.x"},
+			expectedFound: true,
+		},
+		{
+			name:            "happy path: version with v prefix",
+			selectedChannel: "v1.1.x",
+			channels: []interface{}{
+				map[string]interface{}{"name": "v1.1.x"},
+				map[string]interface{}{"name": "v1.2.x"},
+			},
+			expectedNames: []string{"v1.2.x"},
+			expectedFound: true,
+		},
+		{
+			name:            "happy path: x.y version only",
+			selectedChannel: "3.17",
+			channels: []interface{}{
+				map[string]interface{}{"name": "3.17"},
+				map[string]interface{}{"name": "3.18"},
+			},
+			expectedNames: []string{"3.18"},
+			expectedFound: true,
+		},
+		{
+			name:            "happy path: x.y version only",
+			selectedChannel: "3.17",
+			channels: []interface{}{
+				map[string]interface{}{"name": "3.17"},
+				map[string]interface{}{"name": "3.18"},
+			},
+			expectedNames: []string{"3.18"},
+			expectedFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			actualNames, actualFound := getNextMinorChannel(tt.channels, tt.selectedChannel)
+
+			assert.Equal(t, tt.expectedFound, actualFound)
+			assert.Equal(t, tt.expectedNames, actualNames)
+		})
+	}
+}
+
+func TestGetSelectedChannelName(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		packageManifest  map[string]interface{}
+		expectedChannel  string
+		expectedError    bool
+		expectedErrorMsg string
+	}{
+		{
+			name: "success with default channel",
+			packageManifest: map[string]interface{}{
+				"apiVersion": "packages.operators.coreos.com/v1",
+				"kind":       "PackageManifest",
+				"metadata": map[string]interface{}{
+					"name":      "my-operator",
+					"namespace": "default",
+				},
+				"status": map[string]interface{}{
+					"defaultChannel": "stable",
+				},
+			},
+			expectedChannel: "stable",
+			expectedError:   false,
+		},
+		{
+			name: "error when defaultChannel is missing",
+			packageManifest: map[string]interface{}{
+				"apiVersion": "packages.operators.coreos.com/v1",
+				"kind":       "PackageManifest",
+				"metadata": map[string]interface{}{
+					"name":      "my-operator",
+					"namespace": "default",
+				},
+				"status": map[string]interface{}{
+					"notADefaultChannel": "stable",
+				},
+			},
+			expectedError: true,
+			expectedErrorMsg: "the default channel could not be determined " +
+				"because the PackageManifest didn't specify one",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			subscription := &operatorv1alpha1.Subscription{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "my-operator",
+					Namespace: "default",
+				},
+				Spec: &operatorv1alpha1.SubscriptionSpec{
+					Package: "my-operator",
+					Channel: "", // select default channel
+				},
+			}
+
+			packageManifest := &unstructured.Unstructured{
+				Object: tc.packageManifest,
+			}
+
+			r := &OperatorPolicyReconciler{}
+			channelName, err := r.getSelectedChannelName(packageManifest, subscription)
+
+			if tc.expectedError {
+				assert.Error(t, err)
+				assert.Equal(t, tc.expectedErrorMsg, err.Error())
+			} else {
+				assert.NoError(t, err)
+				assert.Equal(t, tc.expectedChannel, channelName)
+			}
+		})
 	}
 }

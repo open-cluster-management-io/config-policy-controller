@@ -81,6 +81,16 @@ spec:
                     - Compliant
                     - NonCompliant
                     type: string
+                  minorChannelUpgradeAvailable:
+                    default: Compliant
+                    description: |-
+                      MinorChannelUpgradeAvailable specifies how the availability of a newer minor version channel
+                      should affect overall policy compliance when spec.UpgradeApproval is Automatic. The default
+                      value is `Compliant`.
+                    enum:
+                    - Compliant
+                    - NonCompliant
+                    type: string
                   upgradesAvailable:
                     default: Compliant
                     description: |-

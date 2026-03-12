@@ -21,7 +21,7 @@ spec:
       - operator-policy-testns
   subscription:
     name: deprecation-operator
-    namespace: grc-dep
+    namespace: operator-policy-testns
     channel: alpha
     source: grc-mock-source
     sourceNamespace: olm

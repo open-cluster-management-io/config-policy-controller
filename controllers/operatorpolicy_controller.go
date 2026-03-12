@@ -396,7 +396,7 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged || changed, err
 	}
 
-	desiredSub, desiredOG, changed, err := r.buildResources(ctx, policy)
+	desiredSub, desiredOG, packageManifest, changed, err := r.buildResources(ctx, policy)
 	condChanged = condChanged || changed
 
 	if err != nil {
@@ -449,7 +449,14 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
-	err = r.updateDeprecationStatus(ctx, policy, subscription, csv)
+	err = r.updateDeprecationStatus(ctx, policy, subscription, csv, packageManifest)
+	if err != nil {
+		return earlyComplianceEvents, condChanged, err
+	}
+
+	changed, err = r.updateMinorChannelUpgradeStatus(policy, subscription, packageManifest)
+	condChanged = condChanged || changed
+
 	if err != nil {
 		return earlyComplianceEvents, condChanged, err
 	}
@@ -489,12 +496,13 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 // checks if the policy's spec is valid. It returns:
 //   - the built Subscription
 //   - the built OperatorGroup
+//   - the PackageManifest
 //   - whether the status has changed
 //   - an error if an API call failed
 //
 // The built objects can be used to find relevant objects for a 'mustnothave' policy.
 func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *policyv1beta1.OperatorPolicy) (
-	*operatorv1alpha1.Subscription, *operatorv1.OperatorGroup, bool, error,
+	*operatorv1alpha1.Subscription, *operatorv1.OperatorGroup, *unstructured.Unstructured, bool, error,
 ) {
 	opLog := ctrl.LoggerFrom(ctx)
 	disableTemplates := false
@@ -514,14 +522,14 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		if err != nil {
 			newError := fmt.Errorf("unable to create template resolver: %w", err)
 
-			return nil, nil, updateStatus(policy, validationCond([]error{newError})), nil
+			return nil, nil, nil, updateStatus(policy, validationCond([]error{newError})), nil
 		}
 
 		err = resolveVersionsTemplates(policy, tmplResolver)
 		if err != nil {
 			newError := fmt.Errorf("unable to create template resolver: %w", err)
 
-			return nil, nil, updateStatus(policy, validationCond([]error{newError})), nil
+			return nil, nil, nil, updateStatus(policy, validationCond([]error{newError})), nil
 		}
 	} else {
 		opLog.V(1).Info("Templates disabled by annotation")
@@ -532,30 +540,37 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 	var returnedErr error
 
 	sub, subErr := buildSubscription(policy, tmplResolver)
-	if subErr == nil {
-		err := r.applySubscriptionDefaults(ctx, policy, sub)
-		if err != nil {
-			// If it's a PackageManifest API error, then that means it should be returned for the Reconcile method
-			// to requeue the request. This is to workaround the PackageManifest API not supporting watches.
-			if errors.Is(err, ErrPackageManifest) {
-				returnedErr = err
-			}
-
-			return nil, nil, updateStatus(policy, validationCond([]error{err})), returnedErr
-		}
-
-		if sub != nil && sub.Namespace == "" {
-			if r.DefaultNamespace != "" {
-				sub.Namespace = r.DefaultNamespace
-			} else {
-				newError := errors.New("namespace is required in spec.subscription")
-
-				return sub, nil, updateStatus(policy, validationCond([]error{newError})), nil
-			}
-		}
-	} else {
+	if subErr != nil {
 		// Invalid subscription spec - mark status and return without an API error
-		return sub, nil, updateStatus(policy, validationCond([]error{subErr})), nil
+		return sub, nil, nil, updateStatus(policy, validationCond([]error{subErr})), nil
+	}
+
+	packageManifest, err := r.getPackageManifest(ctx, sub.Spec.Package)
+	if err != nil {
+		returnedErr = fmt.Errorf("%wfailed to get the PackageManifest", ErrPackageManifest)
+
+		// If it's a PackageManifest API error, then that means it should be returned for the Reconcile method
+		// to requeue the request. This is to workaround the PackageManifest API not supporting watches.
+		return nil, nil, nil, updateStatus(policy, validationCond([]error{err})), returnedErr
+	}
+
+	err = r.applySubscriptionDefaults(ctx, policy, sub, packageManifest)
+	if err != nil {
+		if errors.Is(err, ErrPackageManifest) {
+			returnedErr = err
+		}
+
+		return nil, nil, nil, updateStatus(policy, validationCond([]error{err})), returnedErr
+	}
+
+	if sub != nil && sub.Namespace == "" {
+		if r.DefaultNamespace != "" {
+			sub.Namespace = r.DefaultNamespace
+		} else {
+			newError := errors.New("namespace is required in spec.subscription")
+
+			return sub, nil, nil, updateStatus(policy, validationCond([]error{newError})), nil
+		}
 	}
 
 	opGroupNS := r.DefaultNamespace
@@ -566,20 +581,20 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 	opGroup, ogErr := buildOperatorGroup(policy, opGroupNS, tmplResolver)
 	if ogErr != nil {
 		// OperatorGroup spec invalid - mark status, don't requeue
-		return sub, nil, updateStatus(policy, validationCond([]error{ogErr})), nil
+		return sub, nil, nil, updateStatus(policy, validationCond([]error{ogErr})), nil
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
 
 	gotNamespace, err := r.DynamicWatcher.Get(watcher, namespaceGVK, "", opGroupNS)
 	if err != nil {
-		return sub, opGroup, false, fmt.Errorf("error getting operator namespace: %w", err)
+		return sub, opGroup, packageManifest, false, fmt.Errorf("error getting operator namespace: %w", err)
 	}
 
 	if gotNamespace == nil && policy.Spec.ComplianceType.IsMustHave() {
 		newError := fmt.Errorf("the operator namespace ('%v') does not exist", opGroupNS)
 
-		return sub, opGroup, updateStatus(policy, validationCond([]error{newError})), nil
+		return sub, opGroup, packageManifest, updateStatus(policy, validationCond([]error{newError})), nil
 	}
 
 	changed, overlapErr, apiErr := r.checkSubOverlap(ctx, policy, sub)
@@ -591,12 +606,12 @@ func (r *OperatorPolicyReconciler) buildResources(ctx context.Context, policy *p
 		// When an overlap is detected, the generated subscription and operatorgroup
 		// will be considered to be invalid to prevent creations/updates.
 		// sub and opgroup should be nil to prevent creation/update.
-		return nil, nil, updateStatus(policy, validationCond([]error{overlapErr})), returnedErr
+		return nil, nil, nil, updateStatus(policy, validationCond([]error{overlapErr})), returnedErr
 	}
 
 	changed = updateStatus(policy, validationCond([]error{})) || changed
 
-	return sub, opGroup, changed, returnedErr
+	return sub, opGroup, packageManifest, changed, returnedErr
 }
 
 func (r *OperatorPolicyReconciler) checkSubOverlap(
@@ -677,7 +692,10 @@ func (r *OperatorPolicyReconciler) checkSubOverlap(
 // utilizing the PackageManifest API. If the PackageManifest can not be found, and a subscription already exists for the
 // operator, then information from the found subscription will be used.
 func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
-	ctx context.Context, policy *policyv1beta1.OperatorPolicy, subscription *operatorv1alpha1.Subscription,
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	subscription *operatorv1alpha1.Subscription,
+	packageManifest *unstructured.Unstructured,
 ) error {
 	opLog := ctrl.LoggerFrom(ctx)
 	subSpec := subscription.Spec
@@ -691,27 +709,13 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 
 	opLog.V(1).Info("Determining defaults for the subscription based on the PackageManifest")
 
-	// PackageManifests come from an API server and not a Kubernetes resource, so the DynamicWatcher can't be used since
-	// it utilizes watches. The namespace doesn't have any meaning but is required.
-	packageManifest, err := r.DynamicClient.Resource(packageManifestGVR).Namespace("default").Get(
-		ctx, subSpec.Package, metav1.GetOptions{},
-	)
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			if !r.usingExistingSubIfFound(policy, subscription) {
-				return fmt.Errorf(
-					"%wthe subscription defaults could not be determined because the PackageManifest was not found",
-					ErrPackageManifest,
-				)
-			}
-
+	if packageManifest == nil {
+		if r.usingExistingSubIfFound(policy, subscription) {
 			return nil
 		}
 
-		opLog.Error(err, "Failed to get the PackageManifest", "name", subSpec.Package)
-
 		return fmt.Errorf(
-			"%wthe subscription defaults could not be determined because the PackageManifest API returned an error",
+			"%wthe subscription defaults could not be determined because the PackageManifest was not found",
 			ErrPackageManifest,
 		)
 	}
@@ -1528,6 +1532,7 @@ func (r *OperatorPolicyReconciler) updateDeprecationStatus(ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
 	desiredSub *operatorv1alpha1.Subscription,
 	csv *operatorv1alpha1.ClusterServiceVersion,
+	packageManifest *unstructured.Unstructured,
 ) error {
 	opLog := ctrl.LoggerFrom(ctx)
 
@@ -1536,25 +1541,17 @@ func (r *OperatorPolicyReconciler) updateDeprecationStatus(ctx context.Context,
 		return nil
 	}
 
-	packageManifest, err := r.DynamicClient.Resource(packageManifestGVR).Namespace("default").Get(
-		ctx, desiredSub.Spec.Package, metav1.GetOptions{},
-	)
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			// Handle the case where 'packageManifest' is null in other functions
-			opLog.Info("PackageManifest not found; skipping DeprecationStatus check",
-				"PackageManifestName", desiredSub.Spec.Package)
+	if packageManifest == nil {
+		opLog.Info("PackageManifest not found; skipping DeprecationStatus check",
+			"PackageManifestName", desiredSub.Spec.Package)
 
-			return nil
-		}
-
-		return fmt.Errorf("failed to get the PackageManifest %q %w", desiredSub.Spec.Package, err)
+		return nil
 	}
 
 	// Extract package name
 	packageName, ok, err := unstructured.NestedString(packageManifest.Object, "status", "packageName")
 	if err != nil || !ok {
-		return fmt.Errorf("failed to get packageName in the pakcageManifest %q %w", desiredSub.Spec.Package, err)
+		return fmt.Errorf("failed to get packageName in the packageManifest %q %w", desiredSub.Spec.Package, err)
 	}
 
 	// Check if the package is deprecated
@@ -1566,15 +1563,9 @@ func (r *OperatorPolicyReconciler) updateDeprecationStatus(ctx context.Context,
 	}
 
 	// Check the selected channel is deprecated
-	selectedChannelName := desiredSub.Spec.Channel
-	if selectedChannelName == "" {
-		defaultChannel, ok, err := unstructured.NestedString(packageManifest.Object, "status", "defaultChannel")
-		if err != nil || !ok {
-			return fmt.Errorf("failed to retrieve default channel in PackageManifest %q: %w",
-				desiredSub.Spec.Package, err)
-		}
-
-		selectedChannelName = defaultChannel
+	selectedChannelName, err := r.getSelectedChannelName(packageManifest, desiredSub)
+	if err != nil {
+		return err
 	}
 
 	// Extract channels
@@ -1645,6 +1636,56 @@ func (r *OperatorPolicyReconciler) updateDeprecationStatus(ctx context.Context,
 	})
 
 	return nil
+}
+
+// updateMinorChannelUpgradeStatus checks if a newer minor version channel is available for the operator
+// when using automatic install plan approval, and updates the condition
+func (r *OperatorPolicyReconciler) updateMinorChannelUpgradeStatus(
+	policy *policyv1beta1.OperatorPolicy,
+	desiredSub *operatorv1alpha1.Subscription,
+	packageManifest *unstructured.Unstructured,
+) (bool, error) {
+	isManualUpgradeApproval := policy.Spec.UpgradeApproval != "Automatic"
+	resourcesNotFound := desiredSub == nil || packageManifest == nil
+
+	if !policy.Spec.ComplianceType.IsMustHave() || isManualUpgradeApproval || resourcesNotFound {
+		changed := updateStatus(policy, minorChannelOKCond("Skipped", "skipping check for minor channel upgrades"))
+
+		return changed, nil
+	}
+
+	selectedChannelName, err := r.getSelectedChannelName(packageManifest, desiredSub)
+	if err != nil {
+		return false, err
+	}
+
+	channels, ok, err := unstructured.NestedSlice(packageManifest.Object, "status", "channels")
+	if err != nil || !ok {
+		return false, fmt.Errorf("failed to retrieve channels in PackageManifest %q: %w", desiredSub.Spec.Package, err)
+	}
+
+	nextChannelNames, found := getNextMinorChannel(channels, selectedChannelName)
+	if !found {
+		changed := updateStatus(
+			policy, minorChannelOKCond("Recommended", "the subscription is on the recommended channel"))
+
+		return changed, nil
+	}
+
+	status := metav1.ConditionTrue
+	if policy.Spec.ComplianceConfig.MinorChannelUpgradeAvailable == policyv1beta1.NonCompliant {
+		status = metav1.ConditionFalse
+	}
+
+	changed := updateStatus(policy, metav1.Condition{
+		Type:   minorChannelConditionType,
+		Status: status,
+		Reason: "UpgradeAvailable",
+		Message: "a newer version of the operator is available in channel(s): " +
+			strings.Join(nextChannelNames, ", "),
+	})
+
+	return changed, nil
 }
 
 func (r *OperatorPolicyReconciler) considerResolutionFailed(
@@ -3007,6 +3048,117 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	}
 
 	return updateNeeded, false, nil
+}
+
+// getPackageManifest will get the PackageManifest from the API server
+func (r *OperatorPolicyReconciler) getPackageManifest(
+	ctx context.Context, packageName string,
+) (*unstructured.Unstructured, error) {
+	opLog := ctrl.LoggerFrom(ctx)
+
+	// PackageManifests come from an API server and not a Kubernetes resource, so the DynamicWatcher can't be used since
+	// it utilizes watches. The namespace doesn't have any meaning but is required.
+	packageManifest, err := r.DynamicClient.Resource(packageManifestGVR).Namespace("default").Get(
+		ctx, packageName, metav1.GetOptions{},
+	)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			opLog.Info("PackageManifest not found, proceeding without it",
+				"name", packageName)
+
+			return nil, nil
+		}
+
+		opLog.Error(err, "Failed to get the PackageManifest", "name", packageName)
+
+		return nil, err
+	}
+
+	return packageManifest, nil
+}
+
+func (r *OperatorPolicyReconciler) getSelectedChannelName(
+	packageManifest *unstructured.Unstructured, desiredSub *operatorv1alpha1.Subscription,
+) (string, error) {
+	selectedChannelName := desiredSub.Spec.Channel
+	if selectedChannelName == "" {
+		defaultChannel, ok, err := unstructured.NestedString(packageManifest.Object, "status", "defaultChannel")
+		if err != nil || !ok {
+			return "", errors.New(
+				"the default channel could not be determined because the PackageManifest didn't specify one")
+		}
+
+		selectedChannelName = defaultChannel
+	}
+
+	return selectedChannelName, nil
+}
+
+// getNextMinorChannel checks if there are newer minor channels available,
+// assuming channel naming patterns similar to unit tests
+// Returns the newer channel name if found, along with a boolean indicating success.
+func getNextMinorChannel(channels []interface{}, selectedChannelName string) ([]string, bool) {
+	if selectedChannelName == "" || len(channels) == 0 {
+		return nil, false
+	}
+
+	// find the version numbers in the selected channel name using regex
+	pattern := `^([a-zA-Z-]*)(\d+)\.(\d+)(\.x)?$`
+	re := regexp.MustCompile(pattern)
+	matches := re.FindStringSubmatch(selectedChannelName)
+
+	if matches == nil {
+		return nil, false
+	}
+
+	prefix := matches[1] // e.g., "my-operator-v", "openshift-virt-"
+	majorVersion := matches[2]
+	minorVersion := matches[3]
+	suffix := matches[4] // ".x" or ""
+
+	selectedMinorVersion, err := strconv.Atoi(minorVersion)
+	if err != nil {
+		return nil, false
+	}
+
+	nextChannelPattern := fmt.Sprintf(`^%s%s\.(\d+)%s$`, prefix, majorVersion, suffix)
+
+	nextRe, err := regexp.Compile(nextChannelPattern)
+	if err != nil {
+		return nil, false
+	}
+
+	nextChannelNames := make([]string, 0, len(channels))
+
+	for _, channel := range channels {
+		channelMap, ok := channel.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name, ok := channelMap["name"].(string)
+		if !ok {
+			continue
+		}
+
+		matches := nextRe.FindStringSubmatch(name)
+		if matches == nil {
+			continue
+		}
+
+		nextMinorVersion, _ := strconv.Atoi(matches[1])
+		if nextMinorVersion > selectedMinorVersion {
+			nextChannelNames = append(nextChannelNames, name)
+		}
+	}
+
+	if len(nextChannelNames) == 0 {
+		return nil, false
+	}
+
+	slices.Sort(nextChannelNames)
+
+	return nextChannelNames, true
 }
 
 // subLabelSelector returns a selector that matches a label that OLM adds to resources
