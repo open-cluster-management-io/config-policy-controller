@@ -10,6 +10,7 @@ import (
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/sets"
@@ -700,4 +701,239 @@ func TestCanonicalizeVersions(t *testing.T) {
 	if !reflect.DeepEqual(policy.Spec.Versions, expected) {
 		t.Fatalf("Expected %v canonicalized versions, got %v", expected, policy.Spec.Versions)
 	}
+}
+
+func TestUpdateMinorChannelUpgradeStatus_PackageManifestNotFound(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{
+		// Use a fake dynamic client without any objects so PackageManifest GET returns NotFound
+		DynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()),
+	}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			Severity:          "low",
+			RemediationAction: "inform",
+			ComplianceType:    "musthave",
+			UpgradeApproval:   "Automatic",
+			ComplianceConfig: policyv1beta1.ComplianceConfig{
+				MinorChannelUpgradeAvailable: "NonCompliant",
+			},
+		},
+	}
+
+	sub := &operatorv1alpha1.Subscription{
+		Spec: &operatorv1alpha1.SubscriptionSpec{
+			Package: "my-operator",
+			Channel: "stable",
+		},
+	}
+
+	// condition should not be updated
+	err := r.updateMinorChannelUpgradeStatus(t.Context(), policy, sub)
+	assert.NoError(t, err)
+
+	idx, _ := policy.Status.GetCondition(minorChannelConditionType)
+	assert.Equal(t, -1, idx)
+}
+
+func TestUpdateMinorChannelUpgradeStatus_InstallPlanApprovalNotAutomatic(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{}
+
+	policy := &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			Severity:          "low",
+			RemediationAction: "inform",
+			ComplianceType:    "musthave",
+			UpgradeApproval:   "None",
+			ComplianceConfig: policyv1beta1.ComplianceConfig{
+				MinorChannelUpgradeAvailable: "NonCompliant",
+			},
+		},
+	}
+
+	sub := &operatorv1alpha1.Subscription{
+		Spec: &operatorv1alpha1.SubscriptionSpec{
+			Package: "my-operator",
+			Channel: "stable",
+		},
+	}
+
+	err := r.updateMinorChannelUpgradeStatus(t.Context(), policy, sub)
+	assert.NoError(t, err)
+
+	_, cond := policy.Status.GetCondition(minorChannelConditionType)
+	assert.Equal(t, metav1.ConditionTrue, cond.Status)
+	assert.Equal(t, "Recommended", cond.Reason)
+	assert.Equal(t, "the subscription is on the recommended channel", cond.Message)
+}
+
+func TestGetNewMinorChannel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		selectedChannel string
+		channels        []interface{}
+		expectedName    string
+		expectedFound   bool
+	}{
+		{
+			name:            "empty selected channel",
+			selectedChannel: "",
+			channels: []interface{}{
+				map[string]interface{}{"name": "fake-operatorv1.2"},
+			},
+			expectedName:  "",
+			expectedFound: false,
+		},
+		{
+			name:            "empty channels list",
+			selectedChannel: "fake-operatorv1.3",
+			channels:        []interface{}{},
+			expectedName:    "",
+			expectedFound:   false,
+		},
+		{
+			name:            "no newer channel available",
+			selectedChannel: "fake-operatorv1.3",
+			channels: []interface{}{
+				map[string]interface{}{"name": "fake-operatorv1.2"},
+				map[string]interface{}{"name": "fake-operatorv1.3"},
+			},
+			expectedName:  "",
+			expectedFound: false,
+		},
+		{
+			name:            "different channel prefix",
+			selectedChannel: "fake-operator-stablev1.3",
+			channels: []interface{}{
+				map[string]interface{}{"name": "fake-operator-stablev1.3"},
+				map[string]interface{}{"name": "fake-operator-fastv1.4"},
+			},
+			expectedName:  "",
+			expectedFound: false,
+		},
+		{
+			name:            "no minor version",
+			selectedChannel: "stable-pg-v13",
+			channels: []interface{}{
+				map[string]interface{}{"name": "stable-pg-v13"},
+				map[string]interface{}{"name": "stable-pg-v14"},
+			},
+			expectedName:  "",
+			expectedFound: false,
+		},
+		{
+			name:            "major version only",
+			selectedChannel: "stable-2.x",
+			channels: []interface{}{
+				map[string]interface{}{"name": "stable-2.x"},
+				map[string]interface{}{"name": "stable-3.x"},
+			},
+			expectedName:  "",
+			expectedFound: false,
+		},
+		{
+			name:            "happy path: v1.3 to v1.4",
+			selectedChannel: "fake-operatorv1.3",
+			channels: []interface{}{
+				map[string]interface{}{"name": "fake-operatorv1.2"},
+				map[string]interface{}{"name": "fake-operatorv1.3"},
+				map[string]interface{}{"name": "fake-operatorv1.4"},
+			},
+			expectedName:  "fake-operatorv1.4",
+			expectedFound: true,
+		},
+		{
+			name:            "happy path: -1.3 to -1.4",
+			selectedChannel: "fake-operator-1.3",
+			channels: []interface{}{
+				map[string]interface{}{"name": "fake-operator-1.2"},
+				map[string]interface{}{"name": "fake-operator-1.3"},
+				map[string]interface{}{"name": "fake-operator-1.4"},
+			},
+			expectedName:  "fake-operator-1.4",
+			expectedFound: true,
+		},
+		{
+			name:            "happy path: version only",
+			selectedChannel: "1.1.x",
+			channels: []interface{}{
+				map[string]interface{}{"name": "1.1.x"},
+				map[string]interface{}{"name": "1.2.x"},
+			},
+			expectedName:  "1.2.x",
+			expectedFound: true,
+		},
+		{
+			name:            "happy path: version with v prefix",
+			selectedChannel: "v1.1.x",
+			channels: []interface{}{
+				map[string]interface{}{"name": "v1.1.x"},
+				map[string]interface{}{"name": "v1.2.x"},
+			},
+			expectedName:  "v1.2.x",
+			expectedFound: true,
+		},
+		{
+			name:            "happy path: x.y version only",
+			selectedChannel: "3.17",
+			channels: []interface{}{
+				map[string]interface{}{"name": "3.17"},
+				map[string]interface{}{"name": "3.18"},
+			},
+			expectedName:  "3.18",
+			expectedFound: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			actualName, actualFound := getNextMinorChannel(tt.channels, tt.selectedChannel)
+
+			assert.Equal(t, tt.expectedFound, actualFound)
+			assert.Equal(t, tt.expectedName, actualName)
+		})
+	}
+}
+
+func TestGetSelectedChannelName(t *testing.T) {
+	t.Parallel()
+
+	subscription := &operatorv1alpha1.Subscription{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "my-operator",
+			Namespace: "default",
+		},
+		Spec: &operatorv1alpha1.SubscriptionSpec{
+			Package: "my-operator",
+			Channel: "", // select default channel
+		},
+	}
+
+	packageManifest := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "packages.operators.coreos.com/v1",
+			"kind":       "PackageManifest",
+			"metadata": map[string]interface{}{
+				"name":      "my-operator",
+				"namespace": "default",
+			},
+			"status": map[string]interface{}{
+				"defaultChannel": "stable",
+			},
+		},
+	}
+
+	r := &OperatorPolicyReconciler{}
+	channelName, err := r.getSelectedChannelName(packageManifest, subscription)
+
+	assert.NoError(t, err)
+	assert.Equal(t, "stable", channelName)
 }

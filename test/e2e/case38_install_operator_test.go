@@ -1453,7 +1453,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 		})
 		It("Should report an available install when informing", func(ctx SpecContext) {
-			goodVersion := "strimzi-cluster-operator.v0.36.0"
+			goodVersion := "strimzi-cluster-operator.v0.50.0"
 			Eventually(func(ctx SpecContext) int {
 				utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
 					`[{"op": "replace", "path": "/spec/subscription/startingCSV", "value": "`+goodVersion+`"},`+
@@ -1484,7 +1484,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					Type:   "InstallPlanCompliant",
 					Status: metav1.ConditionTrue,
 					Reason: "InstallPlanRequiresApproval",
-					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.36.0] is available" +
+					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.50.0] is available" +
 						" for approval",
 				},
 				"an InstallPlan to update .* is available for approval",
@@ -1514,7 +1514,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					Type:    "InstallPlanCompliant",
 					Status:  metav1.ConditionFalse,
 					Reason:  "InstallPlanRequiresApproval",
-					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.36.0] is available for approval",
+					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.50.0] is available for approval",
 				},
 				"an InstallPlan to update .* is available for approval",
 			)
@@ -1574,15 +1574,15 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					Type:   "InstallPlanCompliant",
 					Status: metav1.ConditionFalse,
 					Reason: "InstallPlanRequiresApproval",
-					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.36.1] is available for " +
-						"approval but approval for [strimzi-cluster-operator.v0.36.1] is required",
+					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.50.1] is available for " +
+						"approval but approval for [strimzi-cluster-operator.v0.50.1] is required",
 				},
-				"the InstallPlan.*36.0.*was approved",
+				"the InstallPlan.*50.0.*was approved",
 			)
 		})
 		It("Should not approve an upgrade while upgradeApproval is None", func() {
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "add", "path": "/spec/versions/-", "value": "strimzi-cluster-operator.v0.36.1"},`+
+				`[{"op": "add", "path": "/spec/versions/-", "value": "strimzi-cluster-operator.v0.50.1"},`+
 					`{"op": "replace", "path": "/spec/upgradeApproval", "value": "None"}]`)
 			check(
 				opPolName,
@@ -1603,9 +1603,9 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					Type:    "InstallPlanCompliant",
 					Status:  metav1.ConditionFalse,
 					Reason:  "InstallPlanRequiresApproval",
-					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.36.1] is available for approval",
+					Message: "an InstallPlan to update to [strimzi-cluster-operator.v0.50.1] is available for approval",
 				},
-				"an InstallPlan.*36.*is available for approval",
+				"an InstallPlan.*50.*is available for approval",
 			)
 		})
 		It("Should approve the upgrade when upgradeApproval is changed to Automatic", func(ctx SpecContext) {
@@ -1641,7 +1641,61 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					Reason:  "NoInstallPlansRequiringApproval",
 					Message: "no InstallPlans requiring approval were found",
 				},
-				"the InstallPlan.*36.*was approved",
+				"the InstallPlan.*50.*was approved",
+			)
+		})
+
+		It("Should be NonCompliant when a newer minor version channel is available", func() {
+			By("Verifying minor channel upgrade condition is Compliant by default")
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "MinorChannelUpgradeAvailable",
+					Status:  metav1.ConditionTrue,
+					Reason:  "Recommended",
+					Message: "the subscription is on the recommended channel",
+				},
+				"",
+			)
+
+			By("Patching the complianceConfig to NonCompliant when a newer minor version channel is available")
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "replace",
+				"path": "/spec/complianceConfig/minorChannelUpgradeAvailable",
+				"value": "NonCompliant"}]`)
+
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "MinorChannelUpgradeAvailable",
+					Status:  metav1.ConditionFalse,
+					Reason:  "UpgradeAvailable",
+					Message: "a newer version of the operator is available in another channel: strimzi-0.51.x",
+				},
+				"",
+			)
+
+			By("Should be Compliant when minorChannelUpgradeAvailable config changes to Compliant")
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "replace",
+			"path": "/spec/complianceConfig/minorChannelUpgradeAvailable",
+			"value": "Compliant"}]`)
+
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "MinorChannelUpgradeAvailable",
+					Status:  metav1.ConditionTrue,
+					Reason:  "Recommended",
+					Message: "the subscription is on the recommended channel",
+				},
+				"",
 			)
 		})
 	})
@@ -4416,6 +4470,46 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				g.Expect(sel).NotTo(HaveKey("matchLabels"))
 				g.Expect(sel).To(HaveKey("matchExpressions"))
 			}, olmWaitTimeout, 5).Should(Succeed())
+		})
+	})
+
+	Describe("Test complianceConfig options", func() {
+		const (
+			opPolYAML = "../resources/case38_operator_install/operator-policy-with-group-and-config.yaml"
+		)
+		var (
+			opPolName        string
+			parentPolicyName string
+		)
+
+		BeforeEach(func() {
+			opPolName = "oppol-with-group-and-config" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			preFunc()
+			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+		})
+
+		It("Should be Compliant when there are no new minor version channels available", func() {
+			By("Patching complianceConfig to NonCompliant")
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "replace",
+				"path": "/spec/complianceConfig/minorChannelUpgradeAvailable",
+				"value": "NonCompliant"}]`)
+
+			By("Verifying the status is still Compliant")
+			check(
+				opPolName,
+				true,
+				[]policyv1.RelatedObject{},
+				metav1.Condition{
+					Type:    "MinorChannelUpgradeAvailable",
+					Status:  metav1.ConditionTrue,
+					Reason:  "Recommended",
+					Message: "the subscription is on the recommended channel",
+				},
+				"",
+			)
 		})
 	})
 })
