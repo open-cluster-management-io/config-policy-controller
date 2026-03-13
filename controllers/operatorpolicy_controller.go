@@ -454,6 +454,11 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
+	err = r.updateMinorChannelUpgradeStatus(ctx, policy, subscription)
+	if err != nil {
+		return earlyComplianceEvents, condChanged, err
+	}
+
 	earlyConds, changed, err = r.handleCRDs(ctx, policy, subscription)
 	earlyComplianceEvents = append(earlyComplianceEvents, earlyConds...)
 	condChanged = condChanged || changed
@@ -691,11 +696,7 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 
 	opLog.V(1).Info("Determining defaults for the subscription based on the PackageManifest")
 
-	// PackageManifests come from an API server and not a Kubernetes resource, so the DynamicWatcher can't be used since
-	// it utilizes watches. The namespace doesn't have any meaning but is required.
-	packageManifest, err := r.DynamicClient.Resource(packageManifestGVR).Namespace("default").Get(
-		ctx, subSpec.Package, metav1.GetOptions{},
-	)
+	packageManifest, err := r.getPackageManifest(ctx, subSpec.Package)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			if !r.usingExistingSubIfFound(policy, subscription) {
@@ -707,8 +708,6 @@ func (r *OperatorPolicyReconciler) applySubscriptionDefaults(
 
 			return nil
 		}
-
-		opLog.Error(err, "Failed to get the PackageManifest", "name", subSpec.Package)
 
 		return fmt.Errorf(
 			"%wthe subscription defaults could not be determined because the PackageManifest API returned an error",
@@ -1536,9 +1535,7 @@ func (r *OperatorPolicyReconciler) updateDeprecationStatus(ctx context.Context,
 		return nil
 	}
 
-	packageManifest, err := r.DynamicClient.Resource(packageManifestGVR).Namespace("default").Get(
-		ctx, desiredSub.Spec.Package, metav1.GetOptions{},
-	)
+	packageManifest, err := r.getPackageManifest(ctx, desiredSub.Spec.Package)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			// Handle the case where 'packageManifest' is null in other functions
@@ -1548,7 +1545,7 @@ func (r *OperatorPolicyReconciler) updateDeprecationStatus(ctx context.Context,
 			return nil
 		}
 
-		return fmt.Errorf("failed to get the PackageManifest %q %w", desiredSub.Spec.Package, err)
+		return err
 	}
 
 	// Extract package name
@@ -1566,15 +1563,9 @@ func (r *OperatorPolicyReconciler) updateDeprecationStatus(ctx context.Context,
 	}
 
 	// Check the selected channel is deprecated
-	selectedChannelName := desiredSub.Spec.Channel
-	if selectedChannelName == "" {
-		defaultChannel, ok, err := unstructured.NestedString(packageManifest.Object, "status", "defaultChannel")
-		if err != nil || !ok {
-			return fmt.Errorf("failed to retrieve default channel in PackageManifest %q: %w",
-				desiredSub.Spec.Package, err)
-		}
-
-		selectedChannelName = defaultChannel
+	selectedChannelName, err := r.getSelectedChannelName(packageManifest, desiredSub)
+	if err != nil {
+		return err
 	}
 
 	// Extract channels
@@ -1643,6 +1634,72 @@ func (r *OperatorPolicyReconciler) updateDeprecationStatus(ctx context.Context,
 		Reason:  "Recommended",
 		Message: "The requested package, channel, and bundle are all at the recommended versions",
 	})
+
+	return nil
+}
+
+// updateMinorChannelUpgradeStatus checks if a newer minor version channel is available for the operator
+// when using automatic install plan approval, and updates the condition
+func (r *OperatorPolicyReconciler) updateMinorChannelUpgradeStatus(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	desiredSub *operatorv1alpha1.Subscription,
+) error {
+	opLog := ctrl.LoggerFrom(ctx)
+	channelOKCond := metav1.Condition{
+		Type:    minorChannelConditionType,
+		Status:  metav1.ConditionTrue,
+		Reason:  "Recommended",
+		Message: "the subscription is on the recommended channel",
+	}
+
+	if desiredSub == nil || !policy.Spec.ComplianceType.IsMustHave() {
+		return nil
+	}
+
+	isComplianceConfigCompliant := policy.Spec.ComplianceConfig.MinorChannelUpgradeAvailable == "Compliant"
+	isManualUpgradeApproval := policy.Spec.UpgradeApproval != "Automatic"
+
+	if isComplianceConfigCompliant || isManualUpgradeApproval {
+		updateStatus(policy, channelOKCond)
+
+		return nil
+	}
+
+	packageManifest, err := r.getPackageManifest(ctx, desiredSub.Spec.Package)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			opLog.Info("PackageManifest not found; skipping MinorChannelUpgrade check",
+				"PackageManifestName", desiredSub.Spec.Package)
+
+			return nil
+		}
+
+		return err
+	}
+
+	selectedChannelName, err := r.getSelectedChannelName(packageManifest, desiredSub)
+	if err != nil {
+		return err
+	}
+
+	channels, ok, err := unstructured.NestedSlice(packageManifest.Object, "status", "channels")
+	if err != nil || !ok {
+		return fmt.Errorf("failed to retrieve channels in PackageManifest %q: %w", desiredSub.Spec.Package, err)
+	}
+
+	if nextChannelName, found := getNextMinorChannel(channels, selectedChannelName); found {
+		updateStatus(policy, metav1.Condition{
+			Type:    minorChannelConditionType,
+			Status:  metav1.ConditionFalse,
+			Reason:  "UpgradeAvailable",
+			Message: "a newer version of the operator is available in another channel: " + nextChannelName,
+		})
+
+		return nil
+	}
+
+	updateStatus(policy, channelOKCond)
 
 	return nil
 }
@@ -3007,6 +3064,93 @@ func (r *OperatorPolicyReconciler) mergeObjects(
 	}
 
 	return updateNeeded, false, nil
+}
+
+func (r *OperatorPolicyReconciler) getPackageManifest(
+	ctx context.Context, packageName string,
+) (*unstructured.Unstructured, error) {
+	// PackageManifests come from an API server and not a Kubernetes resource, so the DynamicWatcher can't be used since
+	// it utilizes watches. The namespace doesn't have any meaning but is required.
+	packageManifest, err := r.DynamicClient.Resource(packageManifestGVR).Namespace("default").Get(
+		ctx, packageName, metav1.GetOptions{},
+	)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("failed to get the PackageManifest %q %w", packageName, err)
+	}
+
+	return packageManifest, nil
+}
+
+func (r *OperatorPolicyReconciler) getSelectedChannelName(
+	packageManifest *unstructured.Unstructured, desiredSub *operatorv1alpha1.Subscription,
+) (string, error) {
+	selectedChannelName := desiredSub.Spec.Channel
+	if selectedChannelName == "" {
+		defaultChannel, ok, err := unstructured.NestedString(packageManifest.Object, "status", "defaultChannel")
+		if err != nil || !ok {
+			return "", fmt.Errorf("failed to retrieve default channel in PackageManifest %q: %w",
+				desiredSub.Spec.Package, err)
+		}
+
+		selectedChannelName = defaultChannel
+	}
+
+	return selectedChannelName, nil
+}
+
+// getNextMinorChannel checks if there is a newer minor channel available,
+// assuming channel naming patterns similar to:
+// selected-channel-name-1.2, selected-channel-namev1.2.x, 3.17, 2.2.x.
+// Returns the newer channel name if found, along with a boolean indicating success.
+func getNextMinorChannel(channels []interface{}, selectedChannelName string) (string, bool) {
+	if selectedChannelName == "" || len(channels) == 0 {
+		return "", false
+	}
+
+	// find the version numbers in the selected channel name
+	versionStartIdx := 0
+	vIdx := strings.LastIndex(selectedChannelName, "v")
+	lastHyphenIdx := strings.LastIndex(selectedChannelName, "-")
+
+	if vIdx != -1 {
+		versionStartIdx = vIdx + 1
+	} else if lastHyphenIdx != -1 {
+		versionStartIdx = lastHyphenIdx + 1
+	}
+
+	versionNums := strings.SplitN(selectedChannelName[versionStartIdx:], ".", 3)
+	if len(versionNums) < 2 {
+		return "", false
+	}
+
+	_, errMajorVer := strconv.Atoi(versionNums[0])
+	minorVersion, errMinVer := strconv.Atoi(versionNums[1])
+
+	if errMajorVer != nil || errMinVer != nil {
+		return "", false
+	}
+
+	// increment the minor version
+	versionNums[1] = strconv.Itoa(minorVersion + 1)
+	nextChannel := selectedChannelName[:versionStartIdx] + strings.Join(versionNums, ".")
+
+	for _, channel := range channels {
+		channelMap, ok := channel.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name, ok := channelMap["name"].(string)
+		if ok && name == nextChannel {
+			return nextChannel, true
+		}
+	}
+
+	return "", false
 }
 
 // subLabelSelector returns a selector that matches a label that OLM adds to resources

@@ -20,12 +20,12 @@ spec:
     targetNamespaces:
       - operator-policy-testns
   subscription:
-    channel: strimzi-0.36.x
+    channel: strimzi-0.50.x
     name: strimzi-kafka-operator
     namespace: operator-policy-testns
     source: operatorhubio-catalog
     sourceNamespace: olm
     startingCSV: strimzi-cluster-operator.v0.0.0.1337 # shouldn't match a real version
   versions:
-    - strimzi-cluster-operator.v0.36.0
+    - strimzi-cluster-operator.v0.50.0
   upgradeApproval: None
