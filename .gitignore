@@ -92,6 +92,7 @@ kubeconfig_*
 kind_kubeconfig.yaml
 report.json
 report_*.json
+report_*.xml
 gosec.json
 
 vendor/
