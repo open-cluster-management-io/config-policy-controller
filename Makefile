@@ -187,7 +187,8 @@ kind-deploy-controller-dev-normal: kind-deploy-controller
 .PHONY: kind-deploy-controller-dev-addon
 kind-deploy-controller-dev-addon:
 	kind load docker-image $(REGISTRY)/$(IMG):$(TAG) --name $(KIND_NAME)
-	kubectl annotate -n $(subst -hosted,,$(KIND_NAMESPACE)) --overwrite managedclusteraddon config-policy-controller\
+	kubectl get managedclusteraddons -A
+	kubectl annotate -n $(subst klusterlet-,,$(KIND_NAMESPACE)) --overwrite managedclusteraddon config-policy-controller \
 		addon.open-cluster-management.io/values='{"global":{"imagePullPolicy": "Never", "imageOverrides":{"config_policy_controller": "$(REGISTRY)/$(IMG):$(TAG)"}}}'
 
 # Specify KIND_VERSION to indicate the version tag of the KinD image
