@@ -20,9 +20,9 @@ spec:
     targetNamespaces: '{{ (fromConfigMap "operator-policy-testns" "op-config" "namespaces") | toLiteral }}'
   subscription:
     channel: '{{ (lookup "v1" "ConfigMap" "operator-policy-testns" "op-config").data.channel }}'
-    name: project-quay
+    name: example-operator
     namespace: operator-policy-testns
-    source: operatorhubio-catalog
+    source: grc-mock-source
     sourceNamespace: olm
-    startingCSV: quay-operator.v3.10.0
+    startingCSV: example-operator.v0.0.3
   upgradeApproval: Automatic

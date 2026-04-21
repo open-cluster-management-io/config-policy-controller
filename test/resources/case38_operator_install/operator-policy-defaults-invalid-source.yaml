@@ -15,7 +15,7 @@ spec:
   severity: medium
   complianceType: musthave
   subscription:
-    name: project-quay
+    name: example-operator
     namespace: operator-policy-testns
     source: wrong
   upgradeApproval: None

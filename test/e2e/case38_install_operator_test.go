@@ -496,7 +496,6 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	Describe("Testing an operator policy with invalid partial defaults", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-defaults-invalid-source.yaml"
-			subName   = "project-quay"
 		)
 		var (
 			opPolName        string
@@ -851,7 +850,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	Describe("Testing Subscription behavior for musthave mode while enforcing", Ordered, func() {
 		const (
 			opPolYAML        = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			subName          = "project-quay"
+			subName          = "example-operator"
 			extraOpGroupYAML = "../resources/case38_operator_install/extra-operator-group.yaml"
 			extraOpGroupName = "extra-operator-group"
 		)
@@ -1016,7 +1015,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	Describe("Testing Subscription behavior for musthave mode while informing", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			subName   = "project-quay"
+			subName   = "example-operator"
 			subYAML   = "../resources/case38_operator_install/subscription.yaml"
 		)
 		var (
@@ -1172,8 +1171,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	Describe("Test status reporting for CatalogSource", Serial, Ordered, func() {
 		const (
 			opPolYAML  = "../resources/case38_operator_install/operator-policy-with-group.yaml"
-			subName    = "project-quay"
-			catSrcName = "operatorhubio-catalog"
+			subName    = "example-operator"
+			catSrcName = "grc-mock-source"
 		)
 		var (
 			opPolTestNS      string
@@ -1191,12 +1190,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			DeferCleanup(func(ctx context.Context) {
 				By("Fixing the catalog source")
 				KubectlTarget("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
-					`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/catalog:latest"}]`)
+					`[{"op": "replace", "path": "/spec/image",`+
+						`"value": "quay.io/stolostron-grc/grc-mock-operators-catalog:latest"}]`)
 
 				By("Waiting for a packagemanifest to reappear")
 				Eventually(func() error {
 					_, err := targetK8sDynamic.Resource(gvrPackageManifest).Namespace("default").Get(
-						ctx, "project-quay", metav1.GetOptions{})
+						ctx, subName, metav1.GetOptions{})
 
 					return err
 				}, olmWaitTimeout*2, 3).Should(Succeed())
@@ -1293,11 +1293,11 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		It("Should report unhealthy status when CatalogSource fails", func() {
 			By("Patching the policy to point to an existing CatalogSource")
 			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/subscription/source", "value": "operatorhubio-catalog"}]`)
+				`[{"op": "replace", "path": "/spec/subscription/source", "value": "grc-mock-source"}]`)
 
 			By("Patching the CatalogSource to reference a broken image link")
 			KubectlTarget("patch", "catalogsource", catSrcName, "-n", "olm", "--type=json", "-p",
-				`[{"op": "replace", "path": "/spec/image", "value": "quay.io/operatorhubio/fakecatalog:latest"}]`)
+				`[{"op": "replace", "path": "/spec/image", "value": "quay.io/stolostron-grc/fakecatalog:latest"}]`)
 
 			By("Checking the conditions and relatedObj in the policy")
 			check(
@@ -1726,7 +1726,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	Describe("Testing OperatorPolicy validation messages", Ordered, func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-validity-test.yaml"
-			subName   = "project-quay"
+			subName   = "example-operator"
 		)
 		var (
 			opPolTestNS      string
@@ -3346,7 +3346,6 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	Describe("Test mustnothave message when the namespace does not exist", func() {
 		const (
 			opPolYAML = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			subName   = "project-quay"
 		)
 		var (
 			opPolName        string
@@ -3453,7 +3452,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	Describe("Testing operator policies that specify the same subscription", Serial, Ordered, FlakeAttempts(2), func() {
 		const (
 			musthaveYAML    = "../resources/case38_operator_install/operator-policy-no-group.yaml"
-			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-quay.yaml"
+			mustnothaveYAML = "../resources/case38_operator_install/operator-policy-mustnothave-any-version-grc.yaml"
 		)
 		var (
 			musthaveName     string
@@ -3633,7 +3632,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			opPolYAML     = "../resources/case38_operator_install/operator-policy-with-templates.yaml"
 			configmapYAML = "../resources/case38_operator_install/template-configmap.yaml"
 			opGroupName   = "scoped-operator-group"
-			subName       = "project-quay"
+			subName       = "example-operator"
 		)
 		var (
 			opPolTestNS      string
@@ -3724,7 +3723,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 		It("Should update the subscription after the configmap is updated", func() {
 			KubectlTarget("patch", "configmap", "op-config", "-n", opPolTestNS, "--type=json", "-p",
-				`[{"op": "replace", "path": "/data/channel", "value": "stable-3.10"}]`)
+				`[{"op": "replace", "path": "/data/channel", "value": "stable"}]`)
 
 			check(
 				opPolName,
@@ -4341,6 +4340,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 	Describe("Test changes to subscription config and operator group selector", Ordered, func() {
 		const (
 			policyYAML = "../resources/case38_operator_install/operator-policy-with-group-and-config.yaml"
+			subName    = "example-operator"
 		)
 
 		var (
@@ -4384,7 +4384,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			By("Verifying the initial state of the config in the subscription")
 			Eventually(func(g Gomega) {
 				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
-					Get(ctx, "example-operator", metav1.GetOptions{})
+					Get(ctx, subName, metav1.GetOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(sub).NotTo(BeNil())
 
@@ -4424,7 +4424,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			By("Verifying the new state of the config in the subscription")
 			Eventually(func(g Gomega) {
 				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
-					Get(ctx, "example-operator", metav1.GetOptions{})
+					Get(ctx, subName, metav1.GetOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(sub).NotTo(BeNil())
 
@@ -4465,7 +4465,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			By("Verifying the final state of the config in the subscription")
 			Eventually(func(g Gomega) {
 				sub, err := targetK8sDynamic.Resource(gvrSubscription).Namespace(opPolTestNS).
-					Get(ctx, "example-operator", metav1.GetOptions{})
+					Get(ctx, subName, metav1.GetOptions{})
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(sub).NotTo(BeNil())
 
