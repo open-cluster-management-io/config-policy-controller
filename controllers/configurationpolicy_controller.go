@@ -5,7 +5,9 @@ package controllers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -2432,7 +2434,7 @@ func (r *ConfigurationPolicyReconciler) handleSingleObj(
 		created := false
 		uid := string(obj.existingObj.GetUID())
 
-		if evaluated, compliant, cachedMsg := r.alreadyEvaluated(obj.policy, obj.existingObj); evaluated {
+		if evaluated, compliant, cachedMsg := r.alreadyEvaluated(obj.policy, obj.existingObj, objectT); evaluated {
 			objLog.V(1).Info("Skipping object comparison since the resourceVersion hasn't changed")
 
 			for _, relatedObj := range obj.policy.Status.RelatedObjects {
@@ -3275,13 +3277,13 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	if !updateNeeded && !missingKey {
 		if !statusMismatch {
 			// No spec changes needed, and no status mismatch, so it's Compliant.
-			r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
+			r.setEvaluatedObject(obj.policy, obj.existingObj, objectT, true, "")
 
 			return false, "", "", updateNeeded, updatedObj, false
 		}
 
 		// No spec changes needed, but the status mismatches, so it's NonCompliant.
-		r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
+		r.setEvaluatedObject(obj.policy, obj.existingObj, objectT, false, "")
 
 		return true, "", diff, updateNeeded, updatedObj, false
 	}
@@ -3324,7 +3326,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 			// If the user specifies an unknown or invalid field, it comes back as a bad request.
 			if k8serrors.IsBadRequest(err) {
-				r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+				r.setEvaluatedObject(obj.policy, obj.existingObj, objectT, false, message)
 			}
 
 			return true, message, "", updateNeeded, nil, false
@@ -3351,7 +3353,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 					`you may set spec["object-templates"][].recreateOption to recreate the object`
 			}
 
-			r.setEvaluatedObject(obj.policy, obj.existingObj, false, message)
+			r.setEvaluatedObject(obj.policy, obj.existingObj, objectT, false, message)
 
 			return true, message, diff, false, nil, false
 		}
@@ -3366,13 +3368,13 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 			log.Info("A mismatch was detected but a dry run update didn't make any changes.")
 
 			if !statusMismatch {
-				r.setEvaluatedObject(obj.policy, obj.existingObj, true, "")
+				r.setEvaluatedObject(obj.policy, obj.existingObj, objectT, true, "")
 
 				return false, "", "", false, updatedObj, true
 			}
 
 			// No spec changes needed, but the status is incorrect, so it's NonCompliant.
-			r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
+			r.setEvaluatedObject(obj.policy, obj.existingObj, objectT, false, "")
 
 			return true, "", diff, updateNeeded, updatedObj, false
 		}
@@ -3382,7 +3384,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 
 	// The object would have been updated, so if it's inform, return as noncompliant.
 	if isInform {
-		r.setEvaluatedObject(obj.policy, obj.existingObj, false, "")
+		r.setEvaluatedObject(obj.policy, obj.existingObj, objectT, false, "")
 
 		return true, "", diff, false, nil, false
 	}
@@ -3462,7 +3464,7 @@ func (r *ConfigurationPolicyReconciler) checkAndUpdateResource(
 	}
 
 	if !statusMismatch {
-		r.setEvaluatedObject(obj.policy, updatedObj, true, message)
+		r.setEvaluatedObject(obj.policy, updatedObj, objectT, true, message)
 	}
 
 	return throwViolation, "", diff, updateNeeded, updatedObj, false
@@ -3650,7 +3652,11 @@ func removeFieldsForComparison(obj *unstructured.Unstructured) {
 // setEvaluatedObject updates the cache to indicate that the ConfigurationPolicy has evaluated this
 // object at its current resourceVersion.
 func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
-	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured, compliant bool, msg string,
+	policy *policyv1.ConfigurationPolicy,
+	currentObject *unstructured.Unstructured,
+	objectT *policyv1.ObjectTemplate,
+	compliant bool,
+	msg string,
 ) {
 	policyMap := &sync.Map{}
 
@@ -3660,7 +3666,7 @@ func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
 	}
 
 	policyMap.Store(
-		currentObject.GetUID(),
+		getEvalObjKey(currentObject.GetUID(), objectT),
 		cachedEvaluationResult{
 			resourceVersion: currentObject.GetResourceVersion(),
 			compliant:       compliant,
@@ -3669,10 +3675,12 @@ func (r *ConfigurationPolicyReconciler) setEvaluatedObject(
 	)
 }
 
-// alreadyEvaluated will determine if this ConfigurationPolicy has already evaluated this object at its current
-// resourceVersion.
+// alreadyEvaluated will determine if this ConfigurationPolicy's object template
+// has already evaluated this object at its current resourceVersion.
 func (r *ConfigurationPolicyReconciler) alreadyEvaluated(
-	policy *policyv1.ConfigurationPolicy, currentObject *unstructured.Unstructured,
+	policy *policyv1.ConfigurationPolicy,
+	currentObject *unstructured.Unstructured,
+	objectT *policyv1.ObjectTemplate,
 ) (evaluated bool, compliant bool, msg string) {
 	if policy == nil || currentObject == nil {
 		return false, false, ""
@@ -3685,7 +3693,7 @@ func (r *ConfigurationPolicyReconciler) alreadyEvaluated(
 
 	policyMap := loadedPolicyMap.(*sync.Map)
 
-	result, loaded := policyMap.Load(currentObject.GetUID())
+	result, loaded := policyMap.Load(getEvalObjKey(currentObject.GetUID(), objectT))
 	if !loaded {
 		return false, false, ""
 	}
@@ -3696,6 +3704,24 @@ func (r *ConfigurationPolicyReconciler) alreadyEvaluated(
 		resultTyped.resourceVersion == currentObject.GetResourceVersion()
 
 	return alreadyEvaluated, resultTyped.compliant, resultTyped.msg
+}
+
+// getEvalObjKey returns a key for the cached policy map based on the
+// object UID and hash of the object template. This allows multiple object templates
+// to evaluate the same object without overwriting the cache.
+func getEvalObjKey(objUID types.UID, objectT *policyv1.ObjectTemplate) string {
+	if objectT == nil {
+		return string(objUID)
+	}
+
+	templateBytes, err := json.Marshal(objectT)
+	if err != nil {
+		templateBytes = objectT.ObjectDefinition.Raw
+	}
+
+	sum := sha256.Sum256(templateBytes)
+
+	return fmt.Sprintf("%s%s", objUID, hex.EncodeToString(sum[:]))
 }
 
 func getUpdateErrorMsg(err error, kind string, name string) string {

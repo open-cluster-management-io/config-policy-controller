@@ -1,0 +1,33 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-create-pod-configmap
+  namespace: managed
+spec:
+  remediationAction: enforce
+  pruneObjectBehavior: DeleteAll
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: case5-nginx-pod-1
+        spec:
+          containers:
+            - image: nginx:1.7.9
+              name: nginx
+              ports:
+                - containerPort: 80
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: case5-configmap-1
+        data:
+          name: testvalue
+          env: staging
