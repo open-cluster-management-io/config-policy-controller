@@ -1,11 +1,11 @@
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
-  name: project-quay
+  name: example-operator
 spec:
-  channel: stable-3.10
-  name: project-quay
+  channel: stable
+  name: example-operator
   installPlanApproval: Automatic
-  source: operatorhubio-catalog
+  source: grc-mock-source
   sourceNamespace: olm
-  startingCSV: quay-operator.v3.10.0
+  startingCSV: example-operator.v0.0.3
