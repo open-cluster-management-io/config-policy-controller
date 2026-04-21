@@ -1,0 +1,27 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-configmap-multiple-same-obj-def
+  namespace: managed
+spec:
+  remediationAction: inform
+  namespaceSelector:
+    exclude: ["kube-*"]
+    include: ["default"]
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: case5-configmap-1
+        data:
+          name: testvalue
+    - complianceType: mustonlyhave
+      objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: case5-configmap-1
+        data:
+          name: testvalue
