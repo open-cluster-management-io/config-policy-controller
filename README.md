@@ -17,10 +17,11 @@ The `ConfigurationPolicy` spec includes the following fields:
 
 | Field | Description |
 | ---- | ---- |
-| severity | Optional: `low`, `medium`, or `high`. |
+| severity | Optional: `low`, `medium`, `high`, or `critical`. |
 | remediationAction | Required:  `inform` or `enforce`. Determines what actions the controller will take if the actual state of the object-templates does not match what is desired. |
 | namespaceSelector | Optional: an object with `include` and `exclude` lists, specifying where the controller will look for the actual state of the object-templates, if the object is namespaced and not already specified in the object. |
-| object-templates | Required: A list of Kubernetes objects that will be checked on the cluster. |
+| object-templates | Recommended: A list of Kubernetes objects that will be checked on the cluster. Keys inside of the objectDefinition may point to values that have Go templates. Only one of `object-templates` and `object-templates-raw` may be set in a configuration policy. |
+| object-templates-raw | For advanced use cases: A raw template string for Go templating such as `range` loops and `if` conditionals. Only one of `object-templates` and `object-templates-raw` may be set in a configuration policy. |
 
 Additionally, each item in the `object-templates` includes these fields:
 
