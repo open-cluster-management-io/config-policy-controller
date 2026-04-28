@@ -7,7 +7,9 @@ Open Cluster Management - Configuration Policy Controller
 [![KinD tests](https://github.com/open-cluster-management-io/config-policy-controller/actions/workflows/kind.yml/badge.svg?branch=main&event=push)](https://github.com/open-cluster-management-io/config-policy-controller/actions/workflows/kind.yml)
 [![License](https://img.shields.io/:license-apache-blue.svg)](http://www.apache.org/licenses/LICENSE-2.0.html)
 
-## Description
+## Policy Controllers Overview
+
+### Configuration Policy Controller
 
 With the Configuration Policy Controller, you can create `ConfigurationPolicies` to check if the specified objects are present in the cluster. The controller records compliancy details in the `status` of each ConfigurationPolicy, and as Kubernetes Events. If the policy is set to `enforce` the configuration, then the controller will attempt to create, update, or delete objects on the cluster as necessary to match the specified state. The controller can be run as a stand-alone program or as an integrated part of governing risk with the Open Cluster Management project.
 
@@ -54,7 +56,7 @@ spec:
             - containerPort: 80
 ```
 
-### Templating
+#### Templating
 
 Configuration Policies supports inclusion of [Golang text templates](https://golang.org/pkg/text/template/) in  ObjectDefinitions. These templates are resolved at runtime on the target cluster using configuration local to that cluster giving the user the ability to define policies customized to the target cluster. Following custom template functions are available to allow referencing kube-resources on the target cluster.
 
@@ -63,7 +65,7 @@ Configuration Policies supports inclusion of [Golang text templates](https://gol
 3. `fromClusterClaim` - returns the value of Spec.Value field in the ClusterClaim resource.
 4. `lookup` - a generic lookup function to retreive any kube resource.
 
-Following is an example spec of a `ConfigurationPolicy` object with templates :
+Following is an example spec of a `ConfigurationPolicy` object with templates:
 
 ```yaml
 
@@ -99,6 +101,110 @@ spec:
   severity: low
 
 ```
+
+### Operator Policy Controller
+
+With the Operator Policy Controller, you can create `OperatorPolicy` resources to manage operators deployed by the Operator Lifecycle Manager (OLM). The controller automates operator lifecycle management, including installation, upgrades, and removal. It monitors operator health by tracking subscription status, cluster service versions, and deployments, then records compliance details in the `status` of each OperatorPolicy and as Kubernetes Events. If the policy is set to `enforce`, the controller automatically approves install and upgrade plans according to your configuration.
+
+The `OperatorPolicy` spec includes the following fields:
+
+| Field | Description |
+| ---- | ---- |
+| severity | Optional: `low`, `medium`, `high`, or `critical`. Defines the severity level when the policy is noncompliant. |
+| remediationAction | Required: `inform` or `enforce`. Determines what actions the controller will take if the operator is not in the desired state. |
+| complianceType | Required: `musthave` or `mustnothave`. Determines if the operator must be installed or must not be installed. |
+| subscription | Required: An Operator Lifecycle Manager (OLM) `Subscription` resource specification for the operator. `subscription.spec.name` is required. Any other spec fields will use default values if not specified. Do NOT include `subscription.spec.installPlanApproval` - see `upgradeApproval` below.|
+| operatorGroup | Optional: An OLM `OperatorGroup` resource specification. If not specified and no OperatorGroup exists in the namespace, the controller creates an `AllNamespaces` type OperatorGroup by default. |
+| versions | Optional: A list of templatable ClusterServiceVersion names that specifies which installed ClusterServiceVersion names are compliant when in `inform` mode and which `InstallPlans` are approved when in `enforce` mode. Multiple versions can be provided in one entry by separating them with commas. An empty list approves all versions. |
+| upgradeApproval | Required: `None` or `Automatic`. Specifies whether to automatically approve operator upgrade install plans when the policy is enforced and in `musthave` mode. The initial InstallPlan approval is not affected by this setting. |
+| removalBehavior | Optional: Defines resource cleanup behavior when the policy is set to `mustnothave`. |
+| complianceConfig | Optional: Defines how resource conditions affect overall policy compliance. |
+
+#### Removal behavior
+
+The `removalBehavior` field controls which resources the controller removes when the policy is set to `mustnothave` and `enforce` mode. All sub-fields are optional and have default values applied when not specified.
+
+| Sub-field | Description | Default |
+| ---- | ---- | ---- |
+| subscriptions | Whether to delete the `Subscription` resource. Valid values: `Keep`, `Delete`. | `Delete` |
+| operatorGroups | Whether to delete the `OperatorGroup` resource. Valid values: `Keep`, `DeleteIfUnused`. Only deletes the OperatorGroup if no other resources use it. | `DeleteIfUnused` |
+| clusterServiceVersions | Whether to delete the `ClusterServiceVersion` resource. Valid values: `Keep`, `Delete`. | `Delete` |
+| customResourceDefinitions | Whether to delete `CustomResourceDefinitions` associated with the operator. Valid values: `Keep`, `Delete`. Defaults to `Keep` because deleting CRDs should be done deliberately. | `Keep` |
+
+#### Compliance configuration
+
+The `complianceConfig` field defines how different resource conditions affect the overall operator policy compliance state. All sub-fields are optional and have default values applied when not specified.
+
+| Sub-field | Description | Default |
+| ---- | ---- | ---- |
+| catalogSourceUnhealthy | How to report the policy when the `CatalogSource` is unhealthy. Valid values: `Compliant`, `NonCompliant`. | `Compliant` |
+| deploymentsUnavailable | How to report the policy when operator deployments are unavailable. Valid values: `Compliant`, `NonCompliant`. | `NonCompliant` |
+| upgradesAvailable | How to report the policy when operator upgrades are available through `InstallPlan`. Valid values: `Compliant`, `NonCompliant`. | `Compliant` |
+| deprecationsPresent | How to report the policy when deprecated features are detected in the operator. Valid values: `Compliant`, `NonCompliant`. | `Compliant` |
+| minorChannelUpgradeAvailable | How to report the policy when a newer minor version channel is available when `upgradeApproval` is `Automatic`. Valid values: `Compliant`, `NonCompliant`. | `Compliant` |
+
+Following is an example spec of an `OperatorPolicy` object to install the external secrets operator at version 0.11.0. The ESO operator was chosen randomly out of the operators available in the OperatorHub catalog.
+
+Notice the `upgradeApproval` is set to `None` and the `versions` list only contains `external-secrets-operator.v0.11.0`. This means the policy will install version 0.11.0 and will not automatically approve any upgrades for the operator.
+
+```yaml
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: policy-eso
+spec:
+  remediationAction: enforce
+  severity: medium
+  complianceType: musthave
+  upgradeApproval: None
+  operatorGroup:
+    namespace: default
+    name: external-secrets-operator-group
+    targetNamespaces:
+      - default
+  subscription:
+    namespace: default
+    name: external-secrets-operator
+    channel: alpha
+    source: operatorhubio-catalog
+    sourceNamespace: olm
+    startingCSV: external-secrets-operator.v0.11.0
+  versions:
+    - external-secrets-operator.v0.11.0
+```
+
+#### Templating
+
+The Operator Policy Controller also supports Golang text templates in the specification. This allows you to customize operator subscriptions based on cluster-specific configuration at runtime.
+
+Following is an example spec of an `OperatorPolicy` object with templates. With `remediationAction` set to `inform`, the policy will detect whether an external secrets operator deployed in the namespace `my-namespace` matches the policy spec. It will read the `operatorGroup.targetNamespaces` and the `subscription.channel` from a ConfigMap `my-operator-configs` located in the namespace `my-namespace`.
+
+```yaml
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: eso-operator-with-templates
+spec:
+  remediationAction: inform
+  severity: medium
+  complianceType: musthave
+  upgradeApproval: None
+  operatorGroup:
+    name: my-operator-group
+    namespace: my-namespace
+    targetNamespaces: '{{ (fromConfigMap "my-namespace" "my-operator-configs" "namespaces") | toLiteral }}'
+  subscription:
+    channel: '{{ (lookup "v1" "ConfigMap" "my-namespace" "my-operator-configs").data.channel }}'
+    name: external-secrets-operator
+    namespace: my-namespace
+    source: operatorhubio-catalog
+    sourceNamespace: olm
+    startingCSV: external-secrets-operator.v0.11.0
+  versions:
+    - external-secrets-operator.v0.11.0
+```
+
+For more information about templating, see the Configuration Policy Controller [Templating](#templating) section above.
 
 ### Architecture
 
