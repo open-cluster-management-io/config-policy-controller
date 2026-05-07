@@ -903,6 +903,25 @@ func canonicalizeVersions(policy *policyv1beta1.OperatorPolicy) {
 	policy.Spec.Versions = nonEmptyVersions
 }
 
+// policyStartingCSV extracts the startingCSV from the policy's subscription spec,
+// returning an empty string if it's not set or the spec can't be parsed.
+func policyStartingCSV(policy *policyv1beta1.OperatorPolicy) string {
+	raw := policy.Spec.Subscription.Raw
+	if len(raw) == 0 {
+		return ""
+	}
+
+	var sub struct {
+		StartingCSV string `json:"startingCSV"` //nolint: tagliatelle
+	}
+
+	if err := json.Unmarshal(raw, &sub); err != nil {
+		return ""
+	}
+
+	return sub.StartingCSV
+}
+
 // buildSubscription bootstraps the subscription spec defined in the operator policy
 // with the apiversion and kind in preparation for resource creation.
 // If an error is returned, it will include details on why the policy spec if invalid and
@@ -2268,8 +2287,8 @@ func getApprovedCSVs(
 			}
 		}
 
-		if sub.Spec != nil && sub.Spec.StartingCSV != "" {
-			allowedCSVs = append(allowedCSVs, policyv1.NonEmptyString(sub.Spec.StartingCSV))
+		if startingCSV := policyStartingCSV(policy); startingCSV != "" {
+			allowedCSVs = append(allowedCSVs, policyv1.NonEmptyString(startingCSV))
 		}
 
 		for _, allowedCSV := range allowedCSVs {
@@ -2489,8 +2508,8 @@ func (r *OperatorPolicyReconciler) handleCSV(
 			}
 		}
 
-		if sub.Spec.StartingCSV != "" {
-			allowedVersions = append(allowedVersions, policyv1.NonEmptyString(sub.Spec.StartingCSV))
+		if startingCSV := policyStartingCSV(policy); startingCSV != "" {
+			allowedVersions = append(allowedVersions, policyv1.NonEmptyString(startingCSV))
 		}
 
 		allowed := false

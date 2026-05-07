@@ -300,6 +300,11 @@ e2e-stop-instrumented:
 
 .PHONY: e2e-debug
 e2e-debug:
+	@echo running pods:
+	-kubectl get pods -A
+	@echo "::group::describe pods"
+	-kubectl describe pods -A
+	@echo "::endgroup::"
 	@echo local controller log:
 	-cat build/_output/controller.log
 	@echo remote controller log:

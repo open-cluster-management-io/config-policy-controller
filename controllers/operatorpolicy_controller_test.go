@@ -572,6 +572,84 @@ func TestGetApprovedCSVs(t *testing.T) {
 	}
 }
 
+// TestGetApprovedCSVs_AdoptedStartingCSVNotInVersions verifies that when an OperatorPolicy adopts
+// an existing Subscription whose startingCSV is not in the policy's versions list, that startingCSV
+// should NOT be treated as an approved version. This is a regression test for a bug where the
+// controller unconditionally appended sub.Spec.StartingCSV to the allowed versions, even when the
+// policy itself did not specify that startingCSV.
+func TestGetApprovedCSVs_AdoptedStartingCSVNotInVersions(t *testing.T) {
+	// This InstallPlan is in `phase: RequiresApproval`, and contains the v4.16.3-rhodf version.
+	odfIPRaw, err := os.ReadFile("../test/resources/unit/odf-installplan.yaml")
+	if err != nil {
+		t.Fatalf("Encountered an error when reading the odf-installplan.yaml: %v", err)
+	}
+
+	odfIP := &operatorv1alpha1.InstallPlan{}
+
+	err = yaml.Unmarshal(odfIPRaw, odfIP)
+	if err != nil {
+		t.Fatalf("Encountered an error when unmarshaling the odf-installplan.yaml: %v", err)
+	}
+
+	// The policy allows some-other-operator.v1.0.0 and does NOT specify a startingCSV.
+	policy := &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			UpgradeApproval:   "Automatic",
+			RemediationAction: "enforce",
+			Versions:          []string{"some-other-operator.v1.0.0"},
+		},
+	}
+
+	// The adopted Subscription has a startingCSV that is NOT in the policy's versions list.
+	// The Subscription's CurrentCSV matches the startingCSV (not the policy's allowed version).
+	subscription := &operatorv1alpha1.Subscription{
+		Spec: &operatorv1alpha1.SubscriptionSpec{
+			StartingCSV: "odf-operator.v4.16.3-rhodf",
+		},
+		Status: operatorv1alpha1.SubscriptionStatus{
+			CurrentCSV: "odf-operator.v4.16.3-rhodf",
+		},
+	}
+
+	// The Subscription's startingCSV (v4.16.3) is not in the policy versions list, and the
+	// policy did not specify a startingCSV, so getApprovedCSVs should return nil, because the
+	// current version in the Subscription should not be allowed by the policy.
+	csvs := getApprovedCSVs(t.Context(), policy, subscription, odfIP)
+	if len(csvs) != 0 {
+		t.Fatalf(
+			"Expected no CSVs to be approved when the adopted Subscription's startingCSV "+
+				"is not in the policy versions, but got: %s",
+			strings.Join(csvs.UnsortedList(), ", "),
+		)
+	}
+
+	// Now simulate the policy specifying the startingCSV in its subscription spec.
+	// When the policy itself sets startingCSV, that version should be treated as allowed
+	// even if it's not in the versions list.
+	policy.Spec.Subscription = runtime.RawExtension{
+		Raw: []byte(`{
+			"source": "operatorhubio-catalog",
+			"sourceNamespace": "olm",
+			"name": "odf-operator",
+			"channel": "stable-4.16",
+			"startingCSV": "odf-operator.v4.16.3-rhodf"
+		}`),
+	}
+
+	csvs = getApprovedCSVs(t.Context(), policy, subscription, odfIP)
+
+	expectedCSVs := sets.Set[string]{}
+	expectedCSVs.Insert(odfIP.Spec.ClusterServiceVersionNames...)
+
+	if !csvs.Equal(expectedCSVs) {
+		t.Fatalf(
+			"Expected all CSVs to be approved when the policy specifies the startingCSV, "+
+				"but missing: %s",
+			strings.Join(expectedCSVs.Difference(csvs).UnsortedList(), ", "),
+		)
+	}
+}
+
 func TestGetApprovedCSVsWithPackageNameLookup(t *testing.T) {
 	mtcOadpIPRaw, err := os.ReadFile("../test/resources/unit/mtc-oadp-installplan.yaml")
 	if err != nil {
