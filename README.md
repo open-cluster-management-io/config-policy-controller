@@ -103,6 +103,152 @@ spec:
 
 ```
 
+#### Configuration policy status details
+
+Below are two examples of `ConfigurationPolicy` statuses. The first example policy is `Compliant` and the second example is `NonCompliant`.
+
+After the policy evaluates, the `status` field contains information about the current state and compliance history. This example `ConfigurationPolicy` in `enforce` mode creates a namespace `test-namespace` on the cluster `local-cluster`:
+
+```yaml
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-example-namespace
+spec:
+  remediationAction: enforce
+  severity: low
+  object-templates:
+    - objectDefinition:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: test-namespace
+      complianceType: musthave
+status:
+  compliancyDetails:
+    - Compliant: Compliant
+      Validity: {}
+      conditions:
+        - lastTransitionTime: "2026-05-28T16:03:54Z"
+          message: namespaces [test-namespace] found as specified
+          reason: K8s `must have` object already exists
+          status: "True"
+          type: notification
+  compliant: Compliant
+  history:
+    - lastTimestamp: "2026-05-28T16:03:54.128152Z"
+      message: Compliant; notification - namespaces [test-namespace] found as specified
+    - lastTimestamp: "2026-05-28T16:03:49.058084Z"
+      message: Compliant; notification - namespaces [test-namespace] was created successfully
+    - lastTimestamp: "2026-05-28T15:55:26.553841Z"
+      message: NonCompliant; violation - namespaces [test-namespace] not found
+  lastEvaluated: "2026-05-28T16:03:54Z"
+  lastEvaluatedGeneration: 2
+  relatedObjects:
+    - compliant: Compliant
+      object:
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: test-namespace
+      properties:
+        createdByPolicy: true
+        uid: 9bc52fa6-3d7d-45ad-bb3b-137e06bc539b
+      reason: Resource found as expected
+      cluster: local-cluster
+```
+
+This example `ConfigurationPolicy` in `inform` mode detects a mismatch between the desired `purpose: load-test` and actual `purpose: load-testing` data in a `ConfigMap`:
+
+```yaml
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: policy-example-configmap
+spec:
+  object-templates:
+    - objectDefinition:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: example-configmap
+          namespace: default
+        data:
+          env: dev
+          purpose: load-test
+      complianceType: musthave
+      recordDiff: InStatus
+  remediationAction: inform
+status:
+  compliancyDetails:
+    - Compliant: NonCompliant
+      Validity: {}
+      conditions:
+        - lastTransitionTime: "2026-05-28T16:18:34Z"
+          message: configmaps [example-configmap] found but not as specified in namespace default
+          reason: K8s does not have a `must have` object
+          status: "True"
+          type: violation
+  compliant: NonCompliant
+  history:
+    - lastTimestamp: "2026-05-28T16:23:14.639170Z"
+      message: NonCompliant; violation - configmaps [example-configmap] found but not as specified in namespace default
+    - lastTimestamp: "2026-05-28T16:18:34.733058Z"
+      message: NonCompliant; violation - configmaps [example-configmap] found but not as specified in namespace default
+  lastEvaluated: "2026-05-28T16:23:14Z"
+  lastEvaluatedGeneration: 2
+  relatedObjects:
+    - compliant: NonCompliant
+      object:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: example-configmap
+          namespace: default
+      properties:
+        createdByPolicy: false
+        diff: |
+          --- default/example-configmap : existing
+          +++ default/example-configmap : updated
+          @@ -1,9 +1,9 @@
+           apiVersion: v1
+           data:
+             env: dev
+          -  purpose: load-testing
+          +  purpose: load-test
+           kind: ConfigMap
+           metadata:
+             creationTimestamp: "2026-05-28T16:17:54Z"
+             name: example-configmap
+             namespace: default
+        uid: f706c4be-5b68-4592-a81e-d9be6d8fd25b
+      reason: Resource found but does not match
+      cluster: local-cluster
+```
+
+##### Status field descriptions
+
+| Field | Description |
+| ---- | ---- |
+| `compliant` | Overall compliance state: `Compliant` (all templates match), `NonCompliant` (one or more templates do not match), or `Terminating` (policy is being deleted) |
+| `lastEvaluated` | ISO 8601 timestamp of the most recent evaluation |
+| `lastEvaluatedGeneration` | The generation of the ConfigurationPolicy resource at the last evaluation |
+| `compliancyDetails` | Array with one entry per object-template, showing compliance state and violation details |
+| `relatedObjects` | Array of all Kubernetes objects matched by the policy templates |
+| `history` | Timestamped messages showing the recent compliance state changes |
+
+##### Related object properties
+
+| Field | Description |
+| ---- | ---- |
+| `createdByPolicy` | When set to `true`, indicates that the controller created this object. This is important for pruning behavior. |
+| `uid` | Used internally to track objects. |
+| `diff` | Shows the differences between the policy `objectDefinition` and the actual cluster object. |
+| `matchesAfterDryRun` | When set to `true`, indicates that an object initially did not match the policy, but a dry-run update produced a compliant result. The dry-run update can treat empty and null values as equivalent, so they are not reported as mismatches. This property may also be `true` if API server webhooks during a dry-run update produced a compliant object. |
+
+> [!NOTE]
+> For some sensitive resources, the `diff` is hidden by default. To always display the `diff` in the status, set the `recordDiff` field on the `object-template` to `InStatus`.
+
 ### Operator Policy Controller
 
 With the Operator Policy Controller, you can create `OperatorPolicy` resources to manage operators deployed by the Operator Lifecycle Manager (OLM). The controller automates operator lifecycle management, including installation, upgrades, and removal. It monitors operator health by tracking subscription status, cluster service versions, and deployments, then records compliance details in the `status` of each OperatorPolicy and as Kubernetes Events. If the policy is set to `enforce`, the controller automatically approves install and upgrade plans according to your configuration.
@@ -174,7 +320,7 @@ spec:
     - external-secrets-operator.v0.11.0
 ```
 
-#### Templating
+#### Operator policy templating
 
 The Operator Policy Controller also supports Golang text templates in the specification. This allows you to customize operator subscriptions based on cluster-specific configuration at runtime.
 
@@ -206,6 +352,421 @@ spec:
 ```
 
 For more information about templating, see the Configuration Policy Controller [Templating](#templating) section above.
+
+
+#### Operator policy status details
+
+After the policy evaluates, the `status` field contains the current compliance state and supporting details. A compliant `OperatorPolicy` matches the desired Operator configuration, and a noncompliant `OperatorPolicy` indicates one or more requirements are not met. For more info about noncompliant policies, see [Condition types](#condition-types) below.
+
+<details>
+<summary>This example shows a compliant <code>status</code> for an <code>OperatorPolicy</code> in <code>enforce</code> mode that installs the External Secrets Operator at version 0.11.0:</summary>
+
+```yaml
+status:
+  compliant: Compliant
+  conditions:
+  - lastTransitionTime: "2026-05-28T17:05:37Z"
+    message: CatalogSource was found
+    reason: CatalogSourcesFound
+    status: "False"
+    type: CatalogSourcesUnhealthy
+  - lastTransitionTime: "2026-05-28T17:11:40Z"
+    message: ClusterServiceVersion (external-secrets-operator.v0.11.0) - install strategy
+      completed with no errors
+    reason: InstallSucceeded
+    status: "True"
+    type: ClusterServiceVersionCompliant
+  - lastTransitionTime: "2026-05-28T17:11:40Z"
+    message: Compliant; the policy spec is valid, the OperatorGroup matches what is
+      required by the policy, the Subscription matches what is required by the policy,
+      no InstallPlans requiring approval were found, ClusterServiceVersion (external-secrets-operator.v0.11.0)
+      - install strategy completed with no errors, there are CRDs present for the
+      operator, all operator Deployments have their minimum availability, CatalogSource
+      was found
+    reason: Compliant
+    status: "True"
+    type: Compliant
+  - lastTransitionTime: "2026-05-28T17:11:07Z"
+    message: there are CRDs present for the operator
+    reason: RelevantCRDFound
+    status: "True"
+    type: CustomResourceDefinitionCompliant
+  - lastTransitionTime: "2026-05-28T17:11:40Z"
+    message: all operator Deployments have their minimum availability
+    reason: DeploymentsAvailable
+    status: "True"
+    type: DeploymentCompliant
+  - lastTransitionTime: "2026-05-28T17:11:19Z"
+    message: no InstallPlans requiring approval were found
+    reason: NoInstallPlansRequiringApproval
+    status: "True"
+    type: InstallPlanCompliant
+  - lastTransitionTime: "2026-05-28T17:11:07Z"
+    message: The requested package, channel, and bundle are all at the recommended
+      versions
+    reason: Recommended
+    status: "True"
+    type: NoDeprecations
+  - lastTransitionTime: "2026-05-28T17:10:43Z"
+    message: the OperatorGroup matches what is required by the policy
+    reason: OperatorGroupMatches
+    status: "True"
+    type: OperatorGroupCompliant
+  - lastTransitionTime: "2026-05-28T17:10:43Z"
+    message: the Subscription matches what is required by the policy
+    reason: SubscriptionMatches
+    status: "True"
+    type: SubscriptionCompliant
+  - lastTransitionTime: "2026-05-28T17:00:12Z"
+    message: the policy spec is valid
+    reason: PolicyValidated
+    status: "True"
+    type: ValidPolicySpec
+  observedGeneration: 3
+  relatedObjects:
+  - compliant: Compliant
+    object:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: CatalogSource
+      metadata:
+        name: operatorhubio-catalog
+        namespace: olm
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: ClusterServiceVersion
+      metadata:
+        name: external-secrets-operator.v0.11.0
+        namespace: default
+    properties:
+      uid: d020388e-6222-481f-a742-39248d90fc76
+    reason: InstallSucceeded
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: acraccesstokens.generators.external-secrets.io
+    properties:
+      uid: cab9dc08-ae40-4a3b-a0bd-2088a3f764e6
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: clusterexternalsecrets.external-secrets.io
+    properties:
+      uid: be2f7926-6baa-41c4-b746-01c72094c28a
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: clustergenerators.generators.external-secrets.io
+    properties:
+      uid: 50678232-4fc5-4bf9-b2e0-8e77c068d2d0
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: clustersecretstores.external-secrets.io
+    properties:
+      uid: 88b386e7-7068-4482-b2a8-f9227ebd108e
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: ecrauthorizationtokens.generators.external-secrets.io
+    properties:
+      uid: 80b5c439-6b82-41c3-8233-b3e4df306b4c
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: externalsecrets.external-secrets.io
+    properties:
+      uid: 3d9b309e-2aed-4fb2-a17e-d8467ef74dcc
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: fakes.generators.external-secrets.io
+    properties:
+      uid: c151c395-7d25-4aa6-9715-4148598b4efe
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: gcraccesstokens.generators.external-secrets.io
+    properties:
+      uid: c3b14e91-8799-43c8-ad3d-456a2cd1e945
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: githubaccesstokens.generators.external-secrets.io
+    properties:
+      uid: 9b459690-b22b-4ab3-9989-c7438cf7e09c
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: operatorconfigs.operator.external-secrets.io
+    properties:
+      uid: 8a2048a7-1bba-4fbf-90ef-f982650c0ab0
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: passwords.generators.external-secrets.io
+    properties:
+      uid: bccf67d0-bd62-41a0-8f88-beb97a852a3e
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: pushsecrets.external-secrets.io
+    properties:
+      uid: 8333184d-4cc0-4eff-b196-7cf20a73d3bc
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: secretstores.external-secrets.io
+    properties:
+      uid: 4beca284-7b40-4c2d-b84c-ccac4f68f0fa
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: stssessiontokens.generators.external-secrets.io
+    properties:
+      uid: 5ffe9c32-70dd-4bd9-b246-710a154d6eb1
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: uuids.generators.external-secrets.io
+    properties:
+      uid: 25428081-ebef-446a-9d18-715f7284594b
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: vaultdynamicsecrets.generators.external-secrets.io
+    properties:
+      uid: 1b579ffb-5c7f-4c5e-8593-6e004a1ec14e
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apiextensions.k8s.io/v1
+      kind: CustomResourceDefinition
+      metadata:
+        name: webhooks.generators.external-secrets.io
+    properties:
+      uid: 56681564-c87e-4e15-b70f-23ae7f940afc
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: external-secrets-operator-controller-manager
+        namespace: default
+    properties:
+      uid: 0692327d-e248-431b-8552-ac9bdc84c518
+    reason: Deployment Available
+  - compliant: Compliant
+    object:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: InstallPlan
+      metadata:
+        name: install-8k5n4
+        namespace: default
+    properties:
+      uid: 48688188-15ce-4ba7-8974-1630b53b9378
+    reason: The InstallPlan is Complete
+  - compliant: Compliant
+    object:
+      apiVersion: operators.coreos.com/v1
+      kind: OperatorGroup
+      metadata:
+        name: external-secrets-operator-group
+        namespace: default
+    properties:
+      createdByPolicy: true
+      uid: c637e20b-fbac-4c35-acdf-2747a9f7f61d
+    reason: Resource found as expected
+  - compliant: Compliant
+    object:
+      apiVersion: operators.coreos.com/v1alpha1
+      kind: Subscription
+      metadata:
+        name: external-secrets-operator
+        namespace: default
+    properties:
+      createdByPolicy: true
+      uid: ac733bd1-3ffe-496c-8be9-60b2cbc7baa5
+    reason: Resource found as expected
+  resolvedSubscriptionLabel: external-secrets-operator.default
+```
+
+</details>
+
+##### Status field descriptions
+
+| Field | Description |
+| ---- | ---- |
+| `compliant` | Overall compliance state: `Compliant` (operator meets all requirements), `NonCompliant` (operator does not meet requirements), or `Terminating` (policy is being deleted) |
+| `observedGeneration` | The generation of the `OperatorPolicy` resource when it was last observed |
+| `conditions` | Detailed status conditions that track different aspects of `OperatorPolicy` compliance. For more information, see [Condition types](#condition-types). |
+| `relatedObjects` | Kubernetes resources associated with the evaluated operator, such as `Subscription`, `ClusterServiceVersion`, `OperatorGroup`, and `Deployment` objects. |
+| `resolvedSubscriptionLabel` | The resolved `name.namespace` of the `Subscription` resource |
+| `overlappingPolicies` | List of other `OperatorPolicy` resources that manage the same subscription. Use this field to identify conflicting policies. |
+| `subscriptionInterventionTime` | Timestamp indicating when the policy will intervene on a stuck subscription. A future timestamp means the controller is waiting for resolution. |
+
+##### Condition types
+
+The following condition types appear in a typical compliant status (see the example above). Additional conditions such as `MinorChannelUpgradeAvailable` may appear depending on compliance configuration. For more information, see [Compliance configuration](#compliance-configuration).
+
+- `ValidPolicySpec`: The policy spec is valid.
+- `OperatorGroupCompliant`: The `OperatorGroup` matches what is required by the policy.
+- `SubscriptionCompliant`: The `Subscription` matches what is required by the policy.
+- `InstallPlanCompliant`: Installation and upgrade `InstallPlan` objects are either approved or waiting to be approved.
+- `ClusterServiceVersionCompliant`: The installed operator version matches the `versions` list in `inform` mode, or meets policy requirements in `enforce` mode.
+- `CustomResourceDefinitionCompliant`: Custom resource definitions (CRDs) required by the operator are present.
+- `DeploymentCompliant`: Operator `Deployment` objects are running and available.
+- `CatalogSourcesUnhealthy`: Reports `CatalogSource` health. When `status` is `"False"`, the catalog source was found and is healthy.
+- `NoDeprecations`: The requested package, channel, and bundle are at recommended versions. When deprecations are detected, this condition reports them; whether that affects overall compliance is controlled by `complianceConfig.deprecationsPresent`.
+- `Compliant`: Overall compliance summary aggregating the individual condition messages above.
+
+##### Troubleshooting Tips
+
+When the policy spec is invalid, the condition `ValidPolicySpec` will appear `False` and the `status` will be `NonCompliant`. Below are some common error messages and suggested fixes.
+
+<details>
+<summary>Could not build subscription: failed to parse the template JSON string</summary>
+
+At least one Golang text template within the policy spec is invalid. In this example, the policy contains a function called `thisIsAnInvalidTemplateFunction` that does not exist. See [Operator policy templating](#operator-policy-templating) for more information about Golang text templates.
+
+```yaml
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: policy-eso
+spec:
+  # (other fields not shown)
+  subscription:
+    channel: alpha
+    name: external-secrets-operator
+    namespace: default
+    source: operatorhubio-catalog
+    sourceNamespace: olm
+    startingCSV: '{{ thisIsAnInvalidTemplateFunction "default" "bad-eso-config" "startingCSV" }}'
+status:
+  compliant: NonCompliant
+  conditions:
+  # (other conditions not shown)
+  - lastTransitionTime: "2026-06-01T22:57:32Z"
+    message: 'could not build subscription: failed to parse the template JSON string {"channel":"alpha","installPlanApproval":"None","name":"external-secrets-operator","namespace":"default","source":"operatorhubio-catalog","sourceNamespace":"olm","startingCSV":"{{ thisIsAnInvalidTemplateFunction \"default\" \"bad-eso-config\" \"startingCSV\" }}"}: template: tmpl:7: function "thisIsAnInvalidTemplateFunction" not defined'
+    reason: InvalidPolicySpec
+    status: "False"
+    type: ValidPolicySpec
+```
+</details>
+
+<details>
+<summary>Name is required in <code>spec.subscription</code></summary>
+
+The policy spec is invalid when the `name` field is not present in the `spec.subscription` of an `OperatorPolicy`. Even if `spec.subscription.metadata.name` is present, `spec.subscription.name` must be set.
+
+```yaml
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: policy-eso
+spec:
+  # (other fields not shown)
+  subscription:
+    namespace: default
+    # name is missing
+    channel: alpha
+    source: operatorhubio-catalog
+    sourceNamespace: olm
+    startingCSV: external-secrets-operator.v0.11.0
+status:
+  compliant: NonCompliant
+  conditions:
+  # (other conditions not shown)
+  - lastTransitionTime: "2026-06-01T22:28:48Z"
+    message: name is required in spec.subscription
+    reason: InvalidPolicySpec
+    status: "False"
+    type: ValidPolicySpec
+```
+</details>
+
+<details>
+<summary>InstallPlanApproval is prohibited in <code>spec.subscription</code></summary>
+
+The policy spec is invalid when the `installPlanApproval` field is present in the `spec.subscription` of an `OperatorPolicy`. Instead, set the `upgradeApproval` field to control the automatic approval of install plans.
+
+```yaml
+apiVersion: policy.open-cluster-management.io/v1beta1
+kind: OperatorPolicy
+metadata:
+  name: policy-eso
+spec:
+  # (other fields not shown)
+  upgradeApproval: Automatic # Keep this field.
+  subscription:
+    namespace: default
+    name: external-secrets-operator
+    channel: alpha
+    source: operatorhubio-catalog
+    sourceNamespace: olm
+    startingCSV: external-secrets-operator.v0.11.0
+    installPlanApproval: Automatic # Remove this field.
+status:
+  compliant: NonCompliant
+  conditions:
+  # (other conditions not shown)
+  - lastTransitionTime: "2026-06-01T22:28:48Z"
+    message: installPlanApproval is prohibited in spec.subscription
+    reason: InvalidPolicySpec
+    status: "False"
+    type: ValidPolicySpec
+```
+</details>
 
 ### Architecture
 
