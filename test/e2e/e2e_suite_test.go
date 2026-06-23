@@ -275,19 +275,64 @@ func LoadConfig(url, kubeconfig, context string) (*rest.Config, error) {
 	return nil, errors.New("could not create a valid kubeconfig")
 }
 
-func deleteConfigPolicies(policyNames []string) {
+// deleteConfigPolicies deletes the named configuration policies and waits for them to be
+// removed. Pass true as the optional force argument to strip finalizers when deletion is stuck.
+func deleteConfigPolicies(policyNames []string, force ...bool) {
 	GinkgoHelper()
+
+	forceDelete := len(force) > 0 && force[0]
 
 	for _, policyName := range policyNames {
 		err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Delete(
 			context.TODO(), policyName, metav1.DeleteOptions{},
 		)
-		if !k8serrors.IsNotFound(err) {
+		if forceDelete {
+			if err != nil && !k8serrors.IsNotFound(err) {
+				continue
+			}
+		} else if !k8serrors.IsNotFound(err) {
 			Expect(err).ToNot(HaveOccurred())
 		}
 	}
 
 	for _, policyName := range policyNames {
+		if forceDelete {
+			Eventually(func() error {
+				policy, err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Get(
+					context.TODO(), policyName, metav1.GetOptions{},
+				)
+				if k8serrors.IsNotFound(err) {
+					return nil
+				}
+
+				if err != nil {
+					return err
+				}
+
+				if len(policy.GetFinalizers()) > 0 {
+					utils.Kubectl("patch", "configurationpolicy", policyName, "-n", testNamespace,
+						"--type=merge", `-p={"metadata":{"finalizers":[]}}`)
+
+					return errors.New("waiting for finalizers to be removed")
+				}
+
+				if policy.GetDeletionTimestamp() == nil {
+					err := clientManagedDynamic.Resource(gvrConfigPolicy).Namespace(testNamespace).Delete(
+						context.TODO(), policyName, metav1.DeleteOptions{},
+					)
+					if err != nil && !k8serrors.IsNotFound(err) {
+						return err
+					}
+
+					return errors.New("waiting for configuration policy deletion to start")
+				}
+
+				return errors.New("waiting for configuration policy to be deleted")
+			}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+			continue
+		}
+
 		_ = utils.GetWithTimeout(
 			clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, false, defaultTimeoutSeconds,
 		)
