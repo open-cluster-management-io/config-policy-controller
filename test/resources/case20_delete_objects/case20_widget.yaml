@@ -1,0 +1,7 @@
+apiVersion: e2e.test.open-cluster-management.io/v1
+kind: Widget
+metadata:
+  name: case20-widget
+  namespace: default
+spec:
+  color: blue

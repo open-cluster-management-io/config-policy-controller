@@ -1,15 +1,20 @@
 package controllers
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/stolostron/go-template-utils/v7/pkg/templates"
+	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
 	"github.com/stretchr/testify/assert"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/scheme"
 
@@ -616,6 +621,49 @@ func TestGetTemplateResolver_DenylistFunctions(t *testing.T) {
 			assert.NoError(t, err)
 
 			assert.Equal(t, tt.expectedDenylist, resolveOptions.DenylistFunctions)
+		})
+	}
+}
+
+func TestChildObjectUnavailable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "no versioned resource",
+			err:  depclient.ErrNoVersionedResource,
+			want: true,
+		},
+		{
+			name: "not found",
+			err:  k8serrors.NewNotFound(schema.GroupResource{Resource: "widgets"}, "case20-widget"),
+			want: true,
+		},
+		{
+			name: "no match",
+			err: &meta.NoResourceMatchError{PartialResource: schema.GroupVersionResource{
+				Group: "example.com", Resource: "widgets",
+			}},
+			want: true,
+		},
+		{
+			name: "other error",
+			err:  errors.New("connection refused"),
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := childObjectUnavailable(tt.err); got != tt.want {
+				t.Fatalf("childObjectUnavailable() = %v, want %v", got, tt.want)
+			}
 		})
 	}
 }
