@@ -1,0 +1,17 @@
+apiVersion: policy.open-cluster-management.io/v1
+kind: ConfigurationPolicy
+metadata:
+  name: case20-cleanup-missing-crd
+spec:
+  remediationAction: enforce
+  pruneObjectBehavior: DeleteAll
+  object-templates:
+    - complianceType: musthave
+      objectDefinition:
+        apiVersion: e2e.test.open-cluster-management.io/v1
+        kind: Widget
+        metadata:
+          name: case20-widget
+          namespace: default
+        spec:
+          color: blue

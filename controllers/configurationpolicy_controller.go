@@ -589,6 +589,12 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 
 		scopedGVR, err := r.DynamicWatcher.GVKToGVR(gvk)
 		if err != nil && !errors.Is(err, depclient.ErrResourceUnwatchable) {
+			if childObjectUnavailable(err) {
+				log.V(1).Info("Child object API unavailable, treating the object as removed")
+
+				continue
+			}
+
 			log.Error(err, "Could not get resource mapping for child object")
 
 			deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
@@ -629,6 +635,12 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 		}
 
 		if err != nil {
+			if childObjectUnavailable(err) {
+				log.V(1).Info("Child object API unavailable, treating the object as removed")
+
+				continue
+			}
+
 			log.Error(err, "Failed to get child object")
 
 			deletionFailures = append(deletionFailures, gvk.String()+fmt.Sprintf(` "%s" in namespace %s`,
@@ -694,6 +706,12 @@ func (r *ConfigurationPolicyReconciler) cleanUpChildObjects(
 					r.TargetK8sDynamicClient,
 				)
 				if err != nil {
+					if childObjectUnavailable(err) {
+						log.V(1).Info("Child object API unavailable, treating deletion as complete")
+
+						continue
+					}
+
 					// Note: a NotFound error is handled specially in `getObject`, so this is something different
 					log.Error(err, "Error: failed to get object after deleting it")
 

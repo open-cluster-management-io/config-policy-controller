@@ -12,36 +12,32 @@ import (
 	. "github.com/onsi/gomega"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"open-cluster-management.io/config-policy-controller/test/utils"
 )
 
-const (
-	case20PodName                   string = "nginx-pod-e2e20"
-	case20PodWithFinalizer          string = "nginx-pod-cannot-delete"
-	case20ConfigPolicyNameCreate    string = "policy-pod-create-c20"
-	case20ConfigPolicyNameEdit      string = "policy-pod-edit-c20"
-	case20ConfigPolicyNameExisting  string = "policy-pod-already-created-c20"
-	case20ConfigPolicyNameInform    string = "policy-pod-inform-c20"
-	case20ConfigPolicyNameFinalizer string = "policy-pod-create-withfinalizer-c20"
-	case20ConfigPolicyNameChange    string = "policy-pod-change-remediation-c20"
-	case20ConfigPolicyNameMHPDA     string = "policy-pod-mhpda-c20"
-	case20PodMHPDAName              string = "nginx-pod-e2e20-mhpda"
-	case20PodYaml                   string = "../resources/case20_delete_objects/case20_pod.yaml"
-	case20PolicyYamlCreate          string = "../resources/case20_delete_objects/case20_create_pod.yaml"
-	case20PolicyYamlEdit            string = "../resources/case20_delete_objects/case20_edit_pod.yaml"
-	case20PolicyYamlExisting        string = "../resources/case20_delete_objects/case20_enforce_noncreated_pod.yaml"
-	case20PolicyYamlInform          string = "../resources/case20_delete_objects/case20_inform_pod.yaml"
-	case20PolicyYamlFinalizer       string = "../resources/case20_delete_objects/case20_createpod_finalizer.yaml"
-	case20PolicyYamlChangeInform    string = "../resources/case20_delete_objects/case20_change_inform.yaml"
-	case20PolicyYamlChangeEnforce   string = "../resources/case20_delete_objects/case20_change_enforce.yaml"
-	case20PolicyYamlMHPDA           string = "../resources/case20_delete_objects/case20_musthave_pod_deleteall.yaml"
-
-	// For the CRD deletion test
-	case20ConfigPolicyCRDPath string = "../../deploy/crds/policy.open-cluster-management.io_configurationpolicies.yaml"
-)
-
 var _ = Describe("Test Object deletion", Ordered, func() {
+	const (
+		case20PodName                   string = "nginx-pod-e2e20"
+		case20PodWithFinalizer          string = "nginx-pod-cannot-delete"
+		case20ConfigPolicyNameCreate    string = "policy-pod-create-c20"
+		case20ConfigPolicyNameEdit      string = "policy-pod-edit-c20"
+		case20ConfigPolicyNameExisting  string = "policy-pod-already-created-c20"
+		case20ConfigPolicyNameInform    string = "policy-pod-inform-c20"
+		case20ConfigPolicyNameFinalizer string = "policy-pod-create-withfinalizer-c20"
+		case20ConfigPolicyNameChange    string = "policy-pod-change-remediation-c20"
+		case20Path                      string = "../resources/case20_delete_objects/"
+		case20PodYaml                   string = case20Path + "case20_pod.yaml"
+		case20PolicyYamlCreate          string = case20Path + "case20_create_pod.yaml"
+		case20PolicyYamlEdit            string = case20Path + "case20_edit_pod.yaml"
+		case20PolicyYamlExisting        string = case20Path + "case20_enforce_noncreated_pod.yaml"
+		case20PolicyYamlInform          string = case20Path + "case20_inform_pod.yaml"
+		case20PolicyYamlFinalizer       string = case20Path + "case20_createpod_finalizer.yaml"
+		case20PolicyYamlChangeInform    string = case20Path + "case20_change_inform.yaml"
+		case20PolicyYamlChangeEnforce   string = case20Path + "case20_change_enforce.yaml"
+	)
+
 	Describe("Test status fields being set for object deletion", Ordered, func() {
 		It("should update status fields properly for created objects", func() {
 			By("Creating " + case20ConfigPolicyNameCreate + " on managed")
@@ -550,6 +546,14 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 })
 
 var _ = Describe("Test objects are not deleted when the CRD is removed", Serial, Ordered, func() {
+	const (
+		case20ConfigPolicyCRDPath string = "../../deploy/crds/" +
+			"policy.open-cluster-management.io_configurationpolicies.yaml"
+		case20PodMHPDAName          string = "nginx-pod-e2e20-mhpda"
+		case20ConfigPolicyNameMHPDA string = "policy-pod-mhpda-c20"
+		case20PolicyYamlMHPDA       string = "../resources/case20_delete_objects/case20_musthave_pod_deleteall.yaml"
+	)
+
 	AfterAll(func() {
 		deleteConfigPolicies([]string{case20ConfigPolicyNameMHPDA})
 		utils.Kubectl("apply", "-f", case20ConfigPolicyCRDPath)
@@ -614,6 +618,84 @@ var _ = Describe("Test objects are not deleted when the CRD is removed", Serial,
 
 			return string(pod.GetUID())
 		}, defaultTimeoutSeconds, 1).Should(Equal(oldPodUID))
+	})
+})
+
+var _ = Describe("Test policy deletion when child CRD is removed", Serial, Ordered, func() {
+	const (
+		case20ConfigPolicyNameMissingCRD string = "case20-cleanup-missing-crd"
+		case20WidgetName                 string = "case20-widget"
+		case20Path                       string = "../resources/case20_delete_objects/"
+		case20WidgetCRDYAML              string = case20Path + "case20_widget_crd.yaml"
+		case20WidgetYAML                 string = case20Path + "case20_widget.yaml"
+		case20PolicyYamlMissingCRD       string = case20Path + "case20_cleanup_missing_child_crd.yaml"
+		case20PruneObjectFinalizer       string = "policy.open-cluster-management.io/delete-related-objects"
+	)
+
+	gvrWidget := schema.GroupVersionResource{
+		Group:    "e2e.test.open-cluster-management.io",
+		Version:  "v1",
+		Resource: "widgets",
+	}
+
+	AfterAll(func() {
+		deleteConfigPolicies([]string{case20ConfigPolicyNameMissingCRD}, true)
+		utils.Kubectl("apply", "-f", case20WidgetCRDYAML)
+		utils.KubectlDelete("-f", case20WidgetCRDYAML)
+	})
+
+	It("creates a policy that manages a custom resource", func() {
+		By("Installing the Widget CRD and instance")
+		utils.Kubectl("apply", "-f", case20WidgetCRDYAML)
+		utils.Kubectl("apply", "-f", case20WidgetYAML)
+
+		By("Creating the ConfigurationPolicy")
+		utils.Kubectl("apply", "-f", case20PolicyYamlMissingCRD, "-n", testNamespace)
+
+		Eventually(func(g Gomega) {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case20ConfigPolicyNameMissingCRD, testNamespace, true, defaultTimeoutSeconds)
+
+			utils.CheckComplianceStatus(g, managedPlc, "Compliant")
+			g.Expect(managedPlc.GetFinalizers()).To(ContainElement(case20PruneObjectFinalizer))
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+		Eventually(func(g Gomega) {
+			widget := utils.GetWithTimeout(clientManagedDynamic, gvrWidget, case20WidgetName,
+				"default", true, defaultTimeoutSeconds)
+			g.Expect(widget).NotTo(BeNil())
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
+	})
+
+	It("completes policy deletion without getting stuck on missing child mappings", func() {
+		// Since GVKToGVR results are cached in-memory, just deleting the CRD won't necessarily
+		// recreate the potential issue. Instead, patch the status to reference a kind that was
+		// never defined so cleanup must perform a cold discovery lookup for that GVK.
+		Eventually(func(g Gomega) {
+			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case20ConfigPolicyNameMissingCRD, testNamespace, true, defaultTimeoutSeconds)
+
+			relatedObjects, found, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(found).To(BeTrue())
+			g.Expect(relatedObjects).NotTo(BeEmpty())
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
+
+		By("Patching status.relatedObjects to reference a nonexistent API kind")
+		utils.Kubectl("patch", "configurationpolicy", case20ConfigPolicyNameMissingCRD, "-n", testNamespace,
+			"--type=json", "--subresource=status", "-p", `[
+				{"op": "replace", "path": "/status/relatedObjects/0/object/kind", "value": "UndefinedWidget"}
+			]`)
+
+		By("Deleting the ConfigurationPolicy")
+		deleteConfigPolicies([]string{case20ConfigPolicyNameMissingCRD})
+
+		By("Verifying the policy is fully removed (finalizer released)")
+		Eventually(func(g Gomega) {
+			policy := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
+				case20ConfigPolicyNameMissingCRD, testNamespace, false, defaultTimeoutSeconds)
+			g.Expect(policy).To(BeNil())
+		}, defaultTimeoutSeconds, 1).Should(Succeed())
 	})
 })
 

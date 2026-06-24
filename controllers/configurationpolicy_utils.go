@@ -4,6 +4,7 @@
 package controllers
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -15,6 +16,8 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 	templates "github.com/stolostron/go-template-utils/v7/pkg/templates"
 	depclient "github.com/stolostron/kubernetes-dependency-watches/client"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
 	apiRes "k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -910,4 +913,12 @@ func resolveGoTemplates(
 	resolvedTemplate, err = tmplResolver.ResolveTemplate(rawObj, templateContext, resolveOptions)
 
 	return resolvedTemplate, skipObject, err
+}
+
+// childObjectUnavailable reports whether a child object can no longer be accessed because its API
+// mapping or resource type was removed from the cluster.
+func childObjectUnavailable(err error) bool {
+	return errors.Is(err, depclient.ErrNoVersionedResource) ||
+		k8serrors.IsNotFound(err) ||
+		meta.IsNoMatchError(err)
 }
