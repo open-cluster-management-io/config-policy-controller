@@ -30,9 +30,5 @@ spec:
           env:
             - name: WATCH_NAMESPACE
               value: managed
-            - name: POD_NAME
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.name
             - name: OPERATOR_NAME
               value: "config-policy-controller"
