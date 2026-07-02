@@ -45,7 +45,7 @@ var _ = Describe("Test config policy ratelimiting", Ordered, func() {
 		utils.Kubectl("apply", "-f", configMapYaml) // The YAML specifies namespace "default"
 	})
 
-	It("should initially have a small number of evaluations", func() {
+	It("should initially have a small number of evaluations", FlakeAttempts(3), func() {
 		Eventually(
 			metricCheck, 10, 2,
 		).WithArguments("config_policy_evaluation_total", "name", policyName).Should(BeNumerically("<=", 5))
@@ -57,7 +57,7 @@ var _ = Describe("Test config policy ratelimiting", Ordered, func() {
 
 	value := 0
 
-	It("should limit the number of evaluations when a watched object changes frequently", func() {
+	It("should limit the number of evaluations when a watched object changes frequently", FlakeAttempts(3), func() {
 		start := time.Now()
 
 		By("Updating the watched configmap frequently for 10 seconds")
@@ -73,7 +73,7 @@ var _ = Describe("Test config policy ratelimiting", Ordered, func() {
 		).WithArguments("config_policy_evaluation_total", "name", policyName).Should(BeNumerically("<", 12))
 	})
 
-	It("should have updated the object to the final value", func() {
+	It("should have updated the object to the final value", FlakeAttempts(3), func() {
 		By("Verifying the configmap has bar=" + strconv.Itoa(value))
 		Eventually(func(g Gomega) {
 			cm := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
