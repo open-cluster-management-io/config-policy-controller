@@ -23,7 +23,7 @@ jobs:
       REGISTRY: localhost:5000
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -91,7 +91,7 @@ jobs:
           - "latest"
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -145,7 +145,7 @@ jobs:
           - "latest"
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -200,7 +200,7 @@ jobs:
           - "latest"
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -248,7 +248,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Config Policy Controller
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -267,7 +267,7 @@ jobs:
           make gosec-scan
 
       - name: Report unit coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
           files: ./coverage_unit.out
@@ -277,7 +277,7 @@ jobs:
           disable_search: true
 
       - name: Report e2e coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
           files: ./coverage_e2e.out
@@ -287,7 +287,7 @@ jobs:
           disable_search: true
 
       - name: Report overall coverage to Codecov
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@v7
         with:
           token: ${{ secrets.CODECOV_UPLOAD_TOKEN }}
           fail_ci_if_error: false

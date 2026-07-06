@@ -13,9 +13,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Run FOSSA Scan
-        uses: fossas/fossa-action@v1
+        uses: fossas/fossa-action@v2
         with:
           api-key: ${{ secrets.FOSSA_API_KEY }}
