@@ -250,17 +250,17 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		})
 	}
 
-	patchSingleField := func(patchFilepath, applyNs, fieldPath, value string) string {
+	patchSingleField := func(ctx context.Context, patchFilepath, applyNs, fieldPath, value string) string {
 		GinkgoHelper()
 		patch := fmt.Sprintf(`[{"op": "replace", "path": %s, "value": %s}]`, fieldPath, value)
 
-		return utils.KubectlJSONPatchToFile(patch, "-n", applyNs, "-f", patchFilepath)
+		return utils.KubectlJSONPatchToFile(ctx, patch, "-n", applyNs, "-f", patchFilepath)
 	}
 
 	// appends a suffix to the resource names and namespaces to
 	// avoid conflicts in parallel tests
 	// the caller should run os.Remove() on the returned filepath when done
-	parallelizeOpPol := func(opPolYAML, desiredPolName string) string {
+	parallelizeOpPol := func(ctx context.Context, opPolYAML, desiredPolName string) string {
 		GinkgoHelper()
 		filesToClean := []string{}
 		defer func() {
@@ -297,7 +297,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				return filepath, false
 			}
 
-			patchFilepath := patchSingleField(filepath, testNamespace, "/spec/subscription/namespace", opPolTestNS)
+			patchFilepath := patchSingleField(ctx, filepath, testNamespace, "/spec/subscription/namespace", opPolTestNS)
 
 			return patchFilepath, true
 		}
@@ -313,7 +313,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				return filepath, false
 			}
 
-			patchedOpGroupNs := patchSingleField(filepath, testNamespace, "/spec/operatorGroup/namespace", opPolTestNS)
+			patchedOpGroupNs := patchSingleField(ctx, filepath, testNamespace,
+				"/spec/operatorGroup/namespace", opPolTestNS)
 
 			targetNamespaces, found, _ := unstructured.NestedStringSlice(operatorGroup, "targetNamespaces")
 			if !found {
@@ -329,7 +330,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 					continue
 				}
 
-				patchedTargetNs = patchSingleField(patchedTargetNs, testNamespace,
+				patchedTargetNs = patchSingleField(ctx, patchedTargetNs, testNamespace,
 					fmt.Sprintf("/spec/operatorGroup/targetNamespaces/%d", i), opPolTestNS)
 				os.Remove(patchedOpGroupNs)
 
@@ -351,20 +352,20 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		}
 
 		patchOpPolName := patchSingleField(
-			patchOpGroupNs, testNamespace, "/metadata/name", desiredPolName)
+			ctx, patchOpGroupNs, testNamespace, "/metadata/name", desiredPolName)
 		filesToClean = append(filesToClean, patchOpPolName)
 
 		parentPolicyName := getParentPolicyName()
 		patchOwnerRefName := patchSingleField(
-			patchOpPolName, testNamespace, "/metadata/ownerReferences/0/name", parentPolicyName)
+			ctx, patchOpPolName, testNamespace, "/metadata/ownerReferences/0/name", parentPolicyName)
 
 		return patchOwnerRefName
 	}
 
-	setupPolicy := func(opPolYAML, opPolName, parentPolicyName string) {
+	setupPolicy := func(ctx context.Context, opPolYAML, opPolName, parentPolicyName string) {
 		GinkgoHelper()
-		patchedParentYAML := patchSingleField(parentPolicyYAML, testNamespace, "/metadata/name", parentPolicyName)
-		patchedOpPolYAML := parallelizeOpPol(opPolYAML, opPolName)
+		patchedParentYAML := patchSingleField(ctx, parentPolicyYAML, testNamespace, "/metadata/name", parentPolicyName)
+		patchedOpPolYAML := parallelizeOpPol(ctx, opPolYAML, opPolName)
 
 		createObjWithParent(patchedParentYAML, parentPolicyName,
 			patchedOpPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
@@ -389,7 +390,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolName = "oppol-all-defaults" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
@@ -402,7 +403,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			})
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 		AfterAll(func(ctx context.Context) {
 			By("Fixing the catalog source")
@@ -502,12 +503,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			opPolName = "oppol-defaults-invalid-source" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should be NonCompliant specifying a source not matching the PackageManifest", func(ctx context.Context) {
@@ -543,13 +544,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-no-group" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially be NonCompliant", func() {
@@ -676,7 +677,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName  string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-with-group" + getTestSuffix()
 			scopedOpGroupYAML = "../resources/case38_operator_install/scoped-operator-group.yaml"
@@ -686,9 +687,9 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 			KubectlTarget("apply", "-f", incorrectOpGroupYAML, "-n", opPolTestNS)
 
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 
-			scopedOpGroupYAML = patchSingleField(scopedOpGroupYAML, testNamespace,
+			scopedOpGroupYAML = patchSingleField(ctx, scopedOpGroupYAML, testNamespace,
 				"/spec/targetNamespaces", "[\""+opPolTestNS+"\"]")
 
 			DeferCleanup(func() {
@@ -860,14 +861,14 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-with-group" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
 			KubectlTarget("apply", "-f", extraOpGroupYAML, "-n", opPolTestNS)
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially be NonCompliant", func() {
@@ -1024,14 +1025,14 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-no-group" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
 			KubectlTarget("apply", "-f", subYAML, "-n", opPolTestNS)
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 		It("Should initially notice the matching Subscription", func() {
 			check(
@@ -1097,13 +1098,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-no-allnamespaces" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
@@ -1180,7 +1181,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-with-group" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
@@ -1202,7 +1203,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				}, olmWaitTimeout*2, 3).Should(Succeed())
 			})
 
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially show the CatalogSource is compliant", func() {
@@ -1370,13 +1371,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			secondInstallPlanName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-manual-upgrades" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially report the ConstraintsNotSatisfiable Subscription", func(ctx SpecContext) {
@@ -1734,7 +1735,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-validity-test" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
@@ -1747,7 +1748,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				KubectlTarget("delete", "ns", "nonexist-testns", "--ignore-not-found")
 			})
 
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should initially report subscription unknown fields", func() {
@@ -1910,13 +1911,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName string
 			)
 
-			BeforeAll(func() {
+			BeforeAll(func(ctx SpecContext) {
 				opPolTestNS = getOpPolTestNS()
 				opPolName = "oppol-no-group" + getTestSuffix()
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+				setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 
 				DeferCleanup(func() {
 					KubectlTarget("delete", "crd", crdName, "--wait", "--ignore-not-found")
@@ -2035,13 +2036,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName string
 			)
 
-			BeforeAll(func() {
+			BeforeAll(func(ctx SpecContext) {
 				opPolTestNS = getOpPolTestNS()
 				opPolName = "oppol-mustnothave" + getTestSuffix()
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+				setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 
 				DeferCleanup(func() {
 					KubectlTarget("delete", "crd", crdName, "--wait", "--ignore-not-found")
@@ -2945,12 +2946,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName string
 			)
 
-			BeforeAll(func() {
+			BeforeAll(func(ctx SpecContext) {
 				opPolName = "oppol-mustnothave" + getTestSuffix()
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+				setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 
 				DeferCleanup(func() {
 					KubectlTarget("delete", "crd", crdName, "--wait", "--ignore-not-found")
@@ -3084,7 +3085,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName string
 			)
 
-			BeforeEach(func() {
+			BeforeEach(func(ctx SpecContext) {
 				testSuffix := getTestSuffix()
 				opPolTestNS = getOpPolTestNS()
 				opPolName = "oppol-mustnothave-apicast" + testSuffix
@@ -3092,7 +3093,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+				setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 
 				DeferCleanup(func() {
 					KubectlTarget("delete", "crd", crdName, "--wait", "--ignore-not-found")
@@ -3266,7 +3267,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				}, eventuallyTimeout, 3, ctx).ShouldNot(BeEmpty())
 
 				By("Creating another operator policy in the namespace")
-				setupPolicy(otherYAML, otherOpPolName, parentPolicyName)
+				setupPolicy(ctx, otherYAML, otherOpPolName, parentPolicyName)
 
 				// enforce the other policy
 				utils.EnforceOperatorPolicy(otherOpPolName, testNamespace)
@@ -3300,13 +3301,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-with-group" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("should not report an operator group that does not match the spec", func() {
@@ -3352,12 +3353,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			opPolName = "oppol-no-group" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("should report compliant", func(ctx SpecContext) {
@@ -3391,12 +3392,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			opPolName = "oppol-no-group" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should have applied defaults to the removalBehavior field", func(ctx SpecContext) {
@@ -3425,12 +3426,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			opPolName = "oppol-no-group" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should have applied defaults to the ComplianceConfig field", func(ctx SpecContext) {
@@ -3461,15 +3462,15 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			testSuffix       string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			testSuffix = getTestSuffix()
 			musthaveName = "oppol-no-group" + testSuffix
 			mustnothaveName = "oppol-mustnothave" + testSuffix
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(musthaveYAML, musthaveName, parentPolicyName)
-			setupPolicy(mustnothaveYAML, mustnothaveName, parentPolicyName)
+			setupPolicy(ctx, musthaveYAML, musthaveName, parentPolicyName)
+			setupPolicy(ctx, mustnothaveYAML, mustnothaveName, parentPolicyName)
 
 			By("Waiting briefly to stabilize reconciles")
 			time.Sleep(5 * time.Second)
@@ -3640,7 +3641,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			opPolName = "oppol-with-templates" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
@@ -3652,17 +3653,17 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			channelPatch := `"{{ (lookup \"v1\" \"ConfigMap\" \"` + opPolTestNS +
 				`\" \"op-config\").data.channel }}"`
 
-			tempPatchedTargetNs := patchSingleField(
+			tempPatchedTargetNs := patchSingleField(ctx,
 				opPolYAML, testNamespace, "/spec/operatorGroup/targetNamespaces", targetNsPatch)
-			tempPatchedNsAndChannel := patchSingleField(
+			tempPatchedNsAndChannel := patchSingleField(ctx,
 				tempPatchedTargetNs, testNamespace, "/spec/subscription/channel", channelPatch)
 
 			configMapPatch := `"[\"foo\", \"bar\", \"` + opPolTestNS + `\"]"`
-			tempPatchedConfigMap := patchSingleField(configmapYAML, testNamespace, "/data/namespaces",
+			tempPatchedConfigMap := patchSingleField(ctx, configmapYAML, testNamespace, "/data/namespaces",
 				configMapPatch)
 			KubectlTarget("apply", "-f", tempPatchedConfigMap, "-n", opPolTestNS)
 
-			setupPolicy(tempPatchedNsAndChannel, opPolName, parentPolicyName)
+			setupPolicy(ctx, tempPatchedNsAndChannel, opPolName, parentPolicyName)
 
 			DeferCleanup(func() {
 				os.Remove(tempPatchedTargetNs)
@@ -3765,12 +3766,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName string
 			)
 
-			BeforeEach(func() {
+			BeforeEach(func(ctx SpecContext) {
 				opPolName = "oppol-no-group-enforce" + getTestSuffix()
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+				setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 			})
 
 			It("Should be compliant when enforced", func(ctx SpecContext) {
@@ -3793,14 +3794,14 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				parentPolicyName string
 			)
 
-			BeforeAll(func() {
+			BeforeAll(func(ctx SpecContext) {
 				opPolTestNS = getOpPolTestNS()
 				opPolName = "oppol-no-group-enforce-one-version" + getTestSuffix()
 				opPolNoExistName = "oppol-no-exist-enforce" + getTestSuffix()
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+				setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 			})
 
 			It("Should generate conditions and relatedobjects of CSV", func(ctx SpecContext) {
@@ -3863,54 +3864,56 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				)
 			})
 
-			It("Should only be noncompliant if subscription error relates to the one in the operator policy", func() {
-				setupPolicy(opPolNoExistYAML, opPolNoExistName, parentPolicyName)
+			It(
+				"Should only be noncompliant if subscription error relates to the one in the operator policy",
+				func(ctx SpecContext) {
+					setupPolicy(ctx, opPolNoExistYAML, opPolNoExistName, parentPolicyName)
 
-				By("Checking that " + opPolNoExistName + " is NonCompliant")
-				check(
-					opPolNoExistName,
-					true,
-					[]policyv1.RelatedObject{{
-						Object: policyv1.ObjectResource{
-							Kind:       "Subscription",
-							APIVersion: "operators.coreos.com/v1alpha1",
+					By("Checking that " + opPolNoExistName + " is NonCompliant")
+					check(
+						opPolNoExistName,
+						true,
+						[]policyv1.RelatedObject{{
+							Object: policyv1.ObjectResource{
+								Kind:       "Subscription",
+								APIVersion: "operators.coreos.com/v1alpha1",
+							},
+							Compliant: "NonCompliant",
+							Reason:    "ConstraintsNotSatisfiable",
+						}},
+						metav1.Condition{
+							Type:    "SubscriptionCompliant",
+							Status:  metav1.ConditionFalse,
+							Reason:  "ConstraintsNotSatisfiable",
+							Message: "constraints not satisfiable: refer to the Subscription for more details",
 						},
-						Compliant: "NonCompliant",
-						Reason:    "ConstraintsNotSatisfiable",
-					}},
-					metav1.Condition{
-						Type:    "SubscriptionCompliant",
-						Status:  metav1.ConditionFalse,
-						Reason:  "ConstraintsNotSatisfiable",
-						Message: "constraints not satisfiable: refer to the Subscription for more details",
-					},
-					"constraints not satisfiable",
-				)
+						"constraints not satisfiable",
+					)
 
-				// Check if subscription is still compliant on the operator policy trying to install a valid operator.
-				// This tests that subscription status filtering is working properly since OLM includes the
-				// subscription errors as a condition on all subscriptions in the namespace.
-				By("Checking that " + opPolName + " is still Compliant and unaffected by " + opPolNoExistName)
-				check(
-					opPolName,
-					false,
-					[]policyv1.RelatedObject{{
-						Object: policyv1.ObjectResource{
-							Kind:       "Subscription",
-							APIVersion: "operators.coreos.com/v1alpha1",
+					// Check if subscription still compliant on the operator policy trying to install a valid operator
+					// This tests that subscription status filtering is working properly since OLM includes the
+					// subscription errors as a condition on all subscriptions in the namespace.
+					By("Checking that " + opPolName + " is still Compliant and unaffected by " + opPolNoExistName)
+					check(
+						opPolName,
+						false,
+						[]policyv1.RelatedObject{{
+							Object: policyv1.ObjectResource{
+								Kind:       "Subscription",
+								APIVersion: "operators.coreos.com/v1alpha1",
+							},
+							Compliant: "Compliant",
+							Reason:    "Resource found as expected",
+						}},
+						metav1.Condition{
+							Type:    "SubscriptionCompliant",
+							Status:  metav1.ConditionTrue,
+							Reason:  "SubscriptionMatches",
+							Message: "the Subscription matches what is required by the policy",
 						},
-						Compliant: "Compliant",
-						Reason:    "Resource found as expected",
-					}},
-					metav1.Condition{
-						Type:    "SubscriptionCompliant",
-						Status:  metav1.ConditionTrue,
-						Reason:  "SubscriptionMatches",
-						Message: "the Subscription matches what is required by the policy",
-					},
-					"the Subscription matches what is required by the policy",
-				)
-			})
+						"the Subscription matches what is required by the policy",
+					)
+				})
 		})
 		Describe("Testing recovery of sub-csv connection", Ordered, func() {
 			const (
@@ -3925,13 +3928,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 			scenarioTriggered := true
 
-			BeforeAll(func() {
+			BeforeAll(func(ctx SpecContext) {
 				opPolTestNS = getOpPolTestNS()
 				opPolName = "oppol-no-group-enforce" + getTestSuffix()
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+				setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 			})
 
 			BeforeEach(func() {
@@ -4009,13 +4012,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 
 			// The first 'It' test is a prerequisite for the second 'It' test.
-			BeforeAll(func() {
+			BeforeAll(func(ctx SpecContext) {
 				opPolTestNS = getOpPolTestNS()
 				opPolName = "oppol-no-group-enforce" + getTestSuffix()
 				parentPolicyName = getParentPolicyName()
 
 				preFunc()
-				setupPolicy(opPolYAML, opPolName, parentPolicyName)
+				setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 			})
 
 			It("Should start compliant", func(ctx SpecContext) {
@@ -4163,7 +4166,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			}, olmWaitTimeout*2, 1).Should(Succeed())
 
 			By("Creating an OperatorPolicy to adopt the argocd-operator Subscription")
-			setupPolicy(opPolArgoCDYAML, opPolArgoCDName, parentPolicyName)
+			setupPolicy(ctx, opPolArgoCDYAML, opPolArgoCDName, parentPolicyName)
 
 			By("Checking the OperatorPolicy InstallPlan is not approved because of strimzi-cluster-operator.v0.35.0")
 			check(
@@ -4192,7 +4195,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			)
 
 			By("Creating an OperatorPolicy to adopt the strimzi-cluster-operator Subscription")
-			setupPolicy(opPolKafkaYAML, opPolKafkaName, parentPolicyName)
+			setupPolicy(ctx, opPolKafkaYAML, opPolKafkaName, parentPolicyName)
 
 			By("Verifying the initial installPlan for startingCSV was approved")
 			Eventually(func(g Gomega) {
@@ -4257,8 +4260,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 		It("Should have only package deprecation message is displayed "+
 			"when package, channel, and bundle are deprecated.",
-			func() {
-				setupPolicy(allPolYAML, allPolName, parentPolicyName)
+			func(ctx SpecContext) {
+				setupPolicy(ctx, allPolYAML, allPolName, parentPolicyName)
 
 				check(
 					allPolName,
@@ -4277,8 +4280,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 		It("Should have channel deprecation message is displayed "+
 			"when channel is deprecated.",
-			func() {
-				setupPolicy(channelPolYAML, channelPolName, parentPolicyName)
+			func(ctx SpecContext) {
+				setupPolicy(ctx, channelPolYAML, channelPolName, parentPolicyName)
 
 				check(
 					channelPolName,
@@ -4297,8 +4300,8 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 
 		It("Should have bundle deprecation message is displayed "+
 			"when bundle is deprecated.",
-			func() {
-				setupPolicy(bundlePolYAML, bundlePolName, parentPolicyName)
+			func(ctx SpecContext) {
+				setupPolicy(ctx, bundlePolYAML, bundlePolName, parentPolicyName)
 
 				check(
 					bundlePolName,
@@ -4317,7 +4320,7 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		It("Should have deprecation message is displayed and policy compliance is Compliant "+
 			"when bundle is deprecated and deprecationAvaliable is set to NonCompliant",
 			func(ctx SpecContext) {
-				setupPolicy(bundlePolYAML, bundlePolName, parentPolicyName)
+				setupPolicy(ctx, bundlePolYAML, bundlePolName, parentPolicyName)
 
 				utils.Kubectl("patch", "operatorpolicy", bundlePolName, "-n", testNamespace, "--type=json", "-p",
 					`[{"op": "replace",
@@ -4349,13 +4352,13 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeAll(func() {
+		BeforeAll(func(ctx SpecContext) {
 			opPolTestNS = getOpPolTestNS()
 			policyName = "oppol-with-group-and-config" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(policyYAML, policyName, parentPolicyName)
+			setupPolicy(ctx, policyYAML, policyName, parentPolicyName)
 		})
 
 		It("Should be able to update the subscription when the policy changes", func(ctx SpecContext) {
@@ -4505,12 +4508,12 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			parentPolicyName string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			opPolName = "oppol-with-group-and-config" + getTestSuffix()
 			parentPolicyName = getParentPolicyName()
 
 			preFunc()
-			setupPolicy(opPolYAML, opPolName, parentPolicyName)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
 		})
 
 		It("Should be Compliant when there are no new minor version channels available", func() {

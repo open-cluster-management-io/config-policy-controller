@@ -410,7 +410,7 @@ var _ = Describe("Test template context variables", func() {
 				By("Applying the " + policyName + " ConfigurationPolicy")
 				patchFilepath := rsrcPath + "case44_object_var.yaml"
 				if patch != "" {
-					patchFilepath = utils.KubectlJSONPatchToFile(patch, "-n", testNamespace, "-f", patchFilepath)
+					patchFilepath = utils.KubectlJSONPatchToFile(ctx, patch, "-n", testNamespace, "-f", patchFilepath)
 					defer os.Remove(patchFilepath)
 				}
 				utils.KubectlApplyAndLabel(baseName, "-n", testNamespace, "-f", patchFilepath)

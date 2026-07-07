@@ -236,12 +236,13 @@ func Kubectl(args ...string) {
 // KubectlJSONPatchToFile patches a manifest using a JSON patch and returns a
 // temporary filepath with the resulting YAML. It is the responsibility of the
 // caller to call os.Remove(result) when done with the file.
-func KubectlJSONPatchToFile(patch string, args ...string) string {
+func KubectlJSONPatchToFile(ctx context.Context, patch string, args ...string) string {
 	patchArgs := []string{
 		"patch", "--local=true", "--type=json", "--patch=" + patch, "--output=yaml",
 	}
 
 	newYAML, err := utils.KubectlWithOutput(
+		ctx,
 		append(patchArgs, args...)...)
 	if err != nil {
 		Fail(err.Error(), 1)
