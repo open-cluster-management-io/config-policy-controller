@@ -29,7 +29,7 @@ require (
 	k8s.io/client-go v0.35.5
 	k8s.io/klog/v2 v2.130.1
 	open-cluster-management.io/addon-framework v1.3.0
-	open-cluster-management.io/governance-policy-propagator v0.18.1-0.20260302212915-228fbaa3ff66
+	open-cluster-management.io/governance-policy-propagator v0.19.0
 	sigs.k8s.io/controller-runtime v0.23.3
 	sigs.k8s.io/yaml v1.6.0
 )
