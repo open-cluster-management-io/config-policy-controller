@@ -514,7 +514,3 @@ type ConfigurationPolicyList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []ConfigurationPolicy `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&ConfigurationPolicy{}, &ConfigurationPolicyList{})
-}
