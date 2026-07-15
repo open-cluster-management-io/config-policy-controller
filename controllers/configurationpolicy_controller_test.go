@@ -602,7 +602,7 @@ status:
 func TestAddRelatedObject(t *testing.T) {
 	compliant := true
 	scopedGVR := depclient.ScopedGVR{
-		GroupVersionResource: policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy"),
+		GroupVersionResource: policyv1.GroupVersion.WithResource("ConfigurationPolicy"),
 		Namespaced:           true,
 	}
 	namespace := "default"
@@ -669,7 +669,7 @@ func TestUpdatedRelatedObjects(t *testing.T) {
 		},
 	}
 	scopedGVR := depclient.ScopedGVR{
-		GroupVersionResource: policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy"),
+		GroupVersionResource: policyv1.GroupVersion.WithResource("ConfigurationPolicy"),
 		Namespaced:           true,
 	}
 	name := "foo"
@@ -708,7 +708,7 @@ func TestUpdatedRelatedObjects(t *testing.T) {
 func TestAddRelatedObjectProperties(t *testing.T) {
 	compliant := true
 	scopedGVR := depclient.ScopedGVR{
-		GroupVersionResource: policyv1.SchemeBuilder.GroupVersion.WithResource("ConfigurationPolicy"),
+		GroupVersionResource: policyv1.GroupVersion.WithResource("ConfigurationPolicy"),
 		Namespaced:           true,
 	}
 	namespace := "default"
