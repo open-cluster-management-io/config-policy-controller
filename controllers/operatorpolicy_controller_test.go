@@ -17,6 +17,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
+	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
 )
 
@@ -1124,5 +1125,183 @@ func TestGetSelectedChannelName(t *testing.T) {
 				assert.Equal(t, tc.expectedChannel, channelName)
 			}
 		})
+	}
+}
+
+func TestIsCSVVersionAllowed(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		versions []string
+		csvName  string
+		expected bool
+	}{
+		{
+			name:     "empty versions allows all",
+			csvName:  "my-operator.v0.0.1",
+			expected: true,
+		},
+		{
+			name:     "matching version",
+			versions: []string{"my-operator.v0.0.1"},
+			csvName:  "my-operator.v0.0.1",
+			expected: true,
+		},
+		{
+			name:     "non-matching version",
+			versions: []string{"my-operator.v0.0.2"},
+			csvName:  "my-operator.v0.0.1",
+			expected: false,
+		},
+		{
+			name:     "one of multiple versions matches",
+			versions: []string{"my-operator.v0.0.2", "my-operator.v0.0.1"},
+			csvName:  "my-operator.v0.0.1",
+			expected: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			policy := &policyv1beta1.OperatorPolicy{
+				Spec: policyv1beta1.OperatorPolicySpec{
+					Versions: tc.versions,
+				},
+			}
+
+			assert.Equal(t, tc.expected, isCSVVersionAllowed(policy, tc.csvName))
+		})
+	}
+}
+
+func copiedCSV(name, namespace, sourceNS string, phase operatorv1alpha1.ClusterServiceVersionPhase,
+) *operatorv1alpha1.ClusterServiceVersion {
+	return &operatorv1alpha1.ClusterServiceVersion{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      name,
+			Namespace: namespace,
+			Labels: map[string]string{
+				operatorv1alpha1.CopiedLabelKey: sourceNS,
+			},
+		},
+		Status: operatorv1alpha1.ClusterServiceVersionStatus{
+			Phase: phase,
+		},
+	}
+}
+
+func TestHandleExistingInstallation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		versions        []string
+		csvPhase        operatorv1alpha1.ClusterServiceVersionPhase
+		expectedCSVCond metav1.ConditionStatus
+	}{
+		{
+			name:            "compliant with no version restriction",
+			csvPhase:        operatorv1alpha1.CSVPhaseSucceeded,
+			expectedCSVCond: metav1.ConditionTrue,
+		},
+		{
+			name:            "version allowed",
+			versions:        []string{"my-operator.v0.0.1"},
+			csvPhase:        operatorv1alpha1.CSVPhaseSucceeded,
+			expectedCSVCond: metav1.ConditionTrue,
+		},
+		{
+			name:            "CSV not succeeded",
+			csvPhase:        operatorv1alpha1.CSVPhaseInstalling,
+			expectedCSVCond: metav1.ConditionFalse,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &OperatorPolicyReconciler{}
+			policy := &policyv1beta1.OperatorPolicy{
+				Spec: policyv1beta1.OperatorPolicySpec{
+					ComplianceType: "musthave",
+					Versions:       tc.versions,
+				},
+			}
+
+			csv := copiedCSV("my-operator.v0.0.1", "target-ns", "source-ns", tc.csvPhase)
+
+			changed := r.handleExistingInstallation(policy, csv)
+			assert.True(t, changed)
+
+			_, csvCond := policy.Status.GetCondition(csvConditionType)
+			assert.Equal(t, tc.expectedCSVCond, csvCond.Status)
+
+			for _, condType := range []string{
+				opGroupConditionType, subConditionType, installPlanConditionType,
+				crdConditionType, deploymentConditionType,
+			} {
+				_, cond := policy.Status.GetCondition(condType)
+				assert.Equal(t, metav1.ConditionTrue, cond.Status, "condition %s", condType)
+				assert.Equal(t, "ExistingInstallation", cond.Reason, "condition %s", condType)
+				assert.Contains(t, cond.Message, "source-ns", "condition %s", condType)
+			}
+
+			// CatalogSourcesUnhealthy has reversed polarity
+			_, catCond := policy.Status.GetCondition(catalogSrcConditionType)
+			assert.Equal(t, metav1.ConditionFalse, catCond.Status)
+			assert.Equal(t, "ExistingInstallation", catCond.Reason)
+			assert.Contains(t, catCond.Message, "source-ns")
+		})
+	}
+}
+
+func TestHandleExistingInstallation_VersionNotAllowed(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{}
+	policy := &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			ComplianceType: "musthave",
+			Versions:       []string{"my-operator.v0.0.2"},
+		},
+	}
+
+	csv := copiedCSV("my-operator.v0.0.1", "target-ns", "source-ns", operatorv1alpha1.CSVPhaseSucceeded)
+
+	changed := r.handleExistingInstallation(policy, csv)
+	assert.True(t, changed)
+
+	_, csvCond := policy.Status.GetCondition(csvConditionType)
+	assert.Equal(t, metav1.ConditionFalse, csvCond.Status)
+	assert.Equal(t, "UnapprovedVersion", csvCond.Reason)
+
+	idx, _ := policy.Status.GetCondition(opGroupConditionType)
+	assert.Equal(t, -1, idx, "OperatorGroup condition should not be set")
+}
+
+func TestHandleExistingInstallation_RelatedObjects(t *testing.T) {
+	t.Parallel()
+
+	r := &OperatorPolicyReconciler{}
+	policy := &policyv1beta1.OperatorPolicy{
+		Spec: policyv1beta1.OperatorPolicySpec{
+			ComplianceType: "musthave",
+		},
+	}
+
+	csv := copiedCSV("my-operator.v0.0.1", "target-ns", "source-ns", operatorv1alpha1.CSVPhaseSucceeded)
+
+	r.handleExistingInstallation(policy, csv)
+
+	csvObjs := policy.Status.RelatedObjsOfKind("ClusterServiceVersion")
+	assert.Len(t, csvObjs, 1)
+
+	for _, obj := range csvObjs {
+		assert.Equal(t, "my-operator.v0.0.1", obj.Object.Metadata.Name)
+		assert.Equal(t, string(policyv1.Compliant), obj.Compliant)
 	}
 }
