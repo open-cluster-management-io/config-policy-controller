@@ -702,6 +702,25 @@ func subResFailedCond(subFailedCond operatorv1alpha1.SubscriptionCondition) meta
 	return cond
 }
 
+// existingInstallCond returns a Compliant condition indicating the operator is already
+// installed via AllNamespaces mode in a different namespace.
+func existingInstallCond(kind, sourceNamespace string) metav1.Condition {
+	status := metav1.ConditionTrue
+	// CatalogSourcesUnhealthy has reversed polarity: False means healthy
+	if condType(kind) == catalogSrcConditionType {
+		status = metav1.ConditionFalse
+	}
+
+	return metav1.Condition{
+		Type:   condType(kind),
+		Status: status,
+		Reason: "ExistingInstallation",
+		Message: fmt.Sprintf(
+			"the operator is installed in namespace %s and is available via AllNamespaces mode", sourceNamespace,
+		),
+	}
+}
+
 // notApplicableCond returns a Compliant condition, with a Reason like '____NotApplicable',
 // and a Message like 'MustNotHave policies ignore kind ____'
 func notApplicableCond(kind string) metav1.Condition {

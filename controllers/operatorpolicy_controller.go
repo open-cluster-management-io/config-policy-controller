@@ -405,6 +405,41 @@ func (r *OperatorPolicyReconciler) handleResources(ctx context.Context, policy *
 		return earlyComplianceEvents, condChanged, err
 	}
 
+	// If an AllNamespaces operator is already installed elsewhere, OLM copies its CSV into this
+	// namespace. Short-circuit to avoid creating a duplicate Sub that would become orphaned.
+	// See https://github.com/operator-framework/operator-lifecycle-manager/issues/3866
+	if desiredSub != nil && desiredOG != nil &&
+		policy.Spec.ComplianceType.IsMustHave() &&
+		len(desiredOG.Spec.TargetNamespaces) == 0 {
+		copiedCSV, err := r.findCopiedCSV(ctx, policy, desiredSub)
+		if err != nil {
+			return earlyComplianceEvents, condChanged, err
+		}
+
+		if copiedCSV != nil {
+			condChanged = r.handleExistingInstallation(policy, copiedCSV) || condChanged
+
+			// Compliance config checks apply to the CSV regardless of whether the installation
+			// is local or existing, but need the packageManifest and desiredSub context.
+			if err := r.updateDeprecationStatus(ctx, policy, desiredSub, copiedCSV, packageManifest); err != nil {
+				return earlyComplianceEvents, condChanged, err
+			}
+
+			changed, err = r.updateMinorChannelUpgradeStatus(policy, desiredSub, packageManifest)
+			condChanged = condChanged || changed
+
+			if err != nil {
+				return earlyComplianceEvents, condChanged, err
+			}
+
+			if err := r.cleanupStaleInstallation(ctx, policy, desiredSub); err != nil {
+				return earlyComplianceEvents, condChanged, err
+			}
+
+			return earlyComplianceEvents, condChanged, nil
+		}
+	}
+
 	desiredSubName := ""
 	if desiredSub != nil {
 		desiredSubName = desiredSub.Name
@@ -920,6 +955,26 @@ func policyStartingCSV(policy *policyv1beta1.OperatorPolicy) string {
 	}
 
 	return sub.StartingCSV
+}
+
+// isCSVVersionAllowed assumes the Versions list has been canonicalized already,
+// usually done by buildResources (via resolveVersionsTemplates and canonicalizeVersions).
+func isCSVVersionAllowed(policy *policyv1beta1.OperatorPolicy, csvName string) bool {
+	if len(policy.Spec.Versions) == 0 {
+		return true
+	}
+
+	for _, version := range policy.Spec.Versions {
+		if version == csvName {
+			return true
+		}
+	}
+
+	if startingCSV := policyStartingCSV(policy); startingCSV != "" && startingCSV == csvName {
+		return true
+	}
+
+	return false
 }
 
 // buildSubscription bootstraps the subscription spec defined in the operator policy
@@ -2442,6 +2497,76 @@ func (r *OperatorPolicyReconciler) mustnothaveInstallPlan(
 	return changed
 }
 
+// handleExistingInstallation handles the case where an AllNamespaces operator is already installed
+// in a different namespace and OLM has copied the CSV into the target namespace.
+// It sets all conditions appropriately and returns whether the status changed.
+func (r *OperatorPolicyReconciler) handleExistingInstallation(
+	policy *policyv1beta1.OperatorPolicy,
+	csv *operatorv1alpha1.ClusterServiceVersion,
+) bool {
+	changed := false
+
+	csv.SetGroupVersionKind(clusterServiceVersionGVK)
+
+	if !isCSVVersionAllowed(policy, csv.Name) {
+		return updateStatus(policy, disallowedCSVCond(csv), disallowedCSVObj(csv))
+	}
+
+	sourceNS := csv.GetLabels()[operatorv1alpha1.CopiedLabelKey]
+
+	for _, kind := range []string{
+		"OperatorGroup", "Subscription", "InstallPlan",
+		"CustomResourceDefinition", "Deployment", "CatalogSource",
+	} {
+		changed = updateStatus(policy, existingInstallCond(kind, sourceNS)) || changed
+	}
+
+	changed = updateStatus(policy, allowedCSVCond(csv), existingCSVObj(csv)) || changed
+
+	return changed
+}
+
+// cleanupStaleInstallation removes a stale Subscription created by a previous enforce reconcile
+// before the existing AllNamespaces installation was detected.
+// This can happen when the controller reconciles in enforce mode before OLM copies the CSV,
+// or on upgrade from a version without the detection.
+// InstallPlans are garbage-collected via ownerReference.
+// OG cleanup is deferred until ownership tracking is available (#489).
+func (r *OperatorPolicyReconciler) cleanupStaleInstallation(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	sub *operatorv1alpha1.Subscription,
+) error {
+	opLog := ctrl.LoggerFrom(ctx)
+
+	if policy.Spec.RemediationAction.IsInform() {
+		return nil
+	}
+
+	foundSub := &operatorv1alpha1.Subscription{}
+
+	if err := r.TargetClient.Get(ctx, client.ObjectKey{
+		Namespace: sub.Namespace, Name: sub.Name,
+	}, foundSub); client.IgnoreNotFound(err) != nil {
+		return fmt.Errorf("error getting stale Subscription: %w", err)
+	}
+
+	expectedAnnotation := policy.Namespace + "." + policy.Name
+	if foundSub.GetAnnotations()[ManagedByAnnotation] == expectedAnnotation {
+		opLog.Info("Deleting stale Subscription from previous reconcile",
+			"subName", foundSub.GetName(), "subNamespace", foundSub.GetNamespace())
+
+		if err := r.TargetClient.Delete(ctx, foundSub); err != nil {
+			return fmt.Errorf("error deleting stale Subscription: %w", err)
+		}
+	}
+
+	// FUTURE: revisit OG cleanup when #489 (OG ownership tracking) is implemented.
+	// Until then, we can't distinguish stale OGs from pre-existing ones.
+
+	return nil
+}
+
 func (r *OperatorPolicyReconciler) handleCSV(
 	ctx context.Context,
 	policy *policyv1beta1.OperatorPolicy,
@@ -2498,33 +2623,8 @@ func (r *OperatorPolicyReconciler) handleCSV(
 		return foundCSV, nil, updateStatus(policy, missingWantedCond("ClusterServiceVersion"), relatedCSVs...), nil
 	}
 
-	// Check if the CSV is an approved version
-	if len(policy.Spec.Versions) != 0 {
-		allowedVersions := make([]policyv1.NonEmptyString, 0, len(policy.Spec.Versions)+1)
-
-		for _, version := range policy.Spec.Versions {
-			if version != "" {
-				allowedVersions = append(allowedVersions, policyv1.NonEmptyString(version))
-			}
-		}
-
-		if startingCSV := policyStartingCSV(policy); startingCSV != "" {
-			allowedVersions = append(allowedVersions, policyv1.NonEmptyString(startingCSV))
-		}
-
-		allowed := false
-
-		for _, allowedVersion := range allowedVersions {
-			if string(allowedVersion) == foundCSV.Name {
-				allowed = true
-
-				break
-			}
-		}
-
-		if !allowed {
-			return foundCSV, nil, updateStatus(policy, disallowedCSVCond(foundCSV), disallowedCSVObj(foundCSV)), nil
-		}
+	if !isCSVVersionAllowed(policy, foundCSV.Name) {
+		return foundCSV, nil, updateStatus(policy, disallowedCSVCond(foundCSV), disallowedCSVObj(foundCSV)), nil
 	}
 
 	return foundCSV, nil, updateStatus(policy, allowedCSVCond(foundCSV), relatedCSVs...), nil
@@ -3178,6 +3278,84 @@ func getNextMinorChannel(channels []interface{}, selectedChannelName string) ([]
 	slices.Sort(nextChannelNames)
 
 	return nextChannelNames, true
+}
+
+// findCopiedCSV looks for a CSV in the subscription's namespace that was copied there by OLM
+// from an AllNamespaces installation in a different namespace.
+// It returns the copied CSV if one matches the subscription's package name, or nil if none is found.
+// A name-specific watch is registered on the matched CSV to ensure deletion events are caught.
+func (r *OperatorPolicyReconciler) findCopiedCSV(
+	ctx context.Context,
+	policy *policyv1beta1.OperatorPolicy,
+	sub *operatorv1alpha1.Subscription,
+) (*operatorv1alpha1.ClusterServiceVersion, error) {
+	// Use TargetClient for the list to avoid registering a broad watch on all copied CSVs.
+	csvList := &operatorv1alpha1.ClusterServiceVersionList{}
+
+	if err := r.TargetClient.List(ctx, csvList,
+		client.InNamespace(sub.Namespace),
+		client.HasLabels{operatorv1alpha1.CopiedLabelKey},
+	); err != nil {
+		return nil, fmt.Errorf("error listing copied CSVs: %w", err)
+	}
+
+	watcher := opPolIdentifier(policy.Namespace, policy.Name)
+
+	opLog := ctrl.LoggerFrom(ctx)
+
+	for _, csv := range csvList.Items {
+		pkgName := csvPackageName(&csv)
+		if pkgName == "" {
+			opLog.V(2).Info("Copied CSV has no package name in properties annotation, skipping",
+				"csvName", csv.GetName(), "csvNamespace", csv.GetNamespace())
+
+			continue
+		}
+
+		if pkgName != sub.Spec.Package {
+			continue
+		}
+
+		// Register a name-specific watch to reliably catch deletion events.
+		if _, err := r.DynamicWatcher.Get(
+			watcher, clusterServiceVersionGVK, sub.Namespace, csv.GetName(),
+		); err != nil {
+			return nil, fmt.Errorf("error watching the copied CSV: %w", err)
+		}
+
+		return &csv, nil
+	}
+
+	return nil, nil
+}
+
+// csvPackageName extracts the package name from a CSV's properties annotation.
+func csvPackageName(csv *operatorv1alpha1.ClusterServiceVersion) string {
+	propsJSON := csv.GetAnnotations()["operatorframework.io/properties"]
+	if propsJSON == "" {
+		return ""
+	}
+
+	var wrapper struct {
+		Properties []struct {
+			Type  string                 `json:"type"`
+			Value map[string]interface{} `json:"value"`
+		} `json:"properties"`
+	}
+
+	if err := json.Unmarshal([]byte(propsJSON), &wrapper); err != nil {
+		return ""
+	}
+
+	for _, prop := range wrapper.Properties {
+		if prop.Type == "olm.package" {
+			if pkgName, ok := prop.Value["packageName"].(string); ok {
+				return pkgName
+			}
+		}
+	}
+
+	return ""
 }
 
 // subLabelSelector returns a selector that matches a label that OLM adds to resources

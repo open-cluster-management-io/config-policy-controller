@@ -21,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 	policyv1beta1 "open-cluster-management.io/config-policy-controller/api/v1beta1"
@@ -362,10 +363,17 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 		return patchOwnerRefName
 	}
 
-	setupPolicy := func(ctx context.Context, opPolYAML, opPolName, parentPolicyName string) {
+	setupPolicy := func(ctx context.Context, opPolYAML, opPolName, parentPolicyName string, subNamespace ...string) {
 		GinkgoHelper()
 		patchedParentYAML := patchSingleField(ctx, parentPolicyYAML, testNamespace, "/metadata/name", parentPolicyName)
 		patchedOpPolYAML := parallelizeOpPol(ctx, opPolYAML, opPolName)
+
+		if len(subNamespace) > 0 {
+			patched := patchSingleField(
+				ctx, patchedOpPolYAML, testNamespace, "/spec/subscription/namespace", subNamespace[0])
+			os.Remove(patchedOpPolYAML)
+			patchedOpPolYAML = patched
+		}
 
 		createObjWithParent(patchedParentYAML, parentPolicyName,
 			patchedOpPolYAML, testNamespace, gvrPolicy, gvrOperatorPolicy)
@@ -377,6 +385,31 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 			os.Remove(patchedOpPolYAML)
 			os.Remove(patchedParentYAML)
 		})
+	}
+
+	waitForCSVField := func(ctx context.Context, csvName, namespace, expected string, fields ...string) {
+		GinkgoHelper()
+
+		Eventually(func(ctx context.Context) string {
+			csv, err := targetK8sDynamic.Resource(gvrClusterServiceVersion).Namespace(namespace).
+				Get(ctx, csvName, metav1.GetOptions{})
+			if err != nil {
+				return ""
+			}
+
+			val, _, _ := unstructured.NestedString(csv.Object, fields...)
+
+			return val
+		}, olmWaitTimeout, 5, ctx).Should(Equal(expected))
+	}
+
+	expectNoResources := func(g Gomega, ctx context.Context, namespace string, gvr schema.GroupVersionResource) {
+		GinkgoHelper()
+
+		list, err := targetK8sDynamic.Resource(gvr).Namespace(namespace).
+			List(ctx, metav1.ListOptions{})
+		g.Expect(err).NotTo(HaveOccurred())
+		g.Expect(list.Items).To(BeEmpty(), "expected no %s in %s", gvr.Resource, namespace)
 	}
 
 	Describe("Testing an all default operator policy", Serial, Ordered, func() {
@@ -4546,6 +4579,213 @@ var _ = Describe("Testing OperatorPolicy", Label("supports-hosted"), func() {
 				},
 				"",
 			)
+		})
+	})
+
+	Describe("Testing OperatorPolicy with existing AllNamespaces installation", Serial, Ordered, func() {
+		const (
+			opPolYAML   = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+			subYAML     = "../resources/case38_operator_install/subscription.yaml"
+			opGroupYAML = "../resources/case38_operator_install/extra-operator-group.yaml"
+			csvName     = "example-operator.v0.0.3"
+			preInstNS   = "existing-allns-install"
+		)
+		var (
+			opPolTestNS      string
+			opPolName        string
+			parentPolicyName string
+		)
+
+		BeforeAll(func(ctx context.Context) {
+			opPolTestNS = getOpPolTestNS()
+			opPolName = "oppol-existing-allns" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			By("Creating the pre-existing AllNamespaces installation in " + preInstNS)
+			KubectlTarget("create", "ns", preInstNS)
+			DeferCleanup(func() {
+				KubectlTarget("delete", "ns", preInstNS, "--ignore-not-found", "--wait")
+			})
+
+			KubectlTarget("apply", "-f", opGroupYAML, "-n", preInstNS)
+			KubectlTarget("apply", "-f", subYAML, "-n", preInstNS)
+
+			By("Waiting for the CSV to be installed in " + preInstNS)
+			waitForCSVField(ctx, csvName, preInstNS, "Succeeded", "status", "phase")
+
+			By("Waiting for the copied CSV to appear in the target namespace")
+			preFunc()
+			waitForCSVField(ctx, csvName, opPolTestNS, preInstNS, "metadata", "labels", "olm.copiedFrom")
+
+			By("Creating the OperatorPolicy targeting " + opPolTestNS)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName)
+		})
+
+		It("Should report Compliant when the operator is available via AllNamespaces", func(ctx SpecContext) {
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
+			checkCompliance(ctx, opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+		})
+
+		It("Should have the ExistingInstallation condition on Subscription", func() {
+			check(
+				opPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "ClusterServiceVersion",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      csvName,
+							Namespace: opPolTestNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Copied",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "ExistingInstallation",
+					Message: "the operator is installed in namespace " + preInstNS,
+				},
+				"",
+			)
+		})
+
+		It("Should not create a Subscription or OperatorGroup in the target namespace", func(ctx context.Context) {
+			Consistently(func(g Gomega, ctx context.Context) {
+				expectNoResources(g, ctx, opPolTestNS, gvrSubscription)
+				expectNoResources(g, ctx, opPolTestNS, gvrOperatorGroup)
+			}, consistentlyDuration, 1).WithContext(ctx).Should(Succeed())
+		})
+
+		It("Should stay Compliant when deprecationsPresent is NonCompliant", func(ctx SpecContext) {
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p",
+				`[{"op": "replace", "path": "/spec/complianceConfig/deprecationsPresent", "value": "NonCompliant"}]`)
+			checkCompliance(ctx, opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+		})
+
+		It("Should stay Compliant when minorChannelUpgradeAvailable is NonCompliant", func(ctx SpecContext) {
+			patch := `[{"op": "replace", "path": "/spec/complianceConfig/minorChannelUpgradeAvailable",` +
+				` "value": "NonCompliant"}]`
+			utils.Kubectl("patch", "operatorpolicy", opPolName, "-n", testNamespace, "--type=json", "-p", patch)
+			checkCompliance(ctx, opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+		})
+	})
+
+	Describe("Testing two competing AllNamespaces OperatorPolicies", Serial, Ordered, func() {
+		const (
+			opPolYAML   = "../resources/case38_operator_install/operator-policy-no-group.yaml"
+			opGroupYAML = "../resources/case38_operator_install/extra-operator-group.yaml"
+			csvName     = "example-operator.v0.0.3"
+			primaryNS   = "competing-primary"
+			secondaryNS = "competing-secondary"
+			tertiaryNS  = "competing-preexisting-og"
+		)
+		var (
+			opPolName        string
+			secondaryPolName string
+			tertiaryPolName  string
+			parentPolicyName string
+		)
+
+		BeforeAll(func(ctx context.Context) {
+			opPolName = "oppol-no-group" + getTestSuffix()
+			secondaryPolName = "oppol-secondary" + getTestSuffix()
+			tertiaryPolName = "oppol-tertiary" + getTestSuffix()
+			parentPolicyName = getParentPolicyName()
+
+			By("Creating namespaces for all installations")
+			KubectlTarget("create", "ns", primaryNS)
+			KubectlTarget("create", "ns", secondaryNS)
+			KubectlTarget("create", "ns", tertiaryNS)
+
+			DeferCleanup(func() {
+				KubectlTarget("delete", "ns", primaryNS, "--ignore-not-found", "--wait")
+				KubectlTarget("delete", "ns", secondaryNS, "--ignore-not-found", "--wait")
+				KubectlTarget("delete", "ns", tertiaryNS, "--ignore-not-found", "--wait")
+			})
+
+			By("Installing operator via OperatorPolicy in " + primaryNS)
+			setupPolicy(ctx, opPolYAML, opPolName, parentPolicyName, primaryNS)
+			utils.EnforceOperatorPolicy(opPolName, testNamespace)
+
+			By("Waiting for the operator to install in " + primaryNS)
+			waitForCSVField(ctx, csvName, primaryNS, "Succeeded", "status", "phase")
+
+			By("Waiting for copied CSV in " + secondaryNS)
+			waitForCSVField(ctx, csvName, secondaryNS, primaryNS, "metadata", "labels", "olm.copiedFrom")
+
+			By("Creating second OperatorPolicy targeting " + secondaryNS)
+			setupPolicy(ctx, opPolYAML, secondaryPolName, parentPolicyName, secondaryNS)
+			utils.EnforceOperatorPolicy(secondaryPolName, testNamespace)
+		})
+
+		It("Primary policy should be Compliant with a real installation", func(ctx SpecContext) {
+			checkCompliance(ctx, opPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+		})
+
+		It("Secondary policy should be Compliant via ExistingInstallation", func(ctx SpecContext) {
+			checkCompliance(ctx, secondaryPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+
+			check(
+				secondaryPolName,
+				false,
+				[]policyv1.RelatedObject{{
+					Object: policyv1.ObjectResource{
+						Kind:       "ClusterServiceVersion",
+						APIVersion: "operators.coreos.com/v1alpha1",
+						Metadata: policyv1.ObjectMetadata{
+							Name:      csvName,
+							Namespace: secondaryNS,
+						},
+					},
+					Compliant: "Compliant",
+					Reason:    "Copied",
+				}},
+				metav1.Condition{
+					Type:    "SubscriptionCompliant",
+					Status:  metav1.ConditionTrue,
+					Reason:  "ExistingInstallation",
+					Message: "the operator is installed in namespace " + primaryNS,
+				},
+				"",
+			)
+		})
+
+		It("Secondary namespace should have no stale OLM resources", func(ctx context.Context) {
+			Eventually(func(g Gomega, ctx context.Context) {
+				expectNoResources(g, ctx, secondaryNS, gvrSubscription)
+				expectNoResources(g, ctx, secondaryNS, gvrOperatorGroup)
+				expectNoResources(g, ctx, secondaryNS, gvrInstallPlan)
+			}, eventuallyTimeout, 5).WithContext(ctx).Should(Succeed())
+		})
+
+		It("Should preserve pre-existing OperatorGroup in tertiary namespace", func(ctx context.Context) {
+			By("Creating a pre-existing OperatorGroup in " + tertiaryNS)
+			KubectlTarget("apply", "-f", opGroupYAML, "-n", tertiaryNS)
+
+			By("Waiting for copied CSV in " + tertiaryNS)
+			waitForCSVField(ctx, csvName, tertiaryNS, primaryNS, "metadata", "labels", "olm.copiedFrom")
+
+			By("Creating third OperatorPolicy targeting " + tertiaryNS)
+			setupPolicy(ctx, opPolYAML, tertiaryPolName, parentPolicyName, tertiaryNS)
+			utils.EnforceOperatorPolicy(tertiaryPolName, testNamespace)
+
+			checkCompliance(ctx, tertiaryPolName, testNamespace, eventuallyTimeout, policyv1.Compliant)
+
+			// The stale Sub should be cleaned up.
+			Eventually(func(g Gomega, ctx context.Context) {
+				expectNoResources(g, ctx, tertiaryNS, gvrSubscription)
+			}, eventuallyTimeout, 5).WithContext(ctx).Should(Succeed())
+
+			// The pre-existing OG should survive.
+			Consistently(func(g Gomega, ctx context.Context) {
+				og, err := targetK8sDynamic.Resource(gvrOperatorGroup).Namespace(tertiaryNS).
+					Get(ctx, "extra-operator-group", metav1.GetOptions{})
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(og).NotTo(BeNil())
+			}, consistentlyDuration, 1).WithContext(ctx).Should(Succeed())
 		})
 	})
 })
