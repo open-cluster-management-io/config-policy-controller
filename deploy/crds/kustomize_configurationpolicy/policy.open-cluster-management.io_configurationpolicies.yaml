@@ -106,6 +106,8 @@ spec:
                     description: Exclude is an array of filepath expressions to exclude
                       objects by name.
                     items:
+                      description: NonEmptyString is a string type with minimum length
+                        of 1.
                       minLength: 1
                       type: string
                     type: array
@@ -113,6 +115,8 @@ spec:
                     description: Include is an array of filepath expressions to include
                       objects by name.
                     items:
+                      description: NonEmptyString is a string type with minimum length
+                        of 1.
                       minLength: 1
                       type: string
                     type: array
@@ -476,8 +480,8 @@ spec:
                           type: object
                       type: object
                     properties:
-                      description: Properties are additional properties of the related
-                        object relevant to the configuration policy.
+                      description: ObjectProperties are additional properties of the
+                        related object relevant to the configuration policy.
                       properties:
                         createdByPolicy:
                           description: |-
