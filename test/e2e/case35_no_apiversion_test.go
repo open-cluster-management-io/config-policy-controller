@@ -32,7 +32,7 @@ var _ = Describe("Test a policy with an objectDefinition with an invalid apiVers
 			return utils.GetHistoryMessages(clientManagedDynamic, gvrConfigPolicy,
 				cfgPlcName, testNamespace, "")
 		}, defaultTimeoutSeconds, 1).Should(ContainElement(MatchRegexp(complianceMsg)))
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			return utils.GetMatchingEvents(
 				clientManaged, testNamespace, policyName, cfgPlcName, complianceMsg, defaultTimeoutSeconds,
 			)
@@ -49,6 +49,7 @@ var _ = Describe("Test a policy with an objectDefinition with an invalid apiVers
 
 	AfterEach(func() {
 		utils.KubectlDelete("policy", policyName, "-n", "managed")
+
 		configPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			cfgPlcName, "managed", false, defaultTimeoutSeconds,
 		)

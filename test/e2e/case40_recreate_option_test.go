@@ -27,6 +27,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 		utils.KubectlDelete("-n", "default", "deployment", "case40")
 
 		By("Deleting the case40 ConfigMap in the default namespace")
+
 		configmap, err := clientManagedDynamic.Resource(gvrConfigMap).Namespace("default").Get(
 			ctx, "case40", metav1.GetOptions{},
 		)
@@ -75,11 +76,12 @@ var _ = Describe("Recreate options", Ordered, func() {
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the diff is present")
+
 		relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 		Expect(err).ToNot(HaveOccurred())
 		Expect(relatedObjects).To(HaveLen(1))
 
-		diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
+		diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]any), "properties", "diff")
 		Expect(diff).To(ContainSubstring("-      app: case40\n+      app: case40-2\n"))
 
 		By("Verifying the compliance message is correct and doesn't change")
@@ -103,6 +105,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 
 	It("should update the immutable fields when recreateOption=IfRequired", func(ctx SpecContext) {
 		By("Setting recreateOption=IfRequired on the case40 ConfigurationPolicy")
+
 		deployment, err := clientManagedDynamic.Resource(gvrDeployment).Namespace("default").Get(
 			ctx, "case40", metav1.GetOptions{},
 		)
@@ -117,6 +120,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 
 		By("Verifying the ConfigurationPolicy is Compliant")
 		var managedPlc *unstructured.Unstructured
+
 		Eventually(func(g Gomega) {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic,
@@ -133,7 +137,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(relatedObjects).To(HaveLen(1))
 
-			relatedObject := relatedObjects[0].(map[string]interface{})
+			relatedObject := relatedObjects[0].(map[string]any)
 
 			diff, _, _ := unstructured.NestedString(relatedObject, "properties", "diff")
 			g.Expect(diff).To(BeEmpty())
@@ -194,18 +198,20 @@ var _ = Describe("Recreate options", Ordered, func() {
 				ctx, "case40", metav1.GetOptions{},
 			)
 			g.Expect(err).ToNot(HaveOccurred())
+
 			uidBeforeMismatch = string(deployment.GetUID())
 
 			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(relatedObjects).To(HaveLen(1))
 
-			relatedObject := relatedObjects[0].(map[string]interface{})
+			relatedObject := relatedObjects[0].(map[string]any)
 			createdByPolicy, _, _ := unstructured.NestedBool(relatedObject, "properties", "createdByPolicy")
 			g.Expect(createdByPolicy).To(BeTrue(), "expected the Deployment to have createdByPolicy=true")
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Patching the policy desired labels to an immutable mismatch (still without recreate)")
+
 		selectorPath := "/spec/object-templates/0/objectDefinition/spec/selector/matchLabels/app"
 		labelPath := "/spec/object-templates/0/objectDefinition/spec/template/metadata/labels/app"
 
@@ -255,7 +261,7 @@ var _ = Describe("Recreate options", Ordered, func() {
 			g.Expect(err).ToNot(HaveOccurred())
 			g.Expect(relatedObjects).To(HaveLen(1))
 
-			relatedObject := relatedObjects[0].(map[string]interface{})
+			relatedObject := relatedObjects[0].(map[string]any)
 
 			createdByPolicy, _, _ := unstructured.NestedBool(relatedObject, "properties", "createdByPolicy")
 			g.Expect(createdByPolicy).To(BeTrue(), "expected createdByPolicy to stay true")

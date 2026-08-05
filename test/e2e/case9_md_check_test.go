@@ -130,6 +130,7 @@ var _ = Describe("Test pod obj template handling", func() {
 		})
 		It("should not remove scc namespace annotations even in mustonlyhave mode", func() {
 			By("Checking the current annotations")
+
 			obj := utils.GetWithTimeout(clientManagedDynamic, gvrNS,
 				"case9-test", "", true, defaultTimeoutSeconds)
 			Expect(obj.GetAnnotations()).To(HaveKeyWithValue("foo.bar/baz", "hello world"))
@@ -145,6 +146,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			By("Verifying the annotations in the policy are updated, and the new SCC annotation is kept")
 			Eventually(func(g Gomega) {
 				utils.Kubectl("get", "namespace", "case9-test", "-o=yaml")
+
 				obj := utils.GetWithTimeout(clientManagedDynamic, gvrNS,
 					"case9-test", "", true, defaultTimeoutSeconds)
 				g.Expect(obj.GetAnnotations()).To(HaveKeyWithValue("foo.bar/baz", "hello world"))

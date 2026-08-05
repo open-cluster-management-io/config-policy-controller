@@ -76,6 +76,7 @@ var _ = Describe("TLS profile ConfigMap", Label("running-in-cluster"), Serial, f
 		initialRestarts := getContainerRestartCount(ctx, podName)
 
 		By("Creating the ocm-tls-profile ConfigMap")
+
 		_, err := clientManaged.CoreV1().ConfigMaps(controllerNamespace).Create(
 			ctx, &corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{

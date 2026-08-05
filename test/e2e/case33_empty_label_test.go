@@ -52,7 +52,7 @@ var _ = Describe("Test resource creation when there are empty labels in configur
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("verifying label exists and correct")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			configmap, _ := clientManaged.CoreV1().ConfigMaps(testNamespace).
 				Get(context.TODO(), case33ConfigMapName, metav1.GetOptions{})
 			labelMap := configmap.GetLabels()
