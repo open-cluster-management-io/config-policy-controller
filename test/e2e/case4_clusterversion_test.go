@@ -55,7 +55,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 			plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case4ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case4ConfigPolicyNameInform, testNamespace, true, defaultTimeoutSeconds)
 

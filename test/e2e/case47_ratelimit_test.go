@@ -30,6 +30,7 @@ var _ = Describe("Test config policy ratelimiting", Ordered, func() {
 		if len(metric) == 0 {
 			return 0, fmt.Errorf("failed to retrieve any %s metric", metricName)
 		}
+
 		metricVal, err := strconv.ParseFloat(metric[0], 64)
 		if err != nil {
 			return 0, fmt.Errorf("error converting metric: %w", err)
@@ -61,6 +62,7 @@ var _ = Describe("Test config policy ratelimiting", Ordered, func() {
 		start := time.Now()
 
 		By("Updating the watched configmap frequently for 10 seconds")
+
 		for start.Add(10 * time.Second).After(time.Now()) {
 			value++
 			utils.Kubectl("patch", "configmap", configMapName, "--type=json", "-p",

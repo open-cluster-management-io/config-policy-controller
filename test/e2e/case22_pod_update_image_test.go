@@ -58,6 +58,7 @@ var _ = Describe("Test that an array can be updated when using named objects", O
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying the pod's image was updated")
+
 		pod, err = clientManaged.CoreV1().Pods("default").Get(context.TODO(), podName, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(pod.Spec.Containers).To(HaveLen(1))
@@ -66,6 +67,7 @@ var _ = Describe("Test that an array can be updated when using named objects", O
 
 	AfterAll(func() {
 		deleteConfigPolicies([]string{policyName})
+
 		err := clientManaged.CoreV1().Pods("default").Delete(context.TODO(), podName, metav1.DeleteOptions{})
 		if !k8serrors.IsNotFound(err) {
 			Expect(err).ToNot(HaveOccurred())

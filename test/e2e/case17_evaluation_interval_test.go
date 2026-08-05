@@ -36,7 +36,7 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 		By("Getting status.lastEvaluated")
 		var managedPlc *unstructured.Unstructured
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, case17PolicyName, testNamespace, true, defaultTimeoutSeconds,
 			)
@@ -53,7 +53,7 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Waiting for status.lastEvaluated to refresh")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc = utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, case17PolicyName, testNamespace, true, defaultTimeoutSeconds,
 			)
@@ -86,6 +86,7 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying that the policy status history is stable")
+
 		currentEvents := utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 			case17PolicyName, testNamespace, "")
 		Expect(currentEvents).ShouldNot(BeEmpty())
@@ -139,6 +140,7 @@ var _ = Describe("Test evaluation interval", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying that compliance message mentions it won't be reevaluated")
+
 		msg, ok := utils.GetStatusMessage(managedPlc).(string)
 		Expect(ok).To(BeTrue())
 

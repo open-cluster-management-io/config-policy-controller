@@ -7,7 +7,7 @@ CONTROLLER_GEN_VERSION := v0.19.0
 # https://github.com/kubernetes-sigs/kustomize/releases/latest
 KUSTOMIZE_VERSION := v5.7.1
 # https://github.com/golangci/golangci-lint/releases/latest
-GOLANGCI_VERSION := v1.64.8
+GOLANGCI_VERSION := v2.12.2
 # https://github.com/mvdan/gofumpt/releases/latest
 GOFUMPT_VERSION := v0.9.1
 # https://github.com/daixiang0/gci/releases/latest
@@ -78,11 +78,11 @@ lint: lint-dependencies lint-yaml lint-go
 
 .PHONY: lint-dependencies
 lint-dependencies:
-	$(call go-get-tool,github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_VERSION))
+	$(call go-get-tool,github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION))
 
 .PHONY: lint-yaml
 lint-yaml:
-	# Linting YAML
+	# Linting YAML 
 	@$(FINDFILES) \( -name '*.yml' -o -name '*.yaml' \) -print0 | $(XARGS) grep -L -e "{{" | $(CLEANXARGS) yamllint -c ./build/common/config/.yamllint.yml
 
 .PHONY: lint-go
@@ -117,7 +117,7 @@ endif
 
 .PHONY: kubebuilder
 kubebuilder:
-	@if [ "$$($(KUBEBUILDER) version 2>/dev/null | grep -o KubeBuilderVersion:\"[0-9]*\.[0-9]\.[0-9]*\")" != "KubeBuilderVersion:\"$(KBVERSION)\"" ]; then \
+	@if [ "$$($(KUBEBUILDER) version 2>/dev/null | grep -o KubeBuilderVersion:\"[0-9]*\.[0-9]*\.[0-9]*\")" != "KubeBuilderVersion:\"$(KBVERSION)\"" ]; then \
 		echo "Installing Kubebuilder"; \
 		curl -L https://github.com/kubernetes-sigs/kubebuilder/releases/download/v$(KBVERSION)/kubebuilder_$(GOOS)_$(GOARCH) -o $(KUBEBUILDER); \
 		chmod +x $(KUBEBUILDER); \

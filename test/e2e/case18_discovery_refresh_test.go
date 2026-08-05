@@ -77,11 +77,13 @@ var _ = Describe("Test discovery info refresh", Ordered, func() {
 				g.Expect(apiStatus).ToNot(BeEmpty())
 
 				statusFound := false
+
 				for _, status := range apiStatus {
-					if status, ok := status.(map[string]interface{}); ok {
+					if status, ok := status.(map[string]any); ok {
 						if status["type"] == "Available" {
 							g.Expect(status["status"]).To(Equal("False"))
 							g.Expect(status["reason"]).To(Equal("ServiceNotFound"))
+
 							statusFound = true
 						}
 					}
@@ -99,7 +101,7 @@ var _ = Describe("Test discovery info refresh", Ordered, func() {
 		// This needs to be wrapped in an eventually since the object can't be created immediately after the CRD
 		// is created.
 		Eventually(
-			func() interface{} {
+			func() any {
 				cmd := exec.Command("kubectl", "apply", "-f", policyTemplatePreReqs)
 
 				err := cmd.Start()

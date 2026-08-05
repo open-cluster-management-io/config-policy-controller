@@ -54,16 +54,16 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			Eventually(func() bool {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameCreate, testNamespace, true, defaultTimeoutSeconds)
-				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
-				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+				relatedObj := managedPlc.Object["status"].(map[string]any)["relatedObjects"].([]any)[0]
+				properties := relatedObj.(map[string]any)["properties"].(map[string]any)
 
 				return properties["createdByPolicy"].(bool)
 			}, defaultTimeoutSeconds, 1).Should(BeTrue())
 			Eventually(func() string {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameCreate, testNamespace, true, defaultTimeoutSeconds)
-				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
-				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+				relatedObj := managedPlc.Object["status"].(map[string]any)["relatedObjects"].([]any)[0]
+				properties := relatedObj.(map[string]any)["properties"].(map[string]any)
 
 				return properties["uid"].(string)
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
@@ -83,16 +83,16 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			Eventually(func() bool {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameExisting, testNamespace, true, defaultTimeoutSeconds)
-				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
-				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+				relatedObj := managedPlc.Object["status"].(map[string]any)["relatedObjects"].([]any)[0]
+				properties := relatedObj.(map[string]any)["properties"].(map[string]any)
 
 				return properties["createdByPolicy"].(bool)
 			}, defaultTimeoutSeconds, 1).Should(BeFalse())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameExisting, testNamespace, true, defaultTimeoutSeconds)
-				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
-				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+				relatedObj := managedPlc.Object["status"].(map[string]any)["relatedObjects"].([]any)[0]
+				properties := relatedObj.(map[string]any)["properties"].(map[string]any)
 
 				return properties["uid"]
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
@@ -112,16 +112,16 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			Eventually(func() bool {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameEdit, testNamespace, true, defaultTimeoutSeconds)
-				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
-				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+				relatedObj := managedPlc.Object["status"].(map[string]any)["relatedObjects"].([]any)[0]
+				properties := relatedObj.(map[string]any)["properties"].(map[string]any)
 
 				return properties["createdByPolicy"].(bool)
 			}, defaultTimeoutSeconds, 1).Should(BeFalse())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameEdit, testNamespace, true, defaultTimeoutSeconds)
-				relatedObj := managedPlc.Object["status"].(map[string]interface{})["relatedObjects"].([]interface{})[0]
-				properties := relatedObj.(map[string]interface{})["properties"].(map[string]interface{})
+				relatedObj := managedPlc.Object["status"].(map[string]any)["relatedObjects"].([]any)[0]
+				properties := relatedObj.(map[string]any)["properties"].(map[string]any)
 
 				return properties["uid"]
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
@@ -143,11 +143,12 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("Verifying the related object properties")
+
 			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(relatedObjects).To(HaveLen(1))
 
-			relatedObj := relatedObjects[0].(map[string]interface{})
+			relatedObj := relatedObjects[0].(map[string]any)
 
 			createdByPolicy, found, _ := unstructured.NestedBool(relatedObj, "properties", "createdByPolicy")
 			Expect(found).To(BeTrue())
@@ -169,21 +170,21 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 
 			utils.KubectlDelete("pod", case20PodName, "-n", "default")
 
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameCreate, testNamespace, false, defaultTimeoutSeconds)
 
 				return managedPlc
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
 
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameExisting, testNamespace, false, defaultTimeoutSeconds)
 
 				return managedPlc
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
 
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameEdit, testNamespace, false, defaultTimeoutSeconds)
 
@@ -196,7 +197,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			// create pod
 			By("Creating " + case20PodName + " on default")
 			utils.Kubectl("apply", "-f", case20PodYaml)
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
@@ -217,10 +218,11 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		})
 		It("should not delete pod", func() {
 			deleteConfigPolicies([]string{case20ConfigPolicyNameInform})
+
 			pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				case20PodName, "default", true, defaultTimeoutSeconds)
 			Expect(pod).Should(Not(BeNil()))
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
@@ -242,7 +244,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
@@ -252,7 +254,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		It("should delete child object properly", func() {
 			// delete policy, should delete pod
 			deleteConfigPolicies([]string{case20ConfigPolicyNameCreate})
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", false, defaultTimeoutSeconds)
 
@@ -263,7 +265,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			// policy that did not create pod
 			By("Creating " + case20PodName + " on default")
 			utils.Kubectl("apply", "-f", case20PodYaml)
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
@@ -285,7 +287,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		It("should not delete the child object", func() {
 			// delete policy, should delete pod
 			deleteConfigPolicies([]string{case20ConfigPolicyNameEdit})
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
@@ -308,13 +310,13 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		It("should delete the child object properly", func() {
 			// delete policy, should delete pod
 			deleteConfigPolicies([]string{case20ConfigPolicyNameExisting})
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", false, defaultTimeoutSeconds)
 
 				return pod
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameExisting, testNamespace, false, defaultTimeoutSeconds)
 
@@ -324,7 +326,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		It("should handle deleteAll properly for non created obj", func() {
 			By("Creating " + case20PodName + " on default")
 			utils.Kubectl("apply", "-f", case20PodYaml)
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
@@ -345,7 +347,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		It("should delete the child object properly", func() {
 			// delete policy, should delete pod
 			deleteConfigPolicies([]string{case20ConfigPolicyNameExisting})
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", false, defaultTimeoutSeconds)
 
@@ -365,7 +367,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodWithFinalizer, "default", true, defaultTimeoutSeconds)
 
@@ -379,13 +381,13 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			)
 			Expect(err).ToNot(HaveOccurred())
 
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodWithFinalizer, "default", true, defaultTimeoutSeconds)
 
 				return pod
 			}, defaultConsistentlyDuration, 1).Should(Not(BeNil()))
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameFinalizer, testNamespace, true, defaultTimeoutSeconds)
 
@@ -400,13 +402,13 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 				"json",
 				`-p=[{"op":"remove","path":"/metadata/finalizers"}]`,
 			)
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodWithFinalizer, "default", false, defaultTimeoutSeconds)
 
 				return pod
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameFinalizer, testNamespace, false, defaultTimeoutSeconds)
 
@@ -440,13 +442,13 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		It("should delete the child object properly", func() {
 			// delete policy, should delete pod
 			deleteConfigPolicies([]string{case20ConfigPolicyNameChange})
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", false, defaultTimeoutSeconds)
 
 				return pod
 			}, defaultTimeoutSeconds, 1).Should(BeNil())
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case20ConfigPolicyNameChange, testNamespace, false, defaultTimeoutSeconds)
 
@@ -480,7 +482,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		It("should not delete the child object properly", func() {
 			// delete policy, should not delete pod
 			deleteConfigPolicies([]string{case20ConfigPolicyNameChange})
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
@@ -505,7 +507,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			By("Verifying the pod is present")
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
@@ -517,7 +519,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 			utils.KubectlDelete("pod/"+case20PodName, "-n", "default")
 
 			By("Verifying the pod was recreated and isn't still being deleted")
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", true, defaultTimeoutSeconds)
 
@@ -525,6 +527,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 				if err != nil {
 					return err
 				}
+
 				if found {
 					return errors.New("Pod is being deleted")
 				}
@@ -535,7 +538,7 @@ var _ = Describe("Test Object deletion", Ordered, func() {
 		AfterAll(func() {
 			By("deletes the pod after the policy is deleted")
 			deleteConfigPolicies([]string{case20ConfigPolicyNameCreate})
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					case20PodName, "default", false, defaultTimeoutSeconds)
 
@@ -575,8 +578,10 @@ var _ = Describe("Test objects are not deleted when the CRD is removed", Serial,
 
 	It("deletes the ConfigurationPolicy CRD and compares the pod UID before and after", func() {
 		By("Getting the pod UID")
+
 		oldPodUID := ""
-		Eventually(func() interface{} {
+
+		Eventually(func() any {
 			pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				case20PodMHPDAName, "default", true, defaultTimeoutSeconds)
 
@@ -612,7 +617,7 @@ var _ = Describe("Test objects are not deleted when the CRD is removed", Serial,
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Checking the pod UID")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				case20PodMHPDAName, "default", true, defaultTimeoutSeconds)
 
@@ -748,6 +753,7 @@ var _ = Describe("Clean up old object when configurationpolicy is changed", Orde
 		Expect(oldPod).ShouldNot(BeNil())
 
 		By("Changing namespace, old-pod should not exist, newpod exist in new namepace with old name")
+
 		patch := fmt.Sprintf(`[
 			{"op":"replace", "path": "/spec/object-templates/0/objectDefinition/metadata/namespace", "value": %s}
 			]`, testNamespace)
@@ -770,6 +776,7 @@ var _ = Describe("Clean up old object when configurationpolicy is changed", Orde
 		Expect(oldPod).ShouldNot(BeNil())
 
 		By("Changing complianceType and podname at the sametime, both pods should not exist")
+
 		patch := fmt.Sprintf(`[
 			{"op":"replace", "path": "/spec/object-templates/0/complianceType", "value": %s},
 			{"op":"replace", "path": "/spec/object-templates/0/objectDefinition/metadata/name", "value": %s}
@@ -794,9 +801,11 @@ var _ = Describe("Object Should not be deleted", Ordered, func() {
 		configplcName          string = "case20-2-name-changed"
 		case20ChangeConfigYaml string = "../resources/case20_delete_objects/case20_change_config_policy_not_prune.yaml"
 	)
+
 	BeforeEach(func() {
 		utils.Kubectl("apply", "-f", case20ChangeConfigYaml, "-n", testNamespace)
 	})
+
 	cleanup := func() {
 		policies := []string{
 			configplcName,
@@ -821,7 +830,7 @@ var _ = Describe("Object Should not be deleted", Ordered, func() {
 		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
 			"--type=json", "-p", patch)
 
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			oldPod = utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				oldPodName, "default", true, defaultTimeoutSeconds)
 			Expect(oldPod).ShouldNot(BeNil())
@@ -835,13 +844,14 @@ var _ = Describe("Object Should not be deleted", Ordered, func() {
 		Expect(oldPod).ShouldNot(BeNil())
 
 		By("Changing namespace, old-pod should not exist, newpod exist in new namepace with old name")
+
 		patch := fmt.Sprintf(`[
 			{"op":"replace", "path": "/spec/object-templates/0/objectDefinition/metadata/namespace", "value": %s}
 			]`, testNamespace)
 		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
 			"--type=json", "-p", patch)
 
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			oldPod = utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				oldPodName, "default", true, defaultTimeoutSeconds)
 			Expect(oldPod).ShouldNot(BeNil())
@@ -851,6 +861,7 @@ var _ = Describe("Object Should not be deleted", Ordered, func() {
 	})
 	It("check pod is not removed when PruneObjectBehavior is DeleteAll and spec changed", func() {
 		By("Add PruneObjectBehavior is DeleteAll")
+
 		patch := fmt.Sprintf(`[
 			{"op":"add", "path": "/spec/pruneObjectBehavior", "value": %s}
 			]`, "DeleteAll")
@@ -864,13 +875,14 @@ var _ = Describe("Object Should not be deleted", Ordered, func() {
 		Expect(oldPod).ShouldNot(BeNil())
 
 		By("Changing imagePullPolicy in spec in object-templates")
+
 		patch = fmt.Sprintf(`[
 			{"op":"replace", "path": "/spec/object-templates/0/imagePullPolicy", "value": %s},
 			]`, "Always")
 		utils.Kubectl("patch", "configurationpolicy", configplcName, "-n", testNamespace,
 			"--type=json", "-p", patch)
 
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			oldPod = utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				oldPodName, "default", true, defaultTimeoutSeconds)
 			Expect(oldPod).ShouldNot(BeNil())
