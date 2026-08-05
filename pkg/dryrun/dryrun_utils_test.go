@@ -94,7 +94,7 @@ func compareStatusStableOutputTest(scenarioPath string) func(t *testing.T) {
 	}
 }
 
-func getFileMap(t *testing.T, scenarioPath, fileName string) map[string]interface{} {
+func getFileMap(t *testing.T, scenarioPath, fileName string) map[string]any {
 	t.Helper()
 
 	reader, err := os.Open(path.Join(scenarioPath, fileName))
@@ -107,7 +107,7 @@ func getFileMap(t *testing.T, scenarioPath, fileName string) map[string]interfac
 		t.Fatal(err)
 	}
 
-	result := map[string]interface{}{}
+	result := map[string]any{}
 
 	if err := yaml.Unmarshal(fileBytes, &result); err != nil {
 		t.Fatal(err)

@@ -76,6 +76,7 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Seri
 		time.Sleep(15 * time.Second)
 
 		By("Triggering an uninstall")
+
 		config, err := LoadConfig("", kubeconfigManaged, "")
 		Expect(err).ToNot(HaveOccurred())
 
@@ -92,6 +93,7 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Seri
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying that the uninstall annotation was set on the Deployment")
+
 		deployment, err := clientManaged.AppsV1().Deployments(deploymentNamespace).Get(
 			context.TODO(), deploymentName, metav1.GetOptions{},
 		)
@@ -99,6 +101,7 @@ var _ = Describe("Clean up during uninstalls", Label("running-in-cluster"), Seri
 		Expect(deployment.GetAnnotations()).To(HaveKey(common.UninstallingAnnotation))
 
 		By("Verifying that the ConfigurationPolicy finalizers have been removed")
+
 		policy := utils.GetWithTimeout(
 			clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 		)

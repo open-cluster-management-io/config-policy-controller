@@ -54,6 +54,7 @@ var _ = Describe("Test an alternative kubeconfig for policy evaluation", Ordered
 		}, defaultTimeoutSeconds*2, 1).Should(Succeed())
 
 		By("Verifying that the " + policyName + " was created using the alternative kubeconfig")
+
 		_, err := targetK8sClient.CoreV1().Namespaces().Get(context.TODO(), namespaceName, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 

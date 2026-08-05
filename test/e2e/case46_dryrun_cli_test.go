@@ -292,7 +292,7 @@ func listNamespacesInFile(nsFilePath string, fn func(name string) error) error {
 		return err
 	}
 
-	for _, doc := range strings.Split(string(content), "---") {
+	for doc := range strings.SplitSeq(string(content), "---") {
 		if doc = strings.TrimSpace(doc); doc == "" {
 			continue
 		}

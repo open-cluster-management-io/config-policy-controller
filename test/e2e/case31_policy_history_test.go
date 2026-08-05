@@ -76,9 +76,11 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 
 		AfterAll(func() {
 			utils.KubectlDelete("policy", policyName, "-n", "managed")
+
 			configlPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				configPolicyName, "managed", false, defaultTimeoutSeconds,
 			)
+
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
 			Expect(configlPlc).To(BeNil())
@@ -103,9 +105,11 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 
 		AfterAll(func() {
 			utils.KubectlDelete("policy", policyName, "-n", "managed")
+
 			configlPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				configPolicyName, "managed", false, defaultTimeoutSeconds,
 			)
+
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
 			Expect(configlPlc).To(BeNil())
@@ -130,9 +134,11 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 
 		AfterAll(func() {
 			utils.KubectlDelete("policy", policyName, "-n", "managed")
+
 			configlPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				configPolicyName, "managed", false, defaultTimeoutSeconds,
 			)
+
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
 			Expect(configlPlc).To(BeNil())
@@ -157,9 +163,11 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 
 		AfterAll(func() {
 			utils.KubectlDelete("policy", policyName, "-n", "managed")
+
 			configlPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				configPolicyName, "managed", false, defaultTimeoutSeconds,
 			)
+
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+policyName, "-n", "managed")
 			utils.KubectlDelete("event", "--field-selector=involvedObject.name="+configPolicyName, "-n", "managed")
 			Expect(configlPlc).To(BeNil())
@@ -174,13 +182,17 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			namespacePrefix          = "innovafertanimvsmvtatasdicereformascorporinnovafertanimvsmvt"
 			numberOfNamespaces       = 80
 		)
+
 		It("Test policy message length is over 1024 ", func() {
 			By("Create namespaces")
+
 			for i := range numberOfNamespaces {
 				utils.Kubectl("create", "ns", namespacePrefix+strconv.Itoa(i+1))
 			}
+
 			utils.Kubectl("apply", "-f", case31LMPolicy, "-n", "managed")
 			By("bind policy and configurationpolicy")
+
 			parent := utils.GetWithTimeout(clientManagedDynamic, gvrPolicy,
 				case31LMPolicyName, testNamespace, true, defaultTimeoutSeconds)
 			Expect(parent).NotTo(BeNil())
@@ -194,7 +206,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			Expect(err).ToNot(HaveOccurred())
 
 			By("check configurationpolicy exist")
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case31LMConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
 				compliant := utils.GetComplianceState(plc)
@@ -230,6 +242,7 @@ var _ = Describe("Test policy history messages when KubeAPI omits values in the 
 			utils.KubectlDelete("event",
 				"--field-selector=involvedObject.name="+case31LMConfigPolicy,
 				"-n", "managed")
+
 			for i := range numberOfNamespaces {
 				utils.KubectlDelete("ns", namespacePrefix+strconv.Itoa(i+1))
 			}

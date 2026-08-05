@@ -25,7 +25,7 @@ var _ = Describe("Verify status update after updating object", Ordered, func() {
 		plc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 			case27ConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
 		Expect(plc).NotTo(BeNil())
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case27ConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -64,7 +64,7 @@ var _ = Describe("Verify status update after updating object", Ordered, func() {
 			g.Expect(foundEvent).To(BeTrue(), "Did not find a compliance event indicating the ConfigMap was updated")
 		}, 30, 1).Should(Succeed())
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case27ConfigPolicyName, testNamespace, true, defaultTimeoutSeconds)
 

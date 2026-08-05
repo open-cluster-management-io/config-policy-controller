@@ -26,6 +26,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 	)
 
 	var serverVersion string
+
 	BeforeAll(func() {
 		serverVersion = utils.GetServerVersion(clientManaged)
 	})
@@ -46,6 +47,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 
 		By("Verifying that the " + policyName + " policy is noncompliant")
 		var initialEvents []policyv1.HistoryEvent
+
 		Eventually(func(g Gomega) {
 			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
@@ -59,6 +61,7 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying events do not continue to be created after the first violation for created objects")
+
 		startTime := metav1.NewTime(time.Now())
 
 		msg := "ConfigMap in version \"v1\" cannot be handled as a ConfigMap: " +
@@ -66,7 +69,8 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 		if semver.Compare(serverVersion, "v1.25.0") < 0 {
 			msg = "unknown field \"invalid\" in io.k8s.api.core.v1.ConfigMap"
 		}
-		Consistently(func() interface{} {
+
+		Consistently(func() any {
 			compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
 				policyName,
 				"PolicyUpdate",
@@ -99,7 +103,8 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 			expectedMsg = "Error validating the object case23, the error is `ValidationError(ConfigMap): unknown " +
 				"field \"invalid\" in io.k8s.api.core.v1.ConfigMap`"
 		}
-		Eventually(func() interface{} {
+
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(
 				clientManagedDynamic, gvrConfigPolicy, policyName, testNamespace, true, defaultTimeoutSeconds,
 			)
@@ -108,13 +113,15 @@ var _ = Describe("Test an objectDefinition with an invalid field", Ordered, func
 		}, defaultTimeoutSeconds, 1).Should(Equal(expectedMsg))
 
 		By("Verifying events do not continue to be created after the first violation for existing objects")
+
 		alreadyExistsStartTime := metav1.NewTime(time.Now())
 
 		msg = "strict decoding error: unknown field \"invalid\""
 		if semver.Compare(serverVersion, "v1.25.0") < 0 {
 			msg = "unknown field \"invalid\" in io.k8s.api.core.v1.ConfigMap"
 		}
-		Consistently(func() interface{} {
+
+		Consistently(func() any {
 			compPlcEvents := utils.GetMatchingEvents(clientManaged, testNamespace,
 				policyName,
 				"",

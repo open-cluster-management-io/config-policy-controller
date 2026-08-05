@@ -200,8 +200,8 @@ type templateCtx struct {
 	ManagedClusterLabels map[string]string
 }
 
-func addManagedClusterLabels(clusterName string) func(templates.CachingQueryAPI, interface{}) (interface{}, error) {
-	return func(api templates.CachingQueryAPI, ctx interface{}) (interface{}, error) {
+func addManagedClusterLabels(clusterName string) func(templates.CachingQueryAPI, any) (any, error) {
+	return func(api templates.CachingQueryAPI, ctx any) (any, error) {
 		typedCtx, ok := ctx.(templateCtx)
 		if !ok {
 			return ctx, nil

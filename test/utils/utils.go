@@ -60,13 +60,16 @@ func GetClusterLevelWithTimeout(
 	Eventually(func() error {
 		var err error
 		namespace := clientHubDynamic.Resource(gvr)
+
 		obj, err = namespace.Get(context.TODO(), name, metav1.GetOptions{})
 		if wantFound && err != nil {
 			return err
 		}
+
 		if !wantFound && err == nil {
 			return errors.New("expected to return IsNotFound error")
 		}
+
 		if !wantFound && err != nil && !k8serrors.IsNotFound(err) {
 			return err
 		}
@@ -99,15 +102,18 @@ func GetWithTimeout(
 
 	Eventually(func() error {
 		var err error
+
 		obj, err = clientHubDynamic.Resource(gvr).Namespace(namespace).
 			Get(context.TODO(), name, metav1.GetOptions{})
 		if wantFound && err != nil {
 			return err
 		}
+
 		if !wantFound && err == nil {
 			return fmt.Errorf("expected '%s/%s' in namespace '%s' to return IsNotFound error",
 				gvr.Resource, name, namespace)
 		}
+
 		if !wantFound && err != nil && !k8serrors.IsNotFound(err) {
 			return err
 		}
@@ -224,7 +230,7 @@ func Kubectl(args ...string) {
 		args = append(args, "--kubeconfig="+"../../kubeconfig_managed_e2e")
 	}
 
-	cmd := exec.Command("kubectl", args...)
+	cmd := exec.CommandContext(context.Background(), "kubectl", args...)
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -296,37 +302,37 @@ func EnforceConfigurationPolicy(name string, namespace string) {
 		`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", namespace)
 }
 
-// EnforceConfigurationPolicy patches the remediationAction to "enforce"
+// EnforceOperatorPolicy patches the remediationAction to "enforce"
 func EnforceOperatorPolicy(name string, namespace string) {
 	Kubectl("patch", "operatorpolicy", name, `--type=json`,
 		`-p=[{"op":"replace","path":"/spec/remediationAction","value":"enforce"}]`, "-n", namespace)
 }
 
 // GetComplianceState parses status field of configurationPolicy to get compliance
-func GetComplianceState(managedPlc *unstructured.Unstructured) (result interface{}) {
+func GetComplianceState(managedPlc *unstructured.Unstructured) (result any) {
 	if managedPlc.Object["status"] != nil {
-		return managedPlc.Object["status"].(map[string]interface{})["compliant"]
+		return managedPlc.Object["status"].(map[string]any)["compliant"]
 	}
 
 	return nil
 }
 
 // GetStatusMessage parses status field to get message
-func GetStatusMessage(managedPlc *unstructured.Unstructured) (result interface{}) {
+func GetStatusMessage(managedPlc *unstructured.Unstructured) (result any) {
 	if managedPlc.Object["status"] != nil {
-		status, ok := managedPlc.Object["status"].(map[string]interface{})
+		status, ok := managedPlc.Object["status"].(map[string]any)
 		if !ok {
 			return nil
 		}
 
-		complianceDetails, ok := status["compliancyDetails"].([]interface{})
+		complianceDetails, ok := status["compliancyDetails"].([]any)
 		if !ok || len(complianceDetails) == 0 {
 			return nil
 		}
 
 		detail := complianceDetails[0]
 
-		return detail.(map[string]interface{})["conditions"].([]interface{})[0].(map[string]interface{})["message"]
+		return detail.(map[string]any)["conditions"].([]any)[0].(map[string]any)["message"]
 	}
 
 	return nil
@@ -343,9 +349,9 @@ func CheckComplianceStatus(g Gomega, managedPlc *unstructured.Unstructured, expe
 }
 
 // GetFieldFromSecret parses data field of secrets for the specified field
-func GetFieldFromSecret(secret *unstructured.Unstructured, field string) (result interface{}) {
+func GetFieldFromSecret(secret *unstructured.Unstructured, field string) (result any) {
 	if secret.Object["data"] != nil {
-		return secret.Object["data"].(map[string]interface{})[field]
+		return secret.Object["data"].(map[string]any)[field]
 	}
 
 	return nil
@@ -354,7 +360,7 @@ func GetFieldFromSecret(secret *unstructured.Unstructured, field string) (result
 // GetLastEvaluated parses the configuration policy and returns the status.lastEvaluated and
 // status.lastEvaluatedGeneration fields. If they are not set, then default null values are returned.
 func GetLastEvaluated(configPolicy *unstructured.Unstructured) (string, int64) {
-	status, ok := configPolicy.Object["status"].(map[string]interface{})
+	status, ok := configPolicy.Object["status"].(map[string]any)
 	if !ok {
 		return "", 0
 	}
@@ -376,7 +382,8 @@ func GetLastEvaluated(configPolicy *unstructured.Unstructured) (string, int64) {
 // the response with the given patterns, and returns the value(s) for the matching
 // metric(s).
 func GetMetrics(metricPatterns ...string) []string {
-	podCmd := exec.Command("kubectl", "get", "pod", "-n=open-cluster-management-agent-addon",
+	podCmd := exec.CommandContext(context.Background(), "kubectl", "get", "pod",
+		"-n=open-cluster-management-agent-addon",
 		"-l=name=config-policy-controller", "--no-headers", "--kubeconfig=../../kubeconfig_managed_e2e")
 
 	propPodInfo, err := podCmd.CombinedOutput()
@@ -395,9 +402,10 @@ func GetMetrics(metricPatterns ...string) []string {
 	propPodName := strings.Split(string(propPodInfo), " ")[0]
 	if propPodName == "No" || propPodName == "" {
 		// A missing pod could mean the controller is running locally
-		cmd = exec.Command("bash", "-c", metricsCmd)
+		cmd = exec.CommandContext(context.Background(), "bash", "-c", metricsCmd)
 	} else {
-		cmd = exec.Command("kubectl", "exec", "-n=open-cluster-management-agent-addon", propPodName, "-c",
+		cmd = exec.CommandContext(context.Background(), "kubectl", "exec",
+			"-n=open-cluster-management-agent-addon", propPodName, "-c",
 			"config-policy-controller", "--kubeconfig=../../kubeconfig_managed_e2e", "--", "bash", "-c", metricsCmd)
 	}
 
@@ -441,7 +449,7 @@ func getConfigPolicyStatusMessages(clientHubDynamic dynamic.Interface,
 		return empty, false, errors.New("error in getting status")
 	}
 
-	templateDetails, ok := details[templateIdx].(map[string]interface{})
+	templateDetails, ok := details[templateIdx].(map[string]any)
 	if !ok {
 		return empty, false, errors.New("error in getting detail")
 	}
@@ -452,7 +460,7 @@ func getConfigPolicyStatusMessages(clientHubDynamic dynamic.Interface,
 		return empty, false, errors.New("error conditions not found")
 	}
 
-	condition := conditions[0].(map[string]interface{})
+	condition := conditions[0].(map[string]any)
 
 	message, ok, err := unstructured.NestedString(condition, "message")
 

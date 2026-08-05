@@ -70,7 +70,7 @@ func TestRecordDiffWithDefault(t *testing.T) {
 
 				objTemp := ObjectTemplate{
 					ObjectDefinition: runtime.RawExtension{
-						Raw: []byte(fmt.Sprintf(`{"apiVersion": "%s", "kind": "%s"}`, test.apiVersion, test.kind)),
+						Raw: fmt.Appendf(nil, `{"apiVersion": "%s", "kind": "%s"}`, test.apiVersion, test.kind),
 					},
 					RecordDiff: test.recordDiff,
 				}

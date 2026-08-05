@@ -78,7 +78,7 @@ type RemovalBehavior struct {
 // ApplyDefaults ensures that unset fields in a RemovalBehavior behave as if they were set to the
 // default values. In a cluster, Kubernetes API validation should ensure that there are no unset
 // values and should apply the default values itself.
-func (rb RemovalBehavior) ApplyDefaults() RemovalBehavior {
+func (rb *RemovalBehavior) ApplyDefaults() RemovalBehavior {
 	withDefaults := *rb.DeepCopy()
 
 	if withDefaults.OperatorGroups == "" {
@@ -256,7 +256,7 @@ type OperatorPolicyStatus struct {
 
 // RelatedObjsOfKind iterates over the related objects in the status and returns a map of the index
 // in the array to the related object that has the given kind.
-func (status OperatorPolicyStatus) RelatedObjsOfKind(kind string) map[int]policyv1.RelatedObject {
+func (status *OperatorPolicyStatus) RelatedObjsOfKind(kind string) map[int]policyv1.RelatedObject {
 	objs := make(map[int]policyv1.RelatedObject)
 
 	for i, related := range status.RelatedObjects {
@@ -271,7 +271,7 @@ func (status OperatorPolicyStatus) RelatedObjsOfKind(kind string) map[int]policy
 // GetCondition iterates over the status conditions of the policy and returns the index and
 // condition matching the given condition Type. It will return -1 as the index if no condition of
 // the specified Type is found.
-func (status OperatorPolicyStatus) GetCondition(condType string) (int, metav1.Condition) {
+func (status *OperatorPolicyStatus) GetCondition(condType string) (int, metav1.Condition) {
 	for i, cond := range status.Conditions {
 		if cond.Type == condType {
 			return i, cond
@@ -281,9 +281,9 @@ func (status OperatorPolicyStatus) GetCondition(condType string) (int, metav1.Co
 	return -1, metav1.Condition{}
 }
 
-// Returns true if the SubscriptionInterventionTime is far enough in the past
+// SubscriptionInterventionExpired returns true if the SubscriptionInterventionTime is far enough in the past
 // to be considered expired, and therefore should be removed from the status.
-func (status OperatorPolicyStatus) SubscriptionInterventionExpired() bool {
+func (status *OperatorPolicyStatus) SubscriptionInterventionExpired() bool {
 	if status.SubscriptionInterventionTime == nil {
 		return false
 	}
@@ -291,13 +291,13 @@ func (status OperatorPolicyStatus) SubscriptionInterventionExpired() bool {
 	return status.SubscriptionInterventionTime.Time.Before(time.Now().Add(-10 * time.Second))
 }
 
-// Returns true if the SubscriptionInterventionTime is in the future.
-func (status OperatorPolicyStatus) SubscriptionInterventionWaiting() bool {
+// SubscriptionInterventionWaiting returns true if the SubscriptionInterventionTime is in the future.
+func (status *OperatorPolicyStatus) SubscriptionInterventionWaiting() bool {
 	if status.SubscriptionInterventionTime == nil {
 		return false
 	}
 
-	return status.SubscriptionInterventionTime.Time.After(time.Now())
+	return status.SubscriptionInterventionTime.After(time.Now())
 }
 
 // OperatorPolicy is the schema for the operatorpolicies API. You can use the operator policy to

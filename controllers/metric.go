@@ -104,10 +104,13 @@ func init() {
 }
 
 func getStatusValue(complianceState v1.ComplianceState) float64 {
-	if complianceState == v1.Compliant {
+	switch complianceState {
+	case v1.Compliant:
 		return 0
-	} else if complianceState == v1.NonCompliant {
+	case v1.NonCompliant:
 		return 1
+	case v1.UnknownCompliancy, v1.Terminating:
+		return -1
 	}
 
 	return -1

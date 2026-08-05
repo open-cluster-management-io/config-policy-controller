@@ -38,6 +38,7 @@ var _ = Describe("Test converted stringData being decoded before comparison for 
 
 	It("Verifies that a secret is created by "+case32ConfigPolicyName+" in openshift-config", func() {
 		By("Grabbing htpasswd-secret from namespace openshift-config")
+
 		scrt := utils.GetWithTimeout(
 			clientManagedDynamic, gvrSecret, "htpasswd-secret", testNamespace, true, defaultTimeoutSeconds,
 		)

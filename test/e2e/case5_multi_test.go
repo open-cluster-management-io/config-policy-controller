@@ -57,6 +57,7 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 			pod1 := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				podName1, "default", true, defaultTimeoutSeconds)
 			Expect(pod1).NotTo(BeNil())
+
 			pod2 := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				podName2, "default", true, defaultTimeoutSeconds)
 			Expect(pod2).NotTo(BeNil())
@@ -90,6 +91,7 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 			deleteConfigPolicies(policies)
 
 			By("Delete pods")
+
 			pods := []string{podName1, podName2}
 			namespaces := []string{"default"}
 			deletePods(pods, namespaces)
@@ -109,6 +111,7 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 		BeforeAll(func() {
 			By("Creating nginx pod and configmap with enforce policy from case5")
 			utils.Kubectl("apply", "-f", podConfigmapYaml, "-n", testNamespace)
+
 			pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 				podName1, "default", true, defaultTimeoutSeconds)
 			Expect(pod).NotTo(BeNil())
@@ -130,12 +133,14 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 
 				Eventually(func(g Gomega) {
 					By("Verifying the policy is NonCompliant")
+
 					managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 						tc.policyName, testNamespace, true, defaultTimeoutSeconds)
 
 					utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 
 					By("Verifying both compliancyDetails entries exist")
+
 					details, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "compliancyDetails")
 					g.Expect(details).To(HaveLen(2))
 				}, defaultTimeoutSeconds, 1).Should(Succeed())
@@ -148,6 +153,7 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 
 				Eventually(func(g Gomega) {
 					By("Verifying the pod is Compliant")
+
 					managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 						tc.policyName, testNamespace, true, defaultTimeoutSeconds)
 					utils.CheckComplianceStatus(g, managedPlc, "Compliant")
@@ -159,9 +165,11 @@ var _ = Describe("Test multiple obj template handling", Ordered, func() {
 				By("Resetting the pod for the next test case")
 				deletePods([]string{podName1}, []string{"default"})
 				utils.Kubectl("apply", "-f", podConfigmapYaml, "-n", testNamespace)
+
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					podName1, "default", true, defaultTimeoutSeconds)
 				Expect(pod).NotTo(BeNil())
+
 				configmap := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
 					"case5-configmap-1", "default", true, defaultTimeoutSeconds)
 				Expect(configmap).NotTo(BeNil())

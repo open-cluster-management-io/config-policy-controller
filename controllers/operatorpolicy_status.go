@@ -129,9 +129,9 @@ func updateStatus(
 		}
 	}
 
-	genUpdated := policy.ObjectMeta.Generation != policy.Status.ObservedGeneration
+	genUpdated := policy.Generation != policy.Status.ObservedGeneration
 	if genUpdated {
-		policy.Status.ObservedGeneration = policy.ObjectMeta.Generation
+		policy.Status.ObservedGeneration = policy.Generation
 	}
 
 	return condChanged || relObjsChanged || genUpdated

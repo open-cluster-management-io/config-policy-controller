@@ -24,7 +24,7 @@ var _ = Describe("Test related object metrics", Ordered, func() {
 			configmapName, "default", false, defaultTimeoutSeconds)
 
 		By("Checking metric endpoint for related object gauges")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			return utils.GetMetrics("policy_user_errors", fmt.Sprintf(`template=\"%s\"`, policy1Name))
 		}, defaultTimeoutSeconds, 1).Should(Equal([]string{}))
 	}
@@ -35,6 +35,7 @@ var _ = Describe("Test related object metrics", Ordered, func() {
 			"-f", policyYaml,
 			"-n", testNamespace)
 		By("Verifying the policies were created")
+
 		plc1 := utils.GetWithTimeout(
 			clientManagedDynamic, gvrConfigPolicy, policy1Name, testNamespace, true, defaultTimeoutSeconds,
 		)

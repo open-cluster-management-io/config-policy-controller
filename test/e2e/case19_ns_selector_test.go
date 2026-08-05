@@ -57,7 +57,7 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 			)
 
 			By("Verifying the policy has a no namespace error")
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -71,7 +71,7 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 			})
 
 			By("Verifying the policy consistently has a no namespace error")
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -85,7 +85,7 @@ var _ = Describe("Test results of namespace selection", Ordered, func() {
 		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
 			fmt.Sprintf(nsSelectorPatchFmt, patch),
 		)
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -146,7 +146,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		})
 
 		By("Verifying initial compliance message")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -173,7 +173,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		}, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -195,7 +195,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		}, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -211,7 +211,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 	It("should evaluate when a namespace is labeled to match", func() {
 		utils.Kubectl("label", "ns", "case19b-4-e2e", "case19b=case19b-4-e2e")
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -223,7 +223,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 	It("should evaluate when a matching namespace label is removed", func() {
 		utils.Kubectl("label", "ns", "case19b-3-e2e", "case19b-")
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -250,7 +250,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		}, metav1.CreateOptions{})
 		Expect(err).ToNot(HaveOccurred())
 
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -274,7 +274,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 
 		utils.Kubectl("label", "ns", "case19b-1-e2e", "extra-label=hello")
 
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -303,7 +303,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		var newEvalTime string
 
 		By("Waiting for the one evaluation after the spec changed")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -319,7 +319,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		}, "40s", "3s").ShouldNot(Equal(evalTime))
 
 		By("Verifying it does not evaluate again")
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -348,7 +348,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		var newEvalTime string
 
 		By("Waiting for the one evaluation after the spec changed")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -364,7 +364,7 @@ var _ = Describe("Test behavior of namespace selection as namespaces change", Or
 		}, "40s", "3s").ShouldNot(Equal(evalTime))
 
 		By("Verifying it does not evaluate again")
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 

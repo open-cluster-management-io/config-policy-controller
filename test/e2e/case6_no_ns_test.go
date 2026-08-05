@@ -47,11 +47,13 @@ var _ = Describe("Test multiple obj template handling", func() {
 			ns1 := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrNS,
 				case6NSName1, true, defaultTimeoutSeconds)
 			Expect(ns1).NotTo(BeNil())
+
 			ns2 := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrNS,
 				case6NSName2, true, defaultTimeoutSeconds)
 			Expect(ns2).NotTo(BeNil())
 
 			By("Clean up")
+
 			policies := []string{
 				case6ConfigPolicyNameNS,
 				case6ConfigPolicyNameCombo,

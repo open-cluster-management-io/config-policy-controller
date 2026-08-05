@@ -30,6 +30,7 @@ var _ = Describe("Test config policy ratelimiting", Ordered, func() {
 		if len(metric) == 0 {
 			return 0, fmt.Errorf("failed to retrieve any %s metric", metricName)
 		}
+
 		metricVal, err := strconv.ParseFloat(metric[0], 64)
 		if err != nil {
 			return 0, fmt.Errorf("error converting metric: %w", err)
@@ -68,6 +69,7 @@ var _ = Describe("Test config policy ratelimiting", Ordered, func() {
 		// The metric may not have appeared yet immediately after BeforeAll creates the policy, so
 		// wait for it rather than requiring it on the first try.
 		var baseline float64
+
 		Eventually(func() error {
 			total, err := metricCheck("config_policy_evaluation_total", "name", policyName)
 			if err != nil {
@@ -92,6 +94,7 @@ var _ = Describe("Test config policy ratelimiting", Ordered, func() {
 		start := time.Now()
 
 		By("Updating the watched configmap frequently for 10 seconds")
+
 		for start.Add(10 * time.Second).After(time.Now()) {
 			value++
 			utils.Kubectl("patch", "configmap", configMapName, "--type=json", "-p",

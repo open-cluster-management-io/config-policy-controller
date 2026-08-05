@@ -33,6 +33,7 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 
 		AfterAll(func() {
 			By("clean up case2")
+
 			policies := []string{
 				configPolicyNameInform,
 				configPolicyNameEnforce,
@@ -160,14 +161,15 @@ var _ = Describe("Test role obj template handling", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("Verifying the diff in the status")
+
 			relatedObjects, _, err := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 			Expect(err).ToNot(HaveOccurred())
 			Expect(relatedObjects).To(HaveLen(1))
 
-			uid, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "uid")
+			uid, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]any), "properties", "uid")
 			Expect(uid).ToNot(BeEmpty())
 
-			diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
+			diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]any), "properties", "diff")
 			expectedDiff := fmt.Sprintf(`--- default/pod-reader-e2e-binding : existing
 +++ default/pod-reader-e2e-binding : updated
 @@ -8,10 +8,6 @@

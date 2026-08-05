@@ -81,6 +81,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			By("Creating " + case13CfgPolCreateSecret + " and " + case13CfgPolCheckSecret + " on managed")
 			// create secret
 			utils.Kubectl("apply", "-f", case13SecretYaml, "-n", "default")
+
 			secret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
 				case13Secret, "default", true, defaultTimeoutSeconds)
 			Expect(secret).NotTo(BeNil())
@@ -95,7 +96,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				copiedSecret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
 					case13Secret, "default", true, defaultTimeoutSeconds)
 
@@ -126,6 +127,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			By("Creating " + case13CfgPolCreateSecret + " and " + case13CfgPolCheckSecret + " on managed")
 			// create secret
 			utils.Kubectl("apply", "-f", case13SecretYaml, "-n", "default")
+
 			secret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
 				case13Secret, "default", true, defaultTimeoutSeconds)
 			Expect(secret).NotTo(BeNil())
@@ -140,7 +142,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				copiedSecret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
 					case13Secret, "default", true, defaultTimeoutSeconds)
 
@@ -169,6 +171,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			By("Creating " + case13CfgPolCreatePod + " and " + case13CfgPolVerifyPod + " on managed")
 			// create clusterclaim
 			utils.Kubectl("apply", "-f", case13ClusterClaimYaml)
+
 			cc := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrClusterClaim,
 				case13ClusterClaim, true, defaultTimeoutSeconds)
 			Expect(cc).NotTo(BeNil())
@@ -196,6 +199,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			// check configmap by creating an inform policy that pulls the pod name from a configmap
 			utils.Kubectl("apply", "-f", case13ConfigMapYaml, "-n", "default")
+
 			cm := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
 				case13ConfigMap, "default", true, defaultTimeoutSeconds)
 			Expect(cm).NotTo(BeNil())
@@ -237,7 +241,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			plc = utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				case13LookupClusterClaim, testNamespace, true, defaultTimeoutSeconds)
 			Expect(plc).NotTo(BeNil())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case13LookupClusterClaim, testNamespace, true, defaultTimeoutSeconds)
 
@@ -284,10 +288,10 @@ var _ = Describe("Test templatization", Ordered, func() {
 			compliancyDetails, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "compliancyDetails")
 			Expect(compliancyDetails).To(HaveLen(2))
 
-			firstObjTemplate := compliancyDetails[0].(map[string]interface{})
+			firstObjTemplate := compliancyDetails[0].(map[string]any)
 			Expect(firstObjTemplate["Compliant"]).To(Equal("NonCompliant"))
 
-			secondObjTemplate := compliancyDetails[1].(map[string]interface{})
+			secondObjTemplate := compliancyDetails[1].(map[string]any)
 			Expect(secondObjTemplate["Compliant"]).To(Equal("Compliant"))
 		})
 
@@ -302,8 +306,10 @@ var _ = Describe("Test templatization", Ordered, func() {
 		Ordered, func() {
 			const configMapName = "configmap-update-referenced-object"
 			const configMapReplName = configMapName + "-repl"
+
 			It("Should have the expected ConfigMap created", func() {
 				By("Creating the ConfigMap to reference")
+
 				configMap := corev1.ConfigMap{
 					ObjectMeta: metav1.ObjectMeta{
 						Name: configMapName,
@@ -319,7 +325,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				By("By verifying that the policy is compliant")
 				Eventually(
-					func() interface{} {
+					func() any {
 						managedPlc := utils.GetWithTimeout(
 							clientManagedDynamic,
 							gvrConfigPolicy,
@@ -336,6 +342,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 				).Should(Equal("Compliant"))
 
 				By("By verifying that the replicated ConfigMap has the expected data")
+
 				replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
 					context.TODO(), configMapReplName, metav1.GetOptions{},
 				)
@@ -343,6 +350,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 				Expect(replConfigMap.Data["message"]).To(Equal("Hello Raleigh!\n"))
 
 				By("Updating the referenced ConfigMap")
+
 				configMap.Data["message"] = "Hello world!"
 				_, err = clientManaged.CoreV1().ConfigMaps("default").Update(
 					context.TODO(), &configMap, metav1.UpdateOptions{},
@@ -351,7 +359,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 				By("Verifying that the replicated ConfigMap has the updated data")
 				Eventually(
-					func() interface{} {
+					func() any {
 						replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
 							context.TODO(), configMapReplName, metav1.GetOptions{},
 						)
@@ -379,6 +387,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 		It("Should have the expected ConfigMap created", func() {
 			By("Creating the ConfigMap to reference")
+
 			configMap := corev1.ConfigMap{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: configMapName,
@@ -394,7 +403,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 
 			By("By verifying that the policy is compliant")
 			Eventually(
-				func() interface{} {
+				func() any {
 					managedPlc := utils.GetWithTimeout(
 						clientManagedDynamic,
 						gvrConfigPolicy,
@@ -411,6 +420,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			).Should(Equal("Compliant"))
 
 			By("By verifying that the replicated ConfigMap has the expected data")
+
 			replConfigMap, err := clientManaged.CoreV1().ConfigMaps("default").Get(
 				context.TODO(), configMapReplName, metav1.GetOptions{},
 			)
@@ -430,6 +440,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			By("Creating " + case13CfgPolCreateSecret + " and " + case13CfgPolCheckSecret + " on managed")
 			// create secret
 			utils.Kubectl("apply", "-f", case13SecretYaml, "-n", "default")
+
 			secret := utils.GetWithTimeout(clientManagedDynamic, gvrSecret,
 				case13Secret, "default", true, defaultTimeoutSeconds)
 			Expect(secret).NotTo(BeNil())
@@ -448,7 +459,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("By verifying that the configmap exist ")
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				configmap := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
 					case13PruneTmpErr+"-configmap", "default", true, defaultTimeoutSeconds)
 
@@ -471,7 +482,7 @@ var _ = Describe("Test templatization", Ordered, func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("By verifying that the configmap still exist ")
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				configmap := utils.GetWithTimeout(clientManagedDynamic, gvrConfigMap,
 					case13PruneTmpErr+"-configmap", "default", true, defaultTimeoutSeconds)
 

@@ -58,7 +58,7 @@ var _ = Describe("Test template context variables", func() {
 				relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 				g.Expect(relatedObjects).To(HaveLen(2))
 
-				relatedObject1, ok := relatedObjects[0].(map[string]interface{})
+				relatedObject1, ok := relatedObjects[0].(map[string]any)
 				g.Expect(ok).To(BeTrue(), "Related object is not a map")
 
 				relatedObject1NS, _, _ := unstructured.NestedString(relatedObject1, "object", "metadata", "namespace")
@@ -66,7 +66,7 @@ var _ = Describe("Test template context variables", func() {
 					Equal("case44-e2e-objectns-variables"), "Related object namespace should match",
 				)
 
-				relatedObject2, ok := relatedObjects[1].(map[string]interface{})
+				relatedObject2, ok := relatedObjects[1].(map[string]any)
 				g.Expect(ok).To(BeTrue(), "Related object is not a map")
 
 				relatedObject2NS, _, _ := unstructured.NestedString(relatedObject2, "object", "metadata", "namespace")
@@ -74,6 +74,7 @@ var _ = Describe("Test template context variables", func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("By verifying the ConfigMaps")
+
 			configMap1, err := clientManaged.CoreV1().ConfigMaps("case44-e2e-objectns-variables").Get(
 				ctx, "case44-e2e-objectns-variables", metav1.GetOptions{},
 			)
@@ -164,8 +165,9 @@ var _ = Describe("Test template context variables", func() {
 				g.Expect(relatedObjects).To(HaveLen(2))
 
 				for idx := range relatedObjects {
-					relatedObject, ok := relatedObjects[idx].(map[string]interface{})
+					relatedObject, ok := relatedObjects[idx].(map[string]any)
 					g.Expect(ok).To(BeTrue(), "Related object is not a map")
+
 					relatedObject1NS, _, _ := unstructured.NestedString(relatedObject, "object", "metadata", "name")
 					// The first object is skipped.
 					g.Expect(relatedObject1NS).To(
@@ -175,6 +177,7 @@ var _ = Describe("Test template context variables", func() {
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 			By("By verifying the ConfigMaps")
+
 			configMaps, err := clientManaged.CoreV1().ConfigMaps(e2eBaseName).List(
 				ctx, metav1.ListOptions{
 					LabelSelector: "case44",
@@ -215,8 +218,9 @@ var _ = Describe("Test template context variables", func() {
 
 					relatedObjects, _, _ := unstructured.NestedSlice(managedPlc.Object, "status", "relatedObjects")
 					g.Expect(relatedObjects).To(HaveLen(1))
-					relatedObject, ok := relatedObjects[0].(map[string]interface{})
+					relatedObject, ok := relatedObjects[0].(map[string]any)
 					g.Expect(ok).To(BeTrue(), "Related object is not a map")
+
 					relatedObject1NS, _, _ := unstructured.NestedString(relatedObject, "object", "metadata", "name")
 					g.Expect(relatedObject1NS).To(
 						Equal(fmt.Sprintf("%s%d", e2eBaseName, 3)),
@@ -224,6 +228,7 @@ var _ = Describe("Test template context variables", func() {
 				}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 				By("By verifying the ConfigMaps")
+
 				cm, err := clientManaged.CoreV1().ConfigMaps(e2eBaseName).Get(
 					ctx, "case44-e2e-objectname-var3", metav1.GetOptions{})
 				Expect(err).ToNot(HaveOccurred())
@@ -408,11 +413,13 @@ var _ = Describe("Test template context variables", func() {
 		DescribeTable("Should enforce the labels on the e2e-object-var ConfigMaps",
 			func(ctx SpecContext, patch string, objectCount int) {
 				By("Applying the " + policyName + " ConfigurationPolicy")
+
 				patchFilepath := rsrcPath + "case44_object_var.yaml"
 				if patch != "" {
 					patchFilepath = utils.KubectlJSONPatchToFile(ctx, patch, "-n", testNamespace, "-f", patchFilepath)
 					defer os.Remove(patchFilepath)
 				}
+
 				utils.KubectlApplyAndLabel(baseName, "-n", testNamespace, "-f", patchFilepath)
 
 				By("By verifying that the ConfigurationPolicy is noncompliant")
@@ -439,7 +446,7 @@ var _ = Describe("Test template context variables", func() {
 					g.Expect(relatedObjects).To(HaveLen(objectCount))
 
 					for i := range objectCount {
-						relatedObject, ok := relatedObjects[i].(map[string]interface{})
+						relatedObject, ok := relatedObjects[i].(map[string]any)
 						g.Expect(ok).To(BeTrue(), "Related object is not a map")
 
 						relatedObjName, _, _ := unstructured.NestedString(relatedObject, "object", "metadata", "name")
@@ -450,6 +457,7 @@ var _ = Describe("Test template context variables", func() {
 				}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 				By("By verifying the ConfigMaps")
+
 				for i := 1; i <= 4; i++ {
 					configMap, err := clientManaged.CoreV1().ConfigMaps(baseName).Get(
 						ctx, fmt.Sprintf("%s%d", baseName, i), metav1.GetOptions{},

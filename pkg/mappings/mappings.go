@@ -113,7 +113,7 @@ func GenerateMappings(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	_, resources, _, err := client.DiscoveryClient.GroupsAndMaybeResources()
+	_, resources, _, err := client.GroupsAndMaybeResources()
 	if err != nil {
 		return err
 	}

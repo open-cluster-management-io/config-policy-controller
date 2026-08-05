@@ -81,13 +81,13 @@ func TestReconcile(t *testing.T) {
 }
 
 func TestMergeMaps(t *testing.T) {
-	spec1 := map[string]interface{}{
+	spec1 := map[string]any{
 		"containers": map[string]string{
 			"image": "nginx1.7.9",
 			"name":  "nginx",
 		},
 	}
-	spec2 := map[string]interface{}{
+	spec2 := map[string]any{
 		"containers": map[string]string{
 			"image": "nginx1.7.9",
 			"test":  "test",
@@ -99,7 +99,7 @@ func TestMergeMaps(t *testing.T) {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
 
-	mergedExpected := map[string]interface{}{
+	mergedExpected := map[string]any{
 		"containers": map[string]string{
 			"image": "nginx1.7.9",
 			"name":  "nginx",
@@ -107,8 +107,8 @@ func TestMergeMaps(t *testing.T) {
 	}
 	assert.True(t, reflect.DeepEqual(merged, mergedExpected))
 
-	spec1 = map[string]interface{}{
-		"containers": map[string]interface{}{
+	spec1 = map[string]any{
+		"containers": map[string]any{
 			"image": "nginx1.7.9",
 			"test":  "1111",
 			"timestamp": map[string]int64{
@@ -116,8 +116,8 @@ func TestMergeMaps(t *testing.T) {
 			},
 		},
 	}
-	spec2 = map[string]interface{}{
-		"containers": map[string]interface{}{
+	spec2 = map[string]any{
+		"containers": map[string]any{
 			"image": "nginx1.7.9",
 			"name":  "nginx",
 			"timestamp": map[string]int64{
@@ -131,8 +131,8 @@ func TestMergeMaps(t *testing.T) {
 		t.Fatalf("compareSpecs: (%v)", err)
 	}
 
-	mergedExpected = map[string]interface{}{
-		"containers": map[string]interface{}{
+	mergedExpected = map[string]any{
+		"containers": map[string]any{
 			"image": "nginx1.7.9",
 			"name":  "nginx",
 			"test":  "1111",
@@ -197,88 +197,88 @@ func TestMergeArraysMustHave(t *testing.T) {
 	t.Parallel()
 
 	testcases := map[string]struct {
-		desiredList  []interface{}
-		currentList  []interface{}
-		expectedList []interface{}
+		desiredList  []any
+		currentList  []any
+		expectedList []any
 	}{
 		"merge array with existing element into array preserves array": {
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
 		},
 		"merge array with partial existing element into array preserves existing array": {
-			[]interface{}{
-				map[string]interface{}{"b": "boy"},
+			[]any{
+				map[string]any{"b": "boy"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
 		},
 		"merge array with multiple partial existing elements into array preserves existing array": {
-			[]interface{}{
-				map[string]interface{}{"a": "apple"},
-				map[string]interface{}{"c": "candy"},
+			[]any{
+				map[string]any{"a": "apple"},
+				map[string]any{"c": "candy"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
 		},
 		"merge array with existing elements into subset array becomes new array": {
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"b": "boy", "c": "candy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"b": "boy", "c": "candy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"b": "boy", "c": "candy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"b": "boy", "c": "candy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
 		},
 		"merge two differing single-element arrays becomes array with both elements": {
-			[]interface{}{
-				map[string]interface{}{
+			[]any{
+				map[string]any{
 					"apiGroups": []string{"extensions", "apps"},
 					"resources": []string{"deployments"},
 					"verbs":     []string{"get", "list"},
 				},
 			},
-			[]interface{}{
-				map[string]interface{}{
+			[]any{
+				map[string]any{
 					"apiGroups": []string{"extensions", "apps"},
 					"resources": []string{"deployments"},
 					"verbs":     []string{"get", "list", "watch", "create", "delete"},
 				},
 			},
-			[]interface{}{
-				map[string]interface{}{
+			[]any{
+				map[string]any{
 					"apiGroups": []string{"extensions", "apps"},
 					"resources": []string{"deployments"},
 					"verbs":     []string{"get", "list"},
 				},
-				map[string]interface{}{
+				map[string]any{
 					"apiGroups": []string{"extensions", "apps"},
 					"resources": []string{"deployments"},
 					"verbs":     []string{"get", "list", "watch", "create", "delete"},
@@ -303,67 +303,67 @@ func TestMergeArraysMustOnlyHave(t *testing.T) {
 	t.Parallel()
 
 	testcases := map[string]struct {
-		desiredList  []interface{}
-		currentList  []interface{}
-		expectedList []interface{}
+		desiredList  []any
+		currentList  []any
+		expectedList []any
 	}{
 		"merge array with one element into array with two becomes new array": {
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
 			},
 		},
 		"merge array with partial existing element into array becomes new array": {
-			[]interface{}{
-				map[string]interface{}{"b": "boy"},
+			[]any{
+				map[string]any{"b": "boy"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
-			[]interface{}{
-				map[string]interface{}{"b": "boy"},
+			[]any{
+				map[string]any{"b": "boy"},
 			},
 		},
 		"merge array with existing elements into subset array becomes new array": {
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"b": "boy", "c": "candy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"b": "boy", "c": "candy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
-			[]interface{}{
-				map[string]interface{}{"a": "apple", "b": "boy"},
-				map[string]interface{}{"b": "boy", "c": "candy"},
-				map[string]interface{}{"c": "candy", "d": "dog"},
+			[]any{
+				map[string]any{"a": "apple", "b": "boy"},
+				map[string]any{"b": "boy", "c": "candy"},
+				map[string]any{"c": "candy", "d": "dog"},
 			},
 		},
 		"merge two differing single-element arrays becomes new array": {
-			[]interface{}{
-				map[string]interface{}{
+			[]any{
+				map[string]any{
 					"apiGroups": []string{"extensions", "apps"},
 					"resources": []string{"deployments"},
 					"verbs":     []string{"get", "list"},
 				},
 			},
-			[]interface{}{
-				map[string]interface{}{
+			[]any{
+				map[string]any{
 					"apiGroups": []string{"extensions", "apps"},
 					"resources": []string{"deployments"},
 					"verbs":     []string{"get", "list", "watch", "create", "delete"},
 				},
 			},
-			[]interface{}{
-				map[string]interface{}{
+			[]any{
+				map[string]any{
 					"apiGroups": []string{"extensions", "apps"},
 					"resources": []string{"deployments"},
 					"verbs":     []string{"get", "list"},
@@ -385,12 +385,12 @@ func TestMergeArraysMustOnlyHave(t *testing.T) {
 }
 
 func TestCheckListsAreEquivalent(t *testing.T) {
-	twoFullItems := []interface{}{
-		map[string]interface{}{
+	twoFullItems := []any{
+		map[string]any{
 			"a": "apple",
 			"b": "boy",
 		},
-		map[string]interface{}{
+		map[string]any{
 			"c": "candy",
 			"d": "dog",
 		},
@@ -399,12 +399,12 @@ func TestCheckListsAreEquivalent(t *testing.T) {
 	check, _ := checkListsAreEquivalent(twoFullItems, twoFullItems)
 	assert.True(t, check)
 
-	twoFullItemsDifferentOrder := []interface{}{
-		map[string]interface{}{
+	twoFullItemsDifferentOrder := []any{
+		map[string]any{
 			"c": "candy",
 			"d": "dog",
 		},
-		map[string]interface{}{
+		map[string]any{
 			"a": "apple",
 			"b": "boy",
 		},
@@ -415,8 +415,8 @@ func TestCheckListsAreEquivalent(t *testing.T) {
 	check, _ = checkListsAreEquivalent(twoFullItemsDifferentOrder, twoFullItems)
 	assert.True(t, check)
 
-	oneFullItem := []interface{}{
-		map[string]interface{}{
+	oneFullItem := []any{
+		map[string]any{
 			"a": "apple",
 			"b": "boy",
 		},
@@ -427,8 +427,8 @@ func TestCheckListsAreEquivalent(t *testing.T) {
 	check, _ = checkListsAreEquivalent(oneFullItem, twoFullItems)
 	assert.False(t, check)
 
-	oneSmallItem := []interface{}{
-		map[string]interface{}{
+	oneSmallItem := []any{
+		map[string]any{
 			"b": "boy",
 		},
 	}
@@ -438,11 +438,11 @@ func TestCheckListsAreEquivalent(t *testing.T) {
 	check, _ = checkListsAreEquivalent(oneSmallItem, twoFullItems)
 	assert.False(t, check)
 
-	twoSmallItems := []interface{}{
-		map[string]interface{}{
+	twoSmallItems := []any{
+		map[string]any{
 			"a": "apple",
 		},
-		map[string]interface{}{
+		map[string]any{
 			"c": "candy",
 		},
 	}
@@ -452,11 +452,11 @@ func TestCheckListsAreEquivalent(t *testing.T) {
 	check, _ = checkListsAreEquivalent(twoSmallItems, twoFullItems)
 	assert.False(t, check)
 
-	oneSmallOneBig := []interface{}{
-		map[string]interface{}{
+	oneSmallOneBig := []any{
+		map[string]any{
 			"a": "apple",
 		},
-		map[string]interface{}{
+		map[string]any{
 			"c": "candy",
 			"d": "dog",
 		},
@@ -467,12 +467,12 @@ func TestCheckListsAreEquivalent(t *testing.T) {
 	check, _ = checkListsAreEquivalent(oneSmallOneBig, twoFullItems)
 	assert.False(t, check)
 
-	oneBigOneSmall := []interface{}{
-		map[string]interface{}{
+	oneBigOneSmall := []any{
+		map[string]any{
 			"a": "apple",
 			"b": "boy",
 		},
-		map[string]interface{}{
+		map[string]any{
 			"c": "candy",
 		},
 	}
@@ -484,10 +484,10 @@ func TestCheckListsAreEquivalent(t *testing.T) {
 }
 
 func TestCheckListsMatchDiffMapLength(t *testing.T) {
-	existingObject := []interface{}{
-		map[string]interface{}{
-			"containers": []interface{}{
-				map[string]interface{}{
+	existingObject := []any{
+		map[string]any{
+			"containers": []any{
+				map[string]any{
 					"name":  "my-container",
 					"image": "quay.io/org/test:latest",
 				},
@@ -495,10 +495,10 @@ func TestCheckListsMatchDiffMapLength(t *testing.T) {
 		},
 	}
 
-	mergedObject := []interface{}{
-		map[string]interface{}{
-			"containers": []interface{}{
-				map[string]interface{}{
+	mergedObject := []any{
+		map[string]any{
+			"containers": []any{
+				map[string]any{
 					"name":  "my-container",
 					"image": "quay.io/org/test:latest",
 					"stdin": false,
@@ -557,21 +557,21 @@ status:
       kind: Subscription
 `
 
-	policyObjDef := make(map[string]interface{})
+	policyObjDef := make(map[string]any)
 
 	err := yaml.UnmarshalStrict([]byte(objDefYaml), &policyObjDef)
 	if err != nil {
 		t.Error(err)
 	}
 
-	orderOneObj := make(map[string]interface{})
+	orderOneObj := make(map[string]any)
 
 	err = yaml.UnmarshalStrict([]byte(orderOneYaml), &orderOneObj)
 	if err != nil {
 		t.Error(err)
 	}
 
-	orderTwoObj := make(map[string]interface{})
+	orderTwoObj := make(map[string]any)
 
 	err = yaml.UnmarshalStrict([]byte(orderTwoYaml), &orderTwoObj)
 	if err != nil {
@@ -1137,21 +1137,21 @@ secrets:
   name: test-user-dockercfg
 `
 
-	serviceAccountObj := make(map[string]interface{})
+	serviceAccountObj := make(map[string]any)
 
 	err := yaml.UnmarshalStrict([]byte(desiredServiceAccountYaml), &serviceAccountObj)
 	if err != nil {
 		t.Error(err)
 	}
 
-	existingServiceAccountObj := make(map[string]interface{})
+	existingServiceAccountObj := make(map[string]any)
 
 	err = yaml.UnmarshalStrict([]byte(existingServiceAccountYaml), &existingServiceAccountObj)
 	if err != nil {
 		t.Error(err)
 	}
 
-	existingServiceAccountObjCopy := make(map[string]interface{})
+	existingServiceAccountObjCopy := make(map[string]any)
 
 	err = yaml.UnmarshalStrict([]byte(existingServiceAccountYaml), &existingServiceAccountObjCopy)
 	if err != nil {
@@ -1479,8 +1479,8 @@ func TestShouldEvaluatePolicy(t *testing.T) {
 				policyCopy.Status.LastEvaluatedGeneration = test.lastEvaluatedGeneration
 				policyCopy.Spec.EvaluationInterval = test.evaluationInterval
 				policyCopy.Status.ComplianceState = test.complianceState
-				policyCopy.ObjectMeta.DeletionTimestamp = test.deletionTimestamp
-				policyCopy.ObjectMeta.Finalizers = test.finalizers
+				policyCopy.DeletionTimestamp = test.deletionTimestamp
+				policyCopy.Finalizers = test.finalizers
 
 				r := &ConfigurationPolicyReconciler{
 					SelectorReconciler: &fakeSR{},
@@ -1532,18 +1532,18 @@ func TestShouldHandleSingleKeyFalse(t *testing.T) {
 	}
 
 	type TestSingleKey struct {
-		input        map[string]interface{}
-		fromAPI      map[string]interface{}
+		input        map[string]any
+		fromAPI      map[string]any
 		expectResult ExpectResult
 	}
 
 	tests := []TestSingleKey{
 		{
-			input: map[string]interface{}{
+			input: map[string]any{
 				"hostIPC":   false,
 				"container": "test",
 			},
-			fromAPI: map[string]interface{}{
+			fromAPI: map[string]any{
 				"container": "test",
 			},
 			expectResult: ExpectResult{
@@ -1552,15 +1552,15 @@ func TestShouldHandleSingleKeyFalse(t *testing.T) {
 			},
 		},
 		{
-			input: map[string]interface{}{
-				"container": map[string]interface{}{
+			input: map[string]any{
+				"container": map[string]any{
 					"image":   "nginx1.7.9",
 					"name":    "nginx",
 					"hostIPC": false,
 				},
 			},
-			fromAPI: map[string]interface{}{
-				"container": map[string]interface{}{
+			fromAPI: map[string]any{
+				"container": map[string]any{
 					"image": "nginx1.7.9",
 					"name":  "nginx",
 				},
@@ -1571,11 +1571,11 @@ func TestShouldHandleSingleKeyFalse(t *testing.T) {
 			},
 		},
 		{
-			input: map[string]interface{}{
+			input: map[string]any{
 				"hostIPC":   true,
 				"container": "test",
 			},
-			fromAPI: map[string]interface{}{
+			fromAPI: map[string]any{
 				"container": "test",
 			},
 			expectResult: ExpectResult{
@@ -1584,15 +1584,15 @@ func TestShouldHandleSingleKeyFalse(t *testing.T) {
 			},
 		},
 		{
-			input: map[string]interface{}{
-				"container": map[string]interface{}{
+			input: map[string]any{
+				"container": map[string]any{
 					"image":   "nginx1.7.9",
 					"name":    "nginx",
 					"hostIPC": true,
 				},
 			},
-			fromAPI: map[string]interface{}{
-				"container": map[string]interface{}{
+			fromAPI: map[string]any{
+				"container": map[string]any{
 					"image": "nginx1.7.9",
 					"name":  "nginx",
 				},

@@ -51,12 +51,10 @@ func StartTestManager(mgr manager.Manager, g *gomega.GomegaWithT) (context.Cance
 	ctx, stop := context.WithCancel(ctx)
 
 	wg := &sync.WaitGroup{}
-	wg.Add(1)
 
-	go func() {
+	wg.Go(func() {
 		g.Expect(mgr.Start(ctx)).NotTo(gomega.HaveOccurred())
-		wg.Done()
-	}()
+	})
 
 	return stop, wg
 }
