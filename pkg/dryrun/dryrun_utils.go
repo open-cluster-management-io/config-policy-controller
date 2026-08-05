@@ -50,8 +50,8 @@ func warningColor(input string, noColors bool) string {
 }
 
 func compareStatus(cmd *cobra.Command,
-	inputStatus map[string]interface{},
-	resultStatus map[string]interface{},
+	inputStatus map[string]any,
+	resultStatus map[string]any,
 	noColor bool,
 ) {
 	cmd.Println("# Status compare:")
@@ -70,7 +70,7 @@ func compareStatus(cmd *cobra.Command,
 // including maps and arrays, by recursively comparing their contents. The function
 // updates isStatusMatch based on whether all expected values match the actual values.
 func compareStatusObj(cmd *cobra.Command, isStatusMatch bool, parentPath string,
-	inputMap, resultMap map[string]interface{}, noColor bool,
+	inputMap, resultMap map[string]any, noColor bool,
 ) bool {
 	// Sort keys for consistency
 	keys := make([]string, 0, len(inputMap))
@@ -108,9 +108,9 @@ func compareStatusObj(cmd *cobra.Command, isStatusMatch bool, parentPath string,
 				successMatchPrint(cmd, path, v, av, noColor)
 			}
 
-		case []interface{}:
+		case []any:
 			// Handle array of objects and non-object arrays
-			actualArray, ok := actualValue.([]interface{})
+			actualArray, ok := actualValue.([]any)
 			if !ok {
 				notArrayPrint(cmd, path, key, noColor)
 
@@ -121,8 +121,8 @@ func compareStatusObj(cmd *cobra.Command, isStatusMatch bool, parentPath string,
 
 			isStatusMatch = handleArrayInterface(cmd, typedV, actualArray, path, isStatusMatch, noColor)
 
-		case map[string]interface{}:
-			mapObj, ok := convertMapStringKey(typedV).(map[string]interface{})
+		case map[string]any:
+			mapObj, ok := convertMapStringKey(typedV).(map[string]any)
 			if !ok {
 				failedParsePrint(cmd, path, noColor)
 
@@ -131,7 +131,7 @@ func compareStatusObj(cmd *cobra.Command, isStatusMatch bool, parentPath string,
 				continue
 			}
 
-			mapActualObj, ok := convertMapStringKey(actualValue).(map[string]interface{})
+			mapActualObj, ok := convertMapStringKey(actualValue).(map[string]any)
 			if !ok {
 				failedTypeMissMatch(cmd, path, reflect.TypeOf(actualValue).String(), noColor)
 
@@ -162,17 +162,17 @@ func compareStatusObj(cmd *cobra.Command, isStatusMatch bool, parentPath string,
 }
 
 func handleArrayInterface(cmd *cobra.Command,
-	typedV, actualArray []interface{}, path string,
+	typedV, actualArray []any, path string,
 	isStatusMatch bool, noColor bool,
 ) bool {
 	switch typedV[0].(type) {
-	case map[interface{}]interface{}, map[string]interface{}:
+	case map[any]any, map[string]any:
 		allMatch := true
 		// Check all input status are match
 		for i, obj := range typedV {
 			elementMatch := false
 
-			mapObj, ok := convertMapStringKey(obj).(map[string]interface{})
+			mapObj, ok := convertMapStringKey(obj).(map[string]any)
 			if !ok {
 				failedParsePrint(cmd, path, noColor)
 
@@ -180,7 +180,7 @@ func handleArrayInterface(cmd *cobra.Command,
 			}
 
 			for _, actualObj := range actualArray {
-				mapActualObj, ok := convertMapStringKey(actualObj).(map[string]interface{})
+				mapActualObj, ok := convertMapStringKey(actualObj).(map[string]any)
 				if !ok {
 					failedTypeMissMatch(cmd, path, reflect.TypeOf(actualObj).String(), noColor)
 
@@ -250,7 +250,7 @@ func errorNoKeyPrint(cmd *cobra.Command, path, key string, noColors bool) {
 	}
 }
 
-func errorMatchPrint(cmd *cobra.Command, path string, inputVal, actualVal interface{}, noColors bool) {
+func errorMatchPrint(cmd *cobra.Command, path string, inputVal, actualVal any, noColors bool) {
 	if !skipPrintRegex.MatchString(path) {
 		cmd.Println(errorColor(fmt.Sprintf("%s: '%v' does not match '%v'", path, inputVal, actualVal), noColors))
 	}
@@ -274,16 +274,16 @@ func successMatchArrayPrint(cmd *cobra.Command, path string, noColors bool) {
 	}
 }
 
-func successMatchPrint(cmd *cobra.Command, path string, inputVal, actualVal interface{}, noColors bool) {
+func successMatchPrint(cmd *cobra.Command, path string, inputVal, actualVal any, noColors bool) {
 	if !skipPrintRegex.MatchString(path) {
 		cmd.Println(successColor(fmt.Sprintf("%s: '%v' does match '%v'", path, inputVal, actualVal), noColors))
 	}
 }
 
-func convertMapStringKey(i interface{}) interface{} {
+func convertMapStringKey(i any) any {
 	switch v := i.(type) {
-	case map[interface{}]interface{}:
-		newMap := make(map[string]interface{})
+	case map[any]any:
+		newMap := make(map[string]any)
 
 		for key, value := range v {
 			strKey := fmt.Sprintf("%v", key) // Convert key to string
@@ -297,13 +297,13 @@ func convertMapStringKey(i interface{}) interface{} {
 	}
 }
 
-func toMap(obj policyv1.ConfigurationPolicyStatus) map[string]interface{} {
+func toMap(obj policyv1.ConfigurationPolicyStatus) map[string]any {
 	cfgpolBytes, err := json.Marshal(obj)
 	if err != nil {
 		return nil
 	}
 
-	var statusMap map[string]interface{}
+	var statusMap map[string]any
 
 	if err := json.Unmarshal(cfgpolBytes, &statusMap); err != nil {
 		return nil

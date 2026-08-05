@@ -42,6 +42,7 @@ var _ = Describe("Test setting an unset field", Ordered, func() {
 
 	It("verifies the policy "+policyName+" works correctly", func() {
 		By("checking the config resource is in the expected state")
+
 		sriovObj := utils.GetWithTimeout(
 			clientManagedDynamic,
 			gvrSriovConfig,
@@ -87,6 +88,7 @@ var _ = Describe("Test setting an unset field", Ordered, func() {
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("checking the config resource is in the updated state")
+
 		sriovObj = utils.GetWithTimeout(
 			clientManagedDynamic,
 			gvrSriovConfig,

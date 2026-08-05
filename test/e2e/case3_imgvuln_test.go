@@ -65,7 +65,7 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case3ConfigPolicyNameVuln, testNamespace, true, defaultTimeoutSeconds)
 
@@ -86,7 +86,7 @@ var _ = Describe("Test img vulnerability obj template handling", func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					case3ConfigPolicyNameVulnObj, testNamespace, true, defaultTimeoutSeconds)
 

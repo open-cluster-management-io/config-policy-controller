@@ -58,11 +58,13 @@ var _ = Describe("Testing behavior with unwatchable resources", Ordered, func() 
 		}, defaultTimeoutSeconds, 1).Should(Succeed())
 
 		By("Verifying that compliance message mentions that evaluationInterval should be set")
+
 		tmpl1msg := `violation - Error with object-template at index \[0\], ` +
 			"it may require evaluationInterval to be set.*"
 		tmpl2msg := "violation - failed to resolve the template .* watch not supported on this resource " +
 			"- this template may require evaluationInterval to be set"
 		desiredMessage := "NonCompliant; " + tmpl1msg + tmpl2msg
+
 		Eventually(func() []policyv1.HistoryEvent {
 			return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, desiredMessage)
@@ -77,6 +79,7 @@ var _ = Describe("Testing behavior with unwatchable resources", Ordered, func() 
 		utils.Kubectl("apply", "-f", policyWithEval, "-n", testNamespace)
 
 		By("Verifying that the compliance message has changed")
+
 		tmpl1msg := `notification - packagemanifests \[example-operator\] found as specified in namespace default`
 		tmpl2msg := `violation - configmaps \[case45\] not found in namespace default`
 		desiredMessage := "NonCompliant; " + tmpl1msg + "; " + tmpl2msg

@@ -37,7 +37,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 					cfgPlcName, testNamespace, "^NonCompliant;")
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				return utils.GetMatchingEvents(clientManaged, testNamespace,
 					policyName, cfgPlcName, "^NonCompliant;", defaultTimeoutSeconds)
 			}, defaultTimeoutSeconds, 5).ShouldNot(BeEmpty())
@@ -67,7 +67,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 					cfgPlcName, testNamespace, "^Compliant;")
 			}, defaultConsistentlyDuration, 5).Should(BeEmpty())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				return utils.GetMatchingEvents(clientManaged, testNamespace,
 					policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
 			}, defaultTimeoutSeconds, 1).Should(BeEmpty())
@@ -80,7 +80,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 					cfgPlcName, testNamespace, "^Compliant;")
 			}, defaultConsistentlyDuration, 5).Should(BeEmpty())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				return utils.GetMatchingEvents(clientManaged, testNamespace,
 					policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
 			}, defaultTimeoutSeconds, 1).Should(BeEmpty())
@@ -104,7 +104,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 					cfgPlcName, testNamespace, "^Compliant;")
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				return utils.GetMatchingEvents(clientManaged, testNamespace,
 					policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
 			}, defaultTimeoutSeconds, 5).ShouldNot(BeEmpty())
@@ -116,6 +116,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 					policyName, ".*", ".*", defaultTimeoutSeconds)
 
 				By("Test failed, printing compliance events for debugging, event count = " + strconv.Itoa(len(events)))
+
 				for _, ev := range events {
 					GinkgoWriter.Println("---")
 					GinkgoWriter.Println("Name:", ev.Name)
@@ -130,6 +131,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 			}
 
 			utils.KubectlDelete("policy", policyName, "-n", "managed")
+
 			configPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				cfgPlcName, "managed", false, defaultTimeoutSeconds,
 			)
@@ -161,7 +163,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 					cfgPlcName, testNamespace, "^NonCompliant;")
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				return utils.GetMatchingEvents(clientManaged, testNamespace,
 					policyName, cfgPlcName, "^NonCompliant;", defaultTimeoutSeconds)
 			}, defaultTimeoutSeconds, 5).ShouldNot(BeEmpty())
@@ -191,7 +193,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 					cfgPlcName, testNamespace, "^Compliant;")
 			}, defaultConsistentlyDuration, 5).Should(BeEmpty())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				return utils.GetMatchingEvents(clientManaged, testNamespace,
 					policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
 			}, defaultTimeoutSeconds, 1).Should(BeEmpty())
@@ -219,7 +221,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 					cfgPlcName, testNamespace, "^Compliant;")
 			}, defaultConsistentlyDuration, 5).Should(BeEmpty())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				return utils.GetMatchingEvents(clientManaged, testNamespace,
 					policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
 			}, defaultTimeoutSeconds, 1).Should(BeEmpty())
@@ -233,7 +235,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 				return utils.GetHistoryEvents(clientManagedDynamic, gvrConfigPolicy,
 					cfgPlcName, testNamespace, "^Compliant;")
 			}, defaultTimeoutSeconds, 5).ShouldNot(BeEmpty())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				return utils.GetMatchingEvents(clientManaged, testNamespace,
 					policyName, cfgPlcName, "^Compliant;", defaultTimeoutSeconds)
 			}, defaultTimeoutSeconds, 1).ShouldNot(BeEmpty())
@@ -241,6 +243,7 @@ var _ = Describe("Test compliance events of enforced policies that define a stat
 
 		AfterEach(func() {
 			utils.KubectlDelete("policy", policyName, "-n", "managed")
+
 			configPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				cfgPlcName, "managed", false, defaultTimeoutSeconds,
 			)
