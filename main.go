@@ -5,6 +5,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"flag"
 	"fmt"
@@ -37,6 +38,7 @@ import (
 	"k8s.io/klog/v2"
 	"open-cluster-management.io/addon-framework/pkg/lease"
 	addonutils "open-cluster-management.io/addon-framework/pkg/utils"
+	sdktls "open-cluster-management.io/sdk-go/pkg/tls"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -98,6 +100,8 @@ type ctrlOpts struct {
 	enableMetrics            bool
 	enableOperatorPolicy     bool
 	enableOcmPolicyNamespace bool
+	tlsMinVersion            string
+	tlsCipherSuites          string
 
 	standaloneHubTemplateKubeConfigPath string
 	defaultTerminatingNSInclusion       string
@@ -271,6 +275,10 @@ func main() {
 	// No need to resync every 10 hours.
 	disableResync := time.Duration(0)
 
+	terminatingCtx := ctrl.SetupSignalHandler()
+
+	tlsCfg := resolveEffectiveTLSConfig(terminatingCtx, cfg, opts)
+
 	metricsOptions := server.Options{
 		BindAddress: opts.metricsAddr,
 	}
@@ -280,6 +288,7 @@ func main() {
 		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 		metricsOptions.SecureServing = true
 		metricsOptions.CertDir = "/var/run/metrics-cert"
+		metricsOptions.TLSOpts = []func(*tls.Config){sdktls.ConfigToFunc(tlsCfg)}
 	}
 
 	// Set default manager options
@@ -288,7 +297,8 @@ func main() {
 		Scheme:  scheme,
 		WebhookServer: webhook.NewServer(
 			webhook.Options{
-				Port: 9443,
+				Port:    9443,
+				TLSOpts: []func(*tls.Config){sdktls.ConfigToFunc(tlsCfg)},
 			},
 		),
 		HealthProbeBindAddress: opts.probeAddr,
@@ -332,8 +342,6 @@ func main() {
 		log.Error(err, "Unable to start manager")
 		os.Exit(1)
 	}
-
-	terminatingCtx := ctrl.SetupSignalHandler()
 
 	uninstallingCtx, uninstallingCtxCancel := context.WithCancel(terminatingCtx)
 
@@ -960,6 +968,22 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		[]string{},
 		"A comma-separated list of additional template functions to deny. "+
 			"The default deny list will remain active regardless of this setting.",
+	)
+
+	flags.StringVar(
+		&opts.tlsMinVersion,
+		"tls-min-version",
+		"",
+		"The minimum TLS version to use on the metrics and webhook servers (e.g. VersionTLS12). "+
+			"Overrides the ocm-tls-profile ConfigMap when set.",
+	)
+
+	flags.StringVar(
+		&opts.tlsCipherSuites,
+		"tls-cipher-suites",
+		"",
+		"A comma-separated list of IANA cipher suite names to use on the metrics and webhook servers. "+
+			"Overrides the ocm-tls-profile ConfigMap when set.",
 	)
 
 	_ = flags.Parse(args)
