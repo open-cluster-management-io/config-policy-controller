@@ -59,7 +59,7 @@ fmt:
 # test section
 ############################################################
 
-TEST_PKGS ?= ./api/v1 ./controllers ./pkg/common ./pkg/dryrun ./test/dryrun/...
+TEST_PKGS ?= . ./api/v1 ./controllers ./pkg/common ./pkg/dryrun ./test/dryrun/...
 
 .PHONY: test
 test: envtest kubebuilder gotestsum
