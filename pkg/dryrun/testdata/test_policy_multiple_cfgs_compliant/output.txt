@@ -1,0 +1,13 @@
+[36mnamespace-test-0[0m  -----------------------------------------------
+# Diffs:
+v1 Namespace my-ns:
+
+# Compliance messages:
+Compliant; notification - namespaces [my-ns] found as specified
+
+[36mnamespace-test-1[0m  -----------------------------------------------
+# Diffs:
+v1 Namespace my-other-ns:
+
+# Compliance messages:
+Compliant; notification - namespaces [my-other-ns] found as specified

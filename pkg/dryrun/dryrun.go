@@ -54,7 +54,7 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 	// or if an unknown flag was passed.
 	cmd.SilenceUsage = true
 
-	cfgPolicy, err := d.readPolicy(cmd)
+	cfgPolicies, err := d.readPolicy(cmd)
 	if err != nil {
 		return fmt.Errorf("unable to read input policy: %w", err)
 	}
@@ -66,59 +66,102 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(cmd.Context())
 	defer cancel()
 
-	rec, err := d.setupReconciler(ctx, cfgPolicy)
-	if err != nil {
-		return fmt.Errorf("unable to setup the dryrun reconciler: %w", err)
-	}
+	inputObjects := make([]*unstructured.Unstructured, 0)
 
 	if !d.fromCluster {
-		inputObjects, err := d.readInputResources(cmd, args)
+		inputObjects, err = d.readInputResources(cmd, args)
 		if err != nil {
 			return fmt.Errorf("unable to read input resources: %w", err)
 		}
+	}
 
-		err = d.applyInputResources(ctx, rec, inputObjects)
+	hasNonCompliantPolicy := false
+	policyStatus := make([]policyv1.ConfigurationPolicyStatus, 0)
+	policyComplianceMessages := make([][]string, 0)
+
+	for i, cfgPolicy := range cfgPolicies {
+		// Only print the ConfigurationPolicy Name header if there are
+		// multiple ConfigurationPolicy to print
+		if len(cfgPolicies) > 1 {
+			cmd.Println(applyColor(cfgPolicy.GetName(), Cyan, d.noColors),
+				" -----------------------------------------------")
+		}
+
+		rec, err := d.setupReconciler(ctx, cfgPolicy)
 		if err != nil {
-			return fmt.Errorf("unable to apply input resources: %w", err)
+			return fmt.Errorf("unable to setup the dryrun reconciler: %w", err)
+		}
+
+		if !d.fromCluster {
+			err = d.applyInputResources(ctx, rec, inputObjects)
+			if err != nil {
+				return fmt.Errorf("unable to apply input resources: %w", err)
+			}
+		}
+
+		cfgPolicyNN := types.NamespacedName{
+			Name:      cfgPolicy.GetName(),
+			Namespace: cfgPolicy.GetNamespace(),
+		}
+
+		if _, err := rec.Reconcile(ctx, runtime.Request{NamespacedName: cfgPolicyNN}); err != nil {
+			return fmt.Errorf("unable to complete the dryrun reconcile: %w", err)
+		}
+
+		if err := rec.Get(ctx, cfgPolicyNN, cfgPolicy); err != nil {
+			return fmt.Errorf("unable to get the resulting policy state: %w", err)
+		}
+
+		if d.desiredStatus != "" {
+			if err := d.compareStatus(cmd, cfgPolicy.Status); err != nil {
+				return fmt.Errorf("unable to compare desired status: %w", err)
+			}
+
+			cmd.Print("\n")
+		}
+
+		if d.statusPath != "" {
+			policyStatus = append(policyStatus, cfgPolicy.Status)
+		}
+
+		if d.printDiffs {
+			d.outputDiffs(cmd, cfgPolicy.Status)
+		}
+
+		complianceMessages, err := d.collectComplianceMessages(ctx, rec.Client, cfgPolicy.Namespace)
+		if err != nil {
+			return fmt.Errorf("unable to collect compliance messages: %w", err)
+		}
+
+		// either store complianceMessage to later save it in messagePath or print it right away
+		if d.messagesPath != "" {
+			policyComplianceMessages = append(policyComplianceMessages, complianceMessages)
+		} else {
+			cmd.Println("# Compliance messages:")
+
+			for _, msg := range complianceMessages {
+				cmd.Println(msg)
+			}
+		}
+
+		if cfgPolicy.Status.ComplianceState != policyv1.Compliant {
+			hasNonCompliantPolicy = true
+		}
+
+		if i < len(cfgPolicies)-1 {
+			cmd.Println()
 		}
 	}
 
-	cfgPolicyNN := types.NamespacedName{
-		Name:      cfgPolicy.GetName(),
-		Namespace: cfgPolicy.GetNamespace(),
+	if err := d.saveStatus(policyStatus...); err != nil {
+		return fmt.Errorf("unable to save the resulting policy state: %w", err)
 	}
 
-	if _, err := rec.Reconcile(ctx, runtime.Request{NamespacedName: cfgPolicyNN}); err != nil {
-		return fmt.Errorf("unable to complete the dryrun reconcile: %w", err)
+	if err := d.saveComplianceMessages(policyComplianceMessages); err != nil {
+		return fmt.Errorf("unable to save resulting compliance messages: %w", err)
 	}
 
-	if err := rec.Get(ctx, cfgPolicyNN, cfgPolicy); err != nil {
-		return fmt.Errorf("unable to get the resulting policy state: %w", err)
-	}
-
-	if d.desiredStatus != "" {
-		if err := d.compareStatus(cmd, cfgPolicy.Status); err != nil {
-			return fmt.Errorf("unable to compare desired status: %w", err)
-		}
-
-		cmd.Print("\n")
-	}
-
-	if d.statusPath != "" {
-		if err := d.saveStatus(cfgPolicy.Status); err != nil {
-			return fmt.Errorf("unable to save the resulting policy state: %w", err)
-		}
-	}
-
-	if d.printDiffs {
-		d.outputDiffs(cmd, cfgPolicy.Status)
-	}
-
-	if err := d.saveOrPrintComplianceMessages(ctx, cmd, rec.Client, cfgPolicy.Namespace); err != nil {
-		return fmt.Errorf("unable to save or print the compliance messages: %w", err)
-	}
-
-	if cfgPolicy.Status.ComplianceState != policyv1.Compliant {
+	if hasNonCompliantPolicy {
 		return ErrNonCompliant
 	}
 
@@ -128,9 +171,9 @@ func (d *DryRunner) dryRun(cmd *cobra.Command, args []string) error {
 const parentName string = "cfgpol-dryrun-parent"
 
 // readPolicy reads the policy file specified in the command flags, ensures that it is either a
-// ConfigurationPolicy or a Policy with exactly one ConfigurationPolicy template, and returns that
-// ConfigurationPolicy object after overriding the remediationAction to `inform`.
-func (d *DryRunner) readPolicy(cmd *cobra.Command) (*policyv1.ConfigurationPolicy, error) {
+// ConfigurationPolicy or a Policy with at least one ConfigurationPolicy template, and returns an
+// array of ConfigurationPolicy object after overriding the remediationAction to `inform`.
+func (d *DryRunner) readPolicy(cmd *cobra.Command) ([]*policyv1.ConfigurationPolicy, error) {
 	reader, err := os.Open(d.policyPath)
 	if err != nil {
 		return nil, err
@@ -152,13 +195,27 @@ func (d *DryRunner) readPolicy(cmd *cobra.Command) (*policyv1.ConfigurationPolic
 			"'policy.open-cluster-management.io/v1'", unstruct.GetAPIVersion())
 	}
 
-	cfgpol := policyv1.ConfigurationPolicy{}
+	cfgpols := []*policyv1.ConfigurationPolicy{}
 
 	switch unstruct.GetKind() {
 	case "ConfigurationPolicy":
+		cfgpol := policyv1.ConfigurationPolicy{}
+
 		if err := k8syaml.UnmarshalStrict(policyBytes, &cfgpol); err != nil {
 			return nil, fmt.Errorf("could not unmarshal input to a ConfigurationPolicy: %w", err)
 		}
+
+		cfgpol.Spec.RemediationAction = policyv1.Inform
+		cfgpol.Spec.EvaluationInterval = policyv1.EvaluationInterval{
+			Compliant:    "10s",
+			NonCompliant: "10s",
+		}
+
+		cfgpol.OwnerReferences = []metav1.OwnerReference{{
+			Name: parentName,
+		}}
+
+		cfgpols = append(cfgpols, &cfgpol)
 	case "Policy":
 		tmpls, found, err := unstructured.NestedSlice(unstruct.Object, "spec", "policy-templates")
 		if err != nil {
@@ -168,8 +225,6 @@ func (d *DryRunner) readPolicy(cmd *cobra.Command) (*policyv1.ConfigurationPolic
 		if !found {
 			return nil, errors.New("invalid input Policy: no policy-templates found")
 		}
-
-		cfgPolFound := false
 
 		for i, tmpl := range tmpls {
 			tmplMap, ok := tmpl.(map[string]any)
@@ -188,47 +243,45 @@ func (d *DryRunner) readPolicy(cmd *cobra.Command) (*policyv1.ConfigurationPolic
 			}
 
 			if objDefMap["kind"] != "ConfigurationPolicy" {
-				continue
-			}
-
-			if cfgPolFound {
-				cmd.Println("Ignoring additional ConfigurationPolicy in input policy")
+				cmd.Printf("Ignoring %s \n", objDefMap["kind"])
 
 				continue
 			}
-
-			cfgPolFound = true
 
 			cfgpolBytes, err := json.Marshal(objDef)
 			if err != nil {
 				return nil, errors.New("unable to marshal policy template back to JSON")
 			}
 
+			cfgpol := policyv1.ConfigurationPolicy{}
+
 			if err := k8syaml.UnmarshalStrict(cfgpolBytes, &cfgpol); err != nil {
 				return nil, fmt.Errorf("could not unmarshal input policy template [%v] to a "+
 					"ConfigurationPolicy: %w", i, err)
 			}
+
+			cfgpol.Spec.RemediationAction = policyv1.Inform
+			cfgpol.Spec.EvaluationInterval = policyv1.EvaluationInterval{
+				Compliant:    "10s",
+				NonCompliant: "10s",
+			}
+
+			cfgpol.OwnerReferences = []metav1.OwnerReference{{
+				Name: parentName,
+			}}
+
+			cfgpols = append(cfgpols, &cfgpol)
 		}
 
-		if !cfgPolFound {
-			return nil, errors.New("invalid input Policy: it must contain a ConfigurationPolicy")
+		if len(cfgpols) == 0 {
+			return nil, errors.New("invalid input Policy: it must contain at least one ConfigurationPolicy")
 		}
 	default:
 		return nil, fmt.Errorf("unsupported input kind: %v, must be 'Policy' or 'ConfigurationPolicy'",
 			unstruct.GetKind())
 	}
 
-	cfgpol.Spec.RemediationAction = policyv1.Inform
-	cfgpol.Spec.EvaluationInterval = policyv1.EvaluationInterval{
-		Compliant:    "10s",
-		NonCompliant: "10s",
-	}
-
-	cfgpol.OwnerReferences = []metav1.OwnerReference{{
-		Name: parentName,
-	}}
-
-	return &cfgpol, nil
+	return cfgpols, nil
 }
 
 // readInputResources takes stdin and any paths given as "positional" arguments,
@@ -603,29 +656,48 @@ func (d *DryRunner) compareStatus(cmd *cobra.Command, status policyv1.Configurat
 	return nil
 }
 
-func (d *DryRunner) saveStatus(status policyv1.ConfigurationPolicyStatus) error {
+func (d *DryRunner) saveStatus(status ...policyv1.ConfigurationPolicyStatus) error {
+	if len(status) == 0 {
+		return nil
+	}
+
 	f, err := os.Create(d.statusPath)
 	if err != nil {
 		return err
 	}
 
-	out, err := k8syaml.Marshal(status)
+	var out []byte
+
+	if len(status) == 1 {
+		out, err = k8syaml.Marshal(status[0])
+	} else {
+		out, err = k8syaml.Marshal(status)
+	}
+
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprint(f, string(out))
+	_, err = fmt.Fprint(f, string(out))
+	if err != nil {
+		return err
+	}
+
+	err = f.Close()
+	if err != nil {
+		return err
+	}
 
 	return nil
 }
 
-func (d *DryRunner) saveOrPrintComplianceMessages(
-	ctx context.Context, cmd *cobra.Command, rec client.Client, ns string,
-) error {
+func (d *DryRunner) collectComplianceMessages(
+	ctx context.Context, rec client.Client, ns string,
+) ([]string, error) {
 	events := corev1.EventList{}
 
 	if err := rec.List(ctx, &events, client.InNamespace(ns)); err != nil {
-		return err
+		return nil, err
 	}
 
 	messages := []string{}
@@ -636,21 +708,30 @@ func (d *DryRunner) saveOrPrintComplianceMessages(
 		}
 	}
 
-	if d.messagesPath != "" {
-		f, err := os.Create(d.messagesPath)
-		if err != nil {
-			return err
-		}
+	return messages, nil
+}
 
-		for _, msg := range messages {
-			fmt.Fprintln(f, msg)
-		}
-	} else {
-		cmd.Println("# Compliance messages:")
+func (d *DryRunner) saveComplianceMessages(complianceMessages [][]string) error {
+	if d.messagesPath == "" || len(complianceMessages) == 0 {
+		return nil
+	}
 
+	f, err := os.Create(d.messagesPath)
+	if err != nil {
+		return err
+	}
+
+	for _, messages := range complianceMessages {
 		for _, msg := range messages {
-			cmd.Println(msg)
+			_, err := fmt.Fprintln(f, msg)
+			if err != nil {
+				return err
+			}
 		}
+	}
+
+	if err := f.Close(); err != nil {
+		return err
 	}
 
 	return nil
