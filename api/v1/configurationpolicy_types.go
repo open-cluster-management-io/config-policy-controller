@@ -17,6 +17,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// NonEmptyString is a string type with minimum length of 1.
+//
 // +kubebuilder:validation:MinLength=1
 type NonEmptyString string
 
@@ -89,12 +91,13 @@ type Target struct {
 }
 
 // IsEmpty returns whether the defined Target would always return no objects.
-func (t Target) IsEmpty() bool {
+func (t *Target) IsEmpty() bool {
 	return t.LabelSelector == nil && len(t.Include) == 0
 }
 
-// Define String() so that the LabelSelector is dereferenced in the logs
-func (t Target) String() string {
+// String returns a string representation of the Target selector.
+// The LabelSelector is dereferenced in the logs.
+func (t *Target) String() string {
 	fmtSelectorStr := "{include:%s,exclude:%s,matchLabels:%+v,matchExpressions:%+v,terminatingInclusion:%s}"
 
 	if t.LabelSelector == nil {
@@ -127,9 +130,29 @@ var (
 	ErrIsWatch = errors.New("the interval is set to watch")
 )
 
+func (e *EvaluationInterval) IsWatchForCompliant() bool {
+	return e.Compliant == "" || e.Compliant == "watch"
+}
+
+func (e *EvaluationInterval) IsWatchForNonCompliant() bool {
+	return e.NonCompliant == "" || e.NonCompliant == "watch"
+}
+
+// GetCompliantInterval converts the Compliant interval to a duration. ErrIsNever is returned when
+// the string is set to `never`.
+func (e *EvaluationInterval) GetCompliantInterval() (time.Duration, error) {
+	return e.parseInterval(e.Compliant)
+}
+
+// GetNonCompliantInterval converts the NonCompliant interval to a duration. ErrIsNever is returned
+// when the string is set to `never`.
+func (e *EvaluationInterval) GetNonCompliantInterval() (time.Duration, error) {
+	return e.parseInterval(e.NonCompliant)
+}
+
 // parseInterval converts the input string to a duration. ErrIsNever is returned when the string is set to `never`.
 // ErrIsWatch is returned when the string is unset or set to `watch`.
-func (e EvaluationInterval) parseInterval(interval string) (time.Duration, error) {
+func (e *EvaluationInterval) parseInterval(interval string) (time.Duration, error) {
 	if interval == "" || interval == "watch" {
 		return 0, ErrIsWatch
 	}
@@ -144,26 +167,6 @@ func (e EvaluationInterval) parseInterval(interval string) (time.Duration, error
 	}
 
 	return parsedInterval, nil
-}
-
-func (e EvaluationInterval) IsWatchForCompliant() bool {
-	return e.Compliant == "" || e.Compliant == "watch"
-}
-
-func (e EvaluationInterval) IsWatchForNonCompliant() bool {
-	return e.NonCompliant == "" || e.NonCompliant == "watch"
-}
-
-// GetCompliantInterval converts the Compliant interval to a duration. ErrIsNever is returned when
-// the string is set to `never`.
-func (e EvaluationInterval) GetCompliantInterval() (time.Duration, error) {
-	return e.parseInterval(e.Compliant)
-}
-
-// GetNonCompliantInterval converts the NonCompliant interval to a duration. ErrIsNever is returned
-// when the string is set to `never`.
-func (e EvaluationInterval) GetNonCompliantInterval() (time.Duration, error) {
-	return e.parseInterval(e.NonCompliant)
 }
 
 type ComplianceType string
@@ -191,6 +194,8 @@ func (c ComplianceType) IsMustNotHave() bool {
 	return strings.EqualFold(string(c), string(MustNotHave))
 }
 
+// RecordDiff specifies whether and where to record object differences.
+//
 // +kubebuilder:validation:Enum=Log;InStatus;None
 type RecordDiff string
 
@@ -198,10 +203,12 @@ const (
 	RecordDiffLog      RecordDiff = "Log"
 	RecordDiffInStatus RecordDiff = "InStatus"
 	RecordDiffNone     RecordDiff = "None"
-	// Censored is only used as an internal value to indicate a diff shouldn't be automatically generated.
+	// RecordDiffCensored is only used as an internal value to indicate a diff shouldn't be automatically generated.
 	RecordDiffCensored RecordDiff = "Censored"
 )
 
+// RecreateOption specifies when to delete and recreate an object when an update is required.
+//
 // +kubebuilder:validation:Enum=None;IfRequired;Always
 type RecreateOption string
 
@@ -413,7 +420,7 @@ func ObjectResourceFromObj(obj client.Object) ObjectResource {
 	}
 }
 
-// Properties are additional properties of the related object relevant to the configuration policy.
+// ObjectProperties are additional properties of the related object relevant to the configuration policy.
 type ObjectProperties struct {
 	// CreatedByPolicy reports whether the object was created by the configuration policy, which is
 	// important when pruning is configured.
@@ -478,7 +485,7 @@ type HistoryEvent struct {
 	Message       string           `json:"message,omitempty"`
 }
 
-func (c ConfigurationPolicy) ObjectIdentifier() depclient.ObjectIdentifier {
+func (c *ConfigurationPolicy) ObjectIdentifier() depclient.ObjectIdentifier {
 	return depclient.ObjectIdentifier{
 		Group:     GroupVersion.Group,
 		Version:   GroupVersion.Version,

@@ -108,7 +108,7 @@ var _ = Describe("Test policy template decryption", Ordered, func() {
 		})
 
 		It("verifies the policy "+case16PolicyInvalidKeyName+" in "+testNamespace+" is noncompliant", func() {
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(
 					clientManagedDynamic,
 					gvrConfigPolicy,
@@ -140,7 +140,7 @@ var _ = Describe("Test policy template decryption", Ordered, func() {
 		It("verifies the policy "+case16PolicyInvalidIVName+" in "+testNamespace+" is noncompliant", func() {
 			expected := `The "policy.open-cluster-management.io/encryption-iv" annotation value is not a valid ` +
 				"initialization vector"
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(
 					clientManagedDynamic,
 					gvrConfigPolicy,

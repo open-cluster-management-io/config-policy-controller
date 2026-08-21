@@ -277,10 +277,10 @@ func (r *NamespaceSelectorReconciler) update(namespace string, name string, sel 
 
 	if r.updateChannel != nil {
 		policy := &unstructured.Unstructured{
-			Object: map[string]interface{}{
+			Object: map[string]any{
 				"apiVersion": policyv1.GroupVersion.String(),
 				"kind":       "ConfigurationPolicy",
-				"metadata": map[string]interface{}{
+				"metadata": map[string]any{
 					"name":      name,
 					"namespace": namespace,
 				},

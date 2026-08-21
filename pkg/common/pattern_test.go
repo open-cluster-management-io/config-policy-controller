@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	policyv1 "open-cluster-management.io/config-policy-controller/api/v1"
 )
@@ -85,7 +86,7 @@ func TestMatches(t *testing.T) {
 					if test.errMsg == "" {
 						t.Fatalf("Encountered unexpected error: %v", err)
 					} else {
-						assert.EqualError(t, err, test.errMsg)
+						require.EqualError(t, err, test.errMsg)
 					}
 				}
 

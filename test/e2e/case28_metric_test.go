@@ -25,6 +25,7 @@ var _ = Describe("Test config policy metrics", Ordered, func() {
 		if len(metric) == 0 {
 			return 0, fmt.Errorf("failed to retrieve any %s metric", metricName)
 		}
+
 		metricVal, err := strconv.ParseFloat(metric[0], 64)
 		if err != nil {
 			return 0, fmt.Errorf("error converting metric: %w", err)

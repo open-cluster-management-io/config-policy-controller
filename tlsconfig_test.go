@@ -89,7 +89,7 @@ func TestResolveTLSConfigDefaultsWhenConfigMapAbsent(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
-	assert.EqualValues(t, sdktls.GetDefaultTLSConfig().MinVersion, cfg.MinVersion)
+	assert.Equal(t, sdktls.GetDefaultTLSConfig().MinVersion, cfg.MinVersion)
 }
 
 func TestResolveTLSConfigMissingConfigMapPermissionReturnsError(t *testing.T) {

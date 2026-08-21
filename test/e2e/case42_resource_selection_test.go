@@ -49,7 +49,7 @@ var _ = Describe("Test results of resource selection", Ordered, func() {
 
 	Describe("No objectSelector specified", func() {
 		It("Verifies policy is compliant with unnamed objectDefinition", func() {
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -65,7 +65,7 @@ var _ = Describe("Test results of resource selection", Ordered, func() {
 		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
 			fmt.Sprintf(objectSelectorPatchFmt, `{"matchLabels":{"selects":"nothing"}}`),
 		)
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -76,7 +76,7 @@ var _ = Describe("Test results of resource selection", Ordered, func() {
 		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
 			fmt.Sprintf(objectSelectorPatchFmt, patch),
 		)
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -98,7 +98,7 @@ var _ = Describe("Test results of resource selection", Ordered, func() {
 		utils.Kubectl("patch", "--namespace=managed", "configurationpolicy", policyName, "--type=json",
 			fmt.Sprintf(objectSelectorPatchFmt, patch),
 		)
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -145,7 +145,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 		})
 
 		By("Verifying initial compliance message")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -158,7 +158,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 		By("Creating additional matching object case42-3-e2e")
 		utils.Kubectl("apply", "-n", targetNs, "-f", extraYaml)
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -171,7 +171,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 		By("Creating additional matching object case42-4-e2e")
 		utils.Kubectl("apply", "-n", targetNs, "-f", nomatchYaml)
 
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -182,7 +182,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 	It("should evaluate when a resource is labeled to match", func() {
 		utils.Kubectl("label", "-n", targetNs, "fakeapi", "case42-4-e2e", "case42=case42-4-e2e")
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -194,7 +194,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 	It("should evaluate when a matching resource label is removed", func() {
 		utils.Kubectl("label", "-n", targetNs, "fakeapi", "case42-3-e2e", "case42-")
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -207,7 +207,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 	It("should become compliant when enforced", func() {
 		utils.EnforceConfigurationPolicy(policyName, testNamespace)
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -225,7 +225,7 @@ var _ = Describe("Test behavior of resource selection as resources change", Orde
 			}]`,
 		)
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -256,7 +256,7 @@ var _ = Describe("Test evaluation of resource selection", Ordered, func() {
 		})
 
 		By("Verifying initial compliance message")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -275,7 +275,7 @@ var _ = Describe("Test evaluation of resource selection", Ordered, func() {
 		Expect(err).ToNot(HaveOccurred())
 
 		By("Verifying it does not evaluate again")
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -293,6 +293,7 @@ var _ = Describe("Test evaluation of resource selection", Ordered, func() {
 			policyName, testNamespace, true, defaultTimeoutSeconds)
 
 		By("Fetching the current evaluation timestamp")
+
 		currentEvalTime, found, err := unstructured.NestedString(managedPlc.Object, "status", "lastEvaluated")
 		Expect(currentEvalTime).ToNot(BeEmpty())
 		Expect(found).To(BeTrue())
@@ -313,7 +314,7 @@ var _ = Describe("Test evaluation of resource selection", Ordered, func() {
 		var nextEvalTime string
 
 		By("Waiting for the first evaluation after the spec update")
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -326,7 +327,7 @@ var _ = Describe("Test evaluation of resource selection", Ordered, func() {
 		}, defaultTimeoutSeconds, 1).ShouldNot(Equal(currentEvalTime))
 
 		By("Verifying it evaluates each interval")
-		Consistently(func() interface{} {
+		Consistently(func() any {
 			currentEvalTime = nextEvalTime
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
@@ -365,7 +366,7 @@ var _ = Describe("Test mustnothave enforced behavior with object selector", Orde
 	})
 
 	It("Mentions only the fully matching resources in inform mode", func() {
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 
@@ -382,7 +383,7 @@ var _ = Describe("Test mustnothave enforced behavior with object selector", Orde
 			"value": "enforce"
 		}]`)
 
-		Eventually(func() interface{} {
+		Eventually(func() any {
 			managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 				policyName, testNamespace, true, defaultTimeoutSeconds)
 

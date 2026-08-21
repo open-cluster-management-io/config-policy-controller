@@ -73,7 +73,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(relatedObjects).To(HaveLen(1))
 
-			diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
+			diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]any), "properties", "diff")
 			Expect(diff).To(ContainSubstring("-  compliant: Compliant\n+  compliant: NonCompliant"))
 		})
 		It("should return nonCompliant if status does not match (enforce)", func() {
@@ -96,7 +96,7 @@ var _ = Describe("Test pod obj template handling", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(relatedObjects).To(HaveLen(1))
 
-			diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]interface{}), "properties", "diff")
+			diff, _, _ := unstructured.NestedString(relatedObjects[0].(map[string]any), "properties", "diff")
 			Expect(diff).To(ContainSubstring("-  compliant: Compliant\n+  compliant: NonCompliant"))
 		})
 		AfterAll(func() {
@@ -123,11 +123,11 @@ var _ = Describe("Test pod obj template handling", func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					"nginx-badpod-e2e-8", "default", true, defaultTimeoutSeconds)
 
-				return pod.Object["status"].(map[string]interface{})["phase"]
+				return pod.Object["status"].(map[string]any)["phase"]
 			}, defaultTimeoutSeconds, 1).Should(Equal("Pending"))
 		})
 		It("should be able to apply spec change and status does not interfere", func() {
@@ -142,17 +142,17 @@ var _ = Describe("Test pod obj template handling", func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "NonCompliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					"nginx-badpod-e2e-8", "default", true, defaultTimeoutSeconds)
 
-				return pod.Object["spec"].(map[string]interface{})["activeDeadlineSeconds"]
+				return pod.Object["spec"].(map[string]any)["activeDeadlineSeconds"]
 			}, defaultTimeoutSeconds, 1).Should(Equal(int64(10)))
-			Eventually(func() interface{} {
+			Eventually(func() any {
 				pod := utils.GetWithTimeout(clientManagedDynamic, gvrPod,
 					"nginx-badpod-e2e-8", "default", true, defaultTimeoutSeconds)
 
-				return pod.Object["status"].(map[string]interface{})["phase"]
+				return pod.Object["status"].(map[string]any)["phase"]
 			}, defaultTimeoutSeconds, 1).Should(Equal("Failed"))
 			Eventually(func(g Gomega) {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
@@ -200,7 +200,7 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(relatedObjects).To(HaveLen(1))
 
-				relatedObj := relatedObjects[0].(map[string]interface{})
+				relatedObj := relatedObjects[0].(map[string]any)
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
 				g.Expect(matchesAfterDryRun).To(BeTrue())
@@ -227,7 +227,7 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(relatedObjects).To(HaveLen(1))
 
-				relatedObj := relatedObjects[0].(map[string]interface{})
+				relatedObj := relatedObjects[0].(map[string]any)
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
 				g.Expect(matchesAfterDryRun).To(BeTrue())
@@ -255,7 +255,7 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(relatedObjects).To(HaveLen(1))
 
-				relatedObj := relatedObjects[0].(map[string]interface{})
+				relatedObj := relatedObjects[0].(map[string]any)
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
 				g.Expect(matchesAfterDryRun).To(BeFalse())
@@ -283,7 +283,7 @@ var _ = Describe("Test related object property status", Ordered, func() {
 				g.Expect(err).ToNot(HaveOccurred())
 				g.Expect(relatedObjects).To(HaveLen(1))
 
-				relatedObj := relatedObjects[0].(map[string]interface{})
+				relatedObj := relatedObjects[0].(map[string]any)
 				matchesAfterDryRun, _, _ := unstructured.NestedBool(relatedObj, "properties", "matchesAfterDryRun")
 
 				g.Expect(matchesAfterDryRun).To(BeFalse())

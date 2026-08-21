@@ -84,6 +84,7 @@ var _ = BeforeSuite(func() {
 	format.TruncatedDiff = false
 
 	By("Setup Hub client")
+
 	gvrPod = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "pods"}
 	gvrNS = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "namespaces"}
 	gvrConfigMap = schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
@@ -161,7 +162,9 @@ var _ = BeforeSuite(func() {
 	testNamespace = "managed"
 	defaultTimeoutSeconds = 60
 	defaultConsistentlyDuration = 25
+
 	By("Create watch namespace if needed")
+
 	namespaces := clientManaged.CoreV1().Namespaces()
 	if _, err := namespaces.Get(
 		context.TODO(), testNamespace, metav1.GetOptions{},
@@ -172,6 +175,7 @@ var _ = BeforeSuite(func() {
 			},
 		}, metav1.CreateOptions{})).NotTo(BeNil())
 	}
+
 	Expect(namespaces.Get(context.TODO(), testNamespace, metav1.GetOptions{})).NotTo(BeNil())
 
 	if IsHosted {
@@ -190,7 +194,6 @@ var _ = BeforeSuite(func() {
 	} else {
 		targetK8sClient = clientManaged
 		targetK8sDynamic = clientManagedDynamic
-
 	}
 
 	KubectlTarget = func(args ...string) {

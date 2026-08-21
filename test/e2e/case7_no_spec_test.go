@@ -5,6 +5,7 @@ package e2e
 
 import (
 	"fmt"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -27,7 +28,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 		case7PolicyYamlInvalidInform       string = "../resources/case7_no_spec/case7_no_spec_invalid_type_inform.yaml"
 	)
 
-	expectedObj := map[string]interface{}{
+	expectedObj := map[string]any{
 		"allowHostDirVolumePlugin": false,
 		"allowHostIPC":             false,
 		"allowHostNetwork":         false,
@@ -62,7 +63,7 @@ var _ = Describe("Test cluster version obj template handling", func() {
 		"supplementalGroups": map[string]string{
 			"type": "RunAsAny",
 		},
-		"users": []interface{}{},
+		"users": []any{},
 		"volumes": []string{
 			"configMap",
 			"downwardAPI",
@@ -77,15 +78,15 @@ var _ = Describe("Test cluster version obj template handling", func() {
 	// don't match.
 	matchToExpected := func(managedPlc *unstructured.Unstructured) (result string) {
 		createdObj := managedPlc.Object
-		diffStr := ""
+		var diffStr strings.Builder
 
 		for key, val := range expectedObj {
 			if fmt.Sprintf("%v", createdObj[key]) != fmt.Sprintf("%v", val) {
-				diffStr += fmt.Sprintf("\n+ %s: %v\n- %s: %v", key, createdObj[key], key, val)
+				fmt.Fprintf(&diffStr, "\n+ %s: %v\n- %s: %v", key, createdObj[key], key, val)
 			}
 		}
 
-		return diffStr
+		return diffStr.String()
 	}
 
 	Describe("create scc policy in namespace "+testNamespace, Ordered, func() {
@@ -124,7 +125,9 @@ var _ = Describe("Test cluster version obj template handling", func() {
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			utils.KubectlDelete("configurationpolicy", case7ConfigPolicyNameNull, "-n", testNamespace)
+
 			expectedObj["priority"] = nil
+
 			Eventually(func() string {
 				managedObj := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrSCC,
 					case7ObjName, true, defaultTimeoutSeconds)
@@ -144,7 +147,9 @@ var _ = Describe("Test cluster version obj template handling", func() {
 
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
+
 			expectedObj["priority"] = int64(10)
+
 			Eventually(func() string {
 				managedObj := utils.GetClusterLevelWithTimeout(clientManagedDynamic, gvrSCC,
 					case7ObjName, true, defaultTimeoutSeconds)

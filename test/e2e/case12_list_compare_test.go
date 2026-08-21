@@ -326,7 +326,7 @@ var _ = Describe("Test list handling for musthave", func() {
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			// Ensure it remains compliant for a while - need to ensure there were multiple enforce checks/attempts.
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					whitespaceListCreate, testNamespace, true, defaultTimeoutSeconds)
 
@@ -338,12 +338,12 @@ var _ = Describe("Test list handling for musthave", func() {
 				whitespaceDeployment, "default", true, defaultTimeoutSeconds)
 			Expect(deploy).NotTo(BeNil())
 			//nolint:forcetypeassert
-			tmpl := deploy.Object["spec"].(map[string]interface{})["template"].(map[string]interface{})
+			tmpl := deploy.Object["spec"].(map[string]any)["template"].(map[string]any)
 			//nolint:forcetypeassert
-			containers := tmpl["spec"].(map[string]interface{})["containers"].([]interface{})
+			containers := tmpl["spec"].(map[string]any)["containers"].([]any)
 			Expect(containers).To(HaveLen(1))
 			//nolint:forcetypeassert
-			envvars := containers[0].(map[string]interface{})["env"].([]interface{})
+			envvars := containers[0].(map[string]any)["env"].([]any)
 			Expect(envvars).To(HaveLen(1))
 		})
 
@@ -382,6 +382,7 @@ var _ = Describe("Test list handling for musthave", func() {
 			deleteConfigPolicies(policies)
 			utils.KubectlDelete("statefulset", "--namespace=default", "splunk-log-forwarder")
 		}
+
 		It("should only add the list item with the rounded byte value once", func() {
 			By("Creating " + byteCreate + " and " + byteInform + " on managed")
 			utils.Kubectl("apply", "-f", byteCreateYaml, "-n", testNamespace)
@@ -395,7 +396,7 @@ var _ = Describe("Test list handling for musthave", func() {
 				utils.CheckComplianceStatus(g, managedPlc, "Compliant")
 			}, defaultTimeoutSeconds, 1).Should(Succeed())
 			// Ensure it remains compliant for a while - need to ensure there were multiple enforce checks/attempts.
-			Consistently(func() interface{} {
+			Consistently(func() any {
 				managedPlc := utils.GetWithTimeout(clientManagedDynamic, gvrConfigPolicy,
 					byteCreate, testNamespace, true, defaultTimeoutSeconds)
 
