@@ -1306,3 +1306,49 @@ func TestHandleExistingInstallation_RelatedObjects(t *testing.T) {
 		assert.Equal(t, string(policyv1.Compliant), obj.Compliant)
 	}
 }
+
+func TestOpLabelName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		description string
+		name        string
+		namespace   string
+		expectedOut string
+	}{
+		{
+			description: "usual inputs should work fine",
+			name:        "example-operator",
+			namespace:   "openshift-operators",
+			expectedOut: "example-operator.openshift-operators",
+		}, {
+			description: "long name should cause truncation",
+			name:        "example-operator-with-a-really-quite-lengthy-name",
+			namespace:   "openshift-operators",
+			expectedOut: "example-operator-with-a-really-quite-lengthy-name.openshift-ope",
+		}, {
+			description: "long namespace should cause truncation",
+			name:        "example-operator",
+			namespace:   "long-named-namespace-for-operators-installed-by-users",
+			expectedOut: "example-operator.long-named-namespace-for-operators-installed-b",
+		}, {
+			description: "long namespace with hyphen at truncation point",
+			name:        "example-operator",
+			namespace:   "another-namespace-with-operators-installed-by-users",
+			expectedOut: "example-operator.another-namespace-with-operators-installed-by",
+		}, {
+			description: "empty namespace should still have an alphanumeric at the end",
+			name:        "example-operator",
+			expectedOut: "example-operator",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+
+			out := opLabelName(tc.name, tc.namespace)
+			assert.Equal(t, tc.expectedOut, out)
+		})
+	}
+}
