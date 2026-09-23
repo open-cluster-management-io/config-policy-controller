@@ -2577,7 +2577,7 @@ func (r *OperatorPolicyReconciler) handleCSV(
 	}
 
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
-	selector := subLabelSelector(sub)
+	selector := subLabelSelector(ctx, sub)
 
 	csvList, err := r.DynamicWatcher.List(watcher, clusterServiceVersionGVK, sub.Namespace, selector)
 	if err != nil {
@@ -2808,7 +2808,7 @@ func (r *OperatorPolicyReconciler) handleCRDs(
 
 	opLog := ctrl.LoggerFrom(ctx)
 	watcher := opPolIdentifier(policy.Namespace, policy.Name)
-	selector := subLabelSelector(sub)
+	selector := subLabelSelector(ctx, sub)
 
 	crdList, err := r.DynamicWatcher.List(watcher, customResourceDefinitionGVK, sub.Namespace, selector)
 	if err != nil {
@@ -3358,19 +3358,24 @@ func csvPackageName(csv *operatorv1alpha1.ClusterServiceVersion) string {
 
 // subLabelSelector returns a selector that matches a label that OLM adds to resources
 // that are related to a Subscription. It can be used to find those resources even
-// after the Subscription or CSV is deleted.
-func subLabelSelector(sub *operatorv1alpha1.Subscription) labels.Selector {
-	sel, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
+// after the Subscription or CSV is deleted. If an error occurs while constructing the
+// selector, a selector matching no resources is returned as a fallback.
+func subLabelSelector(ctx context.Context, sub *operatorv1alpha1.Subscription) labels.Selector {
+	selector, err := metav1.LabelSelectorAsSelector(&metav1.LabelSelector{
 		MatchExpressions: []metav1.LabelSelectorRequirement{{
 			Key:      "operators.coreos.com/" + opLabelName(sub.Name, sub.Namespace),
 			Operator: metav1.LabelSelectorOpExists,
 		}},
 	})
 	if err != nil {
-		panic(err)
+		opLog := ctrl.LoggerFrom(ctx)
+
+		opLog.Error(err, "Unable to create OLM label selector; using a Nothing selector as a fallback")
+
+		return labels.Nothing()
 	}
 
-	return sel
+	return selector
 }
 
 // opLabelName returns the 'name' part of label put on operator resources by OLM. This is the part
@@ -3381,21 +3386,20 @@ func opLabelName(name, namespace string) string {
 	labelName := name + "." + namespace
 
 	if len(labelName) > 63 {
-		// Truncate
 		labelName = labelName[0:63]
-
-		// Remove trailing illegal characters
-		idx := len(labelName) - 1
-		for ; idx >= 0; idx-- {
-			lastChar := labelName[idx]
-			if lastChar != '.' && lastChar != '_' && lastChar != '-' {
-				break
-			}
-		}
-
-		// Update Label
-		labelName = labelName[0 : idx+1]
 	}
+
+	// Remove trailing illegal characters
+	idx := len(labelName) - 1
+	for ; idx >= 0; idx-- {
+		lastChar := labelName[idx]
+		if lastChar != '.' && lastChar != '_' && lastChar != '-' {
+			break
+		}
+	}
+
+	// Update Label
+	labelName = labelName[0 : idx+1]
 
 	return labelName
 }
