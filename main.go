@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/go-logr/zapr"
+	configv1 "github.com/openshift/api/config/v1"
 	operatorv1 "github.com/operator-framework/api/pkg/operators/v1"
 	operatorv1alpha1 "github.com/operator-framework/api/pkg/operators/v1alpha1"
 	"github.com/spf13/pflag"
@@ -74,6 +75,11 @@ const ocmPolicyNs = "open-cluster-management-policies"
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 	//+kubebuilder:scaffold:scheme
+
+	// Only register the two resources this controller might use, rather than
+	// `configv1.Install(scheme)`, which would pull in ~24 kinds.
+	scheme.AddKnownTypes(configv1.GroupVersion, &configv1.APIServer{}, &configv1.APIServerList{})
+	metav1.AddToGroupVersion(scheme, configv1.GroupVersion)
 	utilruntime.Must(policyv1.AddToScheme(scheme))
 	utilruntime.Must(policyv1beta1.AddToScheme(scheme))
 	utilruntime.Must(extensionsv1.AddToScheme(scheme))
@@ -102,6 +108,7 @@ type ctrlOpts struct {
 	enableOcmPolicyNamespace bool
 	tlsMinVersion            string
 	tlsCipherSuites          string
+	tlsGroups                string
 
 	standaloneHubTemplateKubeConfigPath string
 	defaultTerminatingNSInclusion       string
@@ -277,7 +284,16 @@ func main() {
 
 	terminatingCtx := ctrl.SetupSignalHandler()
 
-	tlsCfg := resolveEffectiveTLSConfig(terminatingCtx, cfg, opts)
+	tlsOptsFunc, watchAPIServer, initialTLSProfileSpec, err := resolveEffectiveTLSConfig(
+		terminatingCtx, cfg, opts.tlsMinVersion, opts.tlsCipherSuites, opts.tlsGroups,
+	)
+	if err != nil {
+		log.Error(err, "Failed to resolve TLS configuration; falling back to defaults")
+
+		tlsOptsFunc = sdktls.ConfigToFunc(sdktls.GetDefaultTLSConfig())
+		watchAPIServer = false
+		initialTLSProfileSpec = configv1.TLSProfileSpec{}
+	}
 
 	metricsOptions := server.Options{
 		BindAddress: opts.metricsAddr,
@@ -288,7 +304,7 @@ func main() {
 		metricsOptions.FilterProvider = filters.WithAuthenticationAndAuthorization
 		metricsOptions.SecureServing = true
 		metricsOptions.CertDir = "/var/run/metrics-cert"
-		metricsOptions.TLSOpts = []func(*tls.Config){sdktls.ConfigToFunc(tlsCfg)}
+		metricsOptions.TLSOpts = []func(*tls.Config){tlsOptsFunc}
 	}
 
 	// Set default manager options
@@ -298,7 +314,7 @@ func main() {
 		WebhookServer: webhook.NewServer(
 			webhook.Options{
 				Port:    9443,
-				TLSOpts: []func(*tls.Config){sdktls.ConfigToFunc(tlsCfg)},
+				TLSOpts: []func(*tls.Config){tlsOptsFunc},
 			},
 		),
 		HealthProbeBindAddress: opts.probeAddr,
@@ -341,6 +357,13 @@ func main() {
 	if err != nil {
 		log.Error(err, "Unable to start manager")
 		os.Exit(1)
+	}
+
+	if watchAPIServer {
+		if err = setupAPIServerTLSWatcher(mgr, initialTLSProfileSpec); err != nil {
+			log.Error(err, "Unable to create controller", "controller", "tls-profile-watcher")
+			os.Exit(1)
+		}
 	}
 
 	uninstallingCtx, uninstallingCtxCancel := context.WithCancel(terminatingCtx)
@@ -960,6 +983,14 @@ func parseOpts(flags *pflag.FlagSet, args []string) *ctrlOpts {
 		[]string{},
 		"A comma-separated list of additional template functions to deny. "+
 			"The default deny list will remain active regardless of this setting.",
+	)
+
+	flags.StringVar(
+		&opts.tlsGroups,
+		"tls-groups",
+		"",
+		"A comma-separated list of TLS group names to use on the metrics and webhook servers "+
+			"(e.g. X25519,secp256r1). Overrides the default APIServer TLS groups when set.",
 	)
 
 	flags.StringVar(
